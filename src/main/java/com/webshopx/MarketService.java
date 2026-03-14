@@ -12,6 +12,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.function.Supplier;
+import org.bukkit.permissions.PermissionAttachmentInfo;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
@@ -21,11 +23,16 @@ class MarketService {
 
   private final DatabaseManager databaseManager;
   private final WalletService walletService;
+  private final Supplier<PluginSettings> settingsSupplier;
   private final ItemSnapshotCodec itemSnapshotCodec;
 
-  MarketService(DatabaseManager databaseManager, WalletService walletService) {
+  MarketService(
+      DatabaseManager databaseManager,
+      WalletService walletService,
+      Supplier<PluginSettings> settingsSupplier) {
     this.databaseManager = databaseManager;
     this.walletService = walletService;
+    this.settingsSupplier = settingsSupplier;
     this.itemSnapshotCodec = new ItemSnapshotCodec();
   }
 
@@ -58,6 +65,8 @@ class MarketService {
       throw new ServiceException("not_bound", "Please bind your web account before listing items");
     }
 
+    int listingLimit = resolveListingLimit(player);
+
     removeFromMainHand(player, amount);
     try {
       long listingId = databaseManager.inTransaction(connection -> createListingInTransaction(
@@ -66,7 +75,8 @@ class MarketService {
           currency,
           price,
           listingItem,
-          snapshot));
+          snapshot,
+          listingLimit));
       return new ListingCreateResult(listingId, listingItem.getType().name(), amount, currency, price);
     } catch (Exception exception) {
       restoreItem(player, listingItem);
@@ -74,40 +84,59 @@ class MarketService {
     }
   }
 
-  List<ListingView> listActiveListings(int requestedLimit) {
-    int limit = normalizeLimit(requestedLimit);
-    return databaseManager.withConnection(connection -> {
-      String sql = """
-          SELECT ml.id, ml.seller_user_id, u.username AS seller_name, ml.seller_uuid, ml.currency, ml.price,
-                 ml.quantity, ml.item_material, ml.item_meta_json, ml.status, ml.created_at
-          FROM market_listings ml
-          JOIN web_users u ON u.id = ml.seller_user_id
-          WHERE ml.status = 'ACTIVE'
-          ORDER BY ml.id DESC
-          LIMIT ?
-          """;
-      try (PreparedStatement statement = connection.prepareStatement(sql)) {
-        statement.setInt(1, limit);
-        return readListingViews(statement.executeQuery());
-      }
-    });
-  }
+  List<ListingView> listListings(ListingQuery query) {
+    int limit = normalizeLimit(query.limit());
+    String sortColumn = resolveSortColumn(query.sort());
+    String sortDirection = query.ascending() ? "ASC" : "DESC";
 
-  List<ListingView> listOwnListings(long userId, int requestedLimit) {
-    int limit = normalizeLimit(requestedLimit);
     return databaseManager.withConnection(connection -> {
-      String sql = """
+      StringBuilder sql = new StringBuilder("""
           SELECT ml.id, ml.seller_user_id, u.username AS seller_name, ml.seller_uuid, ml.currency, ml.price,
                  ml.quantity, ml.item_material, ml.item_meta_json, ml.status, ml.created_at
           FROM market_listings ml
           JOIN web_users u ON u.id = ml.seller_user_id
-          WHERE ml.seller_user_id = ?
-          ORDER BY ml.id DESC
-          LIMIT ?
-          """;
-      try (PreparedStatement statement = connection.prepareStatement(sql)) {
-        statement.setLong(1, userId);
-        statement.setInt(2, limit);
+          WHERE 1=1
+          """);
+      List<Object> params = new ArrayList<>();
+
+      if (query.activeOnly()) {
+        sql.append(" AND ml.status = 'ACTIVE'");
+      }
+      if (query.sellerUserId() != null) {
+        sql.append(" AND ml.seller_user_id = ?");
+        params.add(query.sellerUserId());
+      }
+      if (query.currency() != null) {
+        sql.append(" AND ml.currency = ?");
+        params.add(query.currency().name());
+      }
+      if (query.material() != null && !query.material().isBlank()) {
+        sql.append(" AND ml.item_material = ?");
+        params.add(query.material());
+      }
+      if (query.minPrice() != null) {
+        sql.append(" AND ml.price >= ?");
+        params.add(query.minPrice());
+      }
+      if (query.maxPrice() != null) {
+        sql.append(" AND ml.price <= ?");
+        params.add(query.maxPrice());
+      }
+      if (query.keyword() != null && !query.keyword().isBlank()) {
+        sql.append(" AND (LOWER(ml.item_material) LIKE ? OR LOWER(u.username) LIKE ?)");
+        String keyword = "%" + query.keyword().toLowerCase(Locale.ROOT) + "%";
+        params.add(keyword);
+        params.add(keyword);
+      }
+
+      sql.append(" ORDER BY ").append(sortColumn).append(" ").append(sortDirection);
+      sql.append(" LIMIT ?");
+      params.add(limit);
+
+      try (PreparedStatement statement = connection.prepareStatement(sql.toString())) {
+        for (int i = 0; i < params.size(); i++) {
+          statement.setObject(i + 1, params.get(i));
+        }
         return readListingViews(statement.executeQuery());
       }
     });
@@ -161,6 +190,20 @@ class MarketService {
     }
     return databaseManager.inTransaction(connection ->
         unlistInTransaction(connection, sellerUserId, listingId));
+  }
+
+  ListingPriceUpdateResult updateListingPrice(long sellerUserId, long listingId, long newPrice) {
+    if (listingId <= 0L) {
+      throw new ServiceException("invalid_listing", "Listing id must be positive");
+    }
+    if (newPrice <= 0L) {
+      throw new ServiceException("invalid_price", "Price must be positive");
+    }
+    return databaseManager.inTransaction(connection -> updateListingPriceInTransaction(
+        connection,
+        sellerUserId,
+        listingId,
+        newPrice));
   }
 
   @SuppressFBWarnings(
@@ -223,7 +266,15 @@ class MarketService {
       CurrencyType currency,
       long price,
       ItemStack listingItem,
-      ItemSnapshotCodec.Snapshot snapshot) throws SQLException {
+      ItemSnapshotCodec.Snapshot snapshot,
+      int listingLimit) throws SQLException {
+    int activeListings = countActiveListings(connection, seller.userId());
+    if (activeListings >= listingLimit) {
+      throw new ServiceException(
+          "listing_limit",
+          "当前上架数量已达上限 (" + listingLimit + ")");
+    }
+
     String sql = """
         INSERT INTO market_listings (
           seller_user_id, seller_uuid, currency, price, quantity, item_material, raw_item_blob,
@@ -257,14 +308,28 @@ class MarketService {
       long buyerUserId,
       long listingId,
       String idempotencyKey) throws SQLException {
+    int cooldownSeconds = normalizedOrderCooldownSeconds();
     ExistingTrade existingTrade = readExistingTrade(connection, buyerUserId, idempotencyKey);
     if (existingTrade != null) {
+      long buyerTotal = existingTrade.buyerTotal() > 0
+          ? existingTrade.buyerTotal()
+          : existingTrade.totalPrice();
+      long sellerReceive = existingTrade.sellerReceive() > 0
+          ? existingTrade.sellerReceive()
+          : existingTrade.totalPrice();
       return new TradeResult(
           TradeState.EXISTING,
           existingTrade.tradeId(),
           existingTrade.listingId(),
           CurrencyType.valueOf(existingTrade.currency()),
-          existingTrade.totalPrice());
+          existingTrade.totalPrice(),
+          buyerTotal,
+          sellerReceive,
+          existingTrade.feeAmount(),
+          existingTrade.taxAmount(),
+          existingTrade.status(),
+          existingTrade.refundDeadline(),
+          cooldownSeconds);
     }
 
     MarketListing listing = readListingForUpdate(connection, listingId);
@@ -276,25 +341,27 @@ class MarketService {
     }
 
     BoundUser buyer = readBoundUserById(connection, buyerUserId, true);
+    PluginSettings.MarketEconomySettings marketEconomy = settingsSupplier.get().economySettings().marketSettings();
+    long fee = calculatePercent(listing.price(), marketEconomy.tradeFeePercent());
+    long tax = calculatePercent(listing.price(), marketEconomy.tradeTaxPercent());
+    long buyerTotal = Math.addExact(listing.price(), tax);
+    long sellerReceive = Math.max(0L, listing.price() - fee);
+    LocalDateTime now = LocalDateTime.now();
+    LocalDateTime refundDeadline = cooldownSeconds > 0
+        ? now.plusSeconds(cooldownSeconds)
+        : null;
+    String tradeStatus = "PENDING";
+
     String buyerDebitBizId = "mkt-buy:" + buyer.userId() + ":" + idempotencyKey;
-    String sellerCreditBizId = "mkt-sell:" + listing.id();
 
     walletService.applyDelta(
         connection,
         buyer.userId(),
         listing.currency(),
-        -listing.price(),
+        -buyerTotal,
         "MARKET_BUY",
         buyerDebitBizId,
         true);
-    walletService.applyDelta(
-        connection,
-        listing.sellerUserId(),
-        listing.currency(),
-        listing.price(),
-        "MARKET_SELL",
-        sellerCreditBizId,
-        false);
 
     long tradeId = insertTrade(
         connection,
@@ -303,8 +370,15 @@ class MarketService {
         listing.sellerUserId(),
         listing.currency(),
         listing.price(),
-        idempotencyKey);
+        buyerTotal,
+        sellerReceive,
+        fee,
+        tax,
+        idempotencyKey,
+        tradeStatus,
+        refundDeadline);
     updateListingToSold(connection, listing.id(), buyer);
+    LocalDateTime deliveryAt = refundDeadline == null ? now : refundDeadline;
     enqueueMarketItemDelivery(
         connection,
         listing.id(),
@@ -312,13 +386,21 @@ class MarketService {
         buyer.boundUuid(),
         listing.rawItemBlob(),
         listing.quantity(),
-        DeliveryType.SALE);
+        DeliveryType.SALE,
+        deliveryAt);
     return new TradeResult(
         TradeState.CREATED,
         tradeId,
         listing.id(),
         listing.currency(),
-        listing.price());
+        listing.price(),
+        buyerTotal,
+        sellerReceive,
+        fee,
+        tax,
+        tradeStatus,
+        refundDeadline,
+        cooldownSeconds);
   }
 
   private UnlistResult unlistInTransaction(Connection connection, long sellerUserId, long listingId)
@@ -349,14 +431,43 @@ class MarketService {
         seller.boundUuid(),
         listing.rawItemBlob(),
         listing.quantity(),
-        DeliveryType.UNLIST);
+        DeliveryType.UNLIST,
+        LocalDateTime.now());
     return new UnlistResult(listing.id(), listing.currency(), listing.price(), listing.quantity());
+  }
+
+  private ListingPriceUpdateResult updateListingPriceInTransaction(
+      Connection connection,
+      long sellerUserId,
+      long listingId,
+      long newPrice) throws SQLException {
+    MarketListing listing = readListingForUpdate(connection, listingId);
+    if (!listing.status().equals("ACTIVE")) {
+      throw new ServiceException("listing_unavailable", "Listing is no longer active");
+    }
+    if (listing.sellerUserId() != sellerUserId) {
+      throw new ServiceException("forbidden", "Only the owner can update listing price");
+    }
+
+    String sql = """
+        UPDATE market_listings
+        SET price = ?
+        WHERE id = ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, newPrice);
+      statement.setLong(2, listingId);
+      statement.executeUpdate();
+    }
+    return new ListingPriceUpdateResult(listingId, listing.currency(), newPrice);
   }
 
   private ExistingTrade readExistingTrade(Connection connection, long buyerUserId, String idempotencyKey)
       throws SQLException {
     String sql = """
-        SELECT t.id, t.listing_id, t.currency, t.total_price
+        SELECT t.id, t.listing_id, t.currency, t.total_price,
+               t.buyer_total, t.seller_receive, t.fee_amount, t.tax_amount,
+               t.status, t.refund_deadline
         FROM market_trades t
         WHERE t.buyer_user_id = ? AND t.idempotency_key = ?
         FOR UPDATE
@@ -372,7 +483,15 @@ class MarketService {
             resultSet.getLong("id"),
             resultSet.getLong("listing_id"),
             resultSet.getString("currency"),
-            resultSet.getLong("total_price"));
+            resultSet.getLong("total_price"),
+            resultSet.getLong("buyer_total"),
+            resultSet.getLong("seller_receive"),
+            resultSet.getLong("fee_amount"),
+            resultSet.getLong("tax_amount"),
+            resultSet.getString("status"),
+            resultSet.getTimestamp("refund_deadline") == null
+                ? null
+                : resultSet.getTimestamp("refund_deadline").toLocalDateTime());
       }
     }
   }
@@ -384,12 +503,20 @@ class MarketService {
       long sellerUserId,
       CurrencyType currency,
       long totalPrice,
-      String idempotencyKey) throws SQLException {
+      long buyerTotal,
+      long sellerReceive,
+      long feeAmount,
+      long taxAmount,
+      String idempotencyKey,
+      String status,
+      LocalDateTime refundDeadline) throws SQLException {
     String sql = """
         INSERT INTO market_trades (
-          listing_id, buyer_user_id, seller_user_id, currency, total_price, idempotency_key
+          listing_id, buyer_user_id, seller_user_id, currency, total_price,
+          buyer_total, seller_receive, fee_amount, tax_amount, idempotency_key,
+          status, refund_deadline
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement =
              connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -398,7 +525,17 @@ class MarketService {
       statement.setLong(3, sellerUserId);
       statement.setString(4, currency.name());
       statement.setLong(5, totalPrice);
-      statement.setString(6, idempotencyKey);
+      statement.setLong(6, buyerTotal);
+      statement.setLong(7, sellerReceive);
+      statement.setLong(8, feeAmount);
+      statement.setLong(9, taxAmount);
+      statement.setString(10, idempotencyKey);
+      statement.setString(11, status);
+      if (refundDeadline == null) {
+        statement.setTimestamp(12, null);
+      } else {
+        statement.setTimestamp(12, Timestamp.valueOf(refundDeadline));
+      }
       statement.executeUpdate();
       try (ResultSet keyResult = statement.getGeneratedKeys()) {
         if (!keyResult.next()) {
@@ -448,7 +585,8 @@ class MarketService {
         listing.sellerUuid(),
         listing.rawItemBlob(),
         listing.quantity(),
-        DeliveryType.UNLIST);
+        DeliveryType.UNLIST,
+        LocalDateTime.now());
     return new UnlistResult(listing.id(), listing.currency(), listing.price(), listing.quantity());
   }
 
@@ -459,7 +597,8 @@ class MarketService {
       UUID targetUuid,
       byte[] itemBlob,
       int quantity,
-      DeliveryType deliveryType) throws SQLException {
+      DeliveryType deliveryType,
+      LocalDateTime nextRetryAt) throws SQLException {
     String sql = """
         INSERT INTO market_item_deliveries (
           listing_id, target_user_id, target_uuid, item_blob, quantity, delivery_type, status, next_retry_at
@@ -473,7 +612,7 @@ class MarketService {
       statement.setBytes(4, itemBlob);
       statement.setInt(5, quantity);
       statement.setString(6, deliveryType.name());
-      statement.setTimestamp(7, Timestamp.valueOf(LocalDateTime.now()));
+      statement.setTimestamp(7, Timestamp.valueOf(nextRetryAt));
       statement.executeUpdate();
     }
   }
@@ -575,6 +714,114 @@ class MarketService {
     return Math.min(limit, 200);
   }
 
+  private int normalizedOrderCooldownSeconds() {
+    int value = settingsSupplier.get().orderCooldownSeconds();
+    if (value < 0) {
+      return 0;
+    }
+    return value;
+  }
+
+  private long calculatePercent(long baseAmount, double percent) {
+    if (percent <= 0) {
+      return 0L;
+    }
+    double normalized = Math.max(0.0, Math.min(100.0, percent));
+    double raw = baseAmount * normalized / 100.0;
+    if (raw <= 0) {
+      return 0L;
+    }
+    long value = (long) Math.floor(raw);
+    if (value < 0) {
+      return 0L;
+    }
+    return Math.min(value, baseAmount);
+  }
+
+  private void applyEconomySink(Connection connection, CurrencyType currency, long amount, long listingId)
+      throws SQLException {
+    PluginSettings.InflationSettings inflation = settingsSupplier.get().economySettings().inflationSettings();
+    long treasuryUserId = inflation.treasuryUserId();
+    if (inflation.mode() == PluginSettings.InflationMode.TREASURY && treasuryUserId > 0
+        && userExists(connection, treasuryUserId)) {
+      String sinkBizId = "mkt-sink:" + listingId;
+      walletService.applyDelta(
+          connection,
+          treasuryUserId,
+          currency,
+          amount,
+          "MARKET_SINK",
+          sinkBizId,
+          false);
+    }
+  }
+
+  private boolean userExists(Connection connection, long userId) throws SQLException {
+    String sql = "SELECT 1 FROM web_users WHERE id = ? LIMIT 1";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        return resultSet.next();
+      }
+    }
+  }
+
+  private int resolveListingLimit(Player player) {
+    int baseLimit = Math.max(1, settingsSupplier.get().marketMaxActiveListings());
+    int maxLimit = baseLimit;
+    for (PermissionAttachmentInfo info : player.getEffectivePermissions()) {
+      if (!info.getValue()) {
+        continue;
+      }
+      String permission = info.getPermission();
+      if (permission == null) {
+        continue;
+      }
+      String normalized = permission.toLowerCase(Locale.ROOT);
+      if (!normalized.startsWith("webshop.market.limit.")) {
+        continue;
+      }
+      String suffix = normalized.substring("webshop.market.limit.".length());
+      try {
+        int value = Integer.parseInt(suffix);
+        if (value > maxLimit) {
+          maxLimit = value;
+        }
+      } catch (NumberFormatException ignored) {
+        continue;
+      }
+    }
+    return maxLimit;
+  }
+
+  private int countActiveListings(Connection connection, long userId) throws SQLException {
+    String sql = """
+        SELECT COUNT(*) AS total
+        FROM market_listings
+        WHERE seller_user_id = ? AND status = 'ACTIVE'
+        FOR UPDATE
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return 0;
+        }
+        return resultSet.getInt("total");
+      }
+    }
+  }
+
+  private String resolveSortColumn(String sort) {
+    String normalized = sort == null ? "" : sort.trim().toLowerCase(Locale.ROOT);
+    return switch (normalized) {
+      case "price" -> "ml.price";
+      case "quantity" -> "ml.quantity";
+      case "created", "createdat", "time" -> "ml.id";
+      default -> "ml.id";
+    };
+  }
+
   private void removeFromMainHand(Player player, int amount) {
     ItemStack current = player.getInventory().getItemInMainHand();
     if (current.getAmount() == amount) {
@@ -594,7 +841,17 @@ class MarketService {
   private record BoundUser(long userId, String username, UUID boundUuid) {
   }
 
-  private record ExistingTrade(long tradeId, long listingId, String currency, long totalPrice) {
+  private record ExistingTrade(
+      long tradeId,
+      long listingId,
+      String currency,
+      long totalPrice,
+      long buyerTotal,
+      long sellerReceive,
+      long feeAmount,
+      long taxAmount,
+      String status,
+      LocalDateTime refundDeadline) {
   }
 
   private record MarketListing(
@@ -627,6 +884,19 @@ class MarketService {
       int quantity,
       CurrencyType currency,
       long price) {
+  }
+
+  record ListingQuery(
+      Long sellerUserId,
+      boolean activeOnly,
+      String sort,
+      boolean ascending,
+      CurrencyType currency,
+      Long minPrice,
+      Long maxPrice,
+      String material,
+      String keyword,
+      int limit) {
   }
 
   record ListingView(
@@ -667,9 +937,19 @@ class MarketService {
       long tradeId,
       long listingId,
       CurrencyType currency,
-      long totalPrice) {
+      long totalPrice,
+      long buyerTotal,
+      long sellerReceive,
+      long feeAmount,
+      long taxAmount,
+      String orderStatus,
+      LocalDateTime refundDeadline,
+      int cooldownSeconds) {
   }
 
   record UnlistResult(long listingId, CurrencyType currency, long price, int quantity) {
+  }
+
+  record ListingPriceUpdateResult(long listingId, CurrencyType currency, long price) {
   }
 }

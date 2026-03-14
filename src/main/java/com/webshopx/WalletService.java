@@ -5,24 +5,75 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
-import java.time.LocalDateTime;
-import java.util.Optional;
 import java.util.function.Supplier;
+import net.milkbowl.vault.economy.Economy;
+import net.milkbowl.vault.economy.EconomyResponse;
+import org.bukkit.plugin.Plugin;
+import org.bukkit.plugin.RegisteredServiceProvider;
+import org.bukkit.plugin.java.JavaPlugin;
 
 class WalletService {
+  private final JavaPlugin plugin;
   private final DatabaseManager databaseManager;
   private final Supplier<PluginSettings> settingsSupplier;
 
-  WalletService(DatabaseManager databaseManager, Supplier<PluginSettings> settingsSupplier) {
+  private volatile Economy vaultEconomy;
+  private volatile String vaultProviderName;
+
+  WalletService(
+      JavaPlugin plugin,
+      DatabaseManager databaseManager,
+      Supplier<PluginSettings> settingsSupplier) {
+    this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.settingsSupplier = settingsSupplier;
+    refreshVaultHook();
+  }
+
+  void refreshVaultHook() {
+    Plugin vaultPlugin = plugin.getServer().getPluginManager().getPlugin("Vault");
+    if (vaultPlugin == null || !vaultPlugin.isEnabled()) {
+      this.vaultEconomy = null;
+      this.vaultProviderName = null;
+      return;
+    }
+
+    RegisteredServiceProvider<Economy> provider = plugin.getServer()
+        .getServicesManager()
+        .getRegistration(Economy.class);
+    if (provider == null || provider.getProvider() == null) {
+      this.vaultEconomy = null;
+      this.vaultProviderName = null;
+      return;
+    }
+    this.vaultEconomy = provider.getProvider();
+    this.vaultProviderName = provider.getProvider().getName();
+  }
+
+  GameCoinIntegrationStatus getGameCoinIntegrationStatus() {
+    refreshVaultHook();
+    boolean vaultPluginPresent = plugin.getServer().getPluginManager().getPlugin("Vault") != null;
+    Economy economy = this.vaultEconomy;
+    return new GameCoinIntegrationStatus(
+        vaultPluginPresent,
+        economy != null,
+        economy == null ? null : (vaultProviderName == null ? economy.getName() : vaultProviderName),
+        economy != null);
   }
 
   WalletBalance getBalance(long userId) {
     return databaseManager.withConnection(connection -> {
       ensureWallet(connection, userId);
-      return readBalance(connection, userId, false);
+      RawWalletBalance raw = readRawBalance(connection, userId, false);
+      if (!isGameCoinBackedByVault()) {
+        return new WalletBalance(raw.shopCoin(), raw.gameCoin());
+      }
+      GameCoinAccount account = readGameCoinAccount(connection, userId, false);
+      long gameCoin = readVaultBalance(account);
+      if (raw.gameCoin() != gameCoin) {
+        updateGameCoinMirror(connection, raw.walletId(), gameCoin);
+      }
+      return new WalletBalance(raw.shopCoin(), gameCoin);
     });
   }
 
@@ -113,6 +164,13 @@ class WalletService {
       return false;
     }
 
+    if (currency == CurrencyType.GAME_COIN && isGameCoinBackedByVault()) {
+      GameCoinAccount account = readGameCoinAccount(connection, userId, true);
+      long gameCoin = applyVaultDelta(account, delta, enforceBalance);
+      updateGameCoinMirror(connection, walletId, gameCoin);
+      return true;
+    }
+
     String column = currency.columnName();
     String sql = "UPDATE wallets SET " + column + " = " + column + " + ? WHERE id = ?";
     if (enforceBalance) {
@@ -132,6 +190,84 @@ class WalletService {
     }
 
     return true;
+  }
+
+  private long applyVaultDelta(GameCoinAccount account, long delta, boolean enforceBalance) {
+    Economy economy = this.vaultEconomy;
+    if (economy == null) {
+      throw new ServiceException("vault_unavailable", "Vault economy provider is unavailable");
+    }
+
+    String accountName = account.accountName();
+    double currentBalance = economy.getBalance(accountName);
+    if (enforceBalance && currentBalance + delta < 0.0D) {
+      throw new ServiceException("insufficient_funds", "Wallet balance is insufficient");
+    }
+
+    EconomyResponse response;
+    if (delta >= 0L) {
+      response = economy.depositPlayer(accountName, delta);
+    } else {
+      response = economy.withdrawPlayer(accountName, -delta);
+    }
+    if (!response.transactionSuccess()) {
+      String message = response.errorMessage == null || response.errorMessage.isBlank()
+          ? "Vault transaction failed"
+          : response.errorMessage;
+      throw new ServiceException("vault_error", message);
+    }
+    return toCoins(economy.getBalance(accountName));
+  }
+
+  private long readVaultBalance(GameCoinAccount account) {
+    Economy economy = this.vaultEconomy;
+    if (economy == null) {
+      throw new ServiceException("vault_unavailable", "Vault economy provider is unavailable");
+    }
+    return toCoins(economy.getBalance(account.accountName()));
+  }
+
+  private long toCoins(double value) {
+    if (!Double.isFinite(value) || value <= 0.0D) {
+      return 0L;
+    }
+    double floor = Math.floor(value);
+    if (floor >= Long.MAX_VALUE) {
+      return Long.MAX_VALUE;
+    }
+    return (long) floor;
+  }
+
+  private boolean isGameCoinBackedByVault() {
+    return this.vaultEconomy != null;
+  }
+
+  private GameCoinAccount readGameCoinAccount(Connection connection, long userId, boolean forUpdate)
+      throws SQLException {
+    String lock = forUpdate ? " FOR UPDATE" : "";
+    String sql = """
+        SELECT username, bound_uuid
+        FROM web_users
+        WHERE id = ?
+        """ + lock;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          throw new ServiceException("user_missing", "User not found");
+        }
+        String username = resultSet.getString("username");
+        String boundUuid = resultSet.getString("bound_uuid");
+        String accountName = username;
+        if (accountName == null || accountName.isBlank()) {
+          accountName = boundUuid;
+        }
+        if (accountName == null || accountName.isBlank()) {
+          throw new ServiceException("not_bound", "Minecraft account is not bound yet");
+        }
+        return new GameCoinAccount(accountName, username, boundUuid);
+      }
+    }
   }
 
   private boolean insertLedger(
@@ -168,6 +304,15 @@ class WalletService {
     }
   }
 
+  private void updateGameCoinMirror(Connection connection, long walletId, long gameCoin) throws SQLException {
+    String sql = "UPDATE wallets SET game_coin = ? WHERE id = ?";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, gameCoin);
+      statement.setLong(2, walletId);
+      statement.executeUpdate();
+    }
+  }
+
   @SuppressFBWarnings(
       value = "SQL_INJECTION_JDBC",
       justification = "Lock clause is selected from a fixed boolean branch")
@@ -190,19 +335,52 @@ class WalletService {
       justification = "Lock clause is selected from a fixed boolean branch")
   private WalletBalance readBalance(Connection connection, long userId, boolean forUpdate)
       throws SQLException {
+    RawWalletBalance raw = readRawBalance(connection, userId, forUpdate);
+    if (!isGameCoinBackedByVault()) {
+      return new WalletBalance(raw.shopCoin(), raw.gameCoin());
+    }
+    GameCoinAccount account = readGameCoinAccount(connection, userId, forUpdate);
+    long gameCoin = readVaultBalance(account);
+    if (raw.gameCoin() != gameCoin) {
+      updateGameCoinMirror(connection, raw.walletId(), gameCoin);
+    }
+    return new WalletBalance(raw.shopCoin(), gameCoin);
+  }
+
+  @SuppressFBWarnings(
+      value = "SQL_INJECTION_JDBC",
+      justification = "Lock clause is selected from a fixed boolean branch")
+  private RawWalletBalance readRawBalance(Connection connection, long userId, boolean forUpdate)
+      throws SQLException {
     String lockClause = forUpdate ? " FOR UPDATE" : "";
-    String sql = "SELECT shop_coin, game_coin FROM wallets WHERE user_id = ?" + lockClause;
+    String sql = "SELECT id, shop_coin, game_coin FROM wallets WHERE user_id = ?" + lockClause;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
       try (ResultSet resultSet = statement.executeQuery()) {
         if (!resultSet.next()) {
           throw new ServiceException("wallet_missing", "Wallet does not exist");
         }
-        return new WalletBalance(resultSet.getLong("shop_coin"), resultSet.getLong("game_coin"));
+        return new RawWalletBalance(
+            resultSet.getLong("id"),
+            resultSet.getLong("shop_coin"),
+            resultSet.getLong("game_coin"));
       }
     }
   }
 
   record WalletBalance(long shopCoin, long gameCoin) {
+  }
+
+  record GameCoinIntegrationStatus(
+      boolean vaultPluginPresent,
+      boolean hooked,
+      String provider,
+      boolean gameCoinBackedByVault) {
+  }
+
+  private record GameCoinAccount(String accountName, String username, String boundUuid) {
+  }
+
+  private record RawWalletBalance(long walletId, long shopCoin, long gameCoin) {
   }
 }

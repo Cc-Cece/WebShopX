@@ -6,9 +6,13 @@ import java.util.Set;
 
 enum AdminRole {
   SUPER_ADMIN(EnumSet.allOf(AdminPermission.class)),
-  SHOP_ADMIN(EnumSet.of(AdminPermission.REDEEM_MANAGE, AdminPermission.PRODUCT_MANAGE)),
+  SHOP_ADMIN(EnumSet.of(
+      AdminPermission.REDEEM_MANAGE,
+      AdminPermission.PRODUCT_MANAGE,
+      AdminPermission.ORDER_VIEW,
+      AdminPermission.ECONOMY_MANAGE)),
   MARKET_MODERATOR(EnumSet.of(AdminPermission.MARKET_MANAGE)),
-  SUPPORT_ADMIN(EnumSet.of(AdminPermission.USER_SUPPORT)),
+  SUPPORT_ADMIN(EnumSet.of(AdminPermission.USER_SUPPORT, AdminPermission.ORDER_VIEW)),
   AUDITOR(EnumSet.of(AdminPermission.AUDIT_VIEW));
 
   private final Set<AdminPermission> permissions;

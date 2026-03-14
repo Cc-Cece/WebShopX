@@ -5,6 +5,15 @@ webshop:
   access-token-length: 48
   delivery-batch-size: 20
   delivery-retry-seconds: 30
+  order-cooldown-seconds: 15
+  market:
+    max-active-listings: 10
+  maintenance:
+    cleanup-interval-minutes: 30
+    pending-bind-retention-hours: 6
+    pending-password-retention-hours: 6
+    bind-request-retention-hours: 24
+    redeem-code-retention-days: 7
   admin-bootstrap:
     enabled: true
     username: admin
@@ -32,19 +41,23 @@ exchange:
     enabled: false
     ratio: 1.0
 
+currency:
+  shopcoin:
+    name: ShopCoin
+    short: SC
+  gamecoin:
+    name: GameCoin
+    short: GC
+
+economy:
+  market:
+    trade-fee-percent: 0.0
+    trade-tax-percent: 0.0
+  inflation-control:
+    mode: burn
+    treasury-user-id: 0
+
 redis:
   enabled: false
   host: 127.0.0.1
   port: 6379
-
-sample-products:
-  - sku: vip_week
-    title: VIP Week Pass
-    currency: SHOP_COIN
-    price: 100
-    command-template: "lp user %player% parent addtemp vip 7d"
-  - sku: diamond_pack
-    title: Diamond Pack x32
-    currency: GAME_COIN
-    price: 50
-    command-template: "give %player% minecraft:diamond 32"

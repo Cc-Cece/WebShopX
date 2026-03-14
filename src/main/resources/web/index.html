@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WebShop 控制台</title>
+  <title>WebShopX - MC网页商店系统</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -11,16 +11,17 @@
     <header class="app-header md-card">
       <div>
         <p class="app-kicker">WebShopX Dashboard</p>
-        <h1>服务器商城控制台</h1>
-        <p class="app-subtitle">统一处理账号登录、角色绑定、钱包兑换、官方商城和 C2C 市场。</p>
+        <h1>WebShopX 仪表盘</h1>
+        <p class="app-subtitle">致力于实现更完善的官方商城和玩家市场。</p>
       </div>
       <div class="status-chip" id="statusChip" data-state="offline">未登录</div>
     </header>
 
     <nav class="top-tabs" role="tablist" aria-label="功能标签">
-      <button class="top-tab active" data-tab-target="auth" type="button">账号绑定</button>
+      <button class="top-tab active" data-tab-target="auth" type="button">账号登录</button>
       <button class="top-tab" data-tab-target="wallet" type="button">钱包资产</button>
       <button class="top-tab" data-tab-target="shop" type="button">官方商城</button>
+      <button class="top-tab" data-tab-target="orders" type="button">订单记录</button>
       <button class="top-tab" data-tab-target="market" type="button">玩家市场</button>
       <button class="top-tab" data-tab-target="logs" type="button">操作日志</button>
     </nav>
@@ -29,10 +30,9 @@
       <div class="grid two-col">
         <article class="md-card section-card" id="authEntryCard">
           <h2>账号流程</h2>
-          <p class="card-desc">注册：先绑定游戏角色再设置密码。登录：支持 UUID 或用户名 + 密码。</p>
           <div class="md-tip md-tip-info">
-            <strong>流程提示</strong>
-            <p>推荐新玩家先走“注册”流程。绑定成功后会自动进入密码设置阶段，无需手动刷新页面。</p>
+            <strong>提示</strong>
+            <p>新玩家请先按流程进行“注册”。已注册玩家可直接登录。</p>
           </div>
 
           <div class="auth-mode-switch" role="tablist" aria-label="认证模式">
@@ -55,27 +55,23 @@
               <button id="loginBtn" type="button">立即登录</button>
             </div>
             <div class="md-tip md-tip-info">
-              <strong>登录说明</strong>
-              <p>支持完整 UUID（例如 <code>xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</code>）或用户名登录。</p>
+            <strong>提示</strong>
+            <p>已注册玩家可直接使用 UUID 或用户名（一般是 Minecraft 用户名） + 密码登录。</p>
             </div>
           </div>
 
           <div id="authRegisterPanel" class="auth-pane">
-            <div class="field-grid">
-              <label class="field">
-                <span>注册昵称（用户名）</span>
-                <input id="registerUsername" placeholder="3-32 位字母数字下划线" autocomplete="username" />
-              </label>
-            </div>
             <div class="actions">
-              <button id="registerStartBtn" type="button">1. 获取绑定码</button>
+              <button id="registerStartBtn" type="button">获取绑定码</button>
             </div>
 
-            <p class="bind-code" id="registerBindCodeView">绑定码：-</p>
+            <p class="bind-code" id="registerBindCodeView">绑定码：- </p>
             <p class="meta" id="registerStatusView">状态：等待开始注册</p>
             <div class="md-tip md-tip-info" id="registerFlowTip">
               <strong>注册步骤</strong>
-              <p>在游戏内执行 <code>/shop bind &lt;code&gt;</code> 后，页面会自动检测绑定结果并提示下一步。</p>
+              <p>1、点击“获取绑定码”</p>
+              <p>2、进入游戏执行指令绑定账号（<code>/webshopx bind &lt;code&gt;</code> 或 <code>/ws bind &lt;code&gt;</code>）</p>
+              <p>3、绑定成功后设置登录密码完成注册</p>
             </div>
 
             <div id="registerPasswordStage" class="register-password-stage hidden">
@@ -90,7 +86,7 @@
                 </label>
               </div>
               <div class="actions">
-                <button id="registerFinishBtn" type="button">2. 设置密码并完成注册</button>
+                <button id="registerFinishBtn" type="button">设置密码并完成注册</button>
               </div>
               <div class="md-tip md-tip-warn">
                 <strong>密码提示</strong>
@@ -207,16 +203,37 @@
         <div class="section-head">
           <div>
             <h2>官方商城（B2C）</h2>
-            <p class="card-desc">展示管理员在配置中维护的商品，支持卡片内直接下单。</p>
+            <p class="card-desc">由服务器官方维护的商品，可直接下单。</p>
           </div>
-          <button id="productsBtn" type="button">刷新商品</button>
+          <div class="section-actions">
+            <button id="productsBtn" type="button">刷新商品</button>
+          </div>
         </div>
         <div class="md-tip md-tip-info">
           <strong>下单提示</strong>
           <p>订单创建后会进入发货队列。若角色离线，物品会在下次上线时自动投递。</p>
         </div>
+        <div class="md-tip md-tip-warn">
+          <strong>冷静期说明</strong>
+          <p>若服务器开启冷静期，下单后会延迟发放，并允许在冷静期内退款。</p>
+        </div>
         <div id="productList" class="product-grid"></div>
+      </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="orders">
+      <article class="md-card section-card">
+        <div class="section-head">
+          <div>
+            <h2>订单记录</h2>
+            <p class="card-desc">查看个人购买与退款记录。</p>
+          </div>
+          <div class="section-actions">
+            <button id="ordersBtn" type="button">刷新订单</button>
+          </div>
+        </div>
         <p class="meta" id="orderView">暂无订单</p>
+        <div id="orderList" class="order-grid"></div>
       </article>
     </section>
 
@@ -225,18 +242,64 @@
         <div class="section-head">
           <div>
             <h2>玩家市场（C2C）</h2>
-            <p class="card-desc">上架需在游戏内执行 <code>/market sell &lt;price&gt; [amount] [currency]</code>。</p>
+            <p class="card-desc">上架需在游戏内执行 <code>/webshopx market sell &lt;price&gt; [amount] [currency]</code>（可简写 <code>/ws market sell ...</code>）。</p>
           </div>
         </div>
         <div class="md-tip md-tip-info">
           <strong>交易提示</strong>
-          <p>“我的上架”仅显示当前登录账号发布的卡片；下架后物品会回到你的待投递队列。</p>
+          <p>“我的上架”仅显示当前登录账号发布的商品；下架后物品会回到你的待投递队列。</p>
         </div>
+
+        <div class="field-grid three-col">
+          <label class="field">
+            <span>关键词</span>
+            <input id="marketKeyword" placeholder="物品/卖家关键词" />
+          </label>
+          <label class="field">
+            <span>排序</span>
+            <select id="marketSort">
+              <option value="created_desc">最新</option>
+              <option value="created_asc">最早</option>
+              <option value="price_desc">价格从高到低</option>
+              <option value="price_asc">价格从低到高</option>
+              <option value="quantity_desc">数量从多到少</option>
+              <option value="quantity_asc">数量从少到多</option>
+            </select>
+          </label>
+        </div>
+
+        <details class="advanced-filter">
+          <summary>高级筛选</summary>
+          <div class="field-grid three-col">
+            <label class="field">
+              <span>物品 ID</span>
+              <input id="marketMaterial" placeholder="例如 DIAMOND" />
+            </label>
+            <label class="field">
+              <span>币种</span>
+              <select id="marketCurrency">
+                <option value="">全部</option>
+                <option value="SHOP_COIN">ShopCoin</option>
+                <option value="GAME_COIN">GameCoin</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>最低价</span>
+              <input id="marketMinPrice" type="number" min="0" step="1" />
+            </label>
+            <label class="field">
+              <span>最高价</span>
+              <input id="marketMaxPrice" type="number" min="0" step="1" />
+            </label>
+          </div>
+        </details>
 
         <div class="actions market-actions">
           <button id="marketListBtn" class="btn-segment active" type="button">市场在售</button>
           <button id="marketMineBtn" class="btn-segment" type="button">我的上架</button>
           <button id="marketRefreshBtn" class="btn-tonal" type="button">刷新</button>
+          <button id="marketApplyBtn" class="btn-tonal" type="button">应用筛选</button>
+          <button id="marketClearBtn" class="btn-tonal" type="button">重置筛选</button>
         </div>
 
         <p class="meta" id="marketView">暂无市场数据</p>
@@ -256,6 +319,53 @@
       </article>
     </section>
   </main>
+
+  <div id="confirmDialog" class="dialog-backdrop" aria-hidden="true">
+    <div class="dialog-card md-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <h3 id="confirmTitle">确认操作</h3>
+      <p id="confirmMessage">-</p>
+      <div id="confirmDetails" class="dialog-details"></div>
+      <div class="actions dialog-actions">
+        <button id="confirmCancelBtn" class="btn-tonal" type="button">取消</button>
+        <button id="confirmOkBtn" type="button">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="priceDialog" class="dialog-backdrop" aria-hidden="true">
+    <div class="dialog-card md-card price-dialog-card" role="dialog" aria-modal="true" aria-labelledby="priceDialogTitle">
+      <div class="price-dialog-header">
+        <div>
+          <p class="price-dialog-kicker">价格调整</p>
+          <h3 id="priceDialogTitle">修改价格</h3>
+        </div>
+        <div class="price-dialog-badge" id="priceDialogBadge">#--</div>
+      </div>
+      <p id="priceDialogHint" class="price-dialog-hint">请输入新的上架价格。</p>
+      <div class="price-dialog-summary">
+        <div class="price-summary-item">
+          <span>当前价格</span>
+          <strong id="priceDialogCurrent">--</strong>
+        </div>
+        <div class="price-summary-item">
+          <span>币种</span>
+          <strong id="priceDialogCurrency">--</strong>
+        </div>
+      </div>
+      <label class="field price-dialog-field">
+        <span>新价格</span>
+        <div class="price-input-wrap">
+          <span class="price-input-prefix" id="priceDialogPrefix">SC</span>
+          <input id="priceDialogInput" type="number" min="1" step="1" />
+        </div>
+      </label>
+      <p class="meta meta-warn" id="priceDialogError"></p>
+      <div class="actions dialog-actions">
+        <button id="priceDialogCancel" class="btn-tonal" type="button">取消</button>
+        <button id="priceDialogConfirm" type="button">确认改价</button>
+      </div>
+    </div>
+  </div>
 
   <div id="snackbarHost" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
 

@@ -26,7 +26,9 @@ public class WebShopPlugin extends JavaPlugin {
   private EmbeddedWebServer embeddedWebServer;
   private StaticAssetInstaller staticAssetInstaller;
   private TextureAssetManager textureAssetManager;
+  private MaintenanceService maintenanceService;
   private BukkitTask deliveryTask;
+  private BukkitTask maintenanceTask;
 
   @Override
   public void onEnable() {
@@ -43,15 +45,16 @@ public class WebShopPlugin extends JavaPlugin {
       new SchemaManager().ensureSchema(databaseManager);
 
       authService = new AuthService(databaseManager, this::settings);
-      walletService = new WalletService(databaseManager, this::settings);
+      walletService = new WalletService(this, databaseManager, this::settings);
       bindingService = new BindingService(databaseManager, this::settings);
       redeemCodeService = new RedeemCodeService(databaseManager, walletService);
       productService = new ProductService(databaseManager);
-      orderService = new OrderService(this, databaseManager, productService, walletService);
-      marketService = new MarketService(databaseManager, walletService);
-      deliveryService = new DeliveryService(this, databaseManager, this::settings);
+      orderService = new OrderService(this, databaseManager, this::settings, productService, walletService);
+      marketService = new MarketService(databaseManager, walletService, this::settings);
+      deliveryService = new DeliveryService(this, databaseManager, walletService, this::settings);
       adminService = new AdminService(databaseManager, authService, walletService);
       adminAuditService = new AdminAuditService(databaseManager);
+      maintenanceService = new MaintenanceService(this, databaseManager, this::settings);
       embeddedWebServer = new EmbeddedWebServer(
           this,
           this::settings,
@@ -65,7 +68,7 @@ public class WebShopPlugin extends JavaPlugin {
           adminService,
           adminAuditService);
 
-      productService.upsertSeeds(settings.productSeeds());
+      // Products are managed via admin backend; no seed import from config.
       adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());
       if (settings.redisSettings().enabled()) {
         getLogger().warning("Redis is enabled in config but currently optional and not wired in V1.");
@@ -76,11 +79,12 @@ public class WebShopPlugin extends JavaPlugin {
           new PlayerJoinListener(this, deliveryService),
           this);
       startDeliveryLoop();
+      startMaintenanceLoop();
       restartWebRuntime();
 
-      getLogger().info("WebShopPlugin enabled successfully.");
+      getLogger().info("WebShopX enabled successfully.");
     } catch (Exception exception) {
-      getLogger().log(Level.SEVERE, "WebShopPlugin failed to start", exception);
+      getLogger().log(Level.SEVERE, "WebShopX failed to start", exception);
       getServer().getPluginManager().disablePlugin(this);
     }
   }
@@ -90,6 +94,10 @@ public class WebShopPlugin extends JavaPlugin {
     if (deliveryTask != null) {
       deliveryTask.cancel();
       deliveryTask = null;
+    }
+    if (maintenanceTask != null) {
+      maintenanceTask.cancel();
+      maintenanceTask = null;
     }
     if (embeddedWebServer != null) {
       embeddedWebServer.stop();
@@ -102,27 +110,25 @@ public class WebShopPlugin extends JavaPlugin {
   void reloadRuntimeConfig() {
     reloadConfig();
     settings = PluginSettings.fromConfig(getConfig());
-    productService.upsertSeeds(settings.productSeeds());
+    if (walletService != null) {
+      walletService.refreshVaultHook();
+    }
+    // Products are managed via admin backend; no seed import from config.
     if (adminService != null) {
       adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());
     }
+    startMaintenanceLoop();
     restartWebRuntime();
   }
 
   private void registerCommands() {
-    ShopCommand shopCommandHandler = new ShopCommand(this, bindingService, redeemCodeService);
-    PluginCommand shopCommand = getCommand("shop");
-    if (shopCommand == null) {
-      throw new IllegalStateException("Command 'shop' is not defined in plugin.yml");
+    ShopCommand shopCommandHandler = new ShopCommand(this, bindingService, redeemCodeService, marketService);
+    PluginCommand rootCommand = getCommand("webshopx");
+    if (rootCommand == null) {
+      throw new IllegalStateException("Command 'webshopx' is not defined in plugin.yml");
     }
-    shopCommand.setExecutor(shopCommandHandler);
-    shopCommand.setTabCompleter(shopCommandHandler);
-
-    PluginCommand marketCommand = getCommand("market");
-    if (marketCommand == null) {
-      throw new IllegalStateException("Command 'market' is not defined in plugin.yml");
-    }
-    marketCommand.setExecutor(new MarketCommand(marketService));
+    rootCommand.setExecutor(shopCommandHandler);
+    rootCommand.setTabCompleter(shopCommandHandler);
   }
 
   private void startDeliveryLoop() {
@@ -136,13 +142,33 @@ public class WebShopPlugin extends JavaPlugin {
         100L);
   }
 
+  private void startMaintenanceLoop() {
+    if (maintenanceTask != null) {
+      maintenanceTask.cancel();
+      maintenanceTask = null;
+    }
+    if (maintenanceService == null) {
+      return;
+    }
+    int intervalMinutes = settings.maintenanceSettings().cleanupIntervalMinutes();
+    if (intervalMinutes <= 0) {
+      return;
+    }
+    long intervalTicks = Math.max(20L, intervalMinutes * 1200L);
+    maintenanceTask = getServer().getScheduler().runTaskTimerAsynchronously(
+        this,
+        maintenanceService::runCleanup,
+        200L,
+        intervalTicks);
+  }
+
   private void restartWebRuntime() {
     if (embeddedWebServer != null) {
       embeddedWebServer.stop();
     }
 
     Path staticRoot = staticAssetInstaller.install(settings.embeddedWebSettings().staticRoot());
-    textureAssetManager.ensureLocalTextureCache(staticRoot, resolveMinecraftVersion());
+    textureAssetManager.ensureLocalTextureCacheAsync(staticRoot, resolveMinecraftVersion());
     if (settings.webMode() == PluginSettings.WebMode.NGINX_ONLY) {
       getLogger().info("web.mode=nginx_only, static files extracted to: " + staticRoot);
       return;

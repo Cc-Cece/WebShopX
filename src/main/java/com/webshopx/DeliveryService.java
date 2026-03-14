@@ -21,15 +21,18 @@ import org.bukkit.plugin.java.JavaPlugin;
 class DeliveryService {
   private final JavaPlugin plugin;
   private final DatabaseManager databaseManager;
+  private final WalletService walletService;
   private final Supplier<PluginSettings> settingsSupplier;
   private final ItemSnapshotCodec itemSnapshotCodec;
 
   DeliveryService(
       JavaPlugin plugin,
       DatabaseManager databaseManager,
+      WalletService walletService,
       Supplier<PluginSettings> settingsSupplier) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
+    this.walletService = walletService;
     this.settingsSupplier = settingsSupplier;
     this.itemSnapshotCodec = new ItemSnapshotCodec();
   }
@@ -71,6 +74,7 @@ class DeliveryService {
         FROM delivery_queue dq
         JOIN orders o ON o.id = dq.order_id
         WHERE dq.status = 'PENDING'
+          AND o.status = 'PENDING'
           AND dq.next_retry_at <= NOW()
         """ + filterByPlayer + " ORDER BY dq.id ASC LIMIT ?";
 
@@ -173,7 +177,7 @@ class DeliveryService {
       rescheduleMarket(task.id(), "Inventory is full, retrying later", false);
       return;
     }
-    markMarketDelivered(task.id());
+    markMarketDelivered(task);
   }
 
   private void markCommandDelivered(long orderId, long deliveryId) {
@@ -192,6 +196,7 @@ class DeliveryService {
           UPDATE orders
           SET status = 'DELIVERED', delivered_at = NOW()
           WHERE id = ?
+            AND status = 'PENDING'
             AND NOT EXISTS (
               SELECT 1
               FROM delivery_queue dq
@@ -208,19 +213,89 @@ class DeliveryService {
     });
   }
 
-  private void markMarketDelivered(long deliveryId) {
-    databaseManager.withConnection(connection -> {
-      String sql = """
+  private void markMarketDelivered(MarketItemDeliveryTask task) {
+    databaseManager.inTransaction(connection -> {
+      String updateDeliverySql = """
           UPDATE market_item_deliveries
           SET status = 'DELIVERED', delivered_at = NOW(), last_error = NULL
-          WHERE id = ?
+          WHERE id = ? AND status = 'PENDING'
           """;
-      try (PreparedStatement statement = connection.prepareStatement(sql)) {
-        statement.setLong(1, deliveryId);
-        statement.executeUpdate();
+      int changed;
+      try (PreparedStatement statement = connection.prepareStatement(updateDeliverySql)) {
+        statement.setLong(1, task.id());
+        changed = statement.executeUpdate();
+      }
+      if (changed <= 0) {
+        return null;
+      }
+      if ("SALE".equalsIgnoreCase(task.deliveryType())) {
+        settleMarketTrade(connection, task.listingId());
       }
       return null;
     });
+  }
+
+  private void settleMarketTrade(Connection connection, long listingId) throws SQLException {
+    MarketTradeSettlement trade = readTradeForSettlement(connection, listingId);
+    if (trade == null) {
+      return;
+    }
+    if (!"PENDING".equalsIgnoreCase(trade.status())) {
+      return;
+    }
+    CurrencyType currency = CurrencyType.valueOf(trade.currency());
+    String sellerBizId = "mkt-sell:" + trade.tradeId();
+    if (trade.sellerReceive() > 0) {
+      walletService.applyDelta(
+          connection,
+          trade.sellerUserId(),
+          currency,
+          trade.sellerReceive(),
+          "MARKET_SELL",
+          sellerBizId,
+          false);
+    }
+
+    long sinkAmount = trade.feeAmount() + trade.taxAmount();
+    if (sinkAmount > 0) {
+      applyEconomySink(connection, currency, sinkAmount, trade.tradeId());
+    }
+
+    String settleSql = """
+        UPDATE market_trades
+        SET status = 'DELIVERED', settled_at = NOW()
+        WHERE id = ? AND status = 'PENDING'
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(settleSql)) {
+      statement.setLong(1, trade.tradeId());
+      statement.executeUpdate();
+    }
+  }
+
+  private MarketTradeSettlement readTradeForSettlement(Connection connection, long listingId)
+      throws SQLException {
+    String sql = """
+        SELECT id, seller_user_id, currency, seller_receive, fee_amount, tax_amount, status
+        FROM market_trades
+        WHERE listing_id = ?
+        FOR UPDATE
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, listingId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return null;
+        }
+        return new MarketTradeSettlement(
+            resultSet.getLong("id"),
+            resultSet.getLong("seller_user_id"),
+            resultSet.getString("currency"),
+            resultSet.getLong("seller_receive"),
+            resultSet.getLong("fee_amount"),
+            resultSet.getLong("tax_amount"),
+            resultSet.getString("status"));
+      }
+    }
   }
 
   private void rescheduleCommand(long deliveryId, String errorMessage, boolean countFailure) {
@@ -284,6 +359,37 @@ class DeliveryService {
     return text.substring(0, maxLength);
   }
 
+  private void applyEconomySink(Connection connection, CurrencyType currency, long amount, long tradeId)
+      throws SQLException {
+    PluginSettings.InflationSettings inflation = settingsSupplier.get().economySettings().inflationSettings();
+    long treasuryUserId = inflation.treasuryUserId();
+    if (inflation.mode() != PluginSettings.InflationMode.TREASURY || treasuryUserId <= 0) {
+      return;
+    }
+    if (!userExists(connection, treasuryUserId)) {
+      return;
+    }
+    String sinkBizId = "mkt-sink:" + tradeId;
+    walletService.applyDelta(
+        connection,
+        treasuryUserId,
+        currency,
+        amount,
+        "MARKET_SINK",
+        sinkBizId,
+        false);
+  }
+
+  private boolean userExists(Connection connection, long userId) throws SQLException {
+    String sql = "SELECT 1 FROM web_users WHERE id = ? LIMIT 1";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        return resultSet.next();
+      }
+    }
+  }
+
   private record CommandDeliveryTask(
       long id,
       long orderId,
@@ -304,5 +410,15 @@ class DeliveryService {
       int quantity,
       String deliveryType,
       int retryCount) {
+  }
+
+  private record MarketTradeSettlement(
+      long tradeId,
+      long sellerUserId,
+      String currency,
+      long sellerReceive,
+      long feeAmount,
+      long taxAmount,
+      String status) {
   }
 }

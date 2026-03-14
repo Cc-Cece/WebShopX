@@ -27,6 +27,7 @@ class RedeemCodeService {
       long shopCoin,
       long gameCoin,
       int maxUses,
+      int perUserMaxUses,
       Integer expiresInMinutes,
       String preferredCode) {
     if (shopCoin <= 0 && gameCoin <= 0) {
@@ -34,6 +35,7 @@ class RedeemCodeService {
     }
 
     int normalizedMaxUses = Math.max(1, maxUses);
+    int normalizedPerUserMaxUses = Math.max(1, perUserMaxUses);
     LocalDateTime expiresAt = null;
     if (expiresInMinutes != null && expiresInMinutes > 0) {
       expiresAt = LocalDateTime.now().plusMinutes(expiresInMinutes);
@@ -41,7 +43,13 @@ class RedeemCodeService {
 
     if (preferredCode != null && !preferredCode.isBlank()) {
       String fixedCode = normalizeCode(preferredCode);
-      if (!insertCode(fixedCode, shopCoin, gameCoin, normalizedMaxUses, expiresAt)) {
+      if (!insertCode(
+          fixedCode,
+          shopCoin,
+          gameCoin,
+          normalizedMaxUses,
+          normalizedPerUserMaxUses,
+          expiresAt)) {
         throw new ServiceException("code_exists", "Redeem code already exists");
       }
       return fixedCode;
@@ -49,7 +57,13 @@ class RedeemCodeService {
 
     for (int attempt = 0; attempt < 6; attempt++) {
       String generated = randomCode(12);
-      if (insertCode(generated, shopCoin, gameCoin, normalizedMaxUses, expiresAt)) {
+      if (insertCode(
+          generated,
+          shopCoin,
+          gameCoin,
+          normalizedMaxUses,
+          normalizedPerUserMaxUses,
+          expiresAt)) {
         return generated;
       }
     }
@@ -67,7 +81,8 @@ class RedeemCodeService {
     int limit = Math.min(Math.max(1, requestedLimit), 500);
     return databaseManager.withConnection(connection -> {
       String sql = """
-          SELECT code, shop_coin, game_coin, max_uses, used_count, expires_at, active, created_at
+          SELECT code, shop_coin, game_coin, max_uses, per_user_max_uses,
+                 used_count, expires_at, active, created_at
           FROM redeem_codes
           ORDER BY created_at DESC
           LIMIT ?
@@ -84,6 +99,7 @@ class RedeemCodeService {
                 resultSet.getLong("shop_coin"),
                 resultSet.getLong("game_coin"),
                 resultSet.getInt("max_uses"),
+                resultSet.getInt("per_user_max_uses"),
                 resultSet.getInt("used_count"),
                 expires == null ? null : expires.toLocalDateTime(),
                 resultSet.getBoolean("active"),
@@ -108,8 +124,12 @@ class RedeemCodeService {
       return RedeemStatus.OUT_OF_STOCK;
     }
 
-    if (!insertUsage(connection, code, userId)) {
-      return RedeemStatus.ALREADY_USED;
+    int userUsedCount = readUserUsageForUpdate(connection, code, userId);
+    if (userUsedCount >= row.perUserMaxUses()) {
+      if (row.perUserMaxUses() <= 1) {
+        return RedeemStatus.ALREADY_USED;
+      }
+      return RedeemStatus.USER_LIMIT_REACHED;
     }
 
     if (row.shopCoin() > 0) {
@@ -133,6 +153,8 @@ class RedeemCodeService {
           false);
     }
 
+    incrementUserUsage(connection, code, userId);
+
     String updateSql = "UPDATE redeem_codes SET used_count = used_count + 1 WHERE code = ?";
     try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
       statement.setString(1, code);
@@ -146,11 +168,14 @@ class RedeemCodeService {
       long shopCoin,
       long gameCoin,
       int maxUses,
+      int perUserMaxUses,
       LocalDateTime expiresAt) {
     return databaseManager.withConnection(connection -> {
       String sql = """
-          INSERT INTO redeem_codes (code, shop_coin, game_coin, max_uses, expires_at, active)
-          VALUES (?, ?, ?, ?, ?, TRUE)
+          INSERT INTO redeem_codes (
+            code, shop_coin, game_coin, max_uses, per_user_max_uses, expires_at, active
+          )
+          VALUES (?, ?, ?, ?, ?, ?, TRUE)
           ON DUPLICATE KEY UPDATE code = code
           """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -158,10 +183,11 @@ class RedeemCodeService {
         statement.setLong(2, shopCoin);
         statement.setLong(3, gameCoin);
         statement.setInt(4, maxUses);
+        statement.setInt(5, perUserMaxUses);
         if (expiresAt == null) {
-          statement.setTimestamp(5, null);
+          statement.setTimestamp(6, null);
         } else {
-          statement.setTimestamp(5, Timestamp.valueOf(expiresAt));
+          statement.setTimestamp(6, Timestamp.valueOf(expiresAt));
         }
         int updated = statement.executeUpdate();
         if (updated == 1) {
@@ -174,7 +200,7 @@ class RedeemCodeService {
 
   private RedeemRow readCodeForUpdate(Connection connection, String code) throws SQLException {
     String sql = """
-        SELECT shop_coin, game_coin, max_uses, used_count, expires_at, active
+        SELECT shop_coin, game_coin, max_uses, per_user_max_uses, used_count, expires_at, active
         FROM redeem_codes
         WHERE code = ?
         FOR UPDATE
@@ -191,6 +217,7 @@ class RedeemCodeService {
             resultSet.getLong("shop_coin"),
             resultSet.getLong("game_coin"),
             resultSet.getInt("max_uses"),
+            resultSet.getInt("per_user_max_uses"),
             resultSet.getInt("used_count"),
             expires,
             resultSet.getBoolean("active"));
@@ -198,16 +225,37 @@ class RedeemCodeService {
     }
   }
 
-  private boolean insertUsage(Connection connection, String code, long userId) throws SQLException {
+  private int readUserUsageForUpdate(Connection connection, String code, long userId) throws SQLException {
     String sql = """
-        INSERT INTO redeem_usage (code, user_id)
-        VALUES (?, ?)
-        ON DUPLICATE KEY UPDATE id = id
+        SELECT use_count
+        FROM redeem_usage
+        WHERE code = ? AND user_id = ?
+        FOR UPDATE
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, code);
       statement.setLong(2, userId);
-      return statement.executeUpdate() == 1;
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return 0;
+        }
+        return Math.max(0, resultSet.getInt("use_count"));
+      }
+    }
+  }
+
+  private void incrementUserUsage(Connection connection, String code, long userId) throws SQLException {
+    String sql = """
+        INSERT INTO redeem_usage (code, user_id, use_count)
+        VALUES (?, ?, 1)
+        ON DUPLICATE KEY UPDATE
+          use_count = use_count + 1,
+          used_at = CURRENT_TIMESTAMP
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, code);
+      statement.setLong(2, userId);
+      statement.executeUpdate();
     }
   }
 
@@ -235,6 +283,7 @@ class RedeemCodeService {
       long shopCoin,
       long gameCoin,
       int maxUses,
+      int perUserMaxUses,
       int usedCount,
       LocalDateTime expiresAt,
       boolean active) {
@@ -245,7 +294,8 @@ class RedeemCodeService {
     INVALID_CODE,
     EXPIRED,
     OUT_OF_STOCK,
-    ALREADY_USED
+    ALREADY_USED,
+    USER_LIMIT_REACHED
   }
 
   record RedeemResult(RedeemStatus status, WalletService.WalletBalance balance) {
@@ -256,6 +306,7 @@ class RedeemCodeService {
       long shopCoin,
       long gameCoin,
       int maxUses,
+      int perUserMaxUses,
       int usedCount,
       LocalDateTime expiresAt,
       boolean active,

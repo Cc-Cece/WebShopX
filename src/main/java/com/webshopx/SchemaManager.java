@@ -21,13 +21,17 @@ class SchemaManager {
     createWalletLedger(connection);
     createRedeemCodes(connection);
     createRedeemUsage(connection);
+    migrateRedeemCodes(connection);
+    migrateRedeemUsage(connection);
     createProducts(connection);
     migrateProducts(connection);
     createOrders(connection);
+    migrateOrders(connection);
     createOrderItems(connection);
     createDeliveryQueue(connection);
     createMarketListings(connection);
     createMarketTrades(connection);
+    migrateMarketTrades(connection);
     createMarketItemDeliveries(connection);
     return null;
   }
@@ -182,6 +186,7 @@ class SchemaManager {
           shop_coin BIGINT NOT NULL DEFAULT 0,
           game_coin BIGINT NOT NULL DEFAULT 0,
           max_uses INT NOT NULL DEFAULT 1,
+          per_user_max_uses INT NOT NULL DEFAULT 1,
           used_count INT NOT NULL DEFAULT 0,
           expires_at DATETIME NULL,
           active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -198,6 +203,7 @@ class SchemaManager {
           id BIGINT NOT NULL AUTO_INCREMENT,
           code VARCHAR(32) NOT NULL,
           user_id BIGINT NOT NULL,
+          use_count INT NOT NULL DEFAULT 0,
           used_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
           UNIQUE KEY uniq_redeem_usage (code, user_id),
@@ -208,6 +214,28 @@ class SchemaManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
+  }
+
+  private void migrateRedeemCodes(Connection connection) throws SQLException {
+    if (!columnExists(connection, "redeem_codes", "per_user_max_uses")) {
+      execute(
+          connection,
+          "ALTER TABLE redeem_codes ADD COLUMN per_user_max_uses INT NOT NULL DEFAULT 1 AFTER max_uses");
+    }
+    execute(
+        connection,
+        "UPDATE redeem_codes SET per_user_max_uses = 1 WHERE per_user_max_uses IS NULL OR per_user_max_uses < 1");
+  }
+
+  private void migrateRedeemUsage(Connection connection) throws SQLException {
+    if (!columnExists(connection, "redeem_usage", "use_count")) {
+      execute(
+          connection,
+          "ALTER TABLE redeem_usage ADD COLUMN use_count INT NOT NULL DEFAULT 0 AFTER user_id");
+    }
+    execute(
+        connection,
+        "UPDATE redeem_usage SET use_count = 1 WHERE use_count IS NULL OR use_count < 1");
   }
 
   private void createProducts(Connection connection) throws SQLException {
@@ -225,6 +253,8 @@ class SchemaManager {
           effect_type VARCHAR(64) NULL,
           effect_seconds INT NULL,
           effect_amplifier INT NULL,
+          publish_at DATETIME NULL,
+          unpublish_at DATETIME NULL,
           active BOOLEAN NOT NULL DEFAULT TRUE,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -273,6 +303,18 @@ class SchemaManager {
           "ALTER TABLE products "
               + "ADD COLUMN effect_amplifier INT NULL AFTER effect_seconds");
     }
+    if (!columnExists(connection, "products", "publish_at")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN publish_at DATETIME NULL AFTER effect_amplifier");
+    }
+    if (!columnExists(connection, "products", "unpublish_at")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN unpublish_at DATETIME NULL AFTER publish_at");
+    }
     execute(
         connection,
         "UPDATE products SET product_type = 'COMMAND' "
@@ -291,7 +333,9 @@ class SchemaManager {
           status VARCHAR(24) NOT NULL,
           idempotency_key VARCHAR(96) NOT NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          refund_deadline DATETIME NULL,
           delivered_at DATETIME NULL,
+          refunded_at DATETIME NULL,
           PRIMARY KEY (id),
           UNIQUE KEY uniq_orders_order_no (order_no),
           UNIQUE KEY uniq_orders_idempotency (user_id, idempotency_key),
@@ -301,6 +345,19 @@ class SchemaManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
+  }
+
+  private void migrateOrders(Connection connection) throws SQLException {
+    if (!columnExists(connection, "orders", "refund_deadline")) {
+      execute(
+          connection,
+          "ALTER TABLE orders ADD COLUMN refund_deadline DATETIME NULL AFTER created_at");
+    }
+    if (!columnExists(connection, "orders", "refunded_at")) {
+      execute(
+          connection,
+          "ALTER TABLE orders ADD COLUMN refunded_at DATETIME NULL AFTER delivered_at");
+    }
   }
 
   private void createOrderItems(Connection connection) throws SQLException {
@@ -389,7 +446,15 @@ class SchemaManager {
           seller_user_id BIGINT NOT NULL,
           currency VARCHAR(16) NOT NULL,
           total_price BIGINT NOT NULL,
+          buyer_total BIGINT NOT NULL DEFAULT 0,
+          seller_receive BIGINT NOT NULL DEFAULT 0,
+          fee_amount BIGINT NOT NULL DEFAULT 0,
+          tax_amount BIGINT NOT NULL DEFAULT 0,
           idempotency_key VARCHAR(96) NOT NULL,
+          status VARCHAR(24) NOT NULL DEFAULT 'PENDING',
+          refund_deadline DATETIME NULL,
+          refunded_at DATETIME NULL,
+          settled_at DATETIME NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
           UNIQUE KEY uniq_market_trade_listing (listing_id),
@@ -404,6 +469,87 @@ class SchemaManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
+  }
+
+  private void migrateMarketTrades(Connection connection) throws SQLException {
+    boolean buyerTotalExists = columnExists(connection, "market_trades", "buyer_total");
+    if (!buyerTotalExists) {
+      execute(connection, "ALTER TABLE market_trades "
+          + "ADD COLUMN buyer_total BIGINT NOT NULL DEFAULT 0 AFTER total_price");
+      buyerTotalExists = true;
+    }
+    boolean sellerReceiveExists = columnExists(connection, "market_trades", "seller_receive");
+    if (!sellerReceiveExists) {
+      execute(connection, "ALTER TABLE market_trades "
+          + "ADD COLUMN seller_receive BIGINT NOT NULL DEFAULT 0 AFTER buyer_total");
+      sellerReceiveExists = true;
+    }
+    boolean feeExists = columnExists(connection, "market_trades", "fee_amount");
+    if (!feeExists) {
+      execute(connection, "ALTER TABLE market_trades "
+          + "ADD COLUMN fee_amount BIGINT NOT NULL DEFAULT 0 AFTER seller_receive");
+      feeExists = true;
+    }
+    boolean taxExists = columnExists(connection, "market_trades", "tax_amount");
+    if (!taxExists) {
+      execute(connection, "ALTER TABLE market_trades "
+          + "ADD COLUMN tax_amount BIGINT NOT NULL DEFAULT 0 AFTER fee_amount");
+      taxExists = true;
+    }
+
+    if (buyerTotalExists) {
+      execute(connection, "UPDATE market_trades SET buyer_total = total_price "
+          + "WHERE buyer_total = 0");
+    }
+    if (sellerReceiveExists) {
+      execute(connection, "UPDATE market_trades SET seller_receive = total_price "
+          + "WHERE seller_receive = 0");
+    }
+    if (feeExists) {
+      execute(connection, "UPDATE market_trades SET fee_amount = 0 WHERE fee_amount IS NULL");
+    }
+    if (taxExists) {
+      execute(connection, "UPDATE market_trades SET tax_amount = 0 WHERE tax_amount IS NULL");
+    }
+
+    boolean statusAdded = false;
+    if (!columnExists(connection, "market_trades", "status")) {
+      execute(
+          connection,
+          "ALTER TABLE market_trades "
+              + "ADD COLUMN status VARCHAR(24) NOT NULL DEFAULT 'PENDING' AFTER idempotency_key");
+      statusAdded = true;
+    }
+    if (!columnExists(connection, "market_trades", "refund_deadline")) {
+      execute(
+          connection,
+          "ALTER TABLE market_trades "
+              + "ADD COLUMN refund_deadline DATETIME NULL AFTER status");
+    }
+    if (!columnExists(connection, "market_trades", "refunded_at")) {
+      execute(
+          connection,
+          "ALTER TABLE market_trades "
+              + "ADD COLUMN refunded_at DATETIME NULL AFTER refund_deadline");
+    }
+    if (!columnExists(connection, "market_trades", "settled_at")) {
+      execute(
+          connection,
+          "ALTER TABLE market_trades "
+              + "ADD COLUMN settled_at DATETIME NULL AFTER refunded_at");
+    }
+    if (statusAdded) {
+      execute(connection, "UPDATE market_trades SET status = 'DELIVERED'");
+    } else {
+      execute(
+          connection,
+          "UPDATE market_trades SET status = 'DELIVERED' "
+              + "WHERE status IS NULL OR status = ''");
+    }
+    execute(
+        connection,
+        "UPDATE market_trades SET settled_at = created_at "
+            + "WHERE settled_at IS NULL AND status = 'DELIVERED'");
   }
 
   private void createMarketItemDeliveries(Connection connection) throws SQLException {

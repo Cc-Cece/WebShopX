@@ -47,19 +47,14 @@ class AuthService {
     return createSession(userId);
   }
 
-  RegisterStartResult startRegistration(String username) {
-    validateUsername(username);
+  RegisterStartResult startRegistration() {
     int expireMinutes = Math.max(1, settingsSupplier.get().bindRequestExpireMinutes());
     LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(expireMinutes);
 
     return databaseManager.inTransaction(connection -> {
-      if (userExists(connection, username)) {
-        throw new ServiceException("username_exists", "Username already exists");
-      }
-
-      long userId = createPendingUser(connection, username);
+      long userId = createPendingUser(connection, generatePendingUsername(connection));
       String bindCode = createBindCode(connection, userId, expiresAt);
-      return new RegisterStartResult(username, bindCode, expireMinutes);
+      return new RegisterStartResult(bindCode, expireMinutes);
     });
   }
 
@@ -271,6 +266,16 @@ class AuthService {
 
     ensureWallet(connection, userId);
     return userId;
+  }
+
+  private String generatePendingUsername(Connection connection) throws SQLException {
+    for (int attempt = 0; attempt < 6; attempt++) {
+      String candidate = "pending_" + randomBindCode(8);
+      if (!userExists(connection, candidate)) {
+        return candidate;
+      }
+    }
+    throw new IllegalStateException("Could not allocate unique pending username");
   }
 
   private long createUser(
@@ -499,7 +504,7 @@ class AuthService {
   record AuthResult(AuthUser user, String sessionToken, LocalDateTime expiresAt) {
   }
 
-  record RegisterStartResult(String username, String bindCode, int expiresInMinutes) {
+  record RegisterStartResult(String bindCode, int expiresInMinutes) {
   }
 
   enum RegistrationStatus {

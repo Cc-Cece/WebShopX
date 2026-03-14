@@ -7,11 +7,18 @@
   marketMode: "public",
   listings: [],
   products: [],
+  orders: [],
+  orderPolicy: {
+    cooldownSeconds: 0,
+    refundEnabled: false,
+  },
+  orderPolicyReady: false,
   zhNameMap: {},
   zhNameMapReady: false,
   zhNameMapPromise: null,
   hasLoadedProducts: false,
   hasLoadedMarket: false,
+  hasLoadedOrders: false,
   registration: {
     bindCode: null,
     username: null,
@@ -78,13 +85,13 @@ const ERROR_TIPS_COMMON = {
 
 const ERROR_TIPS_BY_SCENE = {
   register_start: {
-    invalid_username: "请先输入合法昵称（3-32 位字母/数字/下划线）。",
-    username_exists: "该昵称已被注册或绑定，请直接登录或更换昵称。",
-    bad_request: "注册参数不完整，请检查昵称后重试。",
+    invalid_username: "注册流程无需输入昵称，请直接获取绑定码。",
+    username_exists: "该 MC 名称已被注册或绑定，请直接登录。",
+    bad_request: "注册参数不完整，请刷新页面后重试。",
   },
   register_finish: {
     invalid_code: "绑定码无效，请重新获取绑定码。",
-    wait_bind: "尚未完成游戏内绑定，请先在游戏执行 /shop bind <code>。",
+    wait_bind: "尚未完成游戏内绑定，请先在游戏执行 /webshopx bind <code>（或 /ws bind <code>）。",
     already_completed: "该绑定码已完成注册，请直接登录。",
     invalid_password: "密码长度需为 8-64 位。",
     invalid_state: "注册流程状态异常，请重新开始注册。",
@@ -105,6 +112,17 @@ const ERROR_TIPS_BY_SCENE = {
     sync_timeout: "回收操作超时，请稍后再试。",
     sync_interrupted: "回收操作被中断，请稍后再试。",
   },
+  orders_load: {
+    auth_required: "请先登录后查看订单。",
+    not_found: "订单接口不可用，请稍后重试。",
+  },
+  order_refund: {
+    refund_disabled: "当前订单未开启冷静期，无法退款。",
+    refund_expired: "冷静期已结束，无法退款。",
+    refund_not_allowed: "当前订单状态不支持退款。",
+    already_refunded: "该订单已退款。",
+    order_missing: "未找到该订单，请刷新后再试。",
+  },
   market_buy: {
     invalid_listing: "上架 ID 无效，请刷新列表后重试。",
     listing_missing: "该上架不存在，可能已被移除。",
@@ -117,6 +135,13 @@ const ERROR_TIPS_BY_SCENE = {
     listing_missing: "该上架不存在，可能已被移除。",
     listing_unavailable: "该上架已下架或已售出。",
     forbidden: "仅上架者本人可以执行下架。",
+  },
+  market_price: {
+    invalid_listing: "上架 ID 无效，请刷新列表后重试。",
+    listing_missing: "该上架不存在，可能已被移除。",
+    listing_unavailable: "该上架已下架或已售出。",
+    forbidden: "仅上架者本人可以改价。",
+    invalid_price: "价格必须大于 0。",
   },
   wallet_refresh: {
     bad_request: "请求参数异常，请重新登录后再试。",
@@ -144,6 +169,15 @@ const REDEEM_STATUS_TIPS = {
   EXPIRED: { tone: "warn", text: "兑换失败：兑换码已过期。" },
   OUT_OF_STOCK: { tone: "warn", text: "兑换失败：兑换码已领完。" },
   ALREADY_USED: { tone: "warn", text: "兑换失败：你已使用过该兑换码。" },
+  USER_LIMIT_REACHED: { tone: "warn", text: "兑换失败：你已达到该兑换码的个人使用上限。" },
+};
+
+const ORDER_STATUS_LABELS = {
+  PENDING: { label: "待发放", tone: "pending" },
+  DELIVERED: { label: "已发放", tone: "delivered" },
+  REFUNDED: { label: "已退款", tone: "refunded" },
+  FAILED: { label: "失败", tone: "failed" },
+  RECYCLED: { label: "已回收", tone: "delivered" },
 };
 
 const elements = {
@@ -161,7 +195,6 @@ const elements = {
   loginPassword: document.getElementById("loginPassword"),
   loginBtn: document.getElementById("loginBtn"),
 
-  registerUsername: document.getElementById("registerUsername"),
   registerStartBtn: document.getElementById("registerStartBtn"),
   registerBindCodeView: document.getElementById("registerBindCodeView"),
   registerStatusView: document.getElementById("registerStatusView"),
@@ -180,12 +213,39 @@ const elements = {
   redeemView: document.getElementById("redeemView"),
   exchangeView: document.getElementById("exchangeView"),
   orderView: document.getElementById("orderView"),
+  ordersBtn: document.getElementById("ordersBtn"),
+  orderList: document.getElementById("orderList"),
   marketView: document.getElementById("marketView"),
   shopCoinValue: document.getElementById("shopCoinValue"),
   gameCoinValue: document.getElementById("gameCoinValue"),
   productList: document.getElementById("productList"),
   marketList: document.getElementById("marketList"),
+  marketKeyword: document.getElementById("marketKeyword"),
+  marketMaterial: document.getElementById("marketMaterial"),
+  marketCurrency: document.getElementById("marketCurrency"),
+  marketMinPrice: document.getElementById("marketMinPrice"),
+  marketMaxPrice: document.getElementById("marketMaxPrice"),
+  marketSort: document.getElementById("marketSort"),
+  marketApplyBtn: document.getElementById("marketApplyBtn"),
+  marketClearBtn: document.getElementById("marketClearBtn"),
   snackbarHost: document.getElementById("snackbarHost"),
+  confirmDialog: document.getElementById("confirmDialog"),
+  confirmTitle: document.getElementById("confirmTitle"),
+  confirmMessage: document.getElementById("confirmMessage"),
+  confirmDetails: document.getElementById("confirmDetails"),
+  confirmCancelBtn: document.getElementById("confirmCancelBtn"),
+  confirmOkBtn: document.getElementById("confirmOkBtn"),
+  priceDialog: document.getElementById("priceDialog"),
+  priceDialogTitle: document.getElementById("priceDialogTitle"),
+  priceDialogHint: document.getElementById("priceDialogHint"),
+  priceDialogBadge: document.getElementById("priceDialogBadge"),
+  priceDialogCurrent: document.getElementById("priceDialogCurrent"),
+  priceDialogCurrency: document.getElementById("priceDialogCurrency"),
+  priceDialogPrefix: document.getElementById("priceDialogPrefix"),
+  priceDialogInput: document.getElementById("priceDialogInput"),
+  priceDialogError: document.getElementById("priceDialogError"),
+  priceDialogCancel: document.getElementById("priceDialogCancel"),
+  priceDialogConfirm: document.getElementById("priceDialogConfirm"),
 };
 
 const tabs = Array.from(document.querySelectorAll(".top-tab"));
@@ -226,6 +286,116 @@ function notify(message, tone = "info", durationMs = 3200) {
       node.remove();
     }, 200);
   }, durationMs);
+}
+
+let confirmResolver = null;
+
+function openConfirmDialog({ title, message, details = [], confirmText = "确认" }) {
+  if (!elements.confirmDialog) {
+    return Promise.resolve(window.confirm(`${title}\n${message}`));
+  }
+  if (confirmResolver) {
+    confirmResolver(false);
+    confirmResolver = null;
+  }
+
+  elements.confirmTitle.textContent = title;
+  elements.confirmMessage.textContent = message;
+  elements.confirmDetails.innerHTML = "";
+  details.filter(Boolean).forEach((line) => {
+    elements.confirmDetails.appendChild(createEl("div", "", line));
+  });
+  elements.confirmOkBtn.textContent = confirmText;
+  elements.confirmDialog.classList.add("show");
+  elements.confirmDialog.setAttribute("aria-hidden", "false");
+
+  return new Promise((resolve) => {
+    confirmResolver = resolve;
+  });
+}
+
+function closeConfirmDialog(result) {
+  if (!elements.confirmDialog) {
+    return;
+  }
+  elements.confirmDialog.classList.remove("show");
+  elements.confirmDialog.setAttribute("aria-hidden", "true");
+  if (confirmResolver) {
+    confirmResolver(result);
+    confirmResolver = null;
+  }
+}
+
+let priceResolver = null;
+
+function openPriceDialog({ listingId, currentPrice, currency }) {
+  if (!elements.priceDialog) {
+    const raw = window.prompt(
+      `请输入新的价格（当前 ${formatCurrency(currentPrice, currency)}）`,
+      String(currentPrice)
+    );
+    if (raw === null) {
+      return Promise.resolve(null);
+    }
+    const parsed = Number(String(raw).trim());
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return Promise.resolve(null);
+    }
+    return Promise.resolve(Math.floor(parsed));
+  }
+
+  if (priceResolver) {
+    priceResolver(null);
+    priceResolver = null;
+  }
+
+  const currencyMeta = CURRENCY_META[currency] || { short: String(currency || "--") };
+  elements.priceDialogTitle.textContent = `修改价格 #${listingId}`;
+  elements.priceDialogHint.textContent = "价格修改后立即生效，请谨慎操作。";
+  if (elements.priceDialogBadge) {
+    elements.priceDialogBadge.textContent = `#${listingId}`;
+  }
+  if (elements.priceDialogCurrent) {
+    elements.priceDialogCurrent.textContent = formatCurrency(currentPrice, currency);
+  }
+  if (elements.priceDialogCurrency) {
+    elements.priceDialogCurrency.textContent = currencyMeta.short;
+  }
+  if (elements.priceDialogPrefix) {
+    elements.priceDialogPrefix.textContent = currencyMeta.short;
+  }
+  elements.priceDialogInput.value = String(currentPrice || "");
+  elements.priceDialogError.textContent = "";
+  elements.priceDialog.classList.add("show");
+  elements.priceDialog.setAttribute("aria-hidden", "false");
+  elements.priceDialogInput.focus();
+
+  return new Promise((resolve) => {
+    priceResolver = resolve;
+  });
+}
+
+function closePriceDialog(result) {
+  if (!elements.priceDialog) {
+    return;
+  }
+  elements.priceDialog.classList.remove("show");
+  elements.priceDialog.setAttribute("aria-hidden", "true");
+  if (priceResolver) {
+    priceResolver(result);
+    priceResolver = null;
+  }
+}
+
+function submitPriceDialog() {
+  const raw = elements.priceDialogInput.value.trim();
+  const price = Number(raw);
+  if (!Number.isFinite(price) || price <= 0) {
+    elements.priceDialogError.textContent = "价格必须是大于 0 的数字。";
+    return;
+  }
+  elements.priceDialogError.textContent = "";
+  closePriceDialog(Math.floor(price));
 }
 
 function escapeHtml(raw) {
@@ -270,6 +440,9 @@ function switchTab(tabName) {
   if (tabName === "shop" && !state.hasLoadedProducts) {
     loadProducts();
   }
+  if (tabName === "orders" && state.token && !state.hasLoadedOrders) {
+    loadOrders();
+  }
   if (tabName === "market" && !state.hasLoadedMarket) {
     loadMarket("public");
   }
@@ -299,6 +472,53 @@ function formatAmount(amount) {
 function formatCurrency(amount, currency) {
   const meta = CURRENCY_META[currency] || { short: String(currency || "--") };
   return `${meta.short} ${formatAmount(amount)}`;
+}
+
+function applyCurrencyMeta(meta) {
+  if (!meta) {
+    return;
+  }
+  if (meta.shopCoin) {
+    CURRENCY_META.SHOP_COIN.label = meta.shopCoin.name || CURRENCY_META.SHOP_COIN.label;
+    CURRENCY_META.SHOP_COIN.short = meta.shopCoin.short || CURRENCY_META.SHOP_COIN.short;
+  }
+  if (meta.gameCoin) {
+    CURRENCY_META.GAME_COIN.label = meta.gameCoin.name || CURRENCY_META.GAME_COIN.label;
+    CURRENCY_META.GAME_COIN.short = meta.gameCoin.short || CURRENCY_META.GAME_COIN.short;
+  }
+
+  const updateSelect = (select) => {
+    if (!select) {
+      return;
+    }
+    const options = Array.from(select.options || []);
+    options.forEach((option) => {
+      if (option.value === "SHOP_COIN") {
+        option.textContent = CURRENCY_META.SHOP_COIN.label;
+      }
+      if (option.value === "GAME_COIN") {
+        option.textContent = CURRENCY_META.GAME_COIN.label;
+      }
+    });
+  };
+  updateSelect(document.getElementById("exchangeFrom"));
+  updateSelect(document.getElementById("exchangeTo"));
+  updateSelect(document.getElementById("marketCurrency"));
+
+  const pillLabels = document.querySelectorAll(".wallet-pill span");
+  if (pillLabels.length >= 2) {
+    pillLabels[0].textContent = CURRENCY_META.SHOP_COIN.label;
+    pillLabels[1].textContent = CURRENCY_META.GAME_COIN.label;
+  }
+}
+
+async function loadCurrencyMeta() {
+  try {
+    const payload = await api("/api/meta/currency", { method: "GET" });
+    applyCurrencyMeta(payload);
+  } catch (error) {
+    // Ignore if metadata endpoint is unavailable.
+  }
 }
 
 function formatWalletInline(shopCoin, gameCoin) {
@@ -544,6 +764,37 @@ function formatAge(isoText) {
   return `${days} 天前`;
 }
 
+function formatDateTime(isoText) {
+  const timestamp = Date.parse(isoText);
+  if (Number.isNaN(timestamp)) {
+    return "未知时间";
+  }
+  return new Date(timestamp).toLocaleString("zh-CN", { hour12: false });
+}
+
+function formatCountdown(deadlineIso) {
+  const deadline = Date.parse(deadlineIso);
+  if (Number.isNaN(deadline)) {
+    return null;
+  }
+  const diff = Math.max(0, deadline - Date.now());
+  const seconds = Math.ceil(diff / 1000);
+  if (seconds <= 0) {
+    return "已结束";
+  }
+  if (seconds < 60) {
+    return `${seconds} 秒`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remain = seconds % 60;
+  return `${minutes} 分 ${remain} 秒`;
+}
+
+function orderStatusMeta(status) {
+  const key = String(status || "").toUpperCase();
+  return ORDER_STATUS_LABELS[key] || { label: key || "未知", tone: "pending" };
+}
+
 function enchantLabel(key) {
   const name = String(key || "")
     .replace(/^minecraft:/, "")
@@ -696,12 +947,16 @@ function setSession(payload) {
   stopRegistrationPolling();
   clearRegistrationUi(false);
   updateAuthLayout();
+  state.hasLoadedOrders = false;
 }
 
 function clearSession() {
   state.token = null;
   state.username = null;
   state.boundUuid = null;
+  state.orders = [];
+  state.hasLoadedOrders = false;
+  renderOrders(state.orders);
   updateAuthLayout();
 }
 
@@ -745,7 +1000,7 @@ function clearRegistrationUi(resetStatus = true) {
   setRegisterFlowTip(
     "info",
     "注册步骤",
-    "在游戏内执行 /shop bind <绑定码> 后，页面会自动检测绑定结果并提示下一步。",
+    "在游戏内执行 /webshopx bind <绑定码>（或 /ws bind <绑定码>）后，页面会自动检测绑定结果并提示下一步。",
     resetStatus ? "状态：等待开始注册" : undefined
   );
   elements.registerPasswordStage.classList.add("hidden");
@@ -774,8 +1029,8 @@ function setRegistrationStatusText(status, username, boundUuid) {
     setRegisterFlowTip(
       "info",
       "等待绑定",
-      "请进入游戏执行 /shop bind <绑定码>。完成后页面会自动切换到密码设置。",
-      "状态：等待游戏内执行 /shop bind"
+      "请进入游戏执行 /webshopx bind <绑定码>（可简写 /ws bind <绑定码>）。完成后页面会自动切换到密码设置。",
+      "状态：等待游戏内执行 /webshopx bind"
     );
   } else if (status === "NEED_PASSWORD") {
     const suffix = boundUuid ? `，已绑定 UUID ${boundUuid}` : "";
@@ -818,32 +1073,21 @@ function setRegistrationStatusText(status, username, boundUuid) {
 }
 
 async function startRegistration() {
-  const username = elements.registerUsername.value.trim();
-  if (!username) {
-    setRegisterFlowTip(
-      "warn",
-      "缺少昵称",
-      "请先输入注册昵称，再点击“获取绑定码”。",
-      "状态：缺少注册昵称"
-    );
-    throw new Error("请先输入注册昵称（3-32 位字母数字下划线）。");
-  }
-
   const payload = await api("/api/auth/register/start", {
     method: "POST",
-    body: JSON.stringify({ username }),
+    body: JSON.stringify({}),
   });
 
   state.registration.bindCode = payload.bindCode;
-  state.registration.username = payload.username;
+  state.registration.username = null;
   state.registration.status = "WAITING_BIND";
 
   elements.registerBindCodeView.textContent = `绑定码：${payload.bindCode}`;
   setRegisterFlowTip(
     "info",
     "绑定码已生成",
-    `请在 ${payload.expiresInMinutes} 分钟内回到游戏执行 /shop bind <绑定码>。页面会自动检测绑定结果。`,
-    `状态：绑定码已生成（${payload.expiresInMinutes} 分钟内有效），请回游戏执行 /shop bind`
+    `请在 ${payload.expiresInMinutes} 分钟内回到游戏执行 /webshopx bind <绑定码>（或 /ws bind <绑定码>）。页面会自动检测绑定结果。`,
+    `状态：绑定码已生成（${payload.expiresInMinutes} 分钟内有效），请回游戏执行 /webshopx bind`
   );
   elements.registerPasswordStage.classList.add("hidden");
 
@@ -914,6 +1158,7 @@ async function finishRegistration() {
 
   setSession(payload);
   await refreshWallet();
+  await loadOrders();
   switchTab("wallet");
 }
 
@@ -921,7 +1166,7 @@ function renderProducts(products) {
   elements.productList.innerHTML = "";
 
   if (!products || products.length === 0) {
-    const empty = createEl("div", "empty-state", "暂无商品，请联系管理员配置 sample-products。 ");
+    const empty = createEl("div", "empty-state", "暂无商品，请联系管理员在后台添加。 ");
     elements.productList.appendChild(empty);
     return;
   }
@@ -944,6 +1189,9 @@ function renderProducts(products) {
     card.appendChild(top);
 
     card.appendChild(createEl("p", "product-price", formatCurrency(product.price, product.currency)));
+    if (product.unpublishAt) {
+      card.appendChild(createEl("p", "product-sku", `下架时间：${formatDateTime(product.unpublishAt)}`));
+    }
 
     const actions = createEl("div", "product-actions");
     const qty = document.createElement("input");
@@ -1024,25 +1272,36 @@ function renderListings(listings) {
     seller.appendChild(createEl("span", "", isOwner ? "我的上架" : "公开市场"));
     footer.appendChild(seller);
 
-    const button = createEl("button", "market-action-btn");
-    button.type = "button";
-    button.dataset.listingId = String(listing.id);
-
+    const actions = createEl("div", "market-actions-row");
     if (isActive) {
       if (isOwner) {
-        button.textContent = "下架并退回";
-        button.dataset.action = "unlist";
-        button.classList.add("unlist");
+        const editBtn = createEl("button", "market-action-btn btn-tonal", "改价");
+        editBtn.type = "button";
+        editBtn.dataset.action = "price";
+        editBtn.dataset.listingId = String(listing.id);
+        editBtn.dataset.currentPrice = String(listing.price);
+        editBtn.dataset.currency = listing.currency;
+
+        const unlistBtn = createEl("button", "market-action-btn unlist", "下架并退回");
+        unlistBtn.type = "button";
+        unlistBtn.dataset.action = "unlist";
+        unlistBtn.dataset.listingId = String(listing.id);
+        actions.appendChild(editBtn);
+        actions.appendChild(unlistBtn);
       } else {
-        button.textContent = "立即购买";
-        button.dataset.action = "buy";
+        const buyBtn = createEl("button", "market-action-btn", "立即购买");
+        buyBtn.type = "button";
+        buyBtn.dataset.action = "buy";
+        buyBtn.dataset.listingId = String(listing.id);
+        actions.appendChild(buyBtn);
       }
     } else {
-      button.textContent = "不可操作";
-      button.disabled = true;
+      const disabledBtn = createEl("button", "market-action-btn", "不可操作");
+      disabledBtn.disabled = true;
+      actions.appendChild(disabledBtn);
     }
 
-    footer.appendChild(button);
+    footer.appendChild(actions);
     card.appendChild(footer);
     elements.marketList.appendChild(card);
   }
@@ -1076,9 +1335,45 @@ async function loadMarket(mode, options = {}) {
       ensureToken();
     }
 
-    const query = mode === "mine"
-      ? "/api/market/listings?mine=true&limit=120"
-      : "/api/market/listings?limit=120";
+    const params = new URLSearchParams();
+    params.set("limit", "120");
+    if (mode === "mine") {
+      params.set("mine", "true");
+    }
+    const keyword = elements.marketKeyword ? elements.marketKeyword.value.trim() : "";
+    const materialInput = elements.marketMaterial ? elements.marketMaterial.value.trim() : "";
+    const material = materialInput ? normalizeMaterialKey(materialInput) : "";
+    const currency = elements.marketCurrency ? elements.marketCurrency.value.trim() : "";
+    const minPrice = elements.marketMinPrice ? elements.marketMinPrice.value.trim() : "";
+    const maxPrice = elements.marketMaxPrice ? elements.marketMaxPrice.value.trim() : "";
+    const sortValue = elements.marketSort ? elements.marketSort.value.trim() : "";
+
+    if (keyword) {
+      params.set("keyword", keyword);
+    }
+    if (material) {
+      params.set("material", material);
+    }
+    if (currency) {
+      params.set("currency", currency);
+    }
+    if (minPrice) {
+      params.set("minPrice", minPrice);
+    }
+    if (maxPrice) {
+      params.set("maxPrice", maxPrice);
+    }
+    if (sortValue) {
+      const [sortKey, sortOrder] = sortValue.split("_");
+      if (sortKey) {
+        params.set("sort", sortKey);
+      }
+      if (sortOrder) {
+        params.set("order", sortOrder);
+      }
+    }
+
+    const query = `/api/market/listings?${params.toString()}`;
     const payload = await api(query, { method: "GET" });
 
     state.marketMode = mode;
@@ -1104,6 +1399,189 @@ async function loadMarket(mode, options = {}) {
   }
 }
 
+async function loadOrderPolicy() {
+  try {
+    const payload = await api("/api/orders/policy", { method: "GET" });
+    state.orderPolicy.cooldownSeconds = Number(payload.cooldownSeconds || 0);
+    state.orderPolicy.refundEnabled = !!payload.refundEnabled;
+    state.orderPolicyReady = true;
+  } catch (error) {
+    state.orderPolicy.cooldownSeconds = 0;
+    state.orderPolicy.refundEnabled = false;
+    state.orderPolicyReady = true;
+  }
+}
+
+function renderOrders(orders) {
+  if (!elements.orderList) {
+    return;
+  }
+  elements.orderList.innerHTML = "";
+
+  if (!orders || orders.length === 0) {
+    const empty = createEl("div", "empty-state", "暂无订单记录。");
+    elements.orderList.appendChild(empty);
+    setMetaText(elements.orderView, "暂无订单", "info");
+    return;
+  }
+
+  for (const order of orders) {
+    const statusMeta = orderStatusMeta(order.status);
+    const card = createEl("article", "order-card");
+    const header = createEl("div", "order-header");
+
+    const isMarket = String(order.productType || "").toUpperCase() === "MARKET";
+    const sourceLabel = isMarket ? "玩家市场" : "官方商城";
+    const codeLabel = isMarket ? "交易号" : "订单号";
+    const skuLabel = isMarket ? "上架ID" : "SKU";
+    let title = order.productTitle || "";
+    if (isMarket && order.itemMaterial) {
+      title = getLocalizedMaterialName(order.itemMaterial);
+    }
+    if (!title) {
+      title = "未知商品";
+    }
+
+    const titleWrap = createEl("div");
+    titleWrap.appendChild(createEl("h3", "order-title", title));
+    titleWrap.appendChild(
+      createEl(
+        "p",
+        "order-sub",
+        `${codeLabel} ${order.orderNo} | ${skuLabel} ${order.sku || "--"} | 来源 ${sourceLabel}`
+      )
+    );
+    header.appendChild(titleWrap);
+
+    const statusChip = createEl("span", `order-status ${statusMeta.tone}`, statusMeta.label);
+    header.appendChild(statusChip);
+    card.appendChild(header);
+
+    card.appendChild(createEl("div", "order-price", formatCurrency(order.totalAmount, order.currency)));
+
+    const meta = createEl("div", "order-meta");
+    meta.appendChild(createEl("div", "", `数量：x${order.quantity}`));
+    const createdLabel = isMarket ? "成交时间" : "下单时间";
+    meta.appendChild(createEl("div", "", `${createdLabel}：${formatDateTime(order.createdAt)}`));
+    if (order.deliveredAt) {
+      meta.appendChild(createEl("div", "", `发放时间：${formatDateTime(order.deliveredAt)}`));
+    }
+    if (order.refundedAt) {
+      meta.appendChild(createEl("div", "", `退款时间：${formatDateTime(order.refundedAt)}`));
+    }
+    if (order.refundDeadline) {
+      const remain = formatCountdown(order.refundDeadline);
+      if (remain) {
+        meta.appendChild(createEl("div", "", `冷静期剩余：${remain}`));
+      }
+    }
+    card.appendChild(meta);
+
+    if (order.canRefund) {
+      const actions = createEl("div", "order-actions");
+      const refundBtn = createEl("button", "btn-tonal", "申请退款");
+      refundBtn.type = "button";
+      refundBtn.dataset.action = "refund";
+      refundBtn.dataset.orderNo = order.orderNo;
+      refundBtn.dataset.currency = order.currency;
+      refundBtn.dataset.amount = order.totalAmount;
+      actions.appendChild(refundBtn);
+      card.appendChild(actions);
+    }
+
+    elements.orderList.appendChild(card);
+  }
+
+  setMetaText(elements.orderView, `订单记录：${orders.length} 条`, "info");
+}
+
+async function loadOrders(options = {}) {
+  const announce = !!options.announce;
+  try {
+    ensureToken();
+    await ensureZhNameMap();
+    const payload = await api("/api/orders/list?limit=50", { method: "GET" });
+    state.orders = payload.orders || [];
+    renderOrders(state.orders);
+    state.hasLoadedOrders = true;
+    const cooldownSeconds = Number(payload.cooldownSeconds || 0);
+    if (Number.isFinite(cooldownSeconds)) {
+      state.orderPolicy.cooldownSeconds = cooldownSeconds;
+      state.orderPolicy.refundEnabled = cooldownSeconds > 0;
+    }
+    log(`订单记录已加载：${state.orders.length} 条。`);
+    if (announce) {
+      notify(`订单记录已刷新：${state.orders.length} 条。`, "info");
+    }
+  } catch (error) {
+    const message = resolveErrorMessage(error, "orders_load");
+    setMetaText(elements.orderView, `加载订单失败：${message}`, "error");
+    log(`加载订单失败：${message}`, "ERROR");
+    if (announce) {
+      notify(`加载订单失败：${message}`, "error");
+    }
+  }
+}
+
+async function confirmPurchase(product, quantity) {
+  const qty = Number(quantity || 1);
+  const total = formatCurrency(product.price * qty, product.currency);
+  const cooldown = Number(state.orderPolicy.cooldownSeconds || 0);
+  const details = [
+    `商品：${product.title}`,
+    `数量：x${qty}`,
+    `总额：${total}`,
+  ];
+  if (cooldown > 0) {
+    details.push(`冷静期：${cooldown} 秒（可在冷静期内退款）`);
+  } else {
+    details.push("冷静期：未开启");
+  }
+  return openConfirmDialog({
+    title: "确认下单",
+    message: "请确认以下订单信息，确认后将立即扣除余额。",
+    details,
+    confirmText: "确认下单",
+  });
+}
+
+async function confirmMarketBuy(listing) {
+  await ensureZhNameMap();
+  const meta = parseMeta(listing.itemMetaJson);
+  const displayName = stripColorCodes(meta.displayName || "");
+  const localizedName = displayName || getLocalizedMaterialName(listing.itemMaterial);
+  const cooldown = Number(state.orderPolicy.cooldownSeconds || 0);
+  const details = [
+    `物品：${localizedName}`,
+    `数量：x${listing.quantity}`,
+    `价格：${formatCurrency(listing.price, listing.currency)}`,
+    `卖家：${listing.sellerName}`,
+    "手续费/税率以服务器配置为准",
+  ];
+  if (cooldown > 0) {
+    details.push(`冷静期：${cooldown} 秒（冷静期内可退款）`);
+  } else {
+    details.push("冷静期：未开启");
+  }
+  return openConfirmDialog({
+    title: "确认购买",
+    message: "请确认以下交易信息，确认后将立即扣除余额。",
+    details,
+    confirmText: "确认购买",
+  });
+}
+
+async function refundOrder(orderNo) {
+  ensureToken();
+  const payload = await api("/api/orders/refund", {
+    method: "POST",
+    body: JSON.stringify({ orderNo }),
+  });
+  updateWalletView(payload);
+  notify(`退款成功：${payload.orderNo}`, "success");
+  await loadOrders();
+}
+
 async function createOrder(productId, quantity) {
   ensureToken();
 
@@ -1126,7 +1604,8 @@ async function createOrder(productId, quantity) {
   });
 
   const isExisting = String(payload.state || "").toUpperCase() === "EXISTING";
-  const summary = `订单 ${payload.orderNo} | 总额 ${formatCurrency(payload.totalAmount, payload.currency)} | ${payload.state}`;
+  const orderStatus = payload.orderStatus || payload.state;
+  const summary = `订单 ${payload.orderNo} | 总额 ${formatCurrency(payload.totalAmount, payload.currency)} | ${orderStatus}`;
   setMetaText(elements.orderView, summary, isExisting ? "warn" : "success");
   if (isExisting) {
     log(`下单请求去重，返回历史订单：${summary}`, "WARN");
@@ -1142,6 +1621,12 @@ async function createOrder(productId, quantity) {
     const refreshMessage = resolveErrorMessage(refreshError, "wallet_refresh");
     log(`订单创建后刷新钱包失败：${refreshMessage}`, "WARN");
   }
+  try {
+    await loadOrders();
+  } catch (orderError) {
+    const orderMessage = resolveErrorMessage(orderError, "orders_load");
+    log(`订单创建后加载订单失败：${orderMessage}`, "WARN");
+  }
   return payload;
 }
 
@@ -1155,13 +1640,29 @@ async function buyListing(listingId) {
     }),
   });
   const isExisting = String(payload.state || "").toUpperCase() === "EXISTING";
-  const amountText = formatCurrency(payload.totalPrice, payload.currency);
+  const paidAmount = payload.buyerTotal !== undefined ? payload.buyerTotal : payload.totalPrice;
+  const amountText = formatCurrency(paidAmount, payload.currency);
+  const cooldownSeconds = Number(payload.cooldownSeconds || state.orderPolicy.cooldownSeconds || 0);
+  if (Number.isFinite(cooldownSeconds)) {
+    state.orderPolicy.cooldownSeconds = cooldownSeconds;
+    state.orderPolicy.refundEnabled = cooldownSeconds > 0;
+  }
+  const statusText = payload.orderStatus || "PENDING";
+  const refundDeadlineText = payload.refundDeadline ? `，退款截止 ${formatDateTime(payload.refundDeadline)}` : "";
   if (isExisting) {
     log(`市场购买请求去重：tradeId=${payload.tradeId}，listingId=${payload.listingId}`, "WARN");
     notify(`该交易已处理过，返回历史结果（交易号 ${payload.tradeId}）。`, "warn");
   } else {
     log(`购买成功：tradeId=${payload.tradeId}，listingId=${payload.listingId}`, "SUCCESS");
-    notify(`购买成功，成交金额 ${amountText}。`, "success");
+    const feeAmount = Number(payload.feeAmount || 0) + Number(payload.taxAmount || 0);
+    if (feeAmount > 0) {
+      notify(
+        `购买成功，实付 ${amountText}（含手续费/税收 ${formatCurrency(feeAmount, payload.currency)}），状态 ${statusText}${refundDeadlineText}。`,
+        "success"
+      );
+    } else {
+      notify(`购买成功，成交金额 ${amountText}，状态 ${statusText}${refundDeadlineText}。`, "success");
+    }
   }
 
   try {
@@ -1171,6 +1672,9 @@ async function buyListing(listingId) {
     log(`购买后刷新钱包失败：${refreshMessage}`, "WARN");
   }
   await loadMarket(state.marketMode);
+  if (state.token) {
+    await loadOrders();
+  }
 }
 
 async function unlistListing(listingId) {
@@ -1181,6 +1685,17 @@ async function unlistListing(listingId) {
   });
   log(`下架成功：listingId=${payload.listingId}`, "SUCCESS");
   notify(`下架成功：上架 ${payload.listingId} 已加入退回队列。`, "success");
+  await loadMarket(state.marketMode);
+}
+
+async function updateListingPrice(listingId, price) {
+  ensureToken();
+  const payload = await api("/api/market/price", {
+    method: "POST",
+    body: JSON.stringify({ listingId, price }),
+  });
+  log(`改价成功：listingId=${payload.listingId} price=${payload.price}`, "SUCCESS");
+  notify(`改价成功：新价格 ${formatCurrency(payload.price, payload.currency)}。`, "success");
   await loadMarket(state.marketMode);
 }
 
@@ -1204,6 +1719,7 @@ elements.loginBtn.addEventListener("click", async () => {
 
     setSession(payload);
     await refreshWallet();
+    await loadOrders();
     switchTab("wallet");
     log("登录成功。", "SUCCESS");
     notify("登录成功。", "success");
@@ -1217,21 +1733,11 @@ elements.loginBtn.addEventListener("click", async () => {
 elements.registerStartBtn.addEventListener("click", async () => {
   try {
     await startRegistration();
-    log("已生成绑定码，请回游戏执行 /shop bind。", "SUCCESS");
-    notify("绑定码已生成，请回游戏执行 /shop bind。", "success");
+    log("已生成绑定码，请回游戏执行 /webshopx bind（或 /ws bind）。", "SUCCESS");
+    notify("绑定码已生成，请回游戏执行 /webshopx bind（或 /ws bind）。", "success");
   } catch (error) {
     const message = resolveErrorMessage(error, "register_start");
-    const code = String(error && error.code ? error.code : "").toLowerCase();
-    if (code === "username_exists") {
-      setRegisterFlowTip(
-        "warn",
-        "昵称已被绑定",
-        "该昵称已被注册或已完成绑定，请直接登录或更换昵称后重试。",
-        "状态：该昵称已被绑定"
-      );
-    } else {
-      setRegisterFlowTip("warn", "获取绑定码失败", message, "状态：获取绑定码失败");
-    }
+    setRegisterFlowTip("warn", "获取绑定码失败", message, "状态：获取绑定码失败");
     log(`注册初始化失败：${message}`, "ERROR");
     notify(`注册初始化失败：${message}`, "error");
   }
@@ -1349,6 +1855,11 @@ document.getElementById("exchangeBtn").addEventListener("click", async () => {
 document.getElementById("productsBtn").addEventListener("click", () => {
   loadProducts({ announce: true });
 });
+if (elements.ordersBtn) {
+  elements.ordersBtn.addEventListener("click", () => {
+    loadOrders({ announce: true });
+  });
+}
 document.getElementById("marketListBtn").addEventListener("click", () => {
   loadMarket("public", { announce: true });
 });
@@ -1358,6 +1869,22 @@ document.getElementById("marketMineBtn").addEventListener("click", () => {
 document.getElementById("marketRefreshBtn").addEventListener("click", () => {
   loadMarket(state.marketMode || "public", { announce: true });
 });
+if (elements.marketApplyBtn) {
+  elements.marketApplyBtn.addEventListener("click", () => {
+    loadMarket(state.marketMode || "public", { announce: true });
+  });
+}
+if (elements.marketClearBtn) {
+  elements.marketClearBtn.addEventListener("click", () => {
+    if (elements.marketKeyword) elements.marketKeyword.value = "";
+    if (elements.marketMaterial) elements.marketMaterial.value = "";
+    if (elements.marketCurrency) elements.marketCurrency.value = "";
+    if (elements.marketMinPrice) elements.marketMinPrice.value = "";
+    if (elements.marketMaxPrice) elements.marketMaxPrice.value = "";
+    if (elements.marketSort) elements.marketSort.value = "created_desc";
+    loadMarket(state.marketMode || "public", { announce: true });
+  });
+}
 
 elements.productList.addEventListener("click", async (event) => {
   const button = event.target.closest(".product-buy-btn");
@@ -1372,11 +1899,24 @@ elements.productList.addEventListener("click", async (event) => {
 
   const qtyInput = card.querySelector(".product-qty");
   const quantity = qtyInput ? qtyInput.value : "1";
+  const productId = Number(button.dataset.productId);
+  const product = state.products.find((item) => Number(item.id) === productId);
+  if (!product) {
+    notify("商品信息异常，请刷新商品列表。", "warn");
+    return;
+  }
+
+  const confirmed = await confirmPurchase(product, quantity);
+  if (!confirmed) {
+    notify("已取消下单。", "info");
+    return;
+  }
+
   const originalText = button.textContent;
   button.disabled = true;
   button.textContent = "下单中...";
   try {
-    await createOrder(button.dataset.productId, quantity);
+    await createOrder(productId, quantity);
   } catch (error) {
     const message = resolveErrorMessage(error, "order_create");
     setMetaText(elements.orderView, `下单失败：${message}`, "error");
@@ -1387,6 +1927,43 @@ elements.productList.addEventListener("click", async (event) => {
     button.textContent = originalText;
   }
 });
+
+if (elements.orderList) {
+  elements.orderList.addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-action='refund']");
+    if (!button) {
+      return;
+    }
+    const orderNo = button.dataset.orderNo;
+    const amount = Number(button.dataset.amount || 0);
+    const currency = button.dataset.currency || "SHOP_COIN";
+    const confirmed = await openConfirmDialog({
+      title: "确认退款",
+      message: "确认后将撤销发放并退回余额。",
+      details: [
+        `订单号：${orderNo}`,
+        `退款金额：${formatCurrency(amount, currency)}`,
+      ],
+      confirmText: "确认退款",
+    });
+    if (!confirmed) {
+      notify("已取消退款操作。", "info");
+      return;
+    }
+    button.disabled = true;
+    button.textContent = "退款中...";
+    try {
+      await refundOrder(orderNo);
+    } catch (error) {
+      const message = resolveErrorMessage(error, "order_refund");
+      log(`退款失败：${message}`, "ERROR");
+      notify(`退款失败：${message}`, "error");
+    } finally {
+      button.disabled = false;
+      button.textContent = "申请退款";
+    }
+  });
+}
 
 elements.marketList.addEventListener("click", async (event) => {
   const button = event.target.closest(".market-action-btn");
@@ -1406,14 +1983,44 @@ elements.marketList.addEventListener("click", async (event) => {
   button.textContent = "处理中...";
   try {
     if (button.dataset.action === "buy") {
+      const listing = state.listings.find((item) => Number(item.id) === listingId);
+      const confirmed = listing ? await confirmMarketBuy(listing) : await openConfirmDialog({
+        title: "确认购买",
+        message: "确认后将立即扣除余额。",
+        details: [`上架ID：${listingId}`],
+        confirmText: "确认购买",
+      });
+      if (!confirmed) {
+        notify("已取消购买。", "info");
+        return;
+      }
       await buyListing(listingId);
       return;
     }
     if (button.dataset.action === "unlist") {
       await unlistListing(listingId);
+      return;
+    }
+    if (button.dataset.action === "price") {
+      const currentPrice = Number(button.dataset.currentPrice || 0);
+      const currency = button.dataset.currency || "SHOP_COIN";
+      const newPrice = await openPriceDialog({
+        listingId,
+        currentPrice,
+        currency,
+      });
+      if (newPrice === null) {
+        notify("已取消改价。", "info");
+        return;
+      }
+      await updateListingPrice(listingId, newPrice);
     }
   } catch (error) {
-    const scene = button.dataset.action === "unlist" ? "market_unlist" : "market_buy";
+    const scene = button.dataset.action === "unlist"
+      ? "market_unlist"
+      : button.dataset.action === "price"
+        ? "market_price"
+        : "market_buy";
     const message = resolveErrorMessage(error, scene);
     log(`市场操作失败：${message}`, "ERROR");
     notify(`市场操作失败：${message}`, "error");
@@ -1423,6 +2030,42 @@ elements.marketList.addEventListener("click", async (event) => {
   }
 });
 
+if (elements.confirmCancelBtn) {
+  elements.confirmCancelBtn.addEventListener("click", () => closeConfirmDialog(false));
+}
+if (elements.confirmOkBtn) {
+  elements.confirmOkBtn.addEventListener("click", () => closeConfirmDialog(true));
+}
+if (elements.confirmDialog) {
+  elements.confirmDialog.addEventListener("click", (event) => {
+    if (event.target === elements.confirmDialog) {
+      closeConfirmDialog(false);
+    }
+  });
+}
+
+if (elements.priceDialogCancel) {
+  elements.priceDialogCancel.addEventListener("click", () => closePriceDialog(null));
+}
+if (elements.priceDialogConfirm) {
+  elements.priceDialogConfirm.addEventListener("click", submitPriceDialog);
+}
+if (elements.priceDialogInput) {
+  elements.priceDialogInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submitPriceDialog();
+    }
+  });
+}
+if (elements.priceDialog) {
+  elements.priceDialog.addEventListener("click", (event) => {
+    if (event.target === elements.priceDialog) {
+      closePriceDialog(null);
+    }
+  });
+}
+
 setAuthMode("login");
 updateAuthLayout();
 clearRegistrationUi();
@@ -1431,6 +2074,9 @@ setMetaText(elements.exchangeView, "等待兑换操作", "info");
 setMetaText(elements.orderView, "暂无订单", "info");
 setMetaText(elements.marketView, "暂无市场数据", "info");
 ensureZhNameMap();
-loadProducts();
-loadMarket("public");
+loadOrderPolicy();
+loadCurrencyMeta().finally(() => {
+  loadProducts();
+  loadMarket("public");
+});
 log("前端已启动，默认加载官方商品和市场在售列表。");

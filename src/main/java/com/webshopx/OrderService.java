@@ -7,11 +7,14 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -21,6 +24,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 class OrderService {
   private final JavaPlugin plugin;
   private final DatabaseManager databaseManager;
+  private final Supplier<PluginSettings> settingsSupplier;
   private final ProductService productService;
   private final WalletService walletService;
   private final SecureRandom secureRandom;
@@ -28,10 +32,12 @@ class OrderService {
   OrderService(
       JavaPlugin plugin,
       DatabaseManager databaseManager,
+      Supplier<PluginSettings> settingsSupplier,
       ProductService productService,
       WalletService walletService) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
+    this.settingsSupplier = settingsSupplier;
     this.productService = productService;
     this.walletService = walletService;
     this.secureRandom = new SecureRandom();
@@ -48,9 +54,10 @@ class OrderService {
       return runSync(() -> placeRecycleOrder(userId, product, quantity, idempotencyKey));
     }
 
+    int cooldownSeconds = normalizedOrderCooldownSeconds();
     String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
     return databaseManager.inTransaction(connection ->
-        placePurchaseOrderInTransaction(connection, userId, product, quantity, normalizedKey));
+        placePurchaseOrderInTransaction(connection, userId, product, quantity, normalizedKey, cooldownSeconds));
   }
 
   private OrderPlacementResult placePurchaseOrderInTransaction(
@@ -58,20 +65,28 @@ class OrderService {
       long userId,
       ProductService.ProductView product,
       int quantity,
-      String idempotencyKey) throws SQLException {
+      String idempotencyKey,
+      int cooldownSeconds) throws SQLException {
     ExistingOrder existingOrder = readExistingOrder(connection, userId, idempotencyKey);
     if (existingOrder != null) {
       return new OrderPlacementResult(
           PlacementState.EXISTING,
           existingOrder.orderNo(),
           CurrencyType.valueOf(existingOrder.currency()),
-          existingOrder.totalAmount());
+          existingOrder.totalAmount(),
+          existingOrder.status(),
+          existingOrder.refundDeadline(),
+          cooldownSeconds);
     }
 
     UUID playerUuid = readBoundUuidForUpdate(connection, userId);
     long totalAmount = Math.multiplyExact(product.price(), quantity);
     String orderNo = newOrderNo();
     String commandText = buildCommandText(product, quantity);
+    LocalDateTime now = LocalDateTime.now();
+    LocalDateTime refundDeadline = cooldownSeconds > 0
+        ? now.plusSeconds(cooldownSeconds)
+        : null;
 
     walletService.applyDelta(
         connection,
@@ -90,11 +105,20 @@ class OrderService {
         product.currency(),
         totalAmount,
         "PENDING",
-        idempotencyKey);
+        idempotencyKey,
+        refundDeadline);
     long itemId = insertOrderItem(connection, orderId, product.id(), quantity, product.price());
-    insertDelivery(connection, orderId, itemId, playerUuid, commandText, quantity);
+    LocalDateTime deliveryAt = refundDeadline == null ? now : refundDeadline;
+    insertDelivery(connection, orderId, itemId, playerUuid, commandText, quantity, deliveryAt);
 
-    return new OrderPlacementResult(PlacementState.CREATED, orderNo, product.currency(), totalAmount);
+    return new OrderPlacementResult(
+        PlacementState.CREATED,
+        orderNo,
+        product.currency(),
+        totalAmount,
+        "PENDING",
+        refundDeadline,
+        cooldownSeconds);
   }
 
   private OrderPlacementResult placeRecycleOrder(
@@ -132,7 +156,10 @@ class OrderService {
             PlacementState.EXISTING,
             existingOrder.orderNo(),
             CurrencyType.valueOf(existingOrder.currency()),
-            existingOrder.totalAmount());
+            existingOrder.totalAmount(),
+            existingOrder.status(),
+            existingOrder.refundDeadline(),
+            0);
       }
 
       UUID playerUuid = readBoundUuidForUpdate(connection, userId);
@@ -170,13 +197,17 @@ class OrderService {
             product.currency(),
             totalAmount,
             "RECYCLED",
-            normalizedKey);
+            normalizedKey,
+            null);
         insertOrderItem(connection, orderId, product.id(), quantity, product.price());
         return new OrderPlacementResult(
             PlacementState.CREATED,
             orderNo,
             product.currency(),
-            totalAmount);
+            totalAmount,
+            "RECYCLED",
+            null,
+            0);
       } catch (Exception exception) {
         restoreItems(player, material, requiredAmount);
         throw exception;
@@ -218,7 +249,7 @@ class OrderService {
   private ExistingOrder readExistingOrder(Connection connection, long userId, String idempotencyKey)
       throws SQLException {
     String sql = """
-        SELECT order_no, currency, total_amount
+        SELECT order_no, currency, total_amount, status, refund_deadline
         FROM orders
         WHERE user_id = ? AND idempotency_key = ?
         FOR UPDATE
@@ -230,10 +261,13 @@ class OrderService {
         if (!resultSet.next()) {
           return null;
         }
+        Timestamp refundDeadline = resultSet.getTimestamp("refund_deadline");
         return new ExistingOrder(
             resultSet.getString("order_no"),
             resultSet.getString("currency"),
-            resultSet.getLong("total_amount"));
+            resultSet.getLong("total_amount"),
+            resultSet.getString("status"),
+            refundDeadline == null ? null : refundDeadline.toLocalDateTime());
       }
     }
   }
@@ -263,10 +297,20 @@ class OrderService {
       CurrencyType currency,
       long totalAmount,
       String status,
-      String idempotencyKey) throws SQLException {
+      String idempotencyKey,
+      LocalDateTime refundDeadline) throws SQLException {
     String sql = """
-        INSERT INTO orders (order_no, user_id, mc_uuid, currency, total_amount, status, idempotency_key)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO orders (
+          order_no,
+          user_id,
+          mc_uuid,
+          currency,
+          total_amount,
+          status,
+          idempotency_key,
+          refund_deadline
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement =
              connection.prepareStatement(sql, java.sql.Statement.RETURN_GENERATED_KEYS)) {
@@ -277,6 +321,11 @@ class OrderService {
       statement.setLong(5, totalAmount);
       statement.setString(6, status);
       statement.setString(7, idempotencyKey);
+      if (refundDeadline == null) {
+        statement.setTimestamp(8, null);
+      } else {
+        statement.setTimestamp(8, Timestamp.valueOf(refundDeadline));
+      }
       statement.executeUpdate();
       try (ResultSet keyResult = statement.getGeneratedKeys()) {
         if (!keyResult.next()) {
@@ -319,7 +368,8 @@ class OrderService {
       long itemId,
       UUID playerUuid,
       String commandText,
-      int quantity) throws SQLException {
+      int quantity,
+      LocalDateTime nextRetryAt) throws SQLException {
     String sql = """
         INSERT INTO delivery_queue (order_id, item_id, mc_uuid, command_text, quantity, status, next_retry_at)
         VALUES (?, ?, ?, ?, ?, 'PENDING', ?)
@@ -330,7 +380,7 @@ class OrderService {
       statement.setString(3, playerUuid.toString());
       statement.setString(4, commandText);
       statement.setInt(5, quantity);
-      statement.setTimestamp(6, Timestamp.valueOf(LocalDateTime.now()));
+      statement.setTimestamp(6, Timestamp.valueOf(nextRetryAt));
       statement.executeUpdate();
     }
   }
@@ -344,6 +394,14 @@ class OrderService {
       throw new ServiceException("idempotency_too_long", "Idempotency key must be <= 96 chars");
     }
     return normalized;
+  }
+
+  private int normalizedOrderCooldownSeconds() {
+    int value = settingsSupplier.get().orderCooldownSeconds();
+    if (value < 0) {
+      return 0;
+    }
+    return value;
   }
 
   private String newOrderNo() {
@@ -430,7 +488,524 @@ class OrderService {
     }
   }
 
-  private record ExistingOrder(String orderNo, String currency, long totalAmount) {
+  List<OrderView> listOrdersForUser(long userId, int limit, Long cursor) {
+    int pageSize = Math.min(Math.max(1, limit), 200);
+    return databaseManager.withConnection(connection -> {
+      LocalDateTime cutoff = cursor == null ? null : readOrderCreatedAtById(connection, cursor);
+      List<OrderView> official = listOfficialOrders(connection, userId, pageSize, cursor);
+      List<OrderView> market = listMarketOrders(connection, userId, pageSize, cutoff);
+      return mergeOrders(official, market, pageSize);
+    });
+  }
+
+  private LocalDateTime readOrderCreatedAtById(Connection connection, long orderId) throws SQLException {
+    String sql = "SELECT created_at FROM orders WHERE id = ? LIMIT 1";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, orderId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return null;
+        }
+        return resultSet.getTimestamp("created_at").toLocalDateTime();
+      }
+    }
+  }
+
+  private List<OrderView> listOfficialOrders(
+      Connection connection,
+      long userId,
+      int pageSize,
+      Long cursor) throws SQLException {
+    String cursorSql = cursor == null ? "" : " AND o.id < ?";
+    String sql = """
+        SELECT o.id, o.order_no, o.user_id, o.mc_uuid, o.currency, o.total_amount, o.status,
+               o.created_at, o.delivered_at, o.refund_deadline, o.refunded_at,
+               oi.quantity, oi.unit_price,
+               p.sku, p.title, p.product_type, p.item_material, p.item_amount,
+               p.effect_type, p.effect_seconds, p.effect_amplifier
+        FROM orders o
+        JOIN order_items oi ON oi.order_id = o.id
+        JOIN products p ON p.id = oi.product_id
+        WHERE o.user_id = ?
+        """ + cursorSql + """
+        ORDER BY o.id DESC
+        LIMIT ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      int index = 1;
+      statement.setLong(index++, userId);
+      if (cursor != null) {
+        statement.setLong(index++, cursor);
+      }
+      statement.setInt(index, pageSize);
+
+      List<OrderView> results = new ArrayList<>();
+      try (ResultSet resultSet = statement.executeQuery()) {
+        while (resultSet.next()) {
+          results.add(readOrderView(resultSet));
+        }
+      }
+      return results;
+    }
+  }
+
+  private List<OrderView> listMarketOrders(
+      Connection connection,
+      long userId,
+      int pageSize,
+      LocalDateTime cutoff) throws SQLException {
+    String cutoffSql = cutoff == null ? "" : " AND mt.created_at < ?";
+    String sql = """
+        SELECT mt.id AS trade_id, mt.listing_id, mt.currency, mt.total_price, mt.buyer_total,
+               mt.status AS trade_status, mt.refund_deadline, mt.refunded_at, mt.created_at,
+               ml.item_material, ml.quantity, ml.buyer_uuid,
+               md.status AS delivery_status, md.delivered_at
+        FROM market_trades mt
+        JOIN market_listings ml ON ml.id = mt.listing_id
+        LEFT JOIN market_item_deliveries md
+          ON md.listing_id = ml.id AND md.delivery_type = 'SALE'
+        WHERE mt.buyer_user_id = ?
+        """ + cutoffSql + """
+        ORDER BY mt.created_at DESC
+        LIMIT ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      int index = 1;
+      statement.setLong(index++, userId);
+      if (cutoff != null) {
+        statement.setTimestamp(index++, Timestamp.valueOf(cutoff));
+      }
+      statement.setInt(index, pageSize);
+
+      List<OrderView> results = new ArrayList<>();
+      try (ResultSet resultSet = statement.executeQuery()) {
+        while (resultSet.next()) {
+          results.add(readMarketOrderView(resultSet, userId));
+        }
+      }
+      return results;
+    }
+  }
+
+  private List<OrderView> mergeOrders(
+      List<OrderView> official,
+      List<OrderView> market,
+      int limit) {
+    List<OrderView> merged = new ArrayList<>();
+    int i = 0;
+    int j = 0;
+    while (merged.size() < limit && (i < official.size() || j < market.size())) {
+      if (j >= market.size()) {
+        merged.add(official.get(i++));
+        continue;
+      }
+      if (i >= official.size()) {
+        merged.add(market.get(j++));
+        continue;
+      }
+      OrderView a = official.get(i);
+      OrderView b = market.get(j);
+      if (a.createdAt().isAfter(b.createdAt())) {
+        merged.add(a);
+        i++;
+      } else {
+        merged.add(b);
+        j++;
+      }
+    }
+    return merged;
+  }
+
+  List<AdminOrderView> listOrdersForAdmin(
+      int limit,
+      Long cursor,
+      String status,
+      Long userId,
+      String orderNo) {
+    int pageSize = Math.min(Math.max(1, limit), 300);
+    String normalizedStatus = status == null ? null : status.trim().toUpperCase(Locale.ROOT);
+    String normalizedOrderNo = orderNo == null ? null : orderNo.trim();
+    return databaseManager.withConnection(connection -> {
+      List<String> clauses = new ArrayList<>();
+      clauses.add("1=1");
+      if (normalizedStatus != null && !normalizedStatus.isBlank()) {
+        clauses.add("o.status = ?");
+      }
+      if (userId != null && userId > 0) {
+        clauses.add("o.user_id = ?");
+      }
+      if (normalizedOrderNo != null && !normalizedOrderNo.isBlank()) {
+        clauses.add("o.order_no = ?");
+      }
+      if (cursor != null) {
+        clauses.add("o.id < ?");
+      }
+
+      String sql = """
+          SELECT o.id, o.order_no, o.user_id, o.mc_uuid, o.currency, o.total_amount, o.status,
+                 o.created_at, o.delivered_at, o.refund_deadline, o.refunded_at,
+                 u.username, u.bound_uuid,
+                 oi.quantity, oi.unit_price,
+                 p.sku, p.title, p.product_type, p.item_material, p.item_amount,
+                 p.effect_type, p.effect_seconds, p.effect_amplifier
+          FROM orders o
+          JOIN web_users u ON u.id = o.user_id
+          JOIN order_items oi ON oi.order_id = o.id
+          JOIN products p ON p.id = oi.product_id
+          WHERE """ + String.join(" AND ", clauses) + """
+          ORDER BY o.id DESC
+          LIMIT ?
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        int index = 1;
+        if (normalizedStatus != null && !normalizedStatus.isBlank()) {
+          statement.setString(index++, normalizedStatus);
+        }
+        if (userId != null && userId > 0) {
+          statement.setLong(index++, userId);
+        }
+        if (normalizedOrderNo != null && !normalizedOrderNo.isBlank()) {
+          statement.setString(index++, normalizedOrderNo);
+        }
+        if (cursor != null) {
+          statement.setLong(index++, cursor);
+        }
+        statement.setInt(index, pageSize);
+
+        List<AdminOrderView> results = new ArrayList<>();
+        try (ResultSet resultSet = statement.executeQuery()) {
+          while (resultSet.next()) {
+            OrderView view = readOrderView(resultSet);
+            String boundUuidRaw = resultSet.getString("bound_uuid");
+            UUID boundUuid = boundUuidRaw == null ? null : UUID.fromString(boundUuidRaw);
+            results.add(new AdminOrderView(
+                view,
+                resultSet.getString("username"),
+                boundUuid));
+          }
+        }
+        return results;
+      }
+    });
+  }
+
+  RefundResult refundOrder(long userId, String orderNo) {
+    if (orderNo == null || orderNo.isBlank()) {
+      throw new ServiceException("order_missing", "Order number is required");
+    }
+    String normalizedOrderNo = orderNo.trim();
+    if (normalizedOrderNo.regionMatches(true, 0, "MKT-", 0, 4)) {
+      return refundMarketOrder(userId, normalizedOrderNo);
+    }
+    OrderRow order = databaseManager.inTransaction(connection -> {
+      OrderRow row = readOrderForRefund(connection, userId, normalizedOrderNo);
+      if (row == null) {
+        throw new ServiceException("order_missing", "Order not found");
+      }
+      if ("REFUNDED".equalsIgnoreCase(row.status())) {
+        throw new ServiceException("already_refunded", "Order has already been refunded");
+      }
+      if (!"PENDING".equalsIgnoreCase(row.status())) {
+        throw new ServiceException("refund_not_allowed", "Order is not refundable");
+      }
+      if (row.refundDeadline() == null) {
+        throw new ServiceException("refund_disabled", "Refund is disabled for this order");
+      }
+      if (LocalDateTime.now().isAfter(row.refundDeadline())) {
+        throw new ServiceException("refund_expired", "Refund window has expired");
+      }
+
+      walletService.applyDelta(
+          connection,
+          userId,
+          CurrencyType.valueOf(row.currency()),
+          row.totalAmount(),
+          "ORDER_REFUND",
+          row.orderNo() + ":refund",
+          false);
+
+      String updateOrderSql = """
+          UPDATE orders
+          SET status = 'REFUNDED', refunded_at = NOW()
+          WHERE id = ?
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(updateOrderSql)) {
+        statement.setLong(1, row.id());
+        statement.executeUpdate();
+      }
+
+      String cancelDeliverySql = """
+          UPDATE delivery_queue
+          SET status = 'CANCELLED', last_error = 'Refunded'
+          WHERE order_id = ? AND status = 'PENDING'
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(cancelDeliverySql)) {
+        statement.setLong(1, row.id());
+        statement.executeUpdate();
+      }
+
+      return row;
+    });
+
+    WalletService.WalletBalance balance = walletService.getBalance(userId);
+    return new RefundResult(order.orderNo(), balance);
+  }
+
+  private RefundResult refundMarketOrder(long userId, String orderNo) {
+    long tradeId = parseMarketTradeId(orderNo);
+    MarketOrderRow order = databaseManager.inTransaction(connection -> {
+      MarketOrderRow row = readMarketTradeForRefund(connection, userId, tradeId);
+      if (row == null) {
+        throw new ServiceException("order_missing", "Order not found");
+      }
+      if ("REFUNDED".equalsIgnoreCase(row.status())) {
+        throw new ServiceException("already_refunded", "Order has already been refunded");
+      }
+      if (!"PENDING".equalsIgnoreCase(row.status())) {
+        throw new ServiceException("refund_not_allowed", "Order is not refundable");
+      }
+      if (row.refundDeadline() == null) {
+        throw new ServiceException("refund_disabled", "Refund is disabled for this order");
+      }
+      if (LocalDateTime.now().isAfter(row.refundDeadline())) {
+        throw new ServiceException("refund_expired", "Refund window has expired");
+      }
+
+      long refundAmount = row.buyerTotal() > 0 ? row.buyerTotal() : row.totalPrice();
+      walletService.applyDelta(
+          connection,
+          userId,
+          CurrencyType.valueOf(row.currency()),
+          refundAmount,
+          "ORDER_REFUND",
+          orderNo + ":refund",
+          false);
+
+      String updateTradeSql = """
+          UPDATE market_trades
+          SET status = 'REFUNDED', refunded_at = NOW()
+          WHERE id = ? AND status = 'PENDING'
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(updateTradeSql)) {
+        statement.setLong(1, row.tradeId());
+        statement.executeUpdate();
+      }
+
+      String cancelDeliverySql = """
+          UPDATE market_item_deliveries
+          SET status = 'CANCELLED', last_error = 'Refunded'
+          WHERE listing_id = ?
+            AND delivery_type = 'SALE'
+            AND status = 'PENDING'
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(cancelDeliverySql)) {
+        statement.setLong(1, row.listingId());
+        statement.executeUpdate();
+      }
+
+      String restoreListingSql = """
+          UPDATE market_listings
+          SET status = 'ACTIVE',
+              buyer_user_id = NULL,
+              buyer_uuid = NULL,
+              sold_at = NULL
+          WHERE id = ?
+            AND buyer_user_id = ?
+            AND status = 'SOLD'
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(restoreListingSql)) {
+        statement.setLong(1, row.listingId());
+        statement.setLong(2, userId);
+        statement.executeUpdate();
+      }
+
+      return row;
+    });
+
+    WalletService.WalletBalance balance = walletService.getBalance(userId);
+    return new RefundResult(orderNo, balance);
+  }
+
+  private long parseMarketTradeId(String orderNo) {
+    if (orderNo == null) {
+      throw new ServiceException("order_missing", "Order number is required");
+    }
+    String normalized = orderNo.trim();
+    if (!normalized.regionMatches(true, 0, "MKT-", 0, 4)) {
+      throw new ServiceException("order_missing", "Order not found");
+    }
+    String rawId = normalized.substring(4);
+    try {
+      long tradeId = Long.parseLong(rawId);
+      if (tradeId <= 0L) {
+        throw new NumberFormatException("trade id must be positive");
+      }
+      return tradeId;
+    } catch (NumberFormatException exception) {
+      throw new ServiceException("order_missing", "Order not found");
+    }
+  }
+
+  private OrderRow readOrderForRefund(Connection connection, long userId, String orderNo)
+      throws SQLException {
+    String sql = """
+        SELECT id, order_no, currency, total_amount, status, refund_deadline
+        FROM orders
+        WHERE user_id = ? AND order_no = ?
+        FOR UPDATE
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      statement.setString(2, orderNo);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return null;
+        }
+        Timestamp refundDeadline = resultSet.getTimestamp("refund_deadline");
+        return new OrderRow(
+            resultSet.getLong("id"),
+            resultSet.getString("order_no"),
+            resultSet.getString("currency"),
+            resultSet.getLong("total_amount"),
+            resultSet.getString("status"),
+            refundDeadline == null ? null : refundDeadline.toLocalDateTime());
+      }
+    }
+  }
+
+  private MarketOrderRow readMarketTradeForRefund(Connection connection, long userId, long tradeId)
+      throws SQLException {
+    String sql = """
+        SELECT id, listing_id, currency, total_price, buyer_total, status, refund_deadline
+        FROM market_trades
+        WHERE id = ? AND buyer_user_id = ?
+        FOR UPDATE
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, tradeId);
+      statement.setLong(2, userId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return null;
+        }
+        Timestamp refundDeadline = resultSet.getTimestamp("refund_deadline");
+        return new MarketOrderRow(
+            resultSet.getLong("id"),
+            resultSet.getLong("listing_id"),
+            resultSet.getString("currency"),
+            resultSet.getLong("total_price"),
+            resultSet.getLong("buyer_total"),
+            resultSet.getString("status"),
+            refundDeadline == null ? null : refundDeadline.toLocalDateTime());
+      }
+    }
+  }
+
+  private OrderView readOrderView(ResultSet resultSet) throws SQLException {
+    Timestamp deliveredAt = resultSet.getTimestamp("delivered_at");
+    Timestamp refundDeadline = resultSet.getTimestamp("refund_deadline");
+    Timestamp refundedAt = resultSet.getTimestamp("refunded_at");
+    return new OrderView(
+        resultSet.getLong("id"),
+        resultSet.getString("order_no"),
+        resultSet.getLong("user_id"),
+        UUID.fromString(resultSet.getString("mc_uuid")),
+        CurrencyType.valueOf(resultSet.getString("currency")),
+        resultSet.getLong("total_amount"),
+        resultSet.getString("status"),
+        resultSet.getTimestamp("created_at").toLocalDateTime(),
+        deliveredAt == null ? null : deliveredAt.toLocalDateTime(),
+        refundedAt == null ? null : refundedAt.toLocalDateTime(),
+        refundDeadline == null ? null : refundDeadline.toLocalDateTime(),
+        resultSet.getString("sku"),
+        resultSet.getString("title"),
+        resultSet.getString("product_type"),
+        resultSet.getString("item_material"),
+        (Integer) resultSet.getObject("item_amount"),
+        resultSet.getString("effect_type"),
+        (Integer) resultSet.getObject("effect_seconds"),
+        (Integer) resultSet.getObject("effect_amplifier"),
+        resultSet.getInt("quantity"),
+        resultSet.getLong("unit_price"));
+  }
+
+  private OrderView readMarketOrderView(ResultSet resultSet, long userId) throws SQLException {
+    long tradeId = resultSet.getLong("trade_id");
+    long listingId = resultSet.getLong("listing_id");
+    String currencyRaw = resultSet.getString("currency");
+    long totalPrice = resultSet.getLong("total_price");
+    long buyerTotal = resultSet.getLong("buyer_total");
+    String itemMaterial = resultSet.getString("item_material");
+    String buyerUuidRaw = resultSet.getString("buyer_uuid");
+    UUID buyerUuid = buyerUuidRaw == null ? null : UUID.fromString(buyerUuidRaw);
+    Timestamp refundDeadline = resultSet.getTimestamp("refund_deadline");
+    Timestamp refundedAt = resultSet.getTimestamp("refunded_at");
+    Timestamp deliveredAt = resultSet.getTimestamp("delivered_at");
+    String tradeStatus = resultSet.getString("trade_status");
+    String deliveryStatus = resultSet.getString("delivery_status");
+    String status;
+    if (tradeStatus == null || tradeStatus.isBlank()) {
+      status = "DELIVERED".equalsIgnoreCase(deliveryStatus) || deliveredAt != null
+          ? "DELIVERED"
+          : "PENDING";
+    } else {
+      status = tradeStatus.toUpperCase(Locale.ROOT);
+    }
+
+    long totalAmount = buyerTotal > 0 ? buyerTotal : totalPrice;
+    String title = itemMaterial == null || itemMaterial.isBlank()
+        ? "玩家市场商品"
+        : itemMaterial;
+
+    return new OrderView(
+        tradeId,
+        "MKT-" + tradeId,
+        userId,
+        buyerUuid,
+        CurrencyType.valueOf(currencyRaw),
+        totalAmount,
+        status,
+        resultSet.getTimestamp("created_at").toLocalDateTime(),
+        deliveredAt == null ? null : deliveredAt.toLocalDateTime(),
+        refundedAt == null ? null : refundedAt.toLocalDateTime(),
+        refundDeadline == null ? null : refundDeadline.toLocalDateTime(),
+        "LIST-" + listingId,
+        title,
+        "MARKET",
+        itemMaterial,
+        null,
+        null,
+        null,
+        null,
+        resultSet.getInt("quantity"),
+        totalPrice);
+  }
+
+  private record ExistingOrder(
+      String orderNo,
+      String currency,
+      long totalAmount,
+      String status,
+      LocalDateTime refundDeadline) {
+  }
+
+  private record OrderRow(
+      long id,
+      String orderNo,
+      String currency,
+      long totalAmount,
+      String status,
+      LocalDateTime refundDeadline) {
+  }
+
+  private record MarketOrderRow(
+      long tradeId,
+      long listingId,
+      String currency,
+      long totalPrice,
+      long buyerTotal,
+      String status,
+      LocalDateTime refundDeadline) {
   }
 
   enum PlacementState {
@@ -442,6 +1017,43 @@ class OrderService {
       PlacementState state,
       String orderNo,
       CurrencyType currency,
-      long totalAmount) {
+      long totalAmount,
+      String orderStatus,
+      LocalDateTime refundDeadline,
+      int cooldownSeconds) {
+  }
+
+  record OrderView(
+      long id,
+      String orderNo,
+      long userId,
+      UUID mcUuid,
+      CurrencyType currency,
+      long totalAmount,
+      String status,
+      LocalDateTime createdAt,
+      LocalDateTime deliveredAt,
+      LocalDateTime refundedAt,
+      LocalDateTime refundDeadline,
+      String productSku,
+      String productTitle,
+      String productType,
+      String itemMaterial,
+      Integer itemAmount,
+      String effectType,
+      Integer effectSeconds,
+      Integer effectAmplifier,
+      int quantity,
+      long unitPrice) {
+  }
+
+  record AdminOrderView(
+      OrderView order,
+      String username,
+      UUID boundUuid) {
+  }
+
+  record RefundResult(String orderNo, WalletService.WalletBalance balance) {
   }
 }
+

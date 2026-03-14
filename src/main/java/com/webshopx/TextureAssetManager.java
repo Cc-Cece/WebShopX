@@ -15,6 +15,7 @@ import java.util.Comparator;
 import java.util.Locale;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -29,6 +30,7 @@ class TextureAssetManager {
 
   private final JavaPlugin plugin;
   private final HttpClient httpClient;
+  private final AtomicBoolean cacheRunning;
 
   TextureAssetManager(JavaPlugin plugin) {
     this.plugin = plugin;
@@ -36,6 +38,20 @@ class TextureAssetManager {
         .connectTimeout(Duration.ofSeconds(15))
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build();
+    this.cacheRunning = new AtomicBoolean(false);
+  }
+
+  void ensureLocalTextureCacheAsync(Path staticRoot, String minecraftVersion) {
+    if (!cacheRunning.compareAndSet(false, true)) {
+      return;
+    }
+    plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+      try {
+        ensureLocalTextureCache(staticRoot, minecraftVersion);
+      } finally {
+        cacheRunning.set(false);
+      }
+    });
   }
 
   void ensureLocalTextureCache(Path staticRoot, String minecraftVersion) {

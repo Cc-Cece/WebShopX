@@ -97,9 +97,14 @@ class EmbeddedWebServer {
     server.createContext("/api/redeem/use", this::handleRedeemUse);
     server.createContext("/api/products", this::handleProducts);
     server.createContext("/api/orders", this::handleOrders);
+    server.createContext("/api/orders/list", this::handleOrdersList);
+    server.createContext("/api/orders/refund", this::handleOrdersRefund);
+    server.createContext("/api/orders/policy", this::handleOrdersPolicy);
+    server.createContext("/api/meta/currency", this::handleCurrencyMeta);
     server.createContext("/api/market/listings", this::handleMarketListings);
     server.createContext("/api/market/buy", this::handleMarketBuy);
     server.createContext("/api/market/unlist", this::handleMarketUnlist);
+    server.createContext("/api/market/price", this::handleMarketPrice);
     server.createContext("/api/admin/auth/login", this::handleAdminLogin);
     server.createContext("/api/admin/auth/me", this::handleAdminMe);
     server.createContext("/api/admin/auth/logout", this::handleAdminLogout);
@@ -108,6 +113,10 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/products/list", this::handleAdminProductsList);
     server.createContext("/api/admin/products/upsert", this::handleAdminProductsUpsert);
     server.createContext("/api/admin/products/active", this::handleAdminProductsActive);
+    server.createContext("/api/admin/orders/list", this::handleAdminOrdersList);
+    server.createContext("/api/admin/economy/settings", this::handleAdminEconomySettings);
+    server.createContext("/api/admin/economy/exchange", this::handleAdminExchangeUpdate);
+    server.createContext("/api/admin/economy/market", this::handleAdminMarketEconomyUpdate);
     server.createContext("/api/admin/market/listings", this::handleAdminMarketListings);
     server.createContext("/api/admin/market/unlist", this::handleAdminMarketUnlist);
     server.createContext("/api/admin/users/lookup", this::handleAdminUserLookup);
@@ -172,11 +181,9 @@ class EmbeddedWebServer {
       return;
     }
     withServiceHandling(exchange, () -> {
-      JsonObject payload = readJson(exchange);
-      String username = getString(payload, "username");
-      AuthService.RegisterStartResult result = authService.startRegistration(username);
+      readJson(exchange);
+      AuthService.RegisterStartResult result = authService.startRegistration();
       JsonObject response = new JsonObject();
-      response.addProperty("username", result.username());
       response.addProperty("bindCode", result.bindCode());
       response.addProperty("expiresInMinutes", result.expiresInMinutes());
       sendJson(exchange, 200, response);
@@ -380,6 +387,16 @@ class EmbeddedWebServer {
         item.addProperty("currency", product.currency().name());
         item.addProperty("price", product.price());
         item.addProperty("productType", product.productType().name());
+        if (product.publishAt() == null) {
+          item.add("publishAt", JsonNull.INSTANCE);
+        } else {
+          item.addProperty("publishAt", product.publishAt().toString());
+        }
+        if (product.unpublishAt() == null) {
+          item.add("unpublishAt", JsonNull.INSTANCE);
+        } else {
+          item.addProperty("unpublishAt", product.unpublishAt().toString());
+        }
         if (product.itemMaterial() == null) {
           item.add("itemMaterial", JsonNull.INSTANCE);
         } else {
@@ -437,6 +454,158 @@ class EmbeddedWebServer {
       response.addProperty("orderNo", result.orderNo());
       response.addProperty("currency", result.currency().name());
       response.addProperty("totalAmount", result.totalAmount());
+      response.addProperty("orderStatus", result.orderStatus());
+      response.addProperty("cooldownSeconds", result.cooldownSeconds());
+      if (result.refundDeadline() == null) {
+        response.add("refundDeadline", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("refundDeadline", result.refundDeadline().toString());
+      }
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleOrdersList(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, null);
+      Map<String, String> query = parseQuery(exchange);
+      int limit = parseInt(query.get("limit"), 30);
+      Long cursor = parseLong(query.get("cursor"));
+      List<OrderService.OrderView> orders = orderService.listOrdersForUser(user.id(), limit, cursor);
+      JsonArray array = new JsonArray();
+      LocalDateTime now = LocalDateTime.now();
+      for (OrderService.OrderView order : orders) {
+        JsonObject row = new JsonObject();
+        row.addProperty("id", order.id());
+        row.addProperty("orderNo", order.orderNo());
+        row.addProperty("status", order.status());
+        row.addProperty("currency", order.currency().name());
+        row.addProperty("totalAmount", order.totalAmount());
+        row.addProperty("createdAt", order.createdAt().toString());
+        if (order.mcUuid() == null) {
+          row.add("mcUuid", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("mcUuid", order.mcUuid().toString());
+        }
+        if (order.deliveredAt() == null) {
+          row.add("deliveredAt", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("deliveredAt", order.deliveredAt().toString());
+        }
+        if (order.refundedAt() == null) {
+          row.add("refundedAt", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("refundedAt", order.refundedAt().toString());
+        }
+        if (order.refundDeadline() == null) {
+          row.add("refundDeadline", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("refundDeadline", order.refundDeadline().toString());
+        }
+        row.addProperty("sku", order.productSku());
+        row.addProperty("productTitle", order.productTitle());
+        row.addProperty("productType", order.productType());
+        if (order.itemMaterial() == null) {
+          row.add("itemMaterial", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("itemMaterial", order.itemMaterial());
+        }
+        if (order.itemAmount() == null) {
+          row.add("itemAmount", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("itemAmount", order.itemAmount());
+        }
+        if (order.effectType() == null) {
+          row.add("effectType", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("effectType", order.effectType());
+        }
+        if (order.effectSeconds() == null) {
+          row.add("effectSeconds", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("effectSeconds", order.effectSeconds());
+        }
+        if (order.effectAmplifier() == null) {
+          row.add("effectAmplifier", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("effectAmplifier", order.effectAmplifier());
+        }
+        row.addProperty("quantity", order.quantity());
+        row.addProperty("unitPrice", order.unitPrice());
+
+        boolean canRefund = "PENDING".equalsIgnoreCase(order.status())
+            && order.refundDeadline() != null
+            && now.isBefore(order.refundDeadline());
+        row.addProperty("canRefund", canRefund);
+        array.add(row);
+      }
+      JsonObject response = new JsonObject();
+      response.add("orders", array);
+      response.addProperty("cooldownSeconds", settingsSupplier.get().orderCooldownSeconds());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleOrdersRefund(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      String orderNo = getString(payload, "orderNo");
+      OrderService.RefundResult result = orderService.refundOrder(user.id(), orderNo);
+      JsonObject response = new JsonObject();
+      response.addProperty("orderNo", result.orderNo());
+      response.addProperty("shopCoin", result.balance().shopCoin());
+      response.addProperty("gameCoin", result.balance().gameCoin());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleOrdersPolicy(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      int cooldownSeconds = settingsSupplier.get().orderCooldownSeconds();
+      JsonObject response = new JsonObject();
+      response.addProperty("cooldownSeconds", Math.max(0, cooldownSeconds));
+      response.addProperty("refundEnabled", cooldownSeconds > 0);
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleCurrencyMeta(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      PluginSettings.CurrencyDisplaySettings currency = settingsSupplier.get().currencyDisplaySettings();
+      JsonObject shop = new JsonObject();
+      shop.addProperty("name", currency.shopCoinName());
+      shop.addProperty("short", currency.shopCoinShort());
+      JsonObject game = new JsonObject();
+      game.addProperty("name", currency.gameCoinName());
+      game.addProperty("short", currency.gameCoinShort());
+      JsonObject response = new JsonObject();
+      response.add("shopCoin", shop);
+      response.add("gameCoin", game);
       sendJson(exchange, 200, response);
     });
   }
@@ -452,13 +621,38 @@ class EmbeddedWebServer {
       Map<String, String> query = parseQuery(exchange);
       int limit = parseInt(query.get("limit"), 100);
       boolean mineOnly = parseBoolean(query.get("mine"));
-      List<MarketService.ListingView> listings;
+      String sort = query.get("sort");
+      String order = query.get("order");
+      boolean ascending = order != null && order.equalsIgnoreCase("asc");
+      CurrencyType currency = null;
+      String currencyRaw = query.get("currency");
+      if (currencyRaw != null && !currencyRaw.isBlank()) {
+        currency = CurrencyType.fromConfig(currencyRaw);
+      }
+      Long minPrice = parseLong(query.get("minPrice"));
+      Long maxPrice = parseLong(query.get("maxPrice"));
+      String material = query.get("material");
+      String keyword = query.get("keyword");
+
+      Long sellerUserId = null;
+      boolean activeOnly = !mineOnly;
       if (mineOnly) {
         AuthService.AuthUser user = requireAuth(exchange, null);
-        listings = marketService.listOwnListings(user.id(), limit);
-      } else {
-        listings = marketService.listActiveListings(limit);
+        sellerUserId = user.id();
       }
+
+      MarketService.ListingQuery listingQuery = new MarketService.ListingQuery(
+          sellerUserId,
+          activeOnly,
+          sort,
+          ascending,
+          currency,
+          minPrice,
+          maxPrice,
+          material == null ? null : material.trim().toUpperCase(Locale.ROOT),
+          keyword == null ? null : keyword.trim(),
+          limit);
+      List<MarketService.ListingView> listings = marketService.listListings(listingQuery);
 
       JsonArray rows = new JsonArray();
       for (MarketService.ListingView listing : listings) {
@@ -502,6 +696,17 @@ class EmbeddedWebServer {
       response.addProperty("listingId", result.listingId());
       response.addProperty("currency", result.currency().name());
       response.addProperty("totalPrice", result.totalPrice());
+      response.addProperty("buyerTotal", result.buyerTotal());
+      response.addProperty("sellerReceive", result.sellerReceive());
+      response.addProperty("feeAmount", result.feeAmount());
+      response.addProperty("taxAmount", result.taxAmount());
+      response.addProperty("orderStatus", result.orderStatus());
+      response.addProperty("cooldownSeconds", result.cooldownSeconds());
+      if (result.refundDeadline() == null) {
+        response.add("refundDeadline", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("refundDeadline", result.refundDeadline().toString());
+      }
       sendJson(exchange, 200, response);
     });
   }
@@ -523,6 +728,28 @@ class EmbeddedWebServer {
       response.addProperty("currency", result.currency().name());
       response.addProperty("price", result.price());
       response.addProperty("quantity", result.quantity());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleMarketPrice(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      long listingId = getLong(payload, "listingId", -1L);
+      long price = getLong(payload, "price", 0L);
+      MarketService.ListingPriceUpdateResult result =
+          marketService.updateListingPrice(user.id(), listingId, price);
+      JsonObject response = new JsonObject();
+      response.addProperty("listingId", result.listingId());
+      response.addProperty("currency", result.currency().name());
+      response.addProperty("price", result.price());
       sendJson(exchange, 200, response);
     });
   }
@@ -619,14 +846,22 @@ class EmbeddedWebServer {
       long shopCoin = getLong(payload, "shopCoin", 0L);
       long gameCoin = getLong(payload, "gameCoin", 0L);
       int maxUses = (int) getLong(payload, "maxUses", 1L);
+      int perUserMaxUses = (int) getLong(payload, "perUserMaxUses", 1L);
       Integer expiresInMinutes = payload.has("expiresInMinutes") ? (int) getLong(payload, "expiresInMinutes", 0L) : null;
       String customCode = getOptionalString(payload, "customCode").orElse(null);
-      String code = redeemCodeService.createCode(shopCoin, gameCoin, maxUses, expiresInMinutes, customCode);
+      String code = redeemCodeService.createCode(
+          shopCoin,
+          gameCoin,
+          maxUses,
+          perUserMaxUses,
+          expiresInMinutes,
+          customCode);
       JsonObject response = new JsonObject();
       response.addProperty("code", code);
       response.addProperty("shopCoin", shopCoin);
       response.addProperty("gameCoin", gameCoin);
       response.addProperty("maxUses", maxUses);
+      response.addProperty("perUserMaxUses", perUserMaxUses);
       response.addProperty("expiresInMinutes", expiresInMinutes);
       sendJson(exchange, 200, response);
 
@@ -635,6 +870,7 @@ class EmbeddedWebServer {
       detail.addProperty("shopCoin", shopCoin);
       detail.addProperty("gameCoin", gameCoin);
       detail.addProperty("maxUses", maxUses);
+      detail.addProperty("perUserMaxUses", perUserMaxUses);
       if (expiresInMinutes != null) {
         detail.addProperty("expiresInMinutes", expiresInMinutes);
       }
@@ -661,6 +897,7 @@ class EmbeddedWebServer {
         row.addProperty("shopCoin", code.shopCoin());
         row.addProperty("gameCoin", code.gameCoin());
         row.addProperty("maxUses", code.maxUses());
+        row.addProperty("perUserMaxUses", code.perUserMaxUses());
         row.addProperty("usedCount", code.usedCount());
         row.addProperty("active", code.active());
         if (code.expiresAt() == null) {
@@ -706,6 +943,16 @@ class EmbeddedWebServer {
         row.addProperty("productType", product.productType().name());
         row.addProperty("commandTemplate", product.commandTemplate());
         row.addProperty("active", product.active());
+        if (product.publishAt() == null) {
+          row.add("publishAt", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("publishAt", product.publishAt().toString());
+        }
+        if (product.unpublishAt() == null) {
+          row.add("unpublishAt", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("unpublishAt", product.unpublishAt().toString());
+        }
         if (product.itemMaterial() == null) {
           row.add("itemMaterial", JsonNull.INSTANCE);
         } else {
@@ -762,6 +1009,8 @@ class EmbeddedWebServer {
           getOptionalString(payload, "effectType").orElse(null),
           payload.has("effectSeconds") ? (int) getLong(payload, "effectSeconds", 0L) : null,
           payload.has("effectAmplifier") ? (int) getLong(payload, "effectAmplifier", 0L) : null,
+          getOptionalDateTime(payload, "publishAt"),
+          getOptionalDateTime(payload, "unpublishAt"),
           payload.has("active") ? payload.get("active").getAsBoolean() : true);
       ProductService.ProductView product = productService.upsertProduct(input);
       JsonObject response = new JsonObject();
@@ -803,6 +1052,199 @@ class EmbeddedWebServer {
       JsonObject detail = new JsonObject();
       detail.addProperty("active", active);
       adminAuditService.log(admin, "PRODUCT_ACTIVE", "product", String.valueOf(product.id()), detail, clientIp(exchange));
+    });
+  }
+
+  private void handleAdminEconomySettings(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AdminService.AdminUser admin = requireAdmin(exchange, null, AdminPermission.ECONOMY_MANAGE);
+      PluginSettings settings = settingsSupplier.get();
+
+      JsonObject shopToGame = new JsonObject();
+      shopToGame.addProperty("enabled", settings.exchangeSettings().shopToGame().enabled());
+      shopToGame.addProperty("ratio", settings.exchangeSettings().shopToGame().ratio());
+      JsonObject gameToShop = new JsonObject();
+      gameToShop.addProperty("enabled", settings.exchangeSettings().gameToShop().enabled());
+      gameToShop.addProperty("ratio", settings.exchangeSettings().gameToShop().ratio());
+      JsonObject exchangeJson = new JsonObject();
+      exchangeJson.add("shopToGame", shopToGame);
+      exchangeJson.add("gameToShop", gameToShop);
+
+      PluginSettings.MarketEconomySettings market = settings.economySettings().marketSettings();
+      JsonObject marketJson = new JsonObject();
+      marketJson.addProperty("tradeFeePercent", market.tradeFeePercent());
+      marketJson.addProperty("tradeTaxPercent", market.tradeTaxPercent());
+
+      PluginSettings.CurrencyDisplaySettings currency = settings.currencyDisplaySettings();
+      JsonObject currencyJson = new JsonObject();
+      currencyJson.addProperty("shopCoinName", currency.shopCoinName());
+      currencyJson.addProperty("shopCoinShort", currency.shopCoinShort());
+      currencyJson.addProperty("gameCoinName", currency.gameCoinName());
+      currencyJson.addProperty("gameCoinShort", currency.gameCoinShort());
+
+      WalletService.GameCoinIntegrationStatus integration = walletService.getGameCoinIntegrationStatus();
+      JsonObject vaultJson = new JsonObject();
+      vaultJson.addProperty("vaultPluginPresent", integration.vaultPluginPresent());
+      vaultJson.addProperty("hooked", integration.hooked());
+      if (integration.provider() == null || integration.provider().isBlank()) {
+        vaultJson.add("provider", JsonNull.INSTANCE);
+      } else {
+        vaultJson.addProperty("provider", integration.provider());
+      }
+      vaultJson.addProperty("gameCoinBackedByVault", integration.gameCoinBackedByVault());
+
+      JsonObject response = new JsonObject();
+      response.add("exchange", exchangeJson);
+      response.add("market", marketJson);
+      response.add("currency", currencyJson);
+      response.add("vault", vaultJson);
+      sendJson(exchange, 200, response);
+
+      adminAuditService.log(admin, "ECONOMY_READ", "economy", null, null, clientIp(exchange));
+    });
+  }
+
+  private void handleAdminExchangeUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+
+      boolean shopEnabled = getBoolean(payload, "shopToGameEnabled");
+      double shopRatio = getDouble(payload, "shopToGameRatio");
+      boolean gameEnabled = getBoolean(payload, "gameToShopEnabled");
+      double gameRatio = getDouble(payload, "gameToShopRatio");
+
+      updateConfig(config -> {
+        config.set("exchange.shopcoin-to-gamecoin.enabled", shopEnabled);
+        config.set("exchange.shopcoin-to-gamecoin.ratio", Math.max(0.0, shopRatio));
+        config.set("exchange.gamecoin-to-shopcoin.enabled", gameEnabled);
+        config.set("exchange.gamecoin-to-shopcoin.ratio", Math.max(0.0, gameRatio));
+      });
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("shopToGameEnabled", shopEnabled);
+      detail.addProperty("shopToGameRatio", shopRatio);
+      detail.addProperty("gameToShopEnabled", gameEnabled);
+      detail.addProperty("gameToShopRatio", gameRatio);
+      adminAuditService.log(admin, "EXCHANGE_UPDATE", "exchange", null, detail, clientIp(exchange));
+
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminMarketEconomyUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      double fee = getDouble(payload, "tradeFeePercent");
+      double tax = getDouble(payload, "tradeTaxPercent");
+
+      updateConfig(config -> {
+        config.set("economy.market.trade-fee-percent", clampPercent(fee));
+        config.set("economy.market.trade-tax-percent", clampPercent(tax));
+      });
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("tradeFeePercent", fee);
+      detail.addProperty("tradeTaxPercent", tax);
+      adminAuditService.log(admin, "MARKET_ECONOMY_UPDATE", "market", null, detail, clientIp(exchange));
+
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminOrdersList(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AdminService.AdminUser admin = requireAdmin(exchange, null, AdminPermission.ORDER_VIEW);
+      Map<String, String> query = parseQuery(exchange);
+      int limit = parseInt(query.get("limit"), 120);
+      Long cursor = parseLong(query.get("cursor"));
+      String status = query.get("status");
+      Long userId = parseLong(query.get("userId"));
+      String orderNo = query.get("orderNo");
+      List<OrderService.AdminOrderView> orders = orderService.listOrdersForAdmin(
+          limit,
+          cursor,
+          status,
+          userId,
+          orderNo);
+      JsonArray array = new JsonArray();
+      for (OrderService.AdminOrderView adminOrder : orders) {
+        OrderService.OrderView order = adminOrder.order();
+        JsonObject row = new JsonObject();
+        row.addProperty("id", order.id());
+        row.addProperty("orderNo", order.orderNo());
+        row.addProperty("status", order.status());
+        row.addProperty("currency", order.currency().name());
+        row.addProperty("totalAmount", order.totalAmount());
+        row.addProperty("createdAt", order.createdAt().toString());
+        if (order.deliveredAt() == null) {
+          row.add("deliveredAt", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("deliveredAt", order.deliveredAt().toString());
+        }
+        if (order.refundedAt() == null) {
+          row.add("refundedAt", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("refundedAt", order.refundedAt().toString());
+        }
+        if (order.refundDeadline() == null) {
+          row.add("refundDeadline", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("refundDeadline", order.refundDeadline().toString());
+        }
+        row.addProperty("userId", order.userId());
+        row.addProperty("username", adminOrder.username());
+        if (adminOrder.boundUuid() == null) {
+          row.add("boundUuid", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("boundUuid", adminOrder.boundUuid().toString());
+        }
+        row.addProperty("mcUuid", order.mcUuid().toString());
+        row.addProperty("sku", order.productSku());
+        row.addProperty("productTitle", order.productTitle());
+        row.addProperty("productType", order.productType());
+        if (order.itemMaterial() == null) {
+          row.add("itemMaterial", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("itemMaterial", order.itemMaterial());
+        }
+        row.addProperty("quantity", order.quantity());
+        row.addProperty("unitPrice", order.unitPrice());
+        array.add(row);
+      }
+      JsonObject response = new JsonObject();
+      response.add("orders", array);
+      sendJson(exchange, 200, response);
+      adminAuditService.log(admin, "ORDER_LIST", "order", null, null, clientIp(exchange));
     });
   }
 
@@ -1283,6 +1725,18 @@ class EmbeddedWebServer {
     return Optional.of(text);
   }
 
+  private java.time.LocalDateTime getOptionalDateTime(JsonObject payload, String key) {
+    Optional<String> raw = getOptionalString(payload, key);
+    if (raw.isEmpty()) {
+      return null;
+    }
+    try {
+      return java.time.LocalDateTime.parse(raw.get());
+    } catch (java.time.format.DateTimeParseException exception) {
+      throw new ServiceException("bad_request", "Invalid datetime: " + key);
+    }
+  }
+
   private long getLong(JsonObject payload, String key, long fallback) {
     if (!payload.has(key)) {
       return fallback;
@@ -1295,6 +1749,37 @@ class EmbeddedWebServer {
       return value.getAsLong();
     } catch (NumberFormatException exception) {
       throw new ServiceException("bad_request", "Invalid number: " + key);
+    }
+  }
+
+  private boolean getBoolean(JsonObject payload, String key) {
+    JsonElement value = payload.get(key);
+    if (value == null || value.isJsonNull()) {
+      throw new ServiceException("bad_request", "Missing field: " + key);
+    }
+    return value.getAsBoolean();
+  }
+
+  private double getDouble(JsonObject payload, String key) {
+    JsonElement value = payload.get(key);
+    if (value == null || value.isJsonNull()) {
+      throw new ServiceException("bad_request", "Missing field: " + key);
+    }
+    try {
+      return value.getAsDouble();
+    } catch (NumberFormatException exception) {
+      throw new ServiceException("bad_request", "Invalid number: " + key);
+    }
+  }
+
+  private Long parseLong(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return null;
+    }
+    try {
+      return Long.parseLong(raw.trim());
+    } catch (NumberFormatException exception) {
+      return null;
     }
   }
 
@@ -1339,6 +1824,22 @@ class EmbeddedWebServer {
 
   private String decodeUrl(String raw) {
     return java.net.URLDecoder.decode(raw, StandardCharsets.UTF_8);
+  }
+
+  private double clampPercent(double value) {
+    if (Double.isNaN(value) || Double.isInfinite(value)) {
+      return 0.0;
+    }
+    return Math.max(0.0, Math.min(100.0, value));
+  }
+
+  private void updateConfig(java.util.function.Consumer<org.bukkit.configuration.file.FileConfiguration> updater) {
+    org.bukkit.configuration.file.FileConfiguration config = plugin.getConfig();
+    updater.accept(config);
+    plugin.saveConfig();
+    if (plugin instanceof WebShopPlugin webShopPlugin) {
+      org.bukkit.Bukkit.getScheduler().runTask(plugin, webShopPlugin::reloadRuntimeConfig);
+    }
   }
 
   private JsonObject errorJson(String code, String message) {

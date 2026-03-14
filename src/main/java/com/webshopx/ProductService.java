@@ -39,10 +39,15 @@ class ProductService {
   List<ProductView> listProducts(boolean includeInactive, int requestedLimit) {
     int limit = normalizeLimit(requestedLimit);
     return databaseManager.withConnection(connection -> {
-      String activeFilter = includeInactive ? "" : "WHERE active = TRUE";
+      String activeFilter = includeInactive
+          ? ""
+          : "WHERE active = TRUE "
+              + "AND (publish_at IS NULL OR publish_at <= NOW()) "
+              + "AND (unpublish_at IS NULL OR unpublish_at > NOW())";
       String sql = """
           SELECT id, sku, title, currency, price, product_type, command_template,
-                 item_material, item_amount, effect_type, effect_seconds, effect_amplifier, active
+                 item_material, item_amount, effect_type, effect_seconds, effect_amplifier,
+                 publish_at, unpublish_at, active
           FROM products
           """ + activeFilter + " ORDER BY id ASC LIMIT ?";
       List<ProductView> products = new ArrayList<>();
@@ -71,13 +76,15 @@ class ProductService {
       Integer normalizedEffectAmplifier = normalizeEffectAmplifier(
           input.effectAmplifier(),
           productType);
+      validateSchedule(input.publishAt(), input.unpublishAt());
 
       String sql = """
           INSERT INTO products (
             sku, title, currency, price, product_type, command_template,
-            item_material, item_amount, effect_type, effect_seconds, effect_amplifier, active
+            item_material, item_amount, effect_type, effect_seconds, effect_amplifier,
+            publish_at, unpublish_at, active
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON DUPLICATE KEY UPDATE
             title = VALUES(title),
             currency = VALUES(currency),
@@ -89,6 +96,8 @@ class ProductService {
             effect_type = VALUES(effect_type),
             effect_seconds = VALUES(effect_seconds),
             effect_amplifier = VALUES(effect_amplifier),
+            publish_at = VALUES(publish_at),
+            unpublish_at = VALUES(unpublish_at),
             active = VALUES(active)
           """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -115,7 +124,17 @@ class ProductService {
         } else {
           statement.setInt(11, normalizedEffectAmplifier);
         }
-        statement.setBoolean(12, input.active());
+        if (input.publishAt() == null) {
+          statement.setObject(12, null);
+        } else {
+          statement.setTimestamp(12, java.sql.Timestamp.valueOf(input.publishAt()));
+        }
+        if (input.unpublishAt() == null) {
+          statement.setObject(13, null);
+        } else {
+          statement.setTimestamp(13, java.sql.Timestamp.valueOf(input.unpublishAt()));
+        }
+        statement.setBoolean(14, input.active());
         statement.executeUpdate();
       }
       return readProductBySku(connection, normalizedSku);
@@ -148,9 +167,12 @@ class ProductService {
     String lockClause = forUpdate ? " FOR UPDATE" : "";
     String sql = """
         SELECT id, sku, title, currency, price, product_type, command_template,
-               item_material, item_amount, effect_type, effect_seconds, effect_amplifier, active
+               item_material, item_amount, effect_type, effect_seconds, effect_amplifier,
+               publish_at, unpublish_at, active
         FROM products
         WHERE id = ? AND active = TRUE
+          AND (publish_at IS NULL OR publish_at <= NOW())
+          AND (unpublish_at IS NULL OR unpublish_at > NOW())
         """ + lockClause;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, productId);
@@ -166,7 +188,8 @@ class ProductService {
   private ProductView readProductById(Connection connection, long productId) throws SQLException {
     String sql = """
         SELECT id, sku, title, currency, price, product_type, command_template,
-               item_material, item_amount, effect_type, effect_seconds, effect_amplifier, active
+               item_material, item_amount, effect_type, effect_seconds, effect_amplifier,
+               publish_at, unpublish_at, active
         FROM products
         WHERE id = ?
         """;
@@ -184,7 +207,8 @@ class ProductService {
   private ProductView readProductBySku(Connection connection, String sku) throws SQLException {
     String sql = """
         SELECT id, sku, title, currency, price, product_type, command_template,
-               item_material, item_amount, effect_type, effect_seconds, effect_amplifier, active
+               item_material, item_amount, effect_type, effect_seconds, effect_amplifier,
+               publish_at, unpublish_at, active
         FROM products
         WHERE sku = ?
         """;
@@ -234,6 +258,8 @@ class ProductService {
     Integer effectSeconds = resultSet.wasNull() ? null : effectSecondsValue;
     int effectAmplifierValue = resultSet.getInt("effect_amplifier");
     Integer effectAmplifier = resultSet.wasNull() ? null : effectAmplifierValue;
+    java.sql.Timestamp publishAtRaw = resultSet.getTimestamp("publish_at");
+    java.sql.Timestamp unpublishAtRaw = resultSet.getTimestamp("unpublish_at");
 
     return new ProductView(
         resultSet.getLong("id"),
@@ -248,6 +274,8 @@ class ProductService {
         effectType,
         effectSeconds,
         effectAmplifier,
+        publishAtRaw == null ? null : publishAtRaw.toLocalDateTime(),
+        unpublishAtRaw == null ? null : unpublishAtRaw.toLocalDateTime(),
         resultSet.getBoolean("active"));
   }
 
@@ -356,6 +384,14 @@ class ProductService {
     return normalized;
   }
 
+  private void validateSchedule(
+      java.time.LocalDateTime publishAt,
+      java.time.LocalDateTime unpublishAt) {
+    if (publishAt != null && unpublishAt != null && !unpublishAt.isAfter(publishAt)) {
+      throw new ServiceException("invalid_product", "Unpublish time must be after publish time");
+    }
+  }
+
   private int normalizeLimit(int limit) {
     if (limit <= 0) {
       return DEFAULT_LIMIT;
@@ -393,6 +429,8 @@ class ProductService {
       String effectType,
       Integer effectSeconds,
       Integer effectAmplifier,
+      java.time.LocalDateTime publishAt,
+      java.time.LocalDateTime unpublishAt,
       boolean active) {
   }
 
@@ -409,6 +447,8 @@ class ProductService {
       String effectType,
       Integer effectSeconds,
       Integer effectAmplifier,
+      java.time.LocalDateTime publishAt,
+      java.time.LocalDateTime unpublishAt,
       boolean active) {
   }
 }

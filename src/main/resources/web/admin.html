@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
@@ -21,6 +21,8 @@
       <button class="top-tab active" data-tab-target="login" type="button">管理员登录</button>
       <button class="top-tab" data-tab-target="redeem" type="button">兑换码</button>
       <button class="top-tab" data-tab-target="products" type="button">官方商品</button>
+      <button class="top-tab" data-tab-target="orders" type="button">订单</button>
+      <button class="top-tab" data-tab-target="economy" type="button">经济设置</button>
       <button class="top-tab" data-tab-target="market" type="button">玩家市场</button>
       <button class="top-tab" data-tab-target="users" type="button">账号支持</button>
       <button class="top-tab" data-tab-target="audit" type="button">审计日志</button>
@@ -87,6 +89,10 @@
             <input id="redeemMaxUses" type="number" min="1" step="1" value="1" />
           </label>
           <label class="field">
+            <span>单账号最大使用次数</span>
+            <input id="redeemPerUserMaxUses" type="number" min="1" step="1" value="1" />
+          </label>
+          <label class="field">
             <span>有效期（分钟，可空）</span>
             <input id="redeemExpires" type="number" min="0" step="1" placeholder="留空=永久" />
           </label>
@@ -137,6 +143,14 @@
             <input id="productPrice" type="number" min="1" step="1" value="1" />
           </label>
           <label class="field">
+            <span>上架时间</span>
+            <input id="productPublishAt" type="datetime-local" />
+          </label>
+          <label class="field">
+            <span>下架时间</span>
+            <input id="productUnpublishAt" type="datetime-local" />
+          </label>
+          <label class="field">
             <span>类型</span>
             <select id="productType">
               <option value="COMMAND">指令</option>
@@ -183,6 +197,103 @@
         <p class="meta" id="productStatus">等待操作</p>
         <div class="admin-list" id="productList"></div>
       </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="orders">
+      <article class="md-card section-card">
+        <div class="section-head">
+          <div>
+            <h2>订单列表</h2>
+            <p class="card-desc">查看最近订单与状态。</p>
+          </div>
+          <button id="orderRefreshBtn" type="button">刷新订单</button>
+        </div>
+        <div class="field-grid three-col">
+          <label class="field">
+            <span>状态</span>
+            <select id="orderStatus">
+              <option value="">全部</option>
+              <option value="PENDING">待发放</option>
+              <option value="DELIVERED">已发放</option>
+              <option value="REFUNDED">已退款</option>
+              <option value="FAILED">失败</option>
+              <option value="RECYCLED">已回收</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>用户ID</span>
+            <input id="orderUserId" placeholder="User ID" />
+          </label>
+          <label class="field">
+            <span>订单号</span>
+            <input id="orderNo" placeholder="ODR-..." />
+          </label>
+        </div>
+        <p class="meta" id="orderStatusView">等待刷新</p>
+        <div class="admin-list" id="adminOrderList"></div>
+      </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="economy">
+      <div class="grid two-col">
+        <article class="md-card section-card">
+          <h2>兑换方向与比例</h2>
+          <p class="card-desc">配置 ShopCoin 与 GameCoin 的兑换方向与比例。</p>
+          <div class="field-grid">
+            <label class="field">
+              <span>ShopCoin -> GameCoin 开关</span>
+              <select id="exchangeShopToGameEnabled">
+                <option value="true">启用</option>
+                <option value="false">禁用</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>ShopCoin -> GameCoin 比例</span>
+              <input id="exchangeShopToGameRatio" type="number" min="0" step="0.01" value="1.0" />
+            </label>
+            <label class="field">
+              <span>GameCoin -> ShopCoin 开关</span>
+              <select id="exchangeGameToShopEnabled">
+                <option value="true">启用</option>
+                <option value="false">禁用</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>GameCoin -> ShopCoin 比例</span>
+              <input id="exchangeGameToShopRatio" type="number" min="0" step="0.01" value="1.0" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="exchangeSaveBtn" type="button">保存兑换配置</button>
+          </div>
+          <p class="meta" id="exchangeStatusView">等待操作</p>
+        </article>
+
+        <article class="md-card section-card">
+          <h2>交易手续费与税率</h2>
+          <p class="card-desc">买家支付税率，卖家扣除手续费。</p>
+          <div class="field-grid">
+            <label class="field">
+              <span>交易手续费（%）</span>
+              <input id="marketFeePercent" type="number" min="0" max="100" step="0.01" value="0.0" />
+            </label>
+            <label class="field">
+              <span>交易税率（%）</span>
+              <input id="marketTaxPercent" type="number" min="0" max="100" step="0.01" value="0.0" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="marketEconomySaveBtn" type="button">保存手续费/税率</button>
+          </div>
+          <p class="meta" id="marketEconomyStatusView">等待操作</p>
+        </article>
+
+        <article class="md-card section-card">
+          <h2>Vault 对接状态</h2>
+          <p class="card-desc">GameCoin 与 Vault 经济系统的连接状态。</p>
+          <p class="meta" id="vaultStatusView">等待加载</p>
+        </article>
+      </div>
     </section>
 
     <section class="tab-panel" data-tab-panel="market">
@@ -295,3 +406,5 @@
   <script src="admin.js"></script>
 </body>
 </html>
+
+

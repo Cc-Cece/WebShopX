@@ -14,10 +14,15 @@ record PluginSettings(
     int accessTokenLength,
     int deliveryBatchSize,
     int deliveryRetrySeconds,
+    int orderCooldownSeconds,
+    int marketMaxActiveListings,
+    CurrencyDisplaySettings currencyDisplaySettings,
+    MaintenanceSettings maintenanceSettings,
     AdminBootstrapSettings adminBootstrapSettings,
     EmbeddedWebSettings embeddedWebSettings,
     DatabaseSettings databaseSettings,
     ExchangeSettings exchangeSettings,
+    EconomySettings economySettings,
     RedisSettings redisSettings,
     List<ProductSeed> productSeeds) {
 
@@ -57,6 +62,26 @@ record PluginSettings(
         config.getString("webshop.admin-bootstrap.password", "admin123456"),
         config.getString("webshop.admin-bootstrap.role", "SUPER_ADMIN"));
 
+    CurrencyDisplaySettings currencyDisplaySettings = new CurrencyDisplaySettings(
+        config.getString("currency.shopcoin.name", "ShopCoin"),
+        config.getString("currency.shopcoin.short", "SC"),
+        config.getString("currency.gamecoin.name", "GameCoin"),
+        config.getString("currency.gamecoin.short", "GC"));
+
+    MarketEconomySettings marketEconomySettings = new MarketEconomySettings(
+        config.getDouble("economy.market.trade-fee-percent", 0.0),
+        config.getDouble("economy.market.trade-tax-percent", 0.0));
+    InflationSettings inflationSettings = new InflationSettings(
+        InflationMode.fromRaw(config.getString("economy.inflation-control.mode", "burn")),
+        config.getLong("economy.inflation-control.treasury-user-id", 0L));
+
+    MaintenanceSettings maintenanceSettings = new MaintenanceSettings(
+        config.getInt("webshop.maintenance.cleanup-interval-minutes", 30),
+        config.getInt("webshop.maintenance.pending-bind-retention-hours", 6),
+        config.getInt("webshop.maintenance.pending-password-retention-hours", 6),
+        config.getInt("webshop.maintenance.bind-request-retention-hours", 24),
+        config.getInt("webshop.maintenance.redeem-code-retention-days", 7));
+
     return new PluginSettings(
         mode,
         config.getInt("webshop.session-expire-hours", 72),
@@ -64,10 +89,15 @@ record PluginSettings(
         config.getInt("webshop.access-token-length", 48),
         config.getInt("webshop.delivery-batch-size", 20),
         config.getInt("webshop.delivery-retry-seconds", 30),
+        config.getInt("webshop.order-cooldown-seconds", 15),
+        config.getInt("webshop.market.max-active-listings", 10),
+        currencyDisplaySettings,
+        maintenanceSettings,
         adminBootstrapSettings,
         webSettings,
         databaseSettings,
         new ExchangeSettings(shopToGame, gameToShop),
+        new EconomySettings(marketEconomySettings, inflationSettings),
         redisSettings,
         readProductSeeds(config));
   }
@@ -169,6 +199,46 @@ record PluginSettings(
   }
 
   record ExchangeDirection(boolean enabled, double ratio) {
+  }
+
+  record CurrencyDisplaySettings(
+      String shopCoinName,
+      String shopCoinShort,
+      String gameCoinName,
+      String gameCoinShort) {
+  }
+
+  record MaintenanceSettings(
+      int cleanupIntervalMinutes,
+      int pendingBindRetentionHours,
+      int pendingPasswordRetentionHours,
+      int bindRequestRetentionHours,
+      int redeemCodeRetentionDays) {
+  }
+
+  record EconomySettings(MarketEconomySettings marketSettings, InflationSettings inflationSettings) {
+  }
+
+  record MarketEconomySettings(double tradeFeePercent, double tradeTaxPercent) {
+  }
+
+  record InflationSettings(InflationMode mode, long treasuryUserId) {
+  }
+
+  enum InflationMode {
+    BURN,
+    TREASURY;
+
+    static InflationMode fromRaw(String raw) {
+      if (raw == null || raw.isBlank()) {
+        return BURN;
+      }
+      try {
+        return InflationMode.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+      } catch (IllegalArgumentException exception) {
+        return BURN;
+      }
+    }
   }
 
   record RedisSettings(boolean enabled, String host, int port) {

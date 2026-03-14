@@ -1,8 +1,12 @@
-const state = {
+﻿const state = {
   token: null,
   admin: null,
   activeTab: "login",
   selectedUser: null,
+  currencyMeta: {
+    SHOP_COIN: { name: "ShopCoin", short: "SC" },
+    GAME_COIN: { name: "GameCoin", short: "GC" },
+  },
 };
 
 const elements = {
@@ -17,6 +21,7 @@ const elements = {
   redeemShopCoin: document.getElementById("redeemShopCoin"),
   redeemGameCoin: document.getElementById("redeemGameCoin"),
   redeemMaxUses: document.getElementById("redeemMaxUses"),
+  redeemPerUserMaxUses: document.getElementById("redeemPerUserMaxUses"),
   redeemExpires: document.getElementById("redeemExpires"),
   redeemCustomCode: document.getElementById("redeemCustomCode"),
   redeemCreateBtn: document.getElementById("redeemCreateBtn"),
@@ -28,6 +33,8 @@ const elements = {
   productTitle: document.getElementById("productTitle"),
   productCurrency: document.getElementById("productCurrency"),
   productPrice: document.getElementById("productPrice"),
+  productPublishAt: document.getElementById("productPublishAt"),
+  productUnpublishAt: document.getElementById("productUnpublishAt"),
   productType: document.getElementById("productType"),
   productCommand: document.getElementById("productCommand"),
   productItemMaterial: document.getElementById("productItemMaterial"),
@@ -40,6 +47,26 @@ const elements = {
   productRefreshBtn: document.getElementById("productRefreshBtn"),
   productStatus: document.getElementById("productStatus"),
   productList: document.getElementById("productList"),
+
+  orderStatus: document.getElementById("orderStatus"),
+  orderUserId: document.getElementById("orderUserId"),
+  orderNo: document.getElementById("orderNo"),
+  orderRefreshBtn: document.getElementById("orderRefreshBtn"),
+  orderStatusView: document.getElementById("orderStatusView"),
+  adminOrderList: document.getElementById("adminOrderList"),
+
+  exchangeShopToGameEnabled: document.getElementById("exchangeShopToGameEnabled"),
+  exchangeShopToGameRatio: document.getElementById("exchangeShopToGameRatio"),
+  exchangeGameToShopEnabled: document.getElementById("exchangeGameToShopEnabled"),
+  exchangeGameToShopRatio: document.getElementById("exchangeGameToShopRatio"),
+  exchangeSaveBtn: document.getElementById("exchangeSaveBtn"),
+  exchangeStatusView: document.getElementById("exchangeStatusView"),
+
+  marketFeePercent: document.getElementById("marketFeePercent"),
+  marketTaxPercent: document.getElementById("marketTaxPercent"),
+  marketEconomySaveBtn: document.getElementById("marketEconomySaveBtn"),
+  marketEconomyStatusView: document.getElementById("marketEconomyStatusView"),
+  vaultStatusView: document.getElementById("vaultStatusView"),
 
   marketStatus: document.getElementById("marketStatus"),
   marketRefreshBtn: document.getElementById("marketRefreshBtn"),
@@ -104,6 +131,12 @@ function switchTab(tabName) {
   state.activeTab = tabName;
   tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tabTarget === tabName));
   panels.forEach((panel) => panel.classList.toggle("active", panel.dataset.tabPanel === tabName));
+  if (tabName === "orders" && state.token) {
+    loadAdminOrders();
+  }
+  if (tabName === "economy" && state.token) {
+    loadEconomySettings();
+  }
 }
 
 tabs.forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tabTarget)));
@@ -132,6 +165,26 @@ async function apiAdmin(path, options = {}) {
   return payload;
 }
 
+async function loadCurrencyMeta() {
+  try {
+    const payload = await fetch("/api/meta/currency", { method: "GET" }).then((res) => res.json());
+    if (payload && payload.shopCoin) {
+      state.currencyMeta.SHOP_COIN = {
+        name: payload.shopCoin.name || state.currencyMeta.SHOP_COIN.name,
+        short: payload.shopCoin.short || state.currencyMeta.SHOP_COIN.short,
+      };
+    }
+    if (payload && payload.gameCoin) {
+      state.currencyMeta.GAME_COIN = {
+        name: payload.gameCoin.name || state.currencyMeta.GAME_COIN.name,
+        short: payload.gameCoin.short || state.currencyMeta.GAME_COIN.short,
+      };
+    }
+  } catch (error) {
+    // Ignore missing metadata.
+  }
+}
+
 function ensureAdmin() {
   if (!state.token) {
     throw new Error("请先登录管理员账号。");
@@ -141,7 +194,15 @@ function ensureAdmin() {
 function formatCurrency(amount, currency) {
   const value = Number(amount || 0);
   const normalized = Number.isNaN(value) ? 0 : value;
-  return `${currency} ${normalized.toLocaleString("zh-CN")}`;
+  const meta = state.currencyMeta[currency] || { short: String(currency) };
+  return `${meta.short} ${normalized.toLocaleString("zh-CN")}`;
+}
+
+function toLocalInput(value) {
+  if (!value) {
+    return "";
+  }
+  return String(value).slice(0, 16);
 }
 
 function renderAdminProfile() {
@@ -236,17 +297,65 @@ function renderKeyValueCard(title, items, actions = []) {
   return card;
 }
 
+function localizeOrderStatusOptions() {
+  if (!elements.orderStatus) {
+    return;
+  }
+  const labels = {
+    "": "全部",
+    PENDING: "待发放",
+    DELIVERED: "已发放",
+    REFUNDED: "已退款",
+    FAILED: "失败",
+    RECYCLED: "已回收",
+  };
+  Array.from(elements.orderStatus.options).forEach((option) => {
+    const value = String(option.value || "").trim().toUpperCase();
+    if (Object.prototype.hasOwnProperty.call(labels, value)) {
+      option.textContent = labels[value];
+    }
+  });
+}
+
+function setProductFieldVisible(inputElement, visible) {
+  if (!inputElement) {
+    return;
+  }
+  const field = inputElement.closest(".field");
+  if (!field) {
+    return;
+  }
+  field.classList.toggle("hidden", !visible);
+}
+
+function updateProductTypeFieldsVisibility(typeRaw) {
+  const type = String(typeRaw || elements.productType.value || "COMMAND")
+    .trim()
+    .toUpperCase();
+  const commandVisible = type === "COMMAND";
+  const itemVisible = type === "GIVE_ITEM" || type === "RECYCLE_ITEM";
+  const effectVisible = type === "POTION_EFFECT";
+  setProductFieldVisible(elements.productCommand, commandVisible);
+  setProductFieldVisible(elements.productItemMaterial, itemVisible);
+  setProductFieldVisible(elements.productItemAmount, itemVisible);
+  setProductFieldVisible(elements.productEffectType, effectVisible);
+  setProductFieldVisible(elements.productEffectSeconds, effectVisible);
+  setProductFieldVisible(elements.productEffectAmplifier, effectVisible);
+}
+
 async function createRedeemCode() {
   ensureAdmin();
   const shopCoin = Number(elements.redeemShopCoin.value || 0);
   const gameCoin = Number(elements.redeemGameCoin.value || 0);
   const maxUses = Number(elements.redeemMaxUses.value || 1);
+  const perUserMaxUses = Number(elements.redeemPerUserMaxUses.value || 1);
   const expiresInMinutes = elements.redeemExpires.value.trim();
   const customCode = elements.redeemCustomCode.value.trim();
   const body = {
     shopCoin,
     gameCoin,
     maxUses,
+    perUserMaxUses,
   };
   if (expiresInMinutes) {
     body.expiresInMinutes = Number(expiresInMinutes);
@@ -273,6 +382,7 @@ async function loadRedeemList() {
         { label: "ShopCoin", value: code.shopCoin },
         { label: "GameCoin", value: code.gameCoin },
         { label: "已用 / 总次数", value: `${code.usedCount}/${code.maxUses}` },
+        { label: "单账号上限", value: code.perUserMaxUses || 1 },
         { label: "有效期", value: code.expiresAt || "永久" },
         { label: "状态", value: code.active ? "启用" : "停用" },
       ]
@@ -287,6 +397,8 @@ function getProductInput() {
     title: elements.productTitle.value.trim(),
     currency: elements.productCurrency.value.trim(),
     price: Number(elements.productPrice.value || 0),
+    publishAt: elements.productPublishAt.value ? elements.productPublishAt.value : null,
+    unpublishAt: elements.productUnpublishAt.value ? elements.productUnpublishAt.value : null,
     productType: elements.productType.value.trim(),
     commandTemplate: elements.productCommand.value.trim(),
     itemMaterial: elements.productItemMaterial.value.trim(),
@@ -324,6 +436,8 @@ async function loadProducts() {
       elements.productTitle.value = product.title;
       elements.productCurrency.value = product.currency;
       elements.productPrice.value = product.price;
+      elements.productPublishAt.value = toLocalInput(product.publishAt);
+      elements.productUnpublishAt.value = toLocalInput(product.unpublishAt);
       elements.productType.value = product.productType;
       elements.productCommand.value = product.commandTemplate || "";
       elements.productItemMaterial.value = product.itemMaterial || "";
@@ -332,6 +446,7 @@ async function loadProducts() {
       elements.productEffectSeconds.value = product.effectSeconds || 30;
       elements.productEffectAmplifier.value = product.effectAmplifier || 0;
       elements.productActive.value = product.active ? "true" : "false";
+      updateProductTypeFieldsVisibility(product.productType);
       setMetaText(elements.productStatus, `已加载 ${product.sku} 进入编辑`, "info");
     });
     const toggleBtn = document.createElement("button");
@@ -350,12 +465,140 @@ async function loadProducts() {
         { label: "ID", value: product.id },
         { label: "类型", value: product.productType },
         { label: "币种/价格", value: `${product.currency} ${product.price}` },
+        { label: "上架时间", value: product.publishAt || "立即" },
+        { label: "下架时间", value: product.unpublishAt || "不自动下架" },
         { label: "启用", value: product.active ? "是" : "否" },
       ],
       [editBtn, toggleBtn]
     );
   });
   renderList(elements.productList, rows);
+}
+
+async function loadAdminOrders() {
+  ensureAdmin();
+  const params = new URLSearchParams();
+  const status = elements.orderStatus.value.trim();
+  const userId = elements.orderUserId.value.trim();
+  const orderNo = elements.orderNo.value.trim();
+  if (status) {
+    params.set("status", status);
+  }
+  if (userId) {
+    params.set("userId", userId);
+  }
+  if (orderNo) {
+    params.set("orderNo", orderNo);
+  }
+  params.set("limit", "200");
+  const payload = await apiAdmin(`/api/admin/orders/list?${params.toString()}`, { method: "GET" });
+  setMetaText(elements.orderStatusView, `已加载 ${payload.orders.length} 条订单`, "info");
+  const rows = payload.orders.map((order) =>
+    renderKeyValueCard(
+      `订单 ${order.orderNo}`,
+      [
+        { label: "用户", value: `${order.username || "-"} (#${order.userId})` },
+        { label: "UUID", value: order.boundUuid || order.mcUuid || "-" },
+        { label: "状态", value: order.status },
+        { label: "金额", value: formatCurrency(order.totalAmount, order.currency) },
+        { label: "商品", value: `${order.productTitle || "-"} (${order.sku || "-"})` },
+        { label: "数量", value: `x${order.quantity}` },
+        { label: "时间", value: order.createdAt },
+      ]
+    )
+  );
+  renderList(elements.adminOrderList, rows);
+}
+
+async function loadEconomySettings() {
+  ensureAdmin();
+  const payload = await apiAdmin("/api/admin/economy/settings", { method: "GET" });
+  const exchange = payload.exchange || {};
+  const shopToGame = exchange.shopToGame || {};
+  const gameToShop = exchange.gameToShop || {};
+
+  if (elements.exchangeShopToGameEnabled) {
+    elements.exchangeShopToGameEnabled.value = String(!!shopToGame.enabled);
+  }
+  if (elements.exchangeShopToGameRatio) {
+    elements.exchangeShopToGameRatio.value = String(shopToGame.ratio ?? 1.0);
+  }
+  if (elements.exchangeGameToShopEnabled) {
+    elements.exchangeGameToShopEnabled.value = String(!!gameToShop.enabled);
+  }
+  if (elements.exchangeGameToShopRatio) {
+    elements.exchangeGameToShopRatio.value = String(gameToShop.ratio ?? 1.0);
+  }
+
+  const market = payload.market || {};
+  if (elements.marketFeePercent) {
+    elements.marketFeePercent.value = String(market.tradeFeePercent ?? 0.0);
+  }
+  if (elements.marketTaxPercent) {
+    elements.marketTaxPercent.value = String(market.tradeTaxPercent ?? 0.0);
+  }
+
+  const vault = payload.vault || {};
+  if (elements.vaultStatusView) {
+    const provider = vault.provider || "未提供";
+    if (vault.hooked) {
+      setMetaText(
+        elements.vaultStatusView,
+        `已连接 Vault 经济：${provider}（GameCoin 由 Vault 托管）`,
+        "success"
+      );
+    } else if (vault.vaultPluginPresent) {
+      setMetaText(
+        elements.vaultStatusView,
+        "检测到 Vault 插件，但未找到可用经济提供者。",
+        "warn"
+      );
+    } else {
+      setMetaText(
+        elements.vaultStatusView,
+        "未检测到 Vault 插件，GameCoin 当前使用本地钱包。",
+        "warn"
+      );
+    }
+  }
+
+  setMetaText(elements.exchangeStatusView, "已加载兑换配置", "info");
+  setMetaText(elements.marketEconomyStatusView, "已加载手续费/税率配置", "info");
+}
+
+async function saveExchangeSettings() {
+  ensureAdmin();
+  const shopEnabled = elements.exchangeShopToGameEnabled.value === "true";
+  const shopRatio = Number(elements.exchangeShopToGameRatio.value || 0);
+  const gameEnabled = elements.exchangeGameToShopEnabled.value === "true";
+  const gameRatio = Number(elements.exchangeGameToShopRatio.value || 0);
+
+  await apiAdmin("/api/admin/economy/exchange", {
+    method: "POST",
+    body: JSON.stringify({
+      shopToGameEnabled: shopEnabled,
+      shopToGameRatio: shopRatio,
+      gameToShopEnabled: gameEnabled,
+      gameToShopRatio: gameRatio,
+    }),
+  });
+  setMetaText(elements.exchangeStatusView, "兑换配置已保存", "success");
+  notify("兑换配置已保存", "success");
+}
+
+async function saveMarketEconomySettings() {
+  ensureAdmin();
+  const fee = Number(elements.marketFeePercent.value || 0);
+  const tax = Number(elements.marketTaxPercent.value || 0);
+  await apiAdmin("/api/admin/economy/market", {
+    method: "POST",
+    body: JSON.stringify({
+      tradeFeePercent: fee,
+      tradeTaxPercent: tax,
+    }),
+  });
+  setMetaText(elements.marketEconomyStatusView, "手续费/税率已保存", "success");
+  notify("手续费/税率已保存", "success");
 }
 
 async function loadMarket() {
@@ -560,6 +803,40 @@ elements.productRefreshBtn.addEventListener("click", async () => {
   }
 });
 
+if (elements.orderRefreshBtn) {
+  elements.orderRefreshBtn.addEventListener("click", async () => {
+    try {
+      await loadAdminOrders();
+      notify("订单列表已刷新", "success");
+    } catch (error) {
+      setMetaText(elements.orderStatusView, `加载失败：${error.message}`, "error");
+      notify(`加载失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.exchangeSaveBtn) {
+  elements.exchangeSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveExchangeSettings();
+    } catch (error) {
+      setMetaText(elements.exchangeStatusView, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.marketEconomySaveBtn) {
+  elements.marketEconomySaveBtn.addEventListener("click", async () => {
+    try {
+      await saveMarketEconomySettings();
+    } catch (error) {
+      setMetaText(elements.marketEconomyStatusView, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
 elements.marketRefreshBtn.addEventListener("click", async () => {
   try {
     await loadMarket();
@@ -629,5 +906,16 @@ if (savedToken) {
   loadAdminProfile();
 }
 
+localizeOrderStatusOptions();
+if (elements.productType) {
+  elements.productType.addEventListener("change", () => {
+    updateProductTypeFieldsVisibility(elements.productType.value);
+  });
+}
+updateProductTypeFieldsVisibility(elements.productType ? elements.productType.value : "COMMAND");
+
+loadCurrencyMeta();
 setMetaText(elements.adminLoginStatus, "等待登录", "info");
 renderAdminProfile();
+
+
