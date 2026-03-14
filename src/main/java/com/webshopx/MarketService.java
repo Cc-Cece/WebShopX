@@ -113,6 +113,39 @@ class MarketService {
     });
   }
 
+  List<AdminListingView> listAllListings(String statusFilter, int requestedLimit) {
+    int limit = normalizeLimit(requestedLimit);
+    return databaseManager.withConnection(connection -> {
+      String filter = statusFilter == null || statusFilter.isBlank()
+          ? ""
+          : "WHERE ml.status = ?";
+      String sql = """
+          SELECT ml.id, ml.seller_user_id, us.username AS seller_name, ml.seller_uuid,
+                 ml.buyer_user_id, ub.username AS buyer_name, ml.buyer_uuid,
+                 ml.currency, ml.price, ml.quantity, ml.item_material, ml.item_meta_json,
+                 ml.status, ml.created_at, ml.sold_at, ml.unlisted_at
+          FROM market_listings ml
+          JOIN web_users us ON us.id = ml.seller_user_id
+          LEFT JOIN web_users ub ON ub.id = ml.buyer_user_id
+          """ + filter + " ORDER BY ml.id DESC LIMIT ?";
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        int index = 1;
+        if (!filter.isBlank()) {
+          statement.setString(index++, statusFilter.trim().toUpperCase(Locale.ROOT));
+        }
+        statement.setInt(index, limit);
+        return readAdminListingViews(statement.executeQuery());
+      }
+    });
+  }
+
+  UnlistResult adminUnlist(long listingId) {
+    if (listingId <= 0L) {
+      throw new ServiceException("invalid_listing", "Listing id must be positive");
+    }
+    return databaseManager.inTransaction(connection -> adminUnlistInTransaction(connection, listingId));
+  }
+
   TradeResult buyListing(long buyerUserId, long listingId, String idempotencyKey) {
     if (listingId <= 0L) {
       throw new ServiceException("invalid_listing", "Listing id must be positive");
@@ -391,6 +424,34 @@ class MarketService {
     }
   }
 
+  private UnlistResult adminUnlistInTransaction(Connection connection, long listingId)
+      throws SQLException {
+    MarketListing listing = readListingForUpdate(connection, listingId);
+    if (!listing.status().equals("ACTIVE")) {
+      throw new ServiceException("listing_unavailable", "Listing is no longer active");
+    }
+
+    String updateSql = """
+        UPDATE market_listings
+        SET status = 'UNLISTED', unlisted_at = NOW()
+        WHERE id = ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
+      statement.setLong(1, listing.id());
+      statement.executeUpdate();
+    }
+
+    enqueueMarketItemDelivery(
+        connection,
+        listing.id(),
+        listing.sellerUserId(),
+        listing.sellerUuid(),
+        listing.rawItemBlob(),
+        listing.quantity(),
+        DeliveryType.UNLIST);
+    return new UnlistResult(listing.id(), listing.currency(), listing.price(), listing.quantity());
+  }
+
   private void enqueueMarketItemDelivery(
       Connection connection,
       long listingId,
@@ -462,6 +523,36 @@ class MarketService {
           resultSet.getString("item_meta_json"),
           resultSet.getString("status"),
           resultSet.getTimestamp("created_at").toLocalDateTime()));
+    }
+    return listings;
+  }
+
+  private List<AdminListingView> readAdminListingViews(ResultSet resultSet) throws SQLException {
+    List<AdminListingView> listings = new ArrayList<>();
+    while (resultSet.next()) {
+      String buyerUuidRaw = resultSet.getString("buyer_uuid");
+      UUID buyerUuid = buyerUuidRaw == null ? null : UUID.fromString(buyerUuidRaw);
+      listings.add(new AdminListingView(
+          resultSet.getLong("id"),
+          resultSet.getLong("seller_user_id"),
+          resultSet.getString("seller_name"),
+          UUID.fromString(resultSet.getString("seller_uuid")),
+          resultSet.getObject("buyer_user_id") == null ? null : resultSet.getLong("buyer_user_id"),
+          resultSet.getString("buyer_name"),
+          buyerUuid,
+          CurrencyType.valueOf(resultSet.getString("currency")),
+          resultSet.getLong("price"),
+          resultSet.getInt("quantity"),
+          resultSet.getString("item_material"),
+          resultSet.getString("item_meta_json"),
+          resultSet.getString("status"),
+          resultSet.getTimestamp("created_at").toLocalDateTime(),
+          resultSet.getTimestamp("sold_at") == null
+              ? null
+              : resultSet.getTimestamp("sold_at").toLocalDateTime(),
+          resultSet.getTimestamp("unlisted_at") == null
+              ? null
+              : resultSet.getTimestamp("unlisted_at").toLocalDateTime()));
     }
     return listings;
   }
@@ -550,6 +641,25 @@ class MarketService {
       String itemMetaJson,
       String status,
       LocalDateTime createdAt) {
+  }
+
+  record AdminListingView(
+      long id,
+      long sellerUserId,
+      String sellerName,
+      UUID sellerUuid,
+      Long buyerUserId,
+      String buyerName,
+      UUID buyerUuid,
+      CurrencyType currency,
+      long price,
+      int quantity,
+      String itemMaterial,
+      String itemMetaJson,
+      String status,
+      LocalDateTime createdAt,
+      LocalDateTime soldAt,
+      LocalDateTime unlistedAt) {
   }
 
   record TradeResult(

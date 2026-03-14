@@ -13,6 +13,7 @@ import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.util.io.BukkitObjectInputStream;
 import org.bukkit.util.io.BukkitObjectOutputStream;
 
@@ -90,6 +91,16 @@ final class ItemSnapshotCodec {
         enchantments.addProperty(enchantment.getKey().toString(), entry.getValue());
       }
       meta.add("enchants", enchantments);
+    }
+    if (itemMeta instanceof Damageable damageable) {
+      int maxDurability = itemStack.getType().getMaxDurability();
+      if (maxDurability > 0) {
+        int current = Math.max(0, maxDurability - damageable.getDamage());
+        int percent = (int) Math.floor((current * 100.0D) / maxDurability);
+        meta.addProperty("durabilityCurrent", current);
+        meta.addProperty("durabilityMax", maxDurability);
+        meta.addProperty("durabilityPercent", percent);
+      }
     }
     return meta;
   }

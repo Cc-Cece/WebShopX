@@ -1,0 +1,1929 @@
+Minecraft中英文对照表
+方块
+Acacia Button 金合欢木按钮
+Acacia Door   金合欢木门
+Acacia Fence 金合欢木栅栏
+Acacia Fence Gate 金合欢木栅栏门
+Acacia Hanging Sign    悬挂式金合欢木告示牌
+Acacia Leaves 金合欢树叶
+Acacia Log     金合欢原木
+Acacia Planks 金合欢木板
+Acacia Pressure Plate   金合欢木压力板
+Acacia Sapling金合欢树苗
+Acacia Sign    金合欢木告示牌
+Acacia Slab    金合欢木台阶
+Acacia Stairs  金合欢木楼梯
+Acacia Trapdoor   金合欢木活板门
+Acacia Wall Hanging Sign   墙上的悬挂式金合欢木告示牌
+Acacia Wall Sign   墙上的金合欢木告示牌
+Acacia Wood 金合欢木
+Activator Rail 激活铁轨
+Air   空气
+Allium    绒球葱
+Amethyst Bud紫晶芽
+Amethyst Cluster  紫水晶簇
+Ancient Debris远古残骸
+Andesite 安山岩
+Andesite Slab 安山岩台阶
+Andesite Stairs安山岩楼梯
+Andesite Wall 安山岩墙
+Anvil       铁砧
+Attached Melon Stem  结果的西瓜茎
+Attached Pumpkin Stem结果的南瓜茎
+Azalea    杜鹃花丛
+Azalea Leaves 杜鹃树叶
+Azure Bluet   蓝花美耳草
+Bamboo 竹子
+Bamboo Button    竹按钮
+Bamboo Door竹门
+Bamboo Fence     竹栅栏
+Bamboo Fence Gate    竹栅栏门
+Bamboo Hanging Sign 悬挂式竹告示牌
+Bamboo Mosaic    竹马赛克
+Bamboo Mosaic Slab   竹马赛克台阶
+Bamboo Mosaic Stairs  竹马赛克楼梯
+Bamboo Planks     竹板
+Bamboo Pressure Plate 竹压力板
+Bamboo Shoot     竹笋
+Bamboo Sign 竹告示牌
+Bamboo Slab 竹台阶
+Bamboo Stairs竹楼梯
+Bamboo Trapdoor 竹活板门
+Bamboo Wall Hanging Sign 墙上的悬挂式竹告示牌
+Bamboo Wall Sign 墙上的竹告示牌
+Banner   旗帜
+Barrel     木桶
+Barrier    屏障
+Basalt     玄武岩
+Beacon   信标
+Bed 床
+Bedrock  基岩
+Bee Nest 蜂巢
+Beehive  蜂箱
+Beetroots      甜菜根
+Bell  钟
+Big Dripleaf   大型垂滴叶
+Big Dripleaf Stem  大型垂滴叶茎
+Birch Button  白桦木按钮
+Birch Door     白桦木门
+Birch Fence    白桦木栅栏
+Birch Fence Gate   白桦木栅栏门
+Birch Hanging Sign悬挂式白桦木告示牌
+Birch Leaves   白桦树叶
+Birch Log白桦原木
+Birch Planks   白桦木板
+Birch Pressure Plate白桦木压力板
+Birch Sapling 白桦树苗
+Birch Sign      白桦木告示牌
+Birch Slab      白桦木台阶
+Birch Stairs    白桦木楼梯
+Birch Trapdoor白桦木活板门
+Birch Wall Hanging Sign墙上的悬挂式白桦木告示牌
+Birch Wall Sign墙上的白桦木告示牌
+Birch Wood   白桦木
+Black Banner  黑色旗帜
+Black Bed黑色床
+Black Candle  黑色蜡烛
+Black Carpet  黑色地毯
+Black Concrete黑色混凝土
+Black Concrete Powder 黑色混凝土粉末
+Black Glazed Terracotta黑色带釉陶瓦
+Black Shulker Box  黑色潜影盒
+Black Stained Glass黑色染色玻璃
+Black Stained Glass Pane黑色染色玻璃板
+Black Terracotta    黑色陶瓦
+Black Wall Banner 墙上的黑色旗帜
+Black Wool    黑色羊毛
+Blackstone     黑石
+Blackstone Slab     黑石台阶
+Blackstone Stairs   黑石楼梯
+Blackstone Wall    黑石墙
+Blast Furnace 高炉
+Block of Amethyst 紫水晶块
+Block of Bamboo  竹块
+Block of Coal 煤炭块
+Block of Copper    铜块
+Block of Diamond 钻石块
+Block of Emerald   绿宝石块
+Block of Gold 金块
+Block of Iron  铁块
+Block of Lapis Lazuli青金石块
+Block of Netherite 下界合金块
+Block of Quartz    石英块
+Block of Raw Copper    粗铜块
+Block of Raw Gold 粗金块
+Block of Raw Iron  粗铁块
+Block of Redstone 红石块
+Block of Stripped Bamboo   去皮竹块
+Blue Banner   蓝色旗帜
+Blue Bed 蓝色床
+Blue Candle   蓝色蜡烛
+Blue Carpet   蓝色地毯
+Blue Concrete蓝色混凝土
+Blue Concrete Powder 蓝色混凝土粉末
+Blue Glazed Terracotta 蓝色带釉陶瓦
+Blue Ice  蓝冰
+Blue Orchid   兰花
+Blue Shulker Box   蓝色潜影盒
+Blue Stained Glass 蓝色染色玻璃
+Blue Stained Glass Pane蓝色染色玻璃板
+Blue Terracotta     蓝色陶瓦
+Blue Wall Banner  墙上的蓝色旗帜
+Blue Wool     蓝色羊毛
+Bone Block    骨块
+Bookshelf      书架
+Brain Coral    脑纹珊瑚
+Brain Coral Block  脑纹珊瑚块
+Brain Coral Fan     脑纹珊瑚扇
+Brain Coral Wall Fan    墙上的脑纹珊瑚扇
+Brewing Stand酿造台
+Brick Slab      红砖台阶
+Brick Stairs     红砖楼梯
+Brick Wall      红砖墙
+Bricks     红砖块
+Brown Banner棕色旗帜
+Brown Bed     棕色床
+Brown Candle 棕色蜡烛
+Brown Carpet 棕色地毯
+Brown Concrete    棕色混凝土
+Brown Concrete Powder棕色混凝土粉末
+Brown Glazed Terracotta棕色带釉陶瓦
+Brown Mushroom 棕色蘑菇
+Brown Mushroom Block棕色蘑菇方块
+Brown Shulker Box棕色潜影盒
+Brown Stained Glass棕色染色玻璃
+Brown Stained Glass Pane   棕色染色玻璃板
+Brown Terracotta  棕色陶瓦
+Brown Wall Banner墙上的棕色旗帜
+Brown Wool  棕色羊毛
+Bubble Column     气泡柱
+Bubble Coral  气泡珊瑚
+Bubble Coral Block气泡珊瑚块
+Bubble Coral Fan  气泡珊瑚扇
+Bubble Coral Wall Fan  墙上的气泡珊瑚扇
+Budding Amethyst 紫水晶母岩
+Button    按钮
+Cactus    仙人掌
+Cake      蛋糕
+Cake With Black Candle插上黑色蜡烛的蛋糕
+Cake With Blue Candle 插上蓝色蜡烛的蛋糕
+Cake With Brown Candle插上棕色蜡烛的蛋糕
+Cake With Candle 插上蜡烛的蛋糕
+Cake With Cyan Candle插上青色蜡烛的蛋糕
+Cake With Gray Candle 插上灰色蜡烛的蛋糕
+Cake With Green Candle插上绿色蜡烛的蛋糕
+Cake With Light Blue Candle插上淡蓝色蜡烛的蛋糕
+Cake With Light Gray Candle插上淡灰色蜡烛的蛋糕
+Cake With Lime Candle 插上黄绿色蜡烛的蛋糕
+Cake With Magenta Candle 插上品红色蜡烛的蛋糕
+Cake With Orange Candle   插上橙色蜡烛的蛋糕
+Cake With Pink Candle 插上粉红色蜡烛的蛋糕
+Cake With Purple Candle    插上紫色蜡烛的蛋糕
+Cake With Red Candle 插上红色蜡烛的蛋糕
+Cake With White Candle插上白色蜡烛的蛋糕
+Cake With Yellow Candle    插上黄色蜡烛的蛋糕
+Calcite    方解石
+Calibrated Sculk Sensor校频幽匿感测体
+Campfire 营火
+Candle   蜡烛
+Carpet    地毯
+Carrots   胡萝卜
+Cartography Table 制图台
+Carved Pumpkin   雕刻南瓜
+Cauldron 炼药锅
+Cave Air 洞穴空气
+Cave Vines    洞穴藤蔓
+Cave Vines Plant   洞穴藤蔓植株
+Chain     锁链
+Chain Command Block 连锁型命令方块
+Cherry Button 樱花木按钮
+Cherry Door   樱花木门
+Cherry Fence 樱花木栅栏
+Cherry Fence Gate 樱花木栅栏门
+Cherry Hanging Sign    悬挂式樱花木告示牌
+Cherry Leaves 樱花树叶
+Cherry Log     樱花原木
+Cherry Planks 樱花木板
+Cherry Pressure Plate   樱花木压力板
+Cherry Sapling樱花树苗
+Cherry Sign    樱花木告示牌
+Cherry Slab    樱花木台阶
+Cherry Stairs  樱花木楼梯
+Cherry Trapdoor   樱花木活板门
+Cherry Wall Hanging Sign   墙上的悬挂式樱花木告示牌
+Cherry Wall Sign   墙上的樱花木告示牌
+Cherry Wood 樱花木
+Chest     箱子
+Chipped Anvil开裂的铁砧
+Chiseled Bookshelf雕纹书架
+Chiseled Copper   雕纹铜块
+Chiseled Deepslate雕纹深板岩
+Chiseled Nether Bricks 雕纹下界砖块
+Chiseled Polished Blackstone雕纹磨制黑石
+Chiseled Quartz Block  雕纹石英块
+Chiseled Red Sandstone雕纹红砂岩
+Chiseled Sandstone     雕纹砂岩
+Chiseled Stone Bricks   雕纹石砖
+Chiseled Tuff  雕纹凝灰岩
+Chiseled Tuff Bricks雕纹凝灰岩砖
+Chorus Flower紫颂花
+Chorus Plant  紫颂植株
+Clay 黏土
+Coal Ore 煤矿石
+Coarse Dirt    砂土
+Cobbled Deepslate深板岩圆石
+Cobbled Deepslate Slab深板岩圆石台阶
+Cobbled Deepslate Stairs    深板岩圆石楼梯
+Cobbled Deepslate Wall深板岩圆石墙
+Cobblestone  圆石
+Cobblestone Slab  圆石台阶
+Cobblestone Stairs圆石楼梯
+Cobblestone Wall 圆石墙
+Cobweb 蜘蛛网
+Cocoa    可可果
+Command Block   命令方块
+Composter    堆肥桶
+Concrete 混凝土
+Concrete Powder  混凝土粉末
+Conduit  潮涌核心
+Copper Bulb  铜灯
+Copper Door 铜门
+Copper Grate 铜格栅
+Copper Ore   铜矿石
+Copper Trapdoor  铜活板门
+Coral      珊瑚
+Coral Block    珊瑚块
+Coral Fan珊瑚扇
+Coral Wall Fan墙上的珊瑚扇
+Cornflower    矢车菊
+Cracked Deepslate Bricks    裂纹深板岩砖
+Cracked Deepslate Tiles裂纹深板岩瓦
+Cracked Nether Bricks  裂纹下界砖块
+Cracked Polished Blackstone Bricks裂纹磨制黑石砖
+Cracked Stone Bricks   裂纹石砖
+Crafter    合成器
+Crafting Table工作台
+Creeper Head 苦力怕的头
+Creeper Wall Head墙上的苦力怕的头
+Crimson Button    绯红木按钮
+Crimson Door 绯红木门
+Crimson Fence绯红木栅栏
+Crimson Fence Gate     绯红木栅栏门
+Crimson Fungus   绯红菌
+Crimson Hanging Sign 悬挂式绯红木告示牌
+Crimson Hyphae   绯红菌核
+Crimson Nylium    绯红菌岩
+Crimson Planks     绯红木板
+Crimson Pressure Plate 绯红木压力板
+Crimson Roots绯红菌索
+Crimson Sign 绯红木告示牌
+Crimson Slab 绯红木台阶
+Crimson Stairs绯红木楼梯
+Crimson Stem绯红菌柄
+Crimson Trapdoor 绯红木活板门
+Crimson Wall Hanging Sign 墙上的悬挂式绯红木告示牌
+Crimson Wall Sign 墙上的绯红木告示牌
+Crying Obsidian    哭泣的黑曜石
+Cut Copper    切制铜块
+Cut Copper Slab   切制铜台阶
+Cut Copper Stairs 切制铜楼梯
+Cut Red Sandstone切制红砂岩
+Cut Red Sandstone Slab切制红砂岩台阶
+Cut Sandstone切制砂岩
+Cut Sandstone Slab切制砂岩台阶
+Cyan Banner  青色旗帜
+Cyan Bed青色床
+Cyan Candle  青色蜡烛
+Cyan Carpet  青色地毯
+Cyan Concrete青色混凝土
+Cyan Concrete Powder 青色混凝土粉末
+Cyan Glazed Terracotta青色带釉陶瓦
+Cyan Shulker Box  青色潜影盒
+Cyan Stained Glass青色染色玻璃
+Cyan Stained Glass Pane青色染色玻璃板
+Cyan Terracotta    青色陶瓦
+Cyan Wall Banner 墙上的青色旗帜
+Cyan Wool    青色羊毛
+Damaged Anvil     损坏的铁砧
+Dandelion     蒲公英
+Dark Oak Button   深色橡木按钮
+Dark Oak Door     深色橡木门
+Dark Oak Fence    深色橡木栅栏
+Dark Oak Fence Gate   深色橡木栅栏门
+Dark Oak Hanging Sign悬挂式深色橡木告示牌
+Dark Oak Leaves   深色橡树树叶
+Dark Oak Log 深色橡木原木
+Dark Oak Planks   深色橡木木板
+Dark Oak Pressure Plate深色橡木压力板
+Dark Oak Sapling  深色橡树树苗
+Dark Oak Sign深色橡木告示牌
+Dark Oak Slab深色橡木台阶
+Dark Oak Stairs     深色橡木楼梯
+Dark Oak Trapdoor深色橡木活板门
+Dark Oak Wall Hanging Sign墙上的悬挂式深色橡木告示牌
+Dark Oak Wall Sign墙上的深色橡木告示牌
+Dark Oak Wood    深色橡木
+Dark Prismarine    暗海晶石
+Dark Prismarine Slab    暗海晶石台阶
+Dark Prismarine Stairs  暗海晶石楼梯
+Daylight Detector 阳光探测器
+Dead Brain Coral  失活的脑纹珊瑚
+Dead Brain Coral Block 失活的脑纹珊瑚块
+Dead Brain Coral Fan   失活的脑纹珊瑚扇
+Dead Brain Coral Wall Fan   墙上的失活脑纹珊瑚扇
+Dead Bubble Coral失活的气泡珊瑚
+Dead Bubble Coral Block失活的气泡珊瑚块
+Dead Bubble Coral Fan 失活的气泡珊瑚扇
+Dead Bubble Coral Wall Fan墙上的失活气泡珊瑚扇
+Dead Bush     枯萎的灌木
+Dead Coral    失活的珊瑚
+Dead Coral Blocks 失活的珊瑚块
+Dead Coral Fans   失活的珊瑚扇
+Dead Coral Wall Fan    墙上的失活珊瑚扇
+Dead Fire Coral     失活的火珊瑚
+Dead Fire Coral Block   失活的火珊瑚块
+Dead Fire Coral Fan失活的火珊瑚扇
+Dead Fire Coral Wall Fan墙上的失活火珊瑚扇
+Dead Horn Coral   失活的鹿角珊瑚
+Dead Horn Coral Block 失活的鹿角珊瑚块
+Dead Horn Coral Fan   失活的鹿角珊瑚扇
+Dead Horn Coral Wall Fan   墙上的失活鹿角珊瑚扇
+Dead Tube Coral   失活的管珊瑚
+Dead Tube Coral Block 失活的管珊瑚块
+Dead Tube Coral Fan   失活的管珊瑚扇
+Dead Tube Coral Wall Fan   墙上的失活管珊瑚扇
+Decorated Pot饰纹陶罐
+Deepslate      深板岩
+Deepslate Brick Slab深板岩砖台阶
+Deepslate Brick Stairs   深板岩砖楼梯
+Deepslate Brick Wall    深板岩砖墙
+Deepslate Bricks   深板岩砖
+Deepslate Coal Ore深层煤矿石
+Deepslate Copper Ore 深层铜矿石
+Deepslate Diamond Ore深层钻石矿石
+Deepslate Emerald Ore 深层绿宝石矿石
+Deepslate Gold Ore     深层金矿石
+Deepslate Iron Ore深层铁矿石
+Deepslate Lapis Lazuli Ore  深层青金石矿石
+Deepslate Redstone Ore深层红石矿石
+Deepslate Tile Slab深板岩瓦台阶
+Deepslate Tile Stairs深板岩瓦楼梯
+Deepslate Tile Wall深板岩瓦墙
+Deepslate Tiles深板岩瓦
+Detector Rail  探测铁轨
+Diamond Ore 钻石矿石
+Diorite    闪长岩
+Diorite Slab    闪长岩台阶
+Diorite Stairs  闪长岩楼梯
+Diorite Wall   闪长岩墙
+Dirt 泥土
+Dirt Path 土径
+Dispenser      发射器
+Door      门
+Dragon Egg   龙蛋
+Dragon Head 龙首
+Dragon Wall Head 墙上的龙首
+Dried Kelp Block   干海带块
+Dripstone Block    滴水石块
+Dropper 投掷器
+Emerald Ore  绿宝石矿石
+Enchanting Table  附魔台
+End Gateway 末地折跃门
+End Portal     末地传送门
+End Portal Frame  末地传送门框架
+End Rod 末地烛
+End Stone      末地石
+End Stone Brick Slab    末地石砖台阶
+End Stone Brick Stairs  末地石砖楼梯
+End Stone Brick Wall    末地石砖墙
+End Stone Bricks   末地石砖
+Ender Chest   末影箱
+Exposed Chiseled Copper    斑驳的雕纹铜块
+Exposed Copper   斑驳的铜块
+Exposed Copper Bulb   斑驳的铜灯
+Exposed Copper Door  斑驳的铜门
+Exposed Copper Grate 斑驳的铜格栅
+Exposed Copper Trapdoor  斑驳的铜活板门
+Exposed Cut Copper    斑驳的切制铜块
+Exposed Cut Copper Slab    斑驳的切制铜台阶
+Exposed Cut Copper Stairs  斑驳的切制铜楼梯
+Farmland耕地
+Fence     栅栏
+Fence Gate    栅栏门
+Fern 蕨
+Fire 火
+Fire Coral火珊瑚
+Fire Coral Block     火珊瑚块
+Fire Coral Fan 火珊瑚扇
+Fire Coral Wall Fan墙上的火珊瑚扇
+Fletching Table     制箭台
+Flower    花
+Flower Pot     花盆
+Flowering Azalea  盛开的杜鹃花丛
+Flowering Azalea Leaves盛开的杜鹃树叶
+Froglight 蛙明灯
+Frogspawn    青蛙卵
+Frosted Ice     霜冰
+Fungus   菌类
+Furnace  熔炉
+Gilded Blackstone 镶金黑石
+Glass      玻璃
+Glass Pane     玻璃板
+Glazed Terracotta 带釉陶瓦
+Glow Lichen   发光地衣
+Glowstone     荧石
+Gold Ore 金矿石
+Granite   花岗岩
+Granite Slab   花岗岩台阶
+Granite Stairs 花岗岩楼梯
+Granite Wall  花岗岩墙
+Grass      草
+Grass Block    草方块
+Gravel    沙砾
+Gray Banner  灰色旗帜
+Gray Bed 灰色床
+Gray Candle  灰色蜡烛
+Gray Carpet   灰色地毯
+Gray Concrete灰色混凝土
+Gray Concrete Powder 灰色混凝土粉末
+Gray Glazed Terracotta 灰色带釉陶瓦
+Gray Shulker Box  灰色潜影盒
+Gray Stained Glass 灰色染色玻璃
+Gray Stained Glass Pane灰色染色玻璃板
+Gray Terracotta    灰色陶瓦
+Gray Wall Banner  墙上的灰色旗帜
+Gray Wool     灰色羊毛
+Green Banner 绿色旗帜
+Green Bed     绿色床
+Green Candle 绿色蜡烛
+Green Carpet 绿色地毯
+Green Concrete    绿色混凝土
+Green Concrete Powder绿色混凝土粉末
+Green Glazed Terracotta绿色带釉陶瓦
+Green Shulker Box 绿色潜影盒
+Green Stained Glass绿色染色玻璃
+Green Stained Glass Pane   绿色染色玻璃板
+Green Terracotta  绿色陶瓦
+Green Wall Banner墙上的绿色旗帜
+Green Wool   绿色羊毛
+Grindstone    砂轮
+Hanging Roots垂根
+Hanging Sign 悬挂式告示牌
+Hay Bale 干草捆
+Head      头颅
+Heavy Core    沉重核心
+Heavy Weighted Pressure Plate  重质测重压力板
+Honey Block  蜂蜜块
+Honeycomb Block 蜜脾块
+Hopper  漏斗
+Horn Coral    鹿角珊瑚
+Horn Coral Block  鹿角珊瑚块
+Horn Coral Fan     鹿角珊瑚扇
+Horn Coral Wall Fan墙上的鹿角珊瑚扇
+Huge Mushroom  巨型蘑菇
+Hyphae  菌核
+Ice   冰
+Infested Chiseled Stone Bricks虫蚀雕纹石砖
+Infested Cobblestone   虫蚀圆石
+Infested Cracked Stone Bricks虫蚀裂纹石砖
+Infested Deepslate 虫蚀深板岩
+Infested Mossy Stone Bricks 虫蚀苔石砖
+Infested Stone虫蚀石头
+Infested Stone Bricks    虫蚀石砖
+Iron Bars 铁栏杆
+Iron Door      铁门
+Iron Ore 铁矿石
+Iron Trapdoor 铁活板门
+Jack O'lantern南瓜灯
+Jigsaw Block  拼图方块
+Jukebox  唱片机
+Jungle Button 丛林木按钮
+Jungle Door   丛林木门
+Jungle Fence 丛林木栅栏
+Jungle Fence Gate 丛林木栅栏门
+Jungle Hanging Sign    悬挂式丛林木告示牌
+Jungle Leaves 丛林树叶
+Jungle Log     丛林原木
+Jungle Planks 丛林木板
+Jungle Pressure Plate   丛林木压力板
+Jungle Sapling丛林树苗
+Jungle Sign    丛林木告示牌
+Jungle Slab    丛林木台阶
+Jungle Stairs  丛林木楼梯
+Jungle Trapdoor   丛林木活板门
+Jungle Wall Hanging Sign   墙上的悬挂式丛林木告示牌
+Jungle Wall Sign   墙上的丛林木告示牌
+Jungle Wood 丛林木
+Kelp 海带
+Kelp Plant      海带植株
+Ladder    梯子
+Lantern  灯笼
+Lapis Lazuli Ore    青金石矿石
+Large Amethyst Bud    大型紫晶芽
+Large Fern     大型蕨
+Lava 熔岩
+Lava Cauldron装有熔岩的炼药锅
+Leaves    树叶
+Lectern   讲台
+Lever      拉杆
+Light      光源方块
+Light Blue Banner 淡蓝色旗帜
+Light Blue Bed淡蓝色床
+Light Blue Candle  淡蓝色蜡烛
+Light Blue Carpet  淡蓝色地毯
+Light Blue Concrete淡蓝色混凝土
+Light Blue Concrete Powder 淡蓝色混凝土粉末
+Light Blue Glazed Terracotta淡蓝色带釉陶瓦
+Light Blue Shulker Box 淡蓝色潜影盒
+Light Blue Stained Glass淡蓝色染色玻璃
+Light Blue Stained Glass Pane淡蓝色染色玻璃板
+Light Blue Terracotta    淡蓝色陶瓦
+Light Blue Wall Banner 墙上的淡蓝色旗帜
+Light Blue Wool    淡蓝色羊毛
+Light Gray Banner 淡灰色旗帜
+Light Gray Bed淡灰色床
+Light Gray Candle 淡灰色蜡烛
+Light Gray Carpet 淡灰色地毯
+Light Gray Concrete淡灰色混凝土
+Light Gray Concrete Powder淡灰色混凝土粉末
+Light Gray Glazed Terracotta淡灰色带釉陶瓦
+Light Gray Shulker Box 淡灰色潜影盒
+Light Gray Stained Glass淡灰色染色玻璃
+Light Gray Stained Glass Pane淡灰色染色玻璃板
+Light Gray Terracotta   淡灰色陶瓦
+Light Gray Wall Banner 墙上的淡灰色旗帜
+Light Gray Wool   淡灰色羊毛
+Light Weighted Pressure Plate轻质测重压力板
+Lightning Rod避雷针
+Lilac 丁香
+Lily of The Valley   铃兰
+Lily Pad  睡莲
+Lime Banner  黄绿色旗帜
+Lime Bed 黄绿色床
+Lime Candle  黄绿色蜡烛
+Lime Carpet   黄绿色地毯
+Lime Concrete黄绿色混凝土
+Lime Concrete Powder 黄绿色混凝土粉末
+Lime Glazed Terracotta 黄绿色带釉陶瓦
+Lime Shulker Box  黄绿色潜影盒
+Lime Stained Glass黄绿色染色玻璃
+Lime Stained Glass Pane黄绿色染色玻璃板
+Lime Terracotta    黄绿色陶瓦
+Lime Wall Banner  墙上的黄绿色旗帜
+Lime Wool     黄绿色羊毛
+Locked Chest 上锁的箱子
+Lodestone     磁石
+Log 原木
+Loom     织布机
+Magenta Banner   品红色旗帜
+Magenta Bed 品红色床
+Magenta Candle   品红色蜡烛
+Magenta Carpet   品红色地毯
+Magenta Concrete 品红色混凝土
+Magenta Concrete Powder 品红色混凝土粉末
+Magenta Glazed Terracotta 品红色带釉陶瓦
+Magenta Shulker Box   品红色潜影盒
+Magenta Stained Glass 品红色染色玻璃
+Magenta Stained Glass Pane品红色染色玻璃板
+Magenta Terracotta     品红色陶瓦
+Magenta Wall Banner  墙上的品红色旗帜
+Magenta Wool     品红色羊毛
+Magma Block 岩浆块
+Mangrove Button 红树木按钮
+Mangrove Door    红树木门
+Mangrove Fence   红树木栅栏
+Mangrove Fence Gate  红树木栅栏门
+Mangrove Hanging Sign悬挂式红树木告示牌
+Mangrove Leaves  红树树叶
+Mangrove Log      红树原木
+Mangrove Planks  红树木板
+Mangrove Pressure Plate    红树木压力板
+Mangrove Propagule   红树胎生苗
+Mangrove Roots   红树根
+Mangrove Sign     红树木告示牌
+Mangrove Slab     红树木台阶
+Mangrove Stairs   红树木楼梯
+Mangrove Trapdoor     红树木活板门
+Mangrove Wall Hanging Sign墙上的悬挂式红树木告示牌
+Mangrove Wall Sign     墙上的红树木告示牌
+Mangrove Wood  红树木
+Medium Amethyst Bud 中型紫晶芽
+Melon    西瓜
+Melon Stem   西瓜茎
+Monster Spawner 刷怪笼
+Moss Block    苔藓块
+Moss Carpet  覆地苔藓
+Mossy Cobblestone     苔石
+Mossy Cobblestone Slab苔石台阶
+Mossy Cobblestone Stairs   苔石楼梯
+Mossy Cobblestone Wall苔石墙
+Mossy Stone Brick Slab 苔石砖台阶
+Mossy Stone Brick Stairs苔石砖楼梯
+Mossy Stone Brick Wall 苔石砖墙
+Mossy Stone Bricks苔石砖
+Moving Piston移动的活塞
+Mud 泥巴
+Mud Brick Slab泥砖台阶
+Mud Brick Stairs    泥砖楼梯
+Mud Brick Wall     泥砖墙
+Mud Bricks    泥砖
+Muddy Mangrove Roots沾泥的红树根
+Mushroom    蘑菇
+Mushroom Block  蘑菇方块
+Mushroom Stem   蘑菇柄
+Mycelium      菌丝体
+Nether Brick Fence下界砖栅栏
+Nether Brick Slab  下界砖台阶
+Nether Brick Stairs 下界砖楼梯
+Nether Brick Wall  下界砖墙
+Nether Bricks 下界砖块
+Nether Gold Ore   下界金矿石
+Nether Portal 下界传送门
+Nether Quartz Ore下界石英矿石
+Nether Sprouts     下界苗
+Nether Wart  下界疣
+Nether Wart Block 下界疣块
+Netherrack    下界岩
+Note Block    音符盒
+Nylium   菌岩
+Oak Button    橡木按钮
+Oak Door      橡木门
+Oak Fence     橡木栅栏
+Oak Fence Gate    橡木栅栏门
+Oak Hanging Sign 悬挂式橡木告示牌
+Oak Leaves    橡树树叶
+Oak Log 橡木原木
+Oak Planks    橡木木板
+Oak Pressure Plate橡木压力板
+Oak Sapling   橡树树苗
+Oak Sign 橡木告示牌
+Oak Slab 橡木台阶
+Oak Stairs      橡木楼梯
+Oak Trapdoor 橡木活板门
+Oak Wall Hanging Sign 墙上的悬挂式橡木告示牌
+Oak Wall Sign墙上的橡木告示牌
+Oak Wood     橡木
+Observer 侦测器
+Obsidian 黑曜石
+Ochre Froglight    赭黄蛙明灯
+Ominous Banner   灾厄旗帜
+Orange Banner     橙色旗帜
+Orange Bed   橙色床
+Orange Candle     橙色蜡烛
+Orange Carpet     橙色地毯
+Orange Concrete  橙色混凝土
+Orange Concrete Powder    橙色混凝土粉末
+Orange Glazed Terracotta   橙色带釉陶瓦
+Orange Shulker Box     橙色潜影盒
+Orange Stained Glass   橙色染色玻璃
+Orange Stained Glass Pane 橙色染色玻璃板
+Orange Terracotta 橙色陶瓦
+Orange Tulip 橙色郁金香
+Orange Wall Banner    墙上的橙色旗帜
+Orange Wool 橙色羊毛
+Oxeye Daisy   滨菊
+Oxidized Chiseled Copper   氧化的雕纹铜块
+Oxidized Copper   氧化的铜块
+Oxidized Copper Bulb  氧化的铜灯
+Oxidized Copper Door 氧化的铜门
+Oxidized Copper Grate 氧化的铜格栅
+Oxidized Copper Trapdoor  氧化的铜活板门
+Oxidized Cut Copper   氧化的切制铜块
+Oxidized Cut Copper Slab   氧化的切制铜台阶
+Oxidized Cut Copper Stairs 氧化的切制铜楼梯
+Packed Ice     浮冰
+Packed Mud  泥坯
+Pearlescent Froglight   珠光蛙明灯
+Peony     牡丹
+Petrified Oak Slab 石化橡木台阶
+Piglin Head    猪灵的头
+Piglin Wall Head   墙上的猪灵的头
+Pink Banner   粉红色旗帜
+Pink Bed 粉红色床
+Pink Candle   粉红色蜡烛
+Pink Carpet    粉红色地毯
+Pink Concrete 粉红色混凝土
+Pink Concrete Powder  粉红色混凝土粉末
+Pink Glazed Terracotta 粉红色带釉陶瓦
+Pink Petals     粉红色花簇
+Pink Shulker Box   粉红色潜影盒
+Pink Stained Glass 粉红色染色玻璃
+Pink Stained Glass Pane粉红色染色玻璃板
+Pink Terracotta     粉红色陶瓦
+Pink Tulip      粉红色郁金香
+Pink Wall Banner  墙上的粉红色旗帜
+Pink Wool      粉红色羊毛
+Piston     活塞
+Piston Head   活塞头
+Pitcher Crop  瓶子草植株
+Pitcher Plant  瓶子草
+Plank      木板
+Player Head   玩家的头
+Player Wall Head  墙上的玩家的头
+Podzol    灰化土
+Pointed Dripstone 滴水石锥
+Polished Andesite 磨制安山岩
+Polished Andesite Slab 磨制安山岩台阶
+Polished Andesite Stairs磨制安山岩楼梯
+Polished Basalt     磨制玄武岩
+Polished Blackstone磨制黑石
+Polished Blackstone Brick Slab磨制黑石砖台阶
+Polished Blackstone Brick Stairs  磨制黑石砖楼梯
+Polished Blackstone Brick Wall   磨制黑石砖墙
+Polished Blackstone Bricks   磨制黑石砖
+Polished Blackstone Button 磨制黑石按钮
+Polished Blackstone Pressure Plate磨制黑石压力板
+Polished Blackstone Slab磨制黑石台阶
+Polished Blackstone Stairs   磨制黑石楼梯
+Polished Blackstone Wall磨制黑石墙
+Polished Deepslate磨制深板岩
+Polished Deepslate Slab磨制深板岩台阶
+Polished Deepslate Stairs磨制深板岩楼梯
+Polished Deepslate Wall磨制深板岩墙
+Polished Diorite    磨制闪长岩
+Polished Diorite Slab    磨制闪长岩台阶
+Polished Diorite Stairs  磨制闪长岩楼梯
+Polished Granite   磨制花岗岩
+Polished Granite Slab   磨制花岗岩台阶
+Polished Granite Stairs 磨制花岗岩楼梯
+Polished Tuff  磨制凝灰岩
+Polished Tuff Slab 磨制凝灰岩台阶
+Polished Tuff Stairs磨制凝灰岩楼梯
+Polished Tuff Wall 磨制凝灰岩墙
+Poppy    虞美人
+Potatoes 马铃薯
+Potted Acacia Sapling  金合欢树苗盆栽
+Potted Allium 绒球葱盆栽
+Potted Azalea 杜鹃花丛盆栽
+Potted Azure Bluet蓝花美耳草盆栽
+Potted Bamboo    竹子盆栽
+Potted Birch Sapling    白桦树苗盆栽
+Potted Blue Orchid兰花盆栽
+Potted Brown Mushroom    棕色蘑菇盆栽
+Potted Cactus 仙人掌盆栽
+Potted Cherry Sapling  樱花树苗盆栽
+Potted Cornflower 矢车菊盆栽
+Potted Crimson Fungus绯红菌盆栽
+Potted Crimson Roots  绯红菌索盆栽
+Potted Dandelion 蒲公英盆栽
+Potted Dark Oak Sapling深色橡树树苗盆栽
+Potted Dead Bush 枯萎的灌木盆栽
+Potted Fern   蕨盆栽
+Potted Flowering Azalea盛开的杜鹃花丛盆栽
+Potted Jungle Sapling  丛林树苗盆栽
+Potted Lily of The Valley铃兰盆栽
+Potted Mangrove Propagule红树胎生苗盆栽
+Potted Oak Sapling橡树树苗盆栽
+Potted Orange Tulip    橙色郁金香盆栽
+Potted Oxeye Daisy滨菊盆栽
+Potted Pink Tulip  粉红色郁金香盆栽
+Potted Poppy 虞美人盆栽
+Potted Red Mushroom 红色蘑菇盆栽
+Potted Red Tulip   红色郁金香盆栽
+Potted Spruce Sapling  云杉树苗盆栽
+Potted Torchflower火把花盆栽
+Potted Warped Fungus 诡异菌盆栽
+Potted Warped Roots   诡异菌索盆栽
+Potted White Tulip白色郁金香盆栽
+Potted Wither Rose凋灵玫瑰盆栽
+Powder Snow 细雪
+Powder Snow Cauldron装有细雪的炼药锅
+Powered Rail 动力铁轨
+Pressure Plate压力板
+Prismarine     海晶石
+Prismarine Brick Slab    海晶石砖台阶
+Prismarine Brick Stairs  海晶石砖楼梯
+Prismarine Bricks   海晶石砖
+Prismarine Slab     海晶石台阶
+Prismarine Stairs   海晶石楼梯
+Prismarine Wall     海晶石墙
+Pumpkin 南瓜
+Pumpkin Stem      南瓜茎
+Purple Banner紫色旗帜
+Purple Bed     紫色床
+Purple Candle紫色蜡烛
+Purple Carpet 紫色地毯
+Purple Concrete    紫色混凝土
+Purple Concrete Powder紫色混凝土粉末
+Purple Glazed Terracotta    紫色带釉陶瓦
+Purple Shulker Box紫色潜影盒
+Purple Stained Glass    紫色染色玻璃
+Purple Stained Glass Pane   紫色染色玻璃板
+Purple Terracotta  紫色陶瓦
+Purple Wall Banner墙上的紫色旗帜
+Purple Wool  紫色羊毛
+Purpur Block  紫珀块
+Purpur Pillar  紫珀柱
+Purpur Slab   紫珀台阶
+Purpur Stairs  紫珀楼梯
+Quartz Bricks 石英砖
+Quartz Pillar  石英柱
+Quartz Slab   石英台阶
+Quartz Stairs  石英楼梯
+Rail  铁轨
+Red Banner   红色旗帜
+Red Bed 红色床
+Red Candle    红色蜡烛
+Red Carpet    红色地毯
+Red Concrete 红色混凝土
+Red Concrete Powder  红色混凝土粉末
+Red Glazed Terracotta 红色带釉陶瓦
+Red Mushroom    红色蘑菇
+Red Mushroom Block   红色蘑菇方块
+Red Nether Brick Slab  红色下界砖台阶
+Red Nether Brick Stairs 红色下界砖楼梯
+Red Nether Brick Wall  红色下界砖墙
+Red Nether Bricks 红色下界砖块
+Red Sand红沙
+Red Sandstone     红砂岩
+Red Sandstone Slab     红砂岩台阶
+Red Sandstone Stairs   红砂岩楼梯
+Red Sandstone Wall     红砂岩墙
+Red Shulker Box    红色潜影盒
+Red Stained Glass 红色染色玻璃
+Red Stained Glass Pane红色染色玻璃板
+Red Terracotta红色陶瓦
+Red Tulip红色郁金香
+Red Wall Banner   墙上的红色旗帜
+Red Wool      红色羊毛
+Redstone Comparator  红石比较器
+Redstone Lamp     红石灯
+Redstone Ore 红石矿石
+Redstone Repeater红石中继器
+Redstone Torch    红石火把
+Redstone Wall Torch    墙上的红石火把
+Redstone Wire红石线
+Reinforced Deepslate   强化深板岩
+Repeating Command Block 循环型命令方块
+Respawn Anchor   重生锚
+Rooted Dirt   缠根泥土
+Roots     菌索
+Rose Bush     玫瑰丛
+Sand      沙子
+Sandstone     砂岩
+Sandstone Slab     砂岩台阶
+Sandstone Stairs   砂岩楼梯
+Sandstone Wall    砂岩墙
+Sapling   树苗
+Scaffolding    脚手架
+Sculk      幽匿块
+Sculk Catalyst 幽匿催发体
+Sculk Sensor  幽匿感测体
+Sculk Shrieker 幽匿尖啸体
+Sculk Vein     幽匿脉络
+Sea Lantern   海晶灯
+Sea Pickle      海泡菜
+Seagrass 海草
+Short Grass    矮草丛
+Shroomlight  菌光体
+Shulker Box   潜影盒
+Sign 告示牌
+Skeleton Skull 骷髅头颅
+Skeleton Wall Skull墙上的骷髅头颅
+Slab 台阶
+Slime Block    黏液块
+Small Amethyst Bud     小型紫晶芽
+Small Dripleaf 小型垂滴叶
+Smithing Table锻造台
+Smoker  烟熏炉
+Smooth Basalt平滑玄武岩
+Smooth Quartz     平滑石英块
+Smooth Quartz Block   平滑石英块
+Smooth Quartz Slab     平滑石英台阶
+Smooth Quartz Stairs   平滑石英楼梯
+Smooth Red Sandstone平滑红砂岩
+Smooth Red Sandstone Slab平滑红砂岩台阶
+Smooth Red Sandstone Stairs平滑红砂岩楼梯
+Smooth Sandstone平滑砂岩
+Smooth Sandstone Slab平滑砂岩台阶
+Smooth Sandstone Stairs    平滑砂岩楼梯
+Smooth Stone      平滑石头
+Smooth Stone Slab平滑石头台阶
+Sniffer Egg     嗅探兽蛋
+Snow      雪
+Snow Block    雪块
+Soul Campfire灵魂营火
+Soul Fire 灵魂火
+Soul Lantern  灵魂灯笼
+Soul Sand      灵魂沙
+Soul Soil 灵魂土
+Soul Torch     灵魂火把
+Soul Wall Torch    墙上的灵魂火把
+Sponge  海绵
+Spore Blossom孢子花
+Spruce Button云杉木按钮
+Spruce Door  云杉木门
+Spruce Fence 云杉木栅栏
+Spruce Fence Gate云杉木栅栏门
+Spruce Hanging Sign   悬挂式云杉木告示牌
+Spruce Leaves云杉树叶
+Spruce Log    云杉原木
+Spruce Planks 云杉木板
+Spruce Pressure Plate  云杉木压力板
+Spruce Sapling云杉树苗
+Spruce Sign   云杉木告示牌
+Spruce Slab   云杉木台阶
+Spruce Stairs  云杉木楼梯
+Spruce Trapdoor   云杉木活板门
+Spruce Wall Hanging Sign   墙上的悬挂式云杉木告示牌
+Spruce Wall Sign   墙上的云杉木告示牌
+Spruce Wood 云杉木
+Stained Glass 染色玻璃
+Stained Glass Pane染色玻璃板
+Stairs      楼梯
+Stem      菌柄
+Sticky Piston  黏性活塞
+Stone     石头
+Stone Brick Slab    石砖台阶
+Stone Brick Stairs  石砖楼梯
+Stone Brick Wall   石砖墙
+Stone Bricks   石砖
+Stone Button 石头按钮
+Stone Pressure Plate    石头压力板
+Stone Slab     石头台阶
+Stone Stairs   石头楼梯
+Stonecutter   切石机
+Stripped Acacia Log去皮金合欢原木
+Stripped Acacia Wood 去皮金合欢木
+Stripped Birch Log 去皮白桦原木
+Stripped Birch Wood   去皮白桦木
+Stripped Cherry Log去皮樱花原木
+Stripped Cherry Wood 去皮樱花木
+Stripped Crimson Hyphae   去皮绯红菌核
+Stripped Crimson Stem 去皮绯红菌柄
+Stripped Dark Oak Log 去皮深色橡木原木
+Stripped Dark Oak Wood    去皮深色橡木
+Stripped Hyphae  去皮菌核
+Stripped Jungle Log去皮丛林原木
+Stripped Jungle Wood 去皮丛林木
+Stripped Log  去皮原木
+Stripped Mangrove Log去皮红树原木
+Stripped Mangrove Wood   去皮红树木
+Stripped Oak Log  去皮橡木原木
+Stripped Oak Wood     去皮橡木
+Stripped Spruce Log    去皮云杉原木
+Stripped Spruce Wood 去皮云杉木
+Stripped Stem去皮菌柄
+Stripped Warped Hyphae    去皮诡异菌核
+Stripped Warped Stem 去皮诡异菌柄
+Stripped Wood     去皮木头
+Structure Block     结构方块
+Structure Void结构空位
+Sugar Cane    甘蔗
+Sunflower      向日葵
+Suspicious Gravel  可疑的沙砾
+Suspicious Sand    可疑的沙子
+Sweet Berry Bush  甜浆果丛
+Tall Grass高草丛
+Tall Seagrass  高海草
+Target    标靶
+Terracotta     陶瓦
+Tinted Glass   遮光玻璃
+TNT TNT
+Torch     火把
+Torchflower   火把花
+Torchflower Crop  火把花植株
+Trapdoor 活板门
+Trapped Chest陷阱箱
+Trial Spawner 试炼刷怪笼
+Tripwire  绊线
+Tripwire Hook绊线钩
+Tube Coral    管珊瑚
+Tube Coral Block  管珊瑚块
+Tube Coral Fan     管珊瑚扇
+Tube Coral Wall Fan墙上的管珊瑚扇
+Tuff 凝灰岩
+Tuff Brick Slab凝灰岩砖台阶
+Tuff Brick Stairs     凝灰岩砖楼梯
+Tuff Brick Wall凝灰岩砖墙
+Tuff Bricks     凝灰岩砖
+Tuff Slab 凝灰岩台阶
+Tuff Stairs      凝灰岩楼梯
+Tuff Wall 凝灰岩墙
+Turtle Egg      海龟蛋
+Twisting Vines缠怨藤
+Twisting Vines Plant缠怨藤植株
+Vault      宝库
+Verdant Froglight 青翠蛙明灯
+Vines      藤蔓
+Void Air  虚空空气
+Wall 墙
+Wall Banner   墙上的旗帜
+Wall Hanging Sign 墙上的悬挂式告示牌
+Wall Sign墙上的告示牌
+Wall Torch     墙上的火把
+Warped Button     诡异木按钮
+Warped Door 诡异木门
+Warped Fence      诡异木栅栏
+Warped Fence Gate     诡异木栅栏门
+Warped Fungus    诡异菌
+Warped Hanging Sign  悬挂式诡异木告示牌
+Warped Hyphae   诡异菌核
+Warped Nylium    诡异菌岩
+Warped Planks     诡异木板
+Warped Pressure Plate 诡异木压力板
+Warped Roots      诡异菌索
+Warped Sign 诡异木告示牌
+Warped Slab  诡异木台阶
+Warped Stairs 诡异木楼梯
+Warped Stem 诡异菌柄
+Warped Trapdoor 诡异木活板门
+Warped Wall Hanging Sign 墙上的悬挂式诡异木告示牌
+Warped Wall Sign 墙上的诡异木告示牌
+Warped Wart Block诡异疣块
+Water     水
+Water Cauldron    装有水的炼药锅
+Waxed Block of Copper涂蜡的铜块
+Waxed Chiseled Copper涂蜡的雕纹铜块
+Waxed Copper Bulb     涂蜡的铜灯
+Waxed Copper Door    涂蜡的铜门
+Waxed Copper Grate   涂蜡的铜格栅
+Waxed Copper Trapdoor涂蜡的铜活板门
+Waxed Cut Copper涂蜡的切制铜块
+Waxed Cut Copper Slab涂蜡的切制铜台阶
+Waxed Cut Copper Stairs    涂蜡的切制铜楼梯
+Waxed Exposed Chiseled Copper涂蜡的斑驳雕纹铜块
+Waxed Exposed Copper涂蜡的斑驳铜块
+Waxed Exposed Copper Bulb涂蜡的斑驳铜灯
+Waxed Exposed Copper Door涂蜡的斑驳铜门
+Waxed Exposed Copper Grate涂蜡的斑驳铜格栅
+Waxed Exposed Copper Trapdoor涂蜡的斑驳铜活板门
+Waxed Exposed Cut Copper涂蜡的斑驳切制铜块
+Waxed Exposed Cut Copper Slab涂蜡的斑驳切制铜台阶
+Waxed Exposed Cut Copper Stairs涂蜡的斑驳切制铜楼梯
+Waxed Oxidized Chiseled Copper涂蜡的氧化雕纹铜块
+Waxed Oxidized Copper涂蜡的氧化铜块
+Waxed Oxidized Copper Bulb涂蜡的氧化铜灯
+Waxed Oxidized Copper Door涂蜡的氧化铜门
+Waxed Oxidized Copper Grate   涂蜡的氧化铜格栅
+Waxed Oxidized Copper Trapdoor涂蜡的氧化铜活板门
+Waxed Oxidized Cut Copper涂蜡的氧化切制铜块
+Waxed Oxidized Cut Copper Slab涂蜡的氧化切制铜台阶
+Waxed Oxidized Cut Copper Stairs涂蜡的氧化切制铜楼梯
+Waxed Weathered Chiseled Copper  涂蜡的锈蚀雕纹铜块
+Waxed Weathered Copper  涂蜡的锈蚀铜块
+Waxed Weathered Copper Bulb 涂蜡的锈蚀铜灯
+Waxed Weathered Copper Door 涂蜡的锈蚀铜门
+Waxed Weathered Copper Grate涂蜡的锈蚀铜格栅
+Waxed Weathered Copper Trapdoor 涂蜡的锈蚀铜活板门
+Waxed Weathered Cut Copper   涂蜡的锈蚀切制铜块
+Waxed Weathered Cut Copper Slab  涂蜡的锈蚀切制铜台阶
+Waxed Weathered Cut Copper Stairs 涂蜡的锈蚀切制铜楼梯
+Weathered Chiseled Copper锈蚀的雕纹铜块
+Weathered Copper锈蚀的铜块
+Weathered Copper Bulb锈蚀的铜灯
+Weathered Copper Door锈蚀的铜门
+Weathered Copper Grate    锈蚀的铜格栅
+Weathered Copper Trapdoor锈蚀的铜活板门
+Weathered Cut Copper 锈蚀的切制铜块
+Weathered Cut Copper Slab锈蚀的切制铜台阶
+Weathered Cut Copper Stairs锈蚀的切制铜楼梯
+Weeping Vines     垂泪藤
+Weeping Vines Plant    垂泪藤植株
+Weighted Pressure Plate测重压力板
+Wet Sponge  湿海绵
+Wheat Crops 小麦植株
+White Banner 白色旗帜
+White Bed     白色床
+White Candle 白色蜡烛
+White Carpet 白色地毯
+White Concrete    白色混凝土
+White Concrete Powder白色混凝土粉末
+White Glazed Terracotta白色带釉陶瓦
+White Shulker Box 白色潜影盒
+White Stained Glass白色染色玻璃
+White Stained Glass Pane    白色染色玻璃板
+White Terracotta   白色陶瓦
+White Tulip    白色郁金香
+White Wall Banner 墙上的白色旗帜
+White Wool   白色羊毛
+Wither Rose   凋灵玫瑰
+Wither Skeleton Skull   凋灵骷髅头颅
+Wither Skeleton Wall Skull  墙上的凋灵骷髅头颅
+Wood     木头
+Wool      羊毛
+Yellow Banner黄色旗帜
+Yellow Bed    黄色床
+Yellow Candle黄色蜡烛
+Yellow Carpet 黄色地毯
+Yellow Concrete   黄色混凝土
+Yellow Concrete Powder黄色混凝土粉末
+Yellow Glazed Terracotta    黄色带釉陶瓦
+Yellow Shulker Box黄色潜影盒
+Yellow Stained Glass    黄色染色玻璃
+Yellow Stained Glass Pane   黄色染色玻璃板
+Yellow Terracotta  黄色陶瓦
+Yellow Wall Banner墙上的黄色旗帜
+Yellow Wool  黄色羊毛
+Zombie Head 僵尸的头
+Zombie Wall Head墙上的僵尸的头
+物品
+Acacia Boat   金合欢木船
+Acacia Boat With Chest 金合欢木运输船
+Allay Spawn Egg   悦灵刷怪蛋
+Amethyst Shard    紫水晶碎片
+Angler Pottery Sherd    垂钓纹样陶片
+Apple     苹果
+Archer Pottery Sherd    弓箭纹样陶片
+Armadillo Scute    犰狳鳞甲
+Armadillo Spawn Egg   犰狳刷怪蛋
+Armor Stand  盔甲架
+Arms Up Pottery Sherd 举臂纹样陶片
+Arrow     箭
+Arrow of Decay     衰变之箭
+Arrow of Fire Resistance抗火之箭
+Arrow of Harming 伤害之箭
+Arrow of Healing  治疗之箭
+Arrow of Infestation虫蚀之箭
+Arrow of Invisibility隐身之箭
+Arrow of Leaping  跳跃之箭
+Arrow of Luck 幸运之箭
+Arrow of Night Vision  夜视之箭
+Arrow of Oozing   渗浆之箭
+Arrow of Poison    剧毒之箭
+Arrow of Regeneration 再生之箭
+Arrow of Slow Falling   缓降之箭
+Arrow of Slowness 迟缓之箭
+Arrow of Splashing喷溅之箭
+Arrow of Strength 力量之箭
+Arrow of Swiftness 迅捷之箭
+Arrow of The Turtle Master 神龟之箭
+Arrow of Water Breathing   水肺之箭
+Arrow of Weakness虚弱之箭
+Arrow of Weaving 盘丝之箭
+Arrow of Wind Charging蓄风之箭
+Awkward Lingering Potion  滞留型粗制的药水
+Awkward Potion   粗制的药水
+Awkward Splash Potion喷溅型粗制的药水
+Axe 斧
+Axolotl Spawn Egg美西螈刷怪蛋
+Baked Potato 烤马铃薯
+Bamboo Raft 竹筏
+Bamboo Raft With Chest运输竹筏
+Banner Pattern     旗帜图案
+Bat Spawn Egg     蝙蝠刷怪蛋
+Bee Spawn Egg     蜜蜂刷怪蛋
+Beetroot 甜菜根
+Beetroot Seeds     甜菜种子
+Beetroot Soup甜菜汤
+Birch Boat      白桦木船
+Birch Boat With Chest  白桦木运输船
+Black Dye黑色染料
+Blade Pottery Sherd利刃纹样陶片
+Blaze Powder 烈焰粉
+Blaze Rod      烈焰棒
+Blaze Spawn Egg  烈焰人刷怪蛋
+Blue Dye 蓝色染料
+Bogged Spawn Egg沼骸刷怪蛋
+Bolt Armor Trim Smithing Template  镶铆盔甲纹饰锻造模板
+Bone      骨头
+Bone Meal     骨粉
+Book      书
+Book And Quill     书与笔
+Boots     靴子
+Bottle o' Enchanting    附魔之瓶
+Bow 弓
+Bowl       碗
+Bread     面包
+Breeze Rod    旋风棒
+Breeze Spawn Egg 旋风人刷怪蛋
+Brewer Pottery Sherd   佳酿纹样陶片
+Brewing Stand酿造台
+Brick       红砖
+Brown Dye     棕色染料
+Brush     刷子
+Bucket    铁桶
+Bucket of Axolotl  美西螈桶
+Bucket of Cod鳕鱼桶
+Bucket of Pufferfish河豚桶
+Bucket of Salmon  鲑鱼桶
+Bucket of Tadpole 蝌蚪桶
+Bucket of Tropical Fish 热带鱼桶
+Bundle   收纳袋
+Buried Treasure Map    藏宝图
+Burn Pottery Sherd烈焰纹样陶片
+Camel Spawn Egg 骆驼刷怪蛋
+Carrot    胡萝卜
+Carrot On a Stick  胡萝卜钓竿
+Cat Spawn Egg     猫刷怪蛋
+Cauldron 炼药锅
+Cave Spider Spawn Egg洞穴蜘蛛刷怪蛋
+Chainmail Boots    锁链靴子
+Chainmail Chestplate   锁链胸甲
+Chainmail Helmet 锁链头盔
+Chainmail Leggings锁链护腿
+Charcoal 木炭
+Cherry Boat   樱花木船
+Cherry Boat With Chest樱花木运输船
+Chestplate     胸甲
+Chicken Spawn Egg     鸡刷怪蛋
+Chorus Fruit  紫颂果
+Clay Ball 黏土球
+Clock      时钟
+Coal 煤炭
+Coast Armor Trim Smithing Template 海岸盔甲纹饰锻造模板
+Cocoa Beans  可可豆
+Cod Spawn Egg    鳕鱼刷怪蛋
+Compass 指南针
+Cooked Chicken   熟鸡肉
+Cooked Cod  熟鳕鱼
+Cooked Mutton    熟羊肉
+Cooked Porkchop 熟猪排
+Cooked Rabbit熟兔肉
+Cooked Salmon    熟鲑鱼
+Cookie   曲奇
+Copper Ingot 铜锭
+Cow Spawn Egg    牛刷怪蛋
+Creeper Spawn Egg     苦力怕刷怪蛋
+Crossbow      弩
+Cyan Dye青色染料
+Danger Pottery Sherd  危机纹样陶片
+Dark Oak Boat深色橡木船
+Dark Oak Boat With Chest   深色橡木运输船
+Debug Stick   调试棒
+Desert Village Map沙漠村庄地图
+Diamond 钻石
+Diamond Axe 钻石斧
+Diamond Boots     钻石靴子
+Diamond Chestplate    钻石胸甲
+Diamond Helmet  钻石头盔
+Diamond Hoe钻石锄
+Diamond Horse Armor 钻石马铠
+Diamond Leggings钻石护腿
+Diamond Pickaxe  钻石镐
+Diamond Shovel   钻石锹
+Diamond Sword    钻石剑
+Disc Fragment唱片残片
+Dolphin Spawn Egg     海豚刷怪蛋
+Donkey Spawn Egg驴刷怪蛋
+Dragon's Breath    龙息
+Dried Kelp     干海带
+Drowned Spawn Egg    溺尸刷怪蛋
+Dune Armor Trim Smithing Template 沙丘盔甲纹饰锻造模板
+Dye 染料
+Echo Shard    回响碎片
+Egg 鸡蛋
+Elder Guardian Spawn Egg  远古守卫者刷怪蛋
+Elytra      鞘翅
+Emerald  绿宝石
+Empty Map    空地图
+Enchanted Book   附魔书
+Enchanted Golden Apple附魔金苹果
+End Crystal    末地水晶
+Ender Dragon Spawn Egg   末影龙刷怪蛋
+Ender Pearl    末影珍珠
+Enderman Spawn Egg  末影人刷怪蛋
+Endermite Spawn Egg  末影螨刷怪蛋
+Evoker Spawn Egg 唤魔者刷怪蛋
+Explorer Pottery Sherd 探险纹样陶片
+Eye Armor Trim Smithing Template眼眸盔甲纹饰锻造模板
+Eye of Ender  末影之眼
+Feather  羽毛
+Fermented Spider Eye  发酵蛛眼
+Fire Charge    火焰弹
+Firework Rocket    烟花火箭
+Firework Star 烟火之星
+Fishing Rod   钓鱼竿
+Flint 燧石
+Flint And Steel打火石
+Flow Armor Trim Smithing Template 涡流盔甲纹饰锻造模板
+Flow Pottery Sherd涡流纹样陶片
+Flower Pot     花盆
+Fox Spawn Egg     狐狸刷怪蛋
+Friend Pottery Sherd    挚友纹样陶片
+Frog Spawn Egg   青蛙刷怪蛋
+Ghast Spawn Egg  恶魂刷怪蛋
+Ghast Tear     恶魂之泪
+Glass Bottle   玻璃瓶
+Glistering Melon Slice   闪烁的西瓜片
+Glow Berries  发光浆果
+Glow Ink Sac  荧光墨囊
+Glow Item Frame  荧光物品展示框
+Glow Squid Spawn Egg 发光鱿鱼刷怪蛋
+Glowstone Dust    荧石粉
+Goat Horn     山羊角
+Goat Spawn Egg   山羊刷怪蛋
+Gold Ingot     金锭
+Gold Nugget 金粒
+Golden Apple 金苹果
+Golden Axe    金斧
+Golden Boots 金靴子
+Golden Carrot金胡萝卜
+Golden Chestplate 金胸甲
+Golden Helmet     金头盔
+Golden Hoe   金锄
+Golden Horse Armor    金马铠
+Golden Leggings   金护腿
+Golden Pickaxe     金镐
+Golden Shovel金锹
+Golden Sword金剑
+Gray Dye 灰色染料
+Green Dye     绿色染料
+Guardian Spawn Egg    守卫者刷怪蛋
+Gunpowder   火药
+Guster Pottery Sherd    旋风纹样陶片
+Heart of The Sea   海洋之心
+Heart Pottery Sherd爱心纹样陶片
+Heartbreak Pottery Sherd    心碎纹样陶片
+Helmet   头盔
+Hoe 锄
+Hoglin Spawn Egg 疣猪兽刷怪蛋
+Honey Bottle 蜂蜜瓶
+Honeycomb  蜜脾
+Horse Armor  马铠
+Horse Spawn Egg 马刷怪蛋
+Host Armor Trim Smithing Template 雇主盔甲纹饰锻造模板
+Howl Pottery Sherd狼嚎纹样陶片
+Husk Spawn Egg   尸壳刷怪蛋
+Ink Sac   墨囊
+Iron Axe 铁斧
+Iron Boots     铁靴子
+Iron Chestplate     铁胸甲
+Iron Golem Spawn Egg 铁傀儡刷怪蛋
+Iron Helmet   铁头盔
+Iron Hoe 铁锄
+Iron Horse Armor  铁马铠
+Iron Ingot      铁锭
+Iron Leggings 铁护腿
+Iron Nugget  铁粒
+Iron Pickaxe   铁镐
+Iron Shovel    铁锹
+Iron Sword    铁剑
+Item Frame    物品展示框
+Jungle Boat   丛林木船
+Jungle Boat With Chest 丛林木运输船
+Jungle Explorer Map    丛林探险家地图
+Knowledge Book  知识之书
+Lapis Lazuli    青金石
+Lava Bucket   熔岩桶
+Lead       拴绳
+Leather   皮革
+Leather Boots 皮革靴子
+Leather Cap   皮革帽子
+Leather Horse Armor   皮革马铠
+Leather Pants 皮革裤子
+Leather Tunic 皮革外套
+Leggings 护腿
+Light Blue Dye淡蓝色染料
+Light Gray Dye淡灰色染料
+Lime Dye 黄绿色染料
+Lingering Potion   滞留药水
+Lingering Potion of Fire Resistance滞留型抗火药水
+Lingering Potion of Harming滞留型伤害药水
+Lingering Potion of Healing 滞留型治疗药水
+Lingering Potion of Infestation滞留型虫蚀药水
+Lingering Potion of Invisibility滞留型隐身药水
+Lingering Potion of Leaping 滞留型跳跃药水
+Lingering Potion of Luck滞留型幸运药水
+Lingering Potion of Night Vision 滞留型夜视药水
+Lingering Potion of Oozing 滞留型渗浆药水
+Lingering Potion of Poison  滞留型剧毒药水
+Lingering Potion of Regeneration滞留型再生药水
+Lingering Potion of Slow Falling 滞留型缓降药水
+Lingering Potion of Slowness滞留型迟缓药水
+Lingering Potion of Strength滞留型力量药水
+Lingering Potion of Swiftness滞留型迅捷药水
+Lingering Potion of The Turtle Master滞留型神龟药水
+Lingering Potion of Water Breathing 滞留型水肺药水
+Lingering Potion of Weakness滞留型虚弱药水
+Lingering Potion of Weaving滞留型盘丝药水
+Lingering Potion of Wind Charging滞留型蓄风药水
+Lingering Uncraftable Potion不可合成的滞留型药水
+Lingering Water Bottle 滞留型水瓶
+Llama Spawn Egg 羊驼刷怪蛋
+Lodestone Compass     磁石指针
+Mace      重锤
+Magenta Dye 品红色染料
+Magma Cream      岩浆膏
+Magma Cube Spawn Egg    岩浆怪刷怪蛋
+Mangrove Boat     红树木船
+Mangrove Boat With Chest 红树木运输船
+Map 地图
+Melon Seeds  西瓜种子
+Melon Slice    西瓜片
+Milk Bucket   奶桶
+Minecart 矿车
+Minecart With Chest    运输矿车
+Minecart With Command Block  命令方块矿车
+Minecart With Furnace 动力矿车
+Minecart With Hopper 漏斗矿车
+Minecart With TNT       TNT矿车
+Miner Pottery Sherd采矿纹样陶片
+Mooshroom Spawn Egg哞菇刷怪蛋
+Mourner Pottery Sherd 悲恸纹样陶片
+Mule Spawn Egg   骡刷怪蛋
+Mundane Lingering Potion  滞留型平凡的药水
+Mundane Potion   平凡的药水
+Mundane Splash Potion喷溅型平凡的药水
+Mushroom Stew   蘑菇煲
+Music Disc     音乐唱片
+Name Tag     命名牌
+Nautilus Shell 鹦鹉螺壳
+Nether Brick  下界砖
+Nether Quartz下界石英
+Nether Star    下界之星
+Nether Wart  下界疣
+Netherite Axe 下界合金斧
+Netherite Boots    下界合金靴子
+Netherite Chestplate    下界合金胸甲
+Netherite Helmet  下界合金头盔
+Netherite Hoe下界合金锄
+Netherite Ingot     下界合金锭
+Netherite Leggings下界合金护腿
+Netherite Pickaxe  下界合金镐
+Netherite Scrap     下界合金碎片
+Netherite Shovel   下界合金锹
+Netherite Sword   下界合金剑
+Netherite Upgrade Smithing Template下界合金升级锻造模板
+Oak Boat 橡木船
+Oak Boat With Chest    橡木运输船
+Ocean Explorer Map    海洋探险家地图
+Ocelot Spawn Egg 豹猫刷怪蛋
+Ominous Bottle    不祥之瓶
+Ominous Trial Key 不祥试炼钥匙
+Orange Dye   橙色染料
+Painting 画
+Panda Spawn Egg 熊猫刷怪蛋
+Paper     纸
+Parrot Spawn Egg 鹦鹉刷怪蛋
+Phantom Membrane    幻翼膜
+Phantom Spawn Egg    幻翼刷怪蛋
+Pickaxe   镐
+Pig Spawn Egg猪刷怪蛋
+Piglin Brute Spawn Egg 猪灵蛮兵刷怪蛋
+Piglin Spawn Egg  猪灵刷怪蛋
+Pillager Spawn Egg掠夺者刷怪蛋
+Pink Dye 粉红色染料
+Pitcher Plant  瓶子草
+Pitcher Pod    瓶子草荚果
+Plains Village Map 平原村庄地图
+Plenty Pottery Sherd    富饶纹样陶片
+Poisonous Potato 毒马铃薯
+Polar Bear Spawn Egg  北极熊刷怪蛋
+Popped Chorus Fruit    爆裂紫颂果
+Potato    马铃薯
+Potion    药水
+Potion of Fire Resistance抗火药水
+Potion of Harming 伤害药水
+Potion of Healing 治疗药水
+Potion of Infestation    虫蚀药水
+Potion of Invisibility隐身药水
+Potion of Leaping 跳跃药水
+Potion of Luck幸运药水
+Potion of Night Vision  夜视药水
+Potion of Oozing  渗浆药水
+Potion of Poison   剧毒药水
+Potion of Regeneration 再生药水
+Potion of Slow Falling  缓降药水
+Potion of Slowness迟缓药水
+Potion of Strength 力量药水
+Potion of Swiftness迅捷药水
+Potion of The Turtle Master 神龟药水
+Potion of Water Breathing  水肺药水
+Potion of Weakness     虚弱药水
+Potion of Weaving 盘丝药水
+Potion of Wind Charging    蓄风药水
+Pottery Sherd 陶片
+Powder Snow Bucket   细雪桶
+Prismarine Crystals海晶砂粒
+Prismarine Shard   海晶碎片
+Prize Pottery Sherd珍宝纹样陶片
+Pufferfish河豚
+Pufferfish Spawn Egg   河豚刷怪蛋
+Pumpkin Pie  南瓜派
+Pumpkin Seeds     南瓜种子
+Purple Dye     紫色染料
+Rabbit Hide   兔子皮
+Rabbit Spawn Egg 兔子刷怪蛋
+Rabbit Stew   兔肉煲
+Rabbit's Foot 兔子脚
+Raiser Armor Trim Smithing Template牧民盔甲纹饰锻造模板
+Ravager Spawn Egg     劫掠兽刷怪蛋
+Raw Beef 生牛肉
+Raw Chicken  生鸡肉
+Raw Cod 生鳕鱼
+Raw Copper   粗铜
+Raw Gold粗金
+Raw Iron 粗铁
+Raw Mutton  生羊肉
+Raw Porkchop      生猪排
+Raw Rabbit    生兔肉
+Raw Salmon  生鲑鱼
+Recovery Compass追溯指针
+Red Dye 红色染料
+Redstone Dust红石粉
+Rib Armor Trim Smithing Template肋骨盔甲纹饰锻造模板
+Rotten Flesh  腐肉
+Saddle    鞍
+Salmon Spawn Egg鲑鱼刷怪蛋
+Savanna Village Map   热带草原村庄地图
+Scrape Pottery Sherd   刮削纹样陶片
+Scute      鳞甲
+Sentry Armor Trim Smithing Template哨兵盔甲纹饰锻造模板
+Shaper Armor Trim Smithing Template塑造盔甲纹饰锻造模板
+Sheaf Pottery Sherd麦捆纹样陶片
+Shears    剪刀
+Sheep Spawn Egg 绵羊刷怪蛋
+Shelter Pottery Sherd   树荫纹样陶片
+Shield     盾牌
+Shovel    锹
+Shulker Shell  潜影壳
+Shulker Spawn Egg潜影贝刷怪蛋
+Silence Armor Trim Smithing Template幽静盔甲纹饰锻造模板
+Silverfish Spawn Egg    蠹虫刷怪蛋
+Skeleton Horse Spawn Egg  骷髅马刷怪蛋
+Skeleton Spawn Egg    骷髅刷怪蛋
+Skull Pottery Sherd头颅纹样陶片
+Slime Spawn Egg  史莱姆刷怪蛋
+Slimeball 黏液球
+Smithing Template锻造模板
+Sniffer Spawn Egg 嗅探兽刷怪蛋
+Snort Pottery Sherd嗅探纹样陶片
+Snout Armor Trim Smithing Template猪鼻盔甲纹饰锻造模板
+Snow Golem Spawn Egg雪傀儡刷怪蛋
+Snowball 雪球
+Snowy Village Map雪原村庄地图
+Spawn Egg    刷怪蛋
+Spectral Arrow光灵箭
+Spider Eye     蜘蛛眼
+Spider Spawn Egg 蜘蛛刷怪蛋
+Spire Armor Trim Smithing Template 尖塔盔甲纹饰锻造模板
+Splash Potion 喷溅药水
+Splash Potion of Fire Resistance 喷溅型抗火药水
+Splash Potion of Harming   喷溅型伤害药水
+Splash Potion of Healing喷溅型治疗药水
+Splash Potion of Infestation 喷溅型虫蚀药水
+Splash Potion of Invisibility  喷溅型隐身药水
+Splash Potion of Leaping喷溅型跳跃药水
+Splash Potion of Luck   喷溅型幸运药水
+Splash Potion of Night Vision喷溅型夜视药水
+Splash Potion of Oozing喷溅型渗浆药水
+Splash Potion of Poison喷溅型剧毒药水
+Splash Potion of Regeneration   喷溅型再生药水
+Splash Potion of Slow Falling喷溅型缓降药水
+Splash Potion of Slowness   喷溅型迟缓药水
+Splash Potion of Strength   喷溅型力量药水
+Splash Potion of Swiftness   喷溅型迅捷药水
+Splash Potion of The Turtle Master喷溅型神龟药水
+Splash Potion of Water Breathing喷溅型水肺药水
+Splash Potion of Weakness 喷溅型虚弱药水
+Splash Potion of Weaving   喷溅型盘丝药水
+Splash Potion of Wind Charging 喷溅型蓄风药水
+Splash Uncraftable Potion   不可合成的喷溅型药水
+Splash Water Bottle喷溅型水瓶
+Spruce Boat   云杉木船
+Spruce Boat With Chest云杉木运输船
+Spyglass 望远镜
+Squid Spawn Egg  鱿鱼刷怪蛋
+Steak      牛排
+Stick 木棍
+Stone Axe      石斧
+Stone Hoe     石锄
+Stone Pickaxe 石镐
+Stone Shovel 石锹
+Stone Sword  石剑
+Stray Spawn Egg   流浪者刷怪蛋
+Strider Spawn Egg 炽足兽刷怪蛋
+String     线
+Sugar     糖
+Suspicious Stew    谜之炖菜
+Swamp Explorer Map   沼泽探险家地图
+Sweet Berries 甜浆果
+Sword    剑
+Tadpole Spawn Egg     蝌蚪刷怪蛋
+Taiga Village Map 针叶林村庄地图
+Thick Lingering Potion 滞留型浓稠的药水
+Thick Potion  浓稠的药水
+Thick Splash Potion喷溅型浓稠的药水
+Tide Armor Trim Smithing Template  潮汐盔甲纹饰锻造模板
+Tipped Arrow 药箭
+Torchflower Seeds 火把花种子
+Totem of Undying 不死图腾
+Trader Llama Spawn Egg行商羊驼刷怪蛋
+Trial Chambers Map     试炼密室地图
+Trial Key 试炼钥匙
+Trident   三叉戟
+Tropical Fish  热带鱼
+Tropical Fish Spawn Egg热带鱼刷怪蛋
+Turtle Scute   海龟鳞甲
+Turtle Shell    海龟壳
+Turtle Spawn Egg  海龟刷怪蛋
+Uncraftable Potion不可合成的药水
+Uncraftable Tipped Arrow   不可合成的药箭
+Vex Armor Trim Smithing Template恼鬼盔甲纹饰锻造模板
+Vex Spawn Egg     恼鬼刷怪蛋
+Villager Spawn Egg村民刷怪蛋
+Vindicator Spawn Egg  卫道士刷怪蛋
+Wandering Trader Spawn Egg流浪商人刷怪蛋
+Ward Armor Trim Smithing Template 监守盔甲纹饰锻造模板
+Warden Spawn Egg     监守者刷怪蛋
+Warped Fungus On a Stick  诡异菌钓竿
+Water Bottle  水瓶
+Water Bucket 水桶
+Wayfinder Armor Trim Smithing Template 向导盔甲纹饰锻造模板
+Wheat    小麦
+Wheat Seeds 小麦种子
+White Dye     白色染料
+Wild Armor Trim Smithing Template  荒野盔甲纹饰锻造模板
+Wind Charge 风弹
+Witch Spawn Egg  女巫刷怪蛋
+Wither Skeleton Spawn Egg 凋灵骷髅刷怪蛋
+Wither Spawn Egg 凋灵刷怪蛋
+Wolf Armor   狼铠
+Wolf Spawn Egg   狼刷怪蛋
+Wooden Axe 木斧
+Wooden Hoe 木锄
+Wooden Pickaxe   木镐
+Wooden Shovel    木锹
+Wooden Sword    木剑
+Woodland Explorer Map林地探险家地图
+Written Book 成书
+Yellow Dye    黄色染料
+Zoglin Spawn Egg 僵尸疣猪兽刷怪蛋
+Zombie Horse Spawn Egg   僵尸马刷怪蛋
+Zombie Spawn Egg僵尸刷怪蛋
+Zombie Villager Spawn Egg 僵尸村民刷怪蛋
+Zombified Piglin Spawn Egg僵尸猪灵刷怪蛋
+实体
+Allay       悦灵
+Area Effect Cloud  区域效果云
+Armadillo      犰狳
+Armor Stand  盔甲架
+Arrow     箭
+Axolotl   美西螈
+Bat  蝙蝠
+Bee 蜜蜂
+Blaze      烈焰人
+Block Display 方块展示实体
+Boat 船
+Boat With Chest    运输船
+Bogged  沼骸
+Breeze    旋风人
+Camel    骆驼
+Cat  猫
+Cave Spider   洞穴蜘蛛
+Chicken  鸡
+Cod 鳕鱼
+Cow 牛
+Creeper  苦力怕
+Dolphin  海豚
+Donkey  驴
+Dragon Fireball     末影龙火球
+Drowned 溺尸
+Elder Guardian     远古守卫者
+End Crystal    末地水晶
+Ender Dragon 末影龙
+Enderman     末影人
+Endermite     末影螨
+Evoker    唤魔者
+Evoker Fangs 唤魔者尖牙
+Experience Orb     经验球
+Eye of Ender  末影之眼
+Falling Block  下落的方块
+Fireball   火球
+Firework Rocket    烟花火箭
+Fishing Bobber     浮漂
+Fox  狐狸
+Frog 青蛙
+Ghast     恶魂
+Giant      巨人
+Glow Item Frame  荧光物品展示框
+Glow Squid    发光鱿鱼
+Goat       山羊
+Guardian 守卫者
+Hoglin    疣猪兽
+Horse     马
+Husk      尸壳
+Illusioner 幻术师
+Interaction     交互实体
+Iron Golem    铁傀儡
+Item 物品
+Item Display  物品展示实体
+Item Frame    物品展示框
+Leash Knot    拴绳结
+Lightning Bolt 闪电束
+Llama     羊驼
+Llama Spit     羊驼唾沫
+Magma Cube 岩浆怪
+Marker   标记
+Minecart 矿车
+Minecart With Chest    运输矿车
+Minecart With Command Block  命令方块矿车
+Minecart With Furnace 动力矿车
+Minecart With Hopper 漏斗矿车
+Minecart With Monster Spawner 刷怪笼矿车
+Minecart With TNT       TNT矿车
+Mooshroom  哞菇
+Mule      骡
+Ocelot    豹猫
+Ominous Item Spawner不祥之物生成器
+Painting 画
+Panda    熊猫
+Parrot     鹦鹉
+Phantom 幻翼
+Pig  猪
+Piglin      猪灵
+Piglin Brute    猪灵蛮兵
+Pillager   掠夺者
+Player     玩家
+Polar Bear      北极熊
+Potion    药水
+Primed TNT   被激活的TNT
+Pufferfish河豚
+Rabbit    兔子
+Ravager  劫掠兽
+Salmon   鲑鱼
+Sheep     绵羊
+Shulker   潜影贝
+Shulker Bullet 潜影弹
+Silverfish 蠹虫
+Skeleton 骷髅
+Skeleton Horse     骷髅马
+Slime      史莱姆
+Small Fireball 小火球
+Sniffer    嗅探兽
+Snow Golem  雪傀儡
+Snowball 雪球
+Spectral Arrow光灵箭
+Spider    蜘蛛
+Squid     鱿鱼
+Stray      流浪者
+Strider    炽足兽
+Tadpole  蝌蚪
+Text Display   文本展示实体
+The Killer Bunny    杀手兔
+Thrown Bottle o' Enchanting掷出的附魔之瓶
+Thrown Egg   掷出的鸡蛋
+Thrown Ender Pearl     掷出的末影珍珠
+Trader Llama 行商羊驼
+Trident   三叉戟
+Tropical Fish  热带鱼
+Turtle     海龟
+Vex 恼鬼
+Villager   村民
+Vindicator     卫道士
+Wandering Trader 流浪商人
+Warden  监守者
+Wind Charge 风弹
+Witch     女巫
+Wither    凋灵
+Wither Skeleton    凋灵骷髅
+Wither Skull   凋灵之首
+Wolf       狼
+Zoglin    僵尸疣猪兽
+Zombie  僵尸
+Zombie Horse      僵尸马
+Zombie Villager    僵尸村民
+Zombified Piglin   僵尸猪灵
+环境
+Acacia    金合欢树
+Amethyst Geode   紫晶洞
+Ancient City   远古城市
+Aquifer   含水层
+Azalea    杜鹃树
+Basalt Column玄武岩石柱林
+Basalt Pillar    玄武岩柱
+Bastion Remnant  堡垒遗迹
+Birch      白桦
+Blue Ice  蓝冰
+Bonus Chest  奖励箱
+Bryce Pillar    岩柱
+Buried Treasure    埋藏的宝藏
+Cave       洞穴
+Cheese Cave  芝士洞穴
+Cherry Blossom Tree    樱花树
+Chorus Plant  紫颂树
+Cloud     云
+Conduit Frame     潮涌核心框架
+Coral Reef      珊瑚礁
+Dark Oak深色橡树
+Delta      三角洲
+Desert Pyramid     沙漠神殿
+Desert Well    沙漠水井
+Dimension     维度
+Disk 圆盘
+Dripstone      滴水石锥
+Dripstone Cluster  滴水石簇
+Dungeon地牢
+End City  末地城
+End Gateway 末地折跃门
+End Island      末地浮岛
+End Portal     末地传送门
+End Ship 末地船
+Erosion   盆地
+Exit Portal      返回传送门
+Far Lands边境之地
+Fill Layer 填充层
+Floating Island浮岛
+Fortress  下界要塞
+Fossil      化石
+Freeze Top Layer  冰冻顶层
+Glowstone Blob    荧石堆
+Hill  丘陵
+Huge Brown Mushroom巨型棕色蘑菇
+Huge Crimson Fungus 巨型绯红菌
+Huge Fungus 巨型菌类
+Huge Mushroom  巨型蘑菇
+Huge Red Mushroom  巨型红色蘑菇
+Huge Warped Fungus  巨型诡异菌
+Ice Spike 冰刺
+Iceberg   冰山
+Igloo      雪屋
+Jungle Pyramid     丛林神庙
+Jungle Tree    丛林树
+Large Dripstone    大型滴水石锥
+Lava Lake      熔岩湖
+Lava Ocean   熔岩海
+Leaf Clay 多叶黏土层
+Mangrove     红树
+Mansion 林地府邸
+Mineshaft      废弃矿井
+Moon     月亮
+Mossy Cobblestone Boulder生苔的巨石
+Mountain      山脉
+Nether Fortress     下界要塞
+Nether Fossil 下界化石
+Nether Portal 下界传送门
+Noise Cave    噪声洞穴
+Noodle Cave 面条洞穴
+Oak 橡树
+Obsidian Pillar黑曜石柱
+Obsidian Platform 黑曜石平台
+Ocean Monument 海底神殿
+Ocean Ruins  海底废墟
+Ore 矿团
+Overworld     主世界
+Pile  方块堆
+Pillager Outpost   掠夺者前哨站
+Pointed Dripstone 小型滴水石锥
+Rain 降雨
+Random Patch      随机斑块
+Ravine    峡谷
+Ruined Portal 废弃传送门
+Sculk Patch    幽匿斑块
+Shipwreck     沉船
+Snowfall 降雪
+Spaghetti Cave     意面洞穴
+Spring    涌泉
+Spruce    云杉
+Stars       星星
+Stone Platform     石头平台
+Stronghold    要塞
+Sun 太阳
+Swamp Hut   沼泽小屋
+The End  末地
+The Nether    下界
+The Void 虚空
+Thunderstorm      雷暴
+Trail Ruins      古迹废墟
+Tree 树木
+Trial Chambers     试炼密室
+Underwater Cave  水下洞穴
+Underwater Ravine水下峡谷
+Underwater Ruins 海底废墟
+Village    村庄
+Void Start Platform虚空平台
+Woodland Mansion     林地府邸
+魔咒
+Aqua Affinity 水下速掘
+Bane of Arthropods     节肢杀手
+Blast Protection    爆炸保护
+Breach    破甲
+Channeling    引雷
+Curse of Binding   绑定诅咒
+Curse of Vanishing消失诅咒
+Density   致密
+Depth Strider 深海探索者
+Efficiency 效率
+Feather Falling摔落缓冲
+Fire Aspect    火焰附加
+Fire Protection火焰保护
+Flame     火矢
+Fortune  时运
+Frost Walker  冰霜行者
+Impaling 穿刺
+Infinity    无限
+Knockback    击退
+Looting  抢夺
+Loyalty   忠诚
+Luck of The Sea    海之眷顾
+Lure 饵钓
+Mending 经验修补
+Multishot      多重射击
+Piercing  穿透
+Power    力量
+Projectile Protection    弹射物保护
+Protection     保护
+Punch    冲击
+Quick Charge 快速装填
+Respiration    水下呼吸
+Riptide   激流
+Sharpness      锋利
+Silk Touch      精准采集
+Smite     亡灵杀手
+Soul Speed    灵魂疾行
+Sweeping Edge     横扫之刃
+Swift Sneak    迅捷潜行
+Thorns    荆棘
+Unbreaking   耐久
+Wind Burst   风爆

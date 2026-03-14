@@ -12,8 +12,12 @@ import org.bukkit.plugin.java.JavaPlugin;
 class StaticAssetInstaller {
   private static final List<String> ASSETS = List.of(
       "web/index.html",
+      "web/admin.html",
       "web/app.js",
-      "web/styles.css");
+      "web/admin.js",
+      "web/styles.css",
+      "web/material_zh.txt",
+      "web/material_zh.json");
 
   private final JavaPlugin plugin;
 

@@ -70,6 +70,31 @@ class WalletService {
     });
   }
 
+  WalletBalance adjustBalance(long userId, CurrencyType currency, long delta, String reason, String bizId) {
+    if (currency == null) {
+      throw new ServiceException("invalid_currency", "Currency is required");
+    }
+    if (delta == 0) {
+      throw new ServiceException("invalid_amount", "Delta cannot be zero");
+    }
+    String normalizedReason = reason == null || reason.isBlank() ? "ADMIN_ADJUST" : reason.trim();
+    return databaseManager.inTransaction(connection -> {
+      ensureWallet(connection, userId);
+      boolean applied = applyDelta(
+          connection,
+          userId,
+          currency,
+          delta,
+          normalizedReason,
+          bizId,
+          delta < 0);
+      if (!applied) {
+        return readBalance(connection, userId, false);
+      }
+      return readBalance(connection, userId, false);
+    });
+  }
+
   @SuppressFBWarnings(
       value = "SQL_INJECTION_JDBC",
       justification = "Column name comes from enum and cannot be user controlled")

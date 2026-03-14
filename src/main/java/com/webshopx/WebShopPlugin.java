@@ -21,8 +21,11 @@ public class WebShopPlugin extends JavaPlugin {
   private OrderService orderService;
   private MarketService marketService;
   private DeliveryService deliveryService;
+  private AdminService adminService;
+  private AdminAuditService adminAuditService;
   private EmbeddedWebServer embeddedWebServer;
   private StaticAssetInstaller staticAssetInstaller;
+  private TextureAssetManager textureAssetManager;
   private BukkitTask deliveryTask;
 
   @Override
@@ -33,6 +36,7 @@ public class WebShopPlugin extends JavaPlugin {
     try {
       settings = PluginSettings.fromConfig(getConfig());
       staticAssetInstaller = new StaticAssetInstaller(this);
+      textureAssetManager = new TextureAssetManager(this);
 
       databaseManager = new DatabaseManager(this, settings.databaseSettings());
       databaseManager.start();
@@ -43,9 +47,11 @@ public class WebShopPlugin extends JavaPlugin {
       bindingService = new BindingService(databaseManager, this::settings);
       redeemCodeService = new RedeemCodeService(databaseManager, walletService);
       productService = new ProductService(databaseManager);
-      orderService = new OrderService(databaseManager, productService, walletService);
+      orderService = new OrderService(this, databaseManager, productService, walletService);
       marketService = new MarketService(databaseManager, walletService);
       deliveryService = new DeliveryService(this, databaseManager, this::settings);
+      adminService = new AdminService(databaseManager, authService, walletService);
+      adminAuditService = new AdminAuditService(databaseManager);
       embeddedWebServer = new EmbeddedWebServer(
           this,
           this::settings,
@@ -55,9 +61,12 @@ public class WebShopPlugin extends JavaPlugin {
           redeemCodeService,
           productService,
           orderService,
-          marketService);
+          marketService,
+          adminService,
+          adminAuditService);
 
       productService.upsertSeeds(settings.productSeeds());
+      adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());
       if (settings.redisSettings().enabled()) {
         getLogger().warning("Redis is enabled in config but currently optional and not wired in V1.");
       }
@@ -94,6 +103,9 @@ public class WebShopPlugin extends JavaPlugin {
     reloadConfig();
     settings = PluginSettings.fromConfig(getConfig());
     productService.upsertSeeds(settings.productSeeds());
+    if (adminService != null) {
+      adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());
+    }
     restartWebRuntime();
   }
 
@@ -130,6 +142,7 @@ public class WebShopPlugin extends JavaPlugin {
     }
 
     Path staticRoot = staticAssetInstaller.install(settings.embeddedWebSettings().staticRoot());
+    textureAssetManager.ensureLocalTextureCache(staticRoot, resolveMinecraftVersion());
     if (settings.webMode() == PluginSettings.WebMode.NGINX_ONLY) {
       getLogger().info("web.mode=nginx_only, static files extracted to: " + staticRoot);
       return;
@@ -144,5 +157,21 @@ public class WebShopPlugin extends JavaPlugin {
 
   private PluginSettings settings() {
     return settings;
+  }
+
+  private String resolveMinecraftVersion() {
+    String version = getServer().getMinecraftVersion();
+    if (version != null && !version.isBlank()) {
+      return version;
+    }
+    String bukkitVersion = getServer().getBukkitVersion();
+    if (bukkitVersion == null || bukkitVersion.isBlank()) {
+      return "1.21.10";
+    }
+    int separator = bukkitVersion.indexOf('-');
+    if (separator <= 0) {
+      return bukkitVersion;
+    }
+    return bukkitVersion.substring(0, separator);
   }
 }

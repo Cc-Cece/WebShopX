@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebShop 管理后台</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header md-card">
+      <div>
+        <p class="app-kicker">WebShopX Admin</p>
+        <h1>商城管理控制台</h1>
+        <p class="app-subtitle">统一管理兑换码、官方商品、玩家市场与账号支持。</p>
+      </div>
+      <div class="status-chip" id="adminStatusChip" data-state="offline">未登录</div>
+    </header>
+
+    <nav class="top-tabs" role="tablist" aria-label="管理功能">
+      <button class="top-tab active" data-tab-target="login" type="button">管理员登录</button>
+      <button class="top-tab" data-tab-target="redeem" type="button">兑换码</button>
+      <button class="top-tab" data-tab-target="products" type="button">官方商品</button>
+      <button class="top-tab" data-tab-target="market" type="button">玩家市场</button>
+      <button class="top-tab" data-tab-target="users" type="button">账号支持</button>
+      <button class="top-tab" data-tab-target="audit" type="button">审计日志</button>
+    </nav>
+
+    <section class="tab-panel active" data-tab-panel="login">
+      <div class="grid two-col">
+        <article class="md-card section-card">
+          <h2>管理员登录</h2>
+          <p class="card-desc">使用管理员账号进入后台。仅管理员账号可登录。</p>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>账号</span>
+              <input id="adminIdentifier" placeholder="用户名或 UUID" />
+            </label>
+            <label class="field">
+              <span>密码</span>
+              <input id="adminPassword" type="password" placeholder="输入密码" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="adminLoginBtn" type="button">登录</button>
+            <button id="adminLogoutBtn" class="btn-tonal" type="button">退出</button>
+          </div>
+          <p class="meta" id="adminLoginStatus">等待登录</p>
+          <div class="md-tip md-tip-info">
+            <strong>安全提醒</strong>
+            <p>后台账号支持角色授权。不要在公共环境暴露管理员凭据。</p>
+          </div>
+        </article>
+
+        <article class="md-card section-card">
+          <h2>当前管理员</h2>
+          <p class="card-desc">显示当前会话的角色与权限。</p>
+          <div class="md-tip md-tip-success">
+            <strong>权限控制</strong>
+            <p>不同管理员角色可访问不同模块，权限不足时会提示拒绝。</p>
+          </div>
+          <p class="meta" id="adminProfileView">未登录</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="redeem">
+      <article class="md-card section-card">
+        <div class="section-head">
+          <div>
+            <h2>兑换码管理</h2>
+            <p class="card-desc">生成兑换码并查看最近记录。</p>
+          </div>
+          <button id="redeemRefreshBtn" type="button">刷新列表</button>
+        </div>
+        <div class="field-grid three-col">
+          <label class="field">
+            <span>ShopCoin</span>
+            <input id="redeemShopCoin" type="number" min="0" step="1" value="0" />
+          </label>
+          <label class="field">
+            <span>GameCoin</span>
+            <input id="redeemGameCoin" type="number" min="0" step="1" value="0" />
+          </label>
+          <label class="field">
+            <span>最大使用次数</span>
+            <input id="redeemMaxUses" type="number" min="1" step="1" value="1" />
+          </label>
+          <label class="field">
+            <span>有效期（分钟，可空）</span>
+            <input id="redeemExpires" type="number" min="0" step="1" placeholder="留空=永久" />
+          </label>
+          <label class="field">
+            <span>自定义兑换码（可空）</span>
+            <input id="redeemCustomCode" placeholder="可选自定义 code" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="redeemCreateBtn" type="button">生成兑换码</button>
+        </div>
+        <p class="meta" id="redeemCreateResult">等待生成</p>
+        <div class="md-tip md-tip-info">
+          <strong>提示</strong>
+          <p>兑换码默认一次性。若开启多次使用，请注意有效期与发放对象。</p>
+        </div>
+        <div class="admin-list" id="redeemList"></div>
+      </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="products">
+      <article class="md-card section-card">
+        <div class="section-head">
+          <div>
+            <h2>官方商品管理</h2>
+            <p class="card-desc">支持指令、出售物品、药水效果、回收物品等类型。</p>
+          </div>
+          <button id="productRefreshBtn" type="button">刷新商品</button>
+        </div>
+        <div class="field-grid three-col">
+          <label class="field">
+            <span>SKU</span>
+            <input id="productSku" placeholder="例如 vip_week" />
+          </label>
+          <label class="field">
+            <span>标题</span>
+            <input id="productTitle" placeholder="商品标题" />
+          </label>
+          <label class="field">
+            <span>币种</span>
+            <select id="productCurrency">
+              <option value="SHOP_COIN">ShopCoin</option>
+              <option value="GAME_COIN">GameCoin</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>价格</span>
+            <input id="productPrice" type="number" min="1" step="1" value="1" />
+          </label>
+          <label class="field">
+            <span>类型</span>
+            <select id="productType">
+              <option value="COMMAND">指令</option>
+              <option value="GIVE_ITEM">出售物品</option>
+              <option value="POTION_EFFECT">药水效果</option>
+              <option value="RECYCLE_ITEM">回收物品</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>启用</span>
+            <select id="productActive">
+              <option value="true">启用</option>
+              <option value="false">停用</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>命令模板（指令类）</span>
+            <input id="productCommand" placeholder="例如 give %player% minecraft:diamond 32" />
+          </label>
+          <label class="field">
+            <span>物品材质（出售/回收）</span>
+            <input id="productItemMaterial" placeholder="例如 DIAMOND" />
+          </label>
+          <label class="field">
+            <span>物品数量（出售/回收）</span>
+            <input id="productItemAmount" type="number" min="1" step="1" value="1" />
+          </label>
+          <label class="field">
+            <span>药水效果（POTION）</span>
+            <input id="productEffectType" placeholder="例如 speed" />
+          </label>
+          <label class="field">
+            <span>药水时长（秒）</span>
+            <input id="productEffectSeconds" type="number" min="1" step="1" value="30" />
+          </label>
+          <label class="field">
+            <span>药水等级（0=I）</span>
+            <input id="productEffectAmplifier" type="number" min="0" step="1" value="0" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="productSaveBtn" type="button">保存商品</button>
+        </div>
+        <p class="meta" id="productStatus">等待操作</p>
+        <div class="admin-list" id="productList"></div>
+      </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="market">
+      <article class="md-card section-card">
+        <div class="section-head">
+          <div>
+            <h2>玩家市场管理</h2>
+            <p class="card-desc">查看全部上架并支持强制下架。</p>
+          </div>
+          <button id="marketRefreshBtn" type="button">刷新列表</button>
+        </div>
+        <div class="field-grid two-col">
+          <label class="field">
+            <span>状态筛选</span>
+            <select id="marketStatus">
+              <option value="">全部</option>
+              <option value="ACTIVE">在售</option>
+              <option value="SOLD">已售</option>
+              <option value="UNLISTED">已下架</option>
+            </select>
+          </label>
+        </div>
+        <p class="meta" id="marketStatusView">等待加载</p>
+        <div class="admin-list" id="adminMarketList"></div>
+      </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="users">
+      <div class="grid two-col">
+        <article class="md-card section-card">
+          <h2>账号查询</h2>
+          <p class="card-desc">输入昵称或 UUID 查询账号。</p>
+          <div class="field-grid">
+            <label class="field">
+              <span>用户名 / UUID</span>
+              <input id="userIdentifier" placeholder="例如 玩家名或 UUID" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="userSearchBtn" type="button">查询账号</button>
+          </div>
+          <p class="meta" id="userLookupStatus">等待查询</p>
+          <div class="md-tip md-tip-info">
+            <strong>说明</strong>
+            <p>查询结果包含余额与绑定状态，仅对具备支持权限的管理员开放。</p>
+          </div>
+        </article>
+
+        <article class="md-card section-card">
+          <h2>账号支持操作</h2>
+          <p class="card-desc">对已查询的账号执行支持操作。</p>
+          <div class="field-grid">
+            <label class="field">
+              <span>新密码</span>
+              <input id="userNewPassword" type="password" placeholder="8-64 位" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="userResetPasswordBtn" type="button">重置密码</button>
+            <button id="userUnbindBtn" class="btn-tonal" type="button">解绑</button>
+            <button id="userForceLogoutBtn" class="btn-tonal" type="button">强制下线</button>
+          </div>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>调整币种</span>
+              <select id="walletCurrency">
+                <option value="SHOP_COIN">ShopCoin</option>
+                <option value="GAME_COIN">GameCoin</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>调整数量（可负数）</span>
+              <input id="walletDelta" type="number" step="1" value="0" />
+            </label>
+            <label class="field">
+              <span>原因</span>
+              <input id="walletReason" placeholder="例如 补偿/退款" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="walletAdjustBtn" type="button">调整余额</button>
+          </div>
+          <p class="meta" id="userActionStatus">等待操作</p>
+        </article>
+      </div>
+
+      <article class="md-card section-card">
+        <h2>账号详情</h2>
+        <p class="card-desc">当前查询到的账号信息。</p>
+        <div class="admin-list" id="userInfoBox"></div>
+      </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="audit">
+      <article class="md-card section-card">
+        <div class="section-head">
+          <div>
+            <h2>审计日志</h2>
+            <p class="card-desc">记录所有管理员操作。</p>
+          </div>
+          <button id="auditRefreshBtn" type="button">刷新日志</button>
+        </div>
+        <div class="admin-list" id="auditList"></div>
+      </article>
+    </section>
+  </main>
+
+  <div id="snackbarHost" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

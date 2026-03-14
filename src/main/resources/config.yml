@@ -5,6 +5,11 @@ webshop:
   access-token-length: 48
   delivery-batch-size: 20
   delivery-retry-seconds: 30
+  admin-bootstrap:
+    enabled: true
+    username: admin
+    password: admin123456
+    role: SUPER_ADMIN
   embedded-http:
     host: 0.0.0.0
     port: 8819

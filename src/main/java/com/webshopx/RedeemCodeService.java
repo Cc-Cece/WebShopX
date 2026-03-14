@@ -7,6 +7,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Locale;
 
 class RedeemCodeService {
@@ -60,6 +61,38 @@ class RedeemCodeService {
     RedeemStatus status = databaseManager.inTransaction(connection -> redeemInTransaction(connection, userId, code));
     WalletService.WalletBalance balance = walletService.getBalance(userId);
     return new RedeemResult(status, balance);
+  }
+
+  List<RedeemCodeView> listCodes(int requestedLimit) {
+    int limit = Math.min(Math.max(1, requestedLimit), 500);
+    return databaseManager.withConnection(connection -> {
+      String sql = """
+          SELECT code, shop_coin, game_coin, max_uses, used_count, expires_at, active, created_at
+          FROM redeem_codes
+          ORDER BY created_at DESC
+          LIMIT ?
+          """;
+      List<RedeemCodeView> results = new java.util.ArrayList<>();
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setInt(1, limit);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          while (resultSet.next()) {
+            java.sql.Timestamp expires = resultSet.getTimestamp("expires_at");
+            java.sql.Timestamp created = resultSet.getTimestamp("created_at");
+            results.add(new RedeemCodeView(
+                resultSet.getString("code"),
+                resultSet.getLong("shop_coin"),
+                resultSet.getLong("game_coin"),
+                resultSet.getInt("max_uses"),
+                resultSet.getInt("used_count"),
+                expires == null ? null : expires.toLocalDateTime(),
+                resultSet.getBoolean("active"),
+                created == null ? null : created.toLocalDateTime()));
+          }
+        }
+      }
+      return results;
+    });
   }
 
   private RedeemStatus redeemInTransaction(Connection connection, long userId, String code)
@@ -216,5 +249,16 @@ class RedeemCodeService {
   }
 
   record RedeemResult(RedeemStatus status, WalletService.WalletBalance balance) {
+  }
+
+  record RedeemCodeView(
+      String code,
+      long shopCoin,
+      long gameCoin,
+      int maxUses,
+      int usedCount,
+      LocalDateTime expiresAt,
+      boolean active,
+      LocalDateTime createdAt) {
   }
 }

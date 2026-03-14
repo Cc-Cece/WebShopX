@@ -72,11 +72,17 @@ class BindingService {
     }
 
     String username = readUsername(connection, bindRequest.userId());
+    String currentState = readAuthStateForUpdate(connection, bindRequest.userId());
+    String nextState = currentState;
+    if ("PENDING_BIND".equals(currentState)) {
+      nextState = "PENDING_PASSWORD";
+    }
 
-    String updateUserSql = "UPDATE web_users SET bound_uuid = ? WHERE id = ?";
+    String updateUserSql = "UPDATE web_users SET bound_uuid = ?, auth_state = ? WHERE id = ?";
     try (PreparedStatement statement = connection.prepareStatement(updateUserSql)) {
       statement.setString(1, playerUuid.toString());
-      statement.setLong(2, bindRequest.userId());
+      statement.setString(2, nextState);
+      statement.setLong(3, bindRequest.userId());
       statement.executeUpdate();
     }
 
@@ -116,6 +122,20 @@ class BindingService {
           throw new ServiceException("user_missing", "User not found");
         }
         return resultSet.getString("username");
+      }
+    }
+  }
+
+  private String readAuthStateForUpdate(Connection connection, long userId) throws SQLException {
+    String sql = "SELECT auth_state FROM web_users WHERE id = ? FOR UPDATE";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          throw new ServiceException("user_missing", "User not found");
+        }
+        String state = resultSet.getString("auth_state");
+        return state == null ? "ACTIVE" : state;
       }
     }
   }

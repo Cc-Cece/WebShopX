@@ -12,6 +12,9 @@ class SchemaManager {
 
   private Void createTables(Connection connection) throws SQLException {
     createWebUsers(connection);
+    migrateWebUsers(connection);
+    createWebAdmins(connection);
+    createAdminAuditLogs(connection);
     createWebSessions(connection);
     createBindRequests(connection);
     createWallets(connection);
@@ -19,6 +22,7 @@ class SchemaManager {
     createRedeemCodes(connection);
     createRedeemUsage(connection);
     createProducts(connection);
+    migrateProducts(connection);
     createOrders(connection);
     createOrderItems(connection);
     createDeliveryQueue(connection);
@@ -35,6 +39,7 @@ class SchemaManager {
           username VARCHAR(32) NOT NULL,
           password_hash VARCHAR(255) NOT NULL,
           password_salt VARCHAR(255) NOT NULL,
+          auth_state VARCHAR(24) NOT NULL DEFAULT 'ACTIVE',
           bound_uuid CHAR(36) NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
@@ -43,6 +48,18 @@ class SchemaManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
+  }
+
+  private void migrateWebUsers(Connection connection) throws SQLException {
+    if (!columnExists(connection, "web_users", "auth_state")) {
+      String alterSql = "ALTER TABLE web_users "
+          + "ADD COLUMN auth_state VARCHAR(24) NOT NULL DEFAULT 'ACTIVE' "
+          + "AFTER password_salt";
+      execute(connection, alterSql);
+    }
+    String fillSql = "UPDATE web_users SET auth_state = 'ACTIVE' "
+        + "WHERE auth_state IS NULL OR auth_state = ''";
+    execute(connection, fillSql);
   }
 
   private void createWebSessions(Connection connection) throws SQLException {
@@ -57,6 +74,46 @@ class SchemaManager {
           KEY idx_web_sessions_expires_at (expires_at),
           CONSTRAINT fk_web_sessions_user_id
             FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void createWebAdmins(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS web_admins (
+          user_id BIGINT NOT NULL,
+          role VARCHAR(32) NOT NULL,
+          active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (user_id),
+          KEY idx_web_admins_role_active (role, active),
+          CONSTRAINT fk_web_admins_user_id
+            FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void createAdminAuditLogs(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS admin_audit_logs (
+          id BIGINT NOT NULL AUTO_INCREMENT,
+          admin_user_id BIGINT NOT NULL,
+          admin_role VARCHAR(32) NOT NULL,
+          action VARCHAR(64) NOT NULL,
+          target_type VARCHAR(32) NULL,
+          target_id VARCHAR(96) NULL,
+          detail_json JSON NULL,
+          source_ip VARCHAR(64) NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_admin_audit_admin_time (admin_user_id, created_at),
+          KEY idx_admin_audit_action_time (action, created_at),
+          CONSTRAINT fk_admin_audit_admin_user
+            FOREIGN KEY (admin_user_id) REFERENCES web_users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
@@ -161,7 +218,13 @@ class SchemaManager {
           title VARCHAR(128) NOT NULL,
           currency VARCHAR(16) NOT NULL,
           price BIGINT NOT NULL,
+          product_type VARCHAR(24) NOT NULL DEFAULT 'COMMAND',
           command_template TEXT NOT NULL,
+          item_material VARCHAR(64) NULL,
+          item_amount INT NULL,
+          effect_type VARCHAR(64) NULL,
+          effect_seconds INT NULL,
+          effect_amplifier INT NULL,
           active BOOLEAN NOT NULL DEFAULT TRUE,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -171,6 +234,49 @@ class SchemaManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
+  }
+
+  private void migrateProducts(Connection connection) throws SQLException {
+    if (!columnExists(connection, "products", "product_type")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN product_type VARCHAR(24) NOT NULL DEFAULT 'COMMAND' AFTER price");
+    }
+    if (!columnExists(connection, "products", "item_material")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN item_material VARCHAR(64) NULL AFTER command_template");
+    }
+    if (!columnExists(connection, "products", "item_amount")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN item_amount INT NULL AFTER item_material");
+    }
+    if (!columnExists(connection, "products", "effect_type")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN effect_type VARCHAR(64) NULL AFTER item_amount");
+    }
+    if (!columnExists(connection, "products", "effect_seconds")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN effect_seconds INT NULL AFTER effect_type");
+    }
+    if (!columnExists(connection, "products", "effect_amplifier")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN effect_amplifier INT NULL AFTER effect_seconds");
+    }
+    execute(
+        connection,
+        "UPDATE products SET product_type = 'COMMAND' "
+            + "WHERE product_type IS NULL OR product_type = ''");
   }
 
   private void createOrders(Connection connection) throws SQLException {
@@ -331,6 +437,22 @@ class SchemaManager {
   private void execute(Connection connection, String sql) throws SQLException {
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.execute();
+    }
+  }
+
+  private boolean columnExists(Connection connection, String tableName, String columnName)
+      throws SQLException {
+    String sql = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+        + "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, tableName);
+      statement.setString(2, columnName);
+      try (var resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return false;
+        }
+        return resultSet.getInt(1) > 0;
+      }
     }
   }
 }

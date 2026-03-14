@@ -14,6 +14,7 @@ record PluginSettings(
     int accessTokenLength,
     int deliveryBatchSize,
     int deliveryRetrySeconds,
+    AdminBootstrapSettings adminBootstrapSettings,
     EmbeddedWebSettings embeddedWebSettings,
     DatabaseSettings databaseSettings,
     ExchangeSettings exchangeSettings,
@@ -50,6 +51,12 @@ record PluginSettings(
         config.getString("redis.host", "127.0.0.1"),
         config.getInt("redis.port", 6379));
 
+    AdminBootstrapSettings adminBootstrapSettings = new AdminBootstrapSettings(
+        config.getBoolean("webshop.admin-bootstrap.enabled", true),
+        config.getString("webshop.admin-bootstrap.username", "admin"),
+        config.getString("webshop.admin-bootstrap.password", "admin123456"),
+        config.getString("webshop.admin-bootstrap.role", "SUPER_ADMIN"));
+
     return new PluginSettings(
         mode,
         config.getInt("webshop.session-expire-hours", 72),
@@ -57,6 +64,7 @@ record PluginSettings(
         config.getInt("webshop.access-token-length", 48),
         config.getInt("webshop.delivery-batch-size", 20),
         config.getInt("webshop.delivery-retry-seconds", 30),
+        adminBootstrapSettings,
         webSettings,
         databaseSettings,
         new ExchangeSettings(shopToGame, gameToShop),
@@ -121,6 +129,9 @@ record PluginSettings(
   }
 
   record EmbeddedWebSettings(String host, int port, String staticRoot) {
+  }
+
+  record AdminBootstrapSettings(boolean enabled, String username, String password, String role) {
   }
 
   record DatabaseSettings(
