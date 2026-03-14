@@ -1,0 +1,72 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", "Noto Sans", sans-serif;
+  background: #f2f5fb;
+  color: #1f2933;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+.layout {
+  width: min(920px, calc(100vw - 32px));
+  margin: 20px auto;
+  display: grid;
+  gap: 14px;
+}
+
+.panel {
+  background: #ffffff;
+  border: 1px solid #d8e0ec;
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+input,
+button {
+  border: 1px solid #c1ccdd;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+
+button {
+  background: #2563eb;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #1e4fc7;
+}
+
+.hint {
+  color: #334155;
+  font-size: 13px;
+}
+
+pre {
+  margin: 0;
+  background: #0f172a;
+  color: #d8e8ff;
+  border-radius: 8px;
+  padding: 10px;
+  min-height: 80px;
+  overflow-x: auto;
+}
+
+.product-item {
+  border: 1px solid #e1e8f3;
+  border-radius: 8px;
+  padding: 8px;
+  margin-top: 8px;
+}

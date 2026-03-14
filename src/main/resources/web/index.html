@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebShop 控制台（官方商城 + 玩家市场）</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="layout">
+    <header>
+      <h1>WebShop 控制台</h1>
+      <p>支持 Phase 1 + Phase 2：认证、绑定、兑换、商城下单、C2C 玩家市场。</p>
+    </header>
+
+    <section class="panel">
+      <h2>账号认证</h2>
+      <div class="row">
+        <input id="username" placeholder="用户名（3-32位字母数字下划线）" />
+        <input id="password" type="password" placeholder="密码（8-64位）" />
+      </div>
+      <div class="row">
+        <button id="registerBtn">注册并登录</button>
+        <button id="loginBtn">登录</button>
+      </div>
+      <p class="hint" id="sessionView">会话：未登录</p>
+    </section>
+
+    <section class="panel">
+      <h2>账号绑定</h2>
+      <p>先在这里生成绑定码，再在游戏内执行 <code>/shop bind &lt;code&gt;</code>。</p>
+      <button id="bindBtn">生成绑定码</button>
+      <p class="hint" id="bindCodeView">绑定码：-</p>
+    </section>
+
+    <section class="panel">
+      <h2>钱包</h2>
+      <button id="walletBtn">刷新钱包</button>
+      <p class="hint" id="walletView">ShopCoin: 0 | GameCoin: 0</p>
+      <div class="row">
+        <input id="redeemCode" placeholder="输入兑换码" />
+        <button id="redeemBtn">使用兑换码</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>官方商城</h2>
+      <div class="row">
+        <button id="productsBtn">加载商品列表</button>
+      </div>
+      <div id="productList"></div>
+      <div class="row">
+        <input id="productId" placeholder="商品ID" />
+        <input id="quantity" placeholder="数量" value="1" />
+        <button id="orderBtn">创建订单</button>
+      </div>
+      <p class="hint" id="orderView">暂无订单</p>
+    </section>
+
+    <section class="panel">
+      <h2>玩家市场（C2C）</h2>
+      <p class="hint">
+        上架必须在游戏内执行：<code>/market sell &lt;price&gt; [amount] [currency]</code>，网页端仅浏览/购买/下架。
+      </p>
+      <div class="row">
+        <button id="marketListBtn">加载市场列表</button>
+        <button id="marketMineBtn">加载我的上架</button>
+      </div>
+      <div id="marketList"></div>
+      <div class="row">
+        <input id="marketBuyId" placeholder="要购买的上架ID" />
+        <button id="marketBuyBtn">购买上架</button>
+      </div>
+      <div class="row">
+        <input id="marketUnlistId" placeholder="要下架的上架ID" />
+        <button id="marketUnlistBtn">下架并退回</button>
+      </div>
+      <p class="hint" id="marketView">暂无市场操作</p>
+    </section>
+
+    <section class="panel">
+      <h2>日志</h2>
+      <pre id="logBox"></pre>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

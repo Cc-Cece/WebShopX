@@ -1,20 +1,21 @@
 main: ${PACKAGE}.${NAME}
 name: ${NAME}
 version: "${VERSION}"
-api-version: "1.21.11"
-author: AUTHOR
-description: DESCRIPTION
+api-version: "1.20"
+author: Kanbara
+description: Web-first Minecraft shop plugin (Phase 1 + Phase 2)
 commands:
-  ex:
-    description: Base command for EXAMPLE
-    usage: "For a list of commands, type /ex help"
-    aliases: example
+  shop:
+    description: WebShop management and bind commands
+    usage: "/shop <bind|reload|redeem-create>"
+    aliases: [webshop]
+  market:
+    description: Player market command (Phase 2 C2C)
+    usage: "/market sell <price> [amount] [currency]"
 permissions:
-  example.test:
-    description: DESCRIPTION
+  webshop.admin:
+    description: Allows admin operations for WebShop
+    default: op
+  webshop.use:
+    description: Allows normal player operations for WebShop
     default: true
-  example.*:
-    description: Grants all other permissions
-    default: false
-    children:
-      example.test: true

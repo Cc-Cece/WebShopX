@@ -1,1 +1,45 @@
-# A journey of 1,000 lines starts with a single char
+webshop:
+  web-mode: embedded_http
+  session-expire-hours: 72
+  bind-request-expire-minutes: 15
+  access-token-length: 48
+  delivery-batch-size: 20
+  delivery-retry-seconds: 30
+  embedded-http:
+    host: 0.0.0.0
+    port: 8819
+    static-root: web
+
+database:
+  host: 127.0.0.1
+  port: 3306
+  schema: webshop
+  username: webshop
+  password: change_me
+  use-ssl: false
+  pool-size: 10
+
+exchange:
+  shopcoin-to-gamecoin:
+    enabled: true
+    ratio: 1.0
+  gamecoin-to-shopcoin:
+    enabled: false
+    ratio: 1.0
+
+redis:
+  enabled: false
+  host: 127.0.0.1
+  port: 6379
+
+sample-products:
+  - sku: vip_week
+    title: VIP Week Pass
+    currency: SHOP_COIN
+    price: 100
+    command-template: "lp user %player% parent addtemp vip 7d"
+  - sku: diamond_pack
+    title: Diamond Pack x32
+    currency: GAME_COIN
+    price: 50
+    command-template: "give %player% minecraft:diamond 32"

@@ -8,7 +8,7 @@ plugins {
     id 'java'
 }
 
-group = "com.crimsonwarpedcraft.exampleplugin"
+group = "com.webshopx"
 
 static def getTime() {
     SimpleDateFormat sdf = new SimpleDateFormat("yyMMdd-HHmm")
@@ -65,14 +65,17 @@ repositories {
 }
 
 dependencies {
-    compileOnly 'io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT'
+    compileOnly 'io.papermc.paper:paper-api:1.20.6-R0.1-SNAPSHOT'
     compileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
     implementation 'io.papermc:paperlib:1.0.8'
+    implementation 'org.mariadb.jdbc:mariadb-java-client:3.3.3'
+    implementation 'com.zaxxer:HikariCP:5.1.0'
+    implementation 'com.google.code.gson:gson:2.11.0'
     spotbugsPlugins 'com.h3xstream.findsecbugs:findsecbugs-plugin:1.14.0'
     testCompileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
-    testImplementation 'io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT'
-    testImplementation 'org.junit.jupiter:junit-jupiter:6.0.3'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:6.0.2'
+    testImplementation 'io.papermc.paper:paper-api:1.20.6-R0.1-SNAPSHOT'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.13.4'
 }
 
 test {
@@ -81,7 +84,7 @@ test {
 
 processResources {
     filesMatching("**/plugin.yml") {
-        expand ( NAME: rootProject.name, VERSION: version, PACKAGE: rootProject.group.toString() )
+        expand(NAME: rootProject.name, VERSION: version, PACKAGE: rootProject.group.toString())
     }
 }
 
@@ -115,7 +118,7 @@ tasks.withType(SpotBugsTask).configureEach {
 shadowJar {
     archiveClassifier.set('')
     relocate 'io.papermc.lib', 'shadow.io.papermc.paperlib'
-    minimize()
+    mergeServiceFiles()
 }
 
 // Disable jar and replace with shadowJar
@@ -135,8 +138,8 @@ tasks.register('release') {
         if (!version.endsWith("-SNAPSHOT")) {
             // Rename final JAR to trim off version information
             shadowJar.archiveFile.get().getAsFile()
-                    .renameTo(layout.buildDirectory.get().toString() + File.separator + 'libs' + File.separator
-                            + rootProject.name + '.jar')
+                    .renameTo(layout.buildDirectory.get().toString() + File.separator + 'libs'
+                            + File.separator + rootProject.name + '.jar')
         }
     }
 }
