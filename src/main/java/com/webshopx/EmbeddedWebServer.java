@@ -27,6 +27,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Supplier;
+import org.bukkit.Material;
 import org.bukkit.plugin.java.JavaPlugin;
 
 class EmbeddedWebServer {
@@ -102,6 +103,7 @@ class EmbeddedWebServer {
     server.createContext("/api/orders/refund", this::handleOrdersRefund);
     server.createContext("/api/orders/policy", this::handleOrdersPolicy);
     server.createContext("/api/meta/currency", this::handleCurrencyMeta);
+    server.createContext("/api/meta/materials", this::handleMaterialMeta);
     server.createContext("/api/market/listings", this::handleMarketListings);
     server.createContext("/api/market/buy", this::handleMarketBuy);
     server.createContext("/api/market/unlist", this::handleMarketUnlist);
@@ -454,13 +456,15 @@ class EmbeddedWebServer {
       AuthService.AuthUser user = requireAuth(exchange, payload);
       long productId = getLong(payload, "productId", -1L);
       int quantity = (int) getLong(payload, "quantity", 1L);
+      String deliveryMode = getOptionalString(payload, "deliveryMode").orElse(null);
       String idempotencyKey = getOptionalString(payload, "idempotencyKey")
           .orElse(UUID.randomUUID().toString());
       OrderService.OrderPlacementResult result = orderService.placeOrder(
           user.id(),
           productId,
           quantity,
-          idempotencyKey);
+          idempotencyKey,
+          deliveryMode);
       JsonObject response = new JsonObject();
       response.addProperty("state", result.state().name());
       response.addProperty("orderNo", result.orderNo());
@@ -657,6 +661,27 @@ class EmbeddedWebServer {
     });
   }
 
+  private void handleMaterialMeta(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonArray materials = new JsonArray();
+      for (Material material : Material.values()) {
+        if (material == Material.AIR || material.isLegacy()) {
+          continue;
+        }
+        materials.add(material.name());
+      }
+      JsonObject response = new JsonObject();
+      response.add("materials", materials);
+      sendJson(exchange, 200, response);
+    });
+  }
+
   private void handleMarketListings(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
       return;
@@ -711,6 +736,7 @@ class EmbeddedWebServer {
         row.addProperty("currency", listing.currency().name());
         row.addProperty("price", listing.price());
         row.addProperty("quantity", listing.quantity());
+        row.addProperty("quantityTotal", listing.quantityTotal());
         row.addProperty("itemMaterial", listing.itemMaterial());
         row.addProperty("itemMetaJson", listing.itemMetaJson());
         if (listing.remark() == null) {
@@ -739,14 +765,18 @@ class EmbeddedWebServer {
       JsonObject payload = readJson(exchange);
       AuthService.AuthUser user = requireAuth(exchange, payload);
       long listingId = getLong(payload, "listingId", -1L);
+      int buyQuantity = (int) getLong(payload, "buyQuantity", 1L);
       String idempotencyKey = getOptionalString(payload, "idempotencyKey")
           .orElse(UUID.randomUUID().toString());
-      MarketService.TradeResult result = marketService.buyListing(user.id(), listingId, idempotencyKey);
+      MarketService.TradeResult result =
+          marketService.buyListing(user.id(), listingId, buyQuantity, idempotencyKey);
       JsonObject response = new JsonObject();
       response.addProperty("state", result.state().name());
       response.addProperty("tradeId", result.tradeId());
       response.addProperty("listingId", result.listingId());
       response.addProperty("currency", result.currency().name());
+      response.addProperty("unitPrice", result.unitPrice());
+      response.addProperty("quantity", result.quantity());
       response.addProperty("totalPrice", result.totalPrice());
       response.addProperty("buyerTotal", result.buyerTotal());
       response.addProperty("sellerReceive", result.sellerReceive());
@@ -1088,10 +1118,16 @@ class EmbeddedWebServer {
           getOptionalString(payload, "productType").orElse("COMMAND"),
           getOptionalString(payload, "commandTemplate").orElse(""),
           getOptionalString(payload, "itemMaterial").orElse(null),
-          payload.has("itemAmount") ? (int) getLong(payload, "itemAmount", 0L) : null,
+          payload.has("itemAmount") && !payload.get("itemAmount").isJsonNull()
+              ? (int) getLong(payload, "itemAmount", 0L)
+              : null,
           getOptionalString(payload, "effectType").orElse(null),
-          payload.has("effectSeconds") ? (int) getLong(payload, "effectSeconds", 0L) : null,
-          payload.has("effectAmplifier") ? (int) getLong(payload, "effectAmplifier", 0L) : null,
+          payload.has("effectSeconds") && !payload.get("effectSeconds").isJsonNull()
+              ? (int) getLong(payload, "effectSeconds", 0L)
+              : null,
+          payload.has("effectAmplifier") && !payload.get("effectAmplifier").isJsonNull()
+              ? (int) getLong(payload, "effectAmplifier", 0L)
+              : null,
           getOptionalDateTime(payload, "publishAt"),
           getOptionalDateTime(payload, "unpublishAt"),
           payload.has("active") ? payload.get("active").getAsBoolean() : true);
@@ -1315,12 +1351,20 @@ class EmbeddedWebServer {
       String status = query.get("status");
       Long userId = parseLong(query.get("userId"));
       String orderNo = query.get("orderNo");
+      String username = query.get("username");
+      String keyword = query.get("keyword");
+      String currency = query.get("currency");
+      String productType = query.get("productType");
       List<OrderService.AdminOrderView> orders = orderService.listOrdersForAdmin(
           limit,
           cursor,
           status,
           userId,
-          orderNo);
+          orderNo,
+          username,
+          keyword,
+          currency,
+          productType);
       JsonArray array = new JsonArray();
       for (OrderService.AdminOrderView adminOrder : orders) {
         OrderService.OrderView order = adminOrder.order();
@@ -1405,7 +1449,19 @@ class EmbeddedWebServer {
       Map<String, String> query = parseQuery(exchange);
       int limit = parseInt(query.get("limit"), 200);
       String status = query.get("status");
-      List<MarketService.AdminListingView> listings = marketService.listAllListings(status, limit);
+      String seller = query.get("seller");
+      String buyer = query.get("buyer");
+      String material = query.get("material");
+      String keyword = query.get("keyword");
+      String currency = query.get("currency");
+      List<MarketService.AdminListingView> listings = marketService.listAllListings(
+          status,
+          seller,
+          buyer,
+          material,
+          keyword,
+          currency,
+          limit);
       JsonArray rows = new JsonArray();
       for (MarketService.AdminListingView listing : listings) {
         JsonObject row = new JsonObject();
@@ -1431,6 +1487,7 @@ class EmbeddedWebServer {
         row.addProperty("currency", listing.currency().name());
         row.addProperty("price", listing.price());
         row.addProperty("quantity", listing.quantity());
+        row.addProperty("quantityTotal", listing.quantityTotal());
         row.addProperty("itemMaterial", listing.itemMaterial());
         row.addProperty("itemMetaJson", listing.itemMetaJson());
         if (listing.remark() == null) {

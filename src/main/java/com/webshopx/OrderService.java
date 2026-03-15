@@ -45,21 +45,33 @@ class OrderService {
     this.secureRandom = new SecureRandom();
   }
 
-  OrderPlacementResult placeOrder(long userId, long productId, int quantity, String idempotencyKey) {
-    if (quantity < 1 || quantity > 64) {
-      throw new ServiceException("invalid_quantity", "Quantity must be between 1 and 64");
-    }
-
+  OrderPlacementResult placeOrder(
+      long userId,
+      long productId,
+      int quantity,
+      String idempotencyKey,
+      String deliveryModeRaw) {
     ProductService.ProductView product = databaseManager.withConnection(
         connection -> productService.readActiveProduct(connection, productId, false));
+    int maxQuantity = resolveProductMaxQuantity(product);
+    if (quantity < 1 || quantity > maxQuantity) {
+      throw new ServiceException("invalid_quantity", "Quantity must be between 1 and " + maxQuantity);
+    }
     if (product.productType() == ProductService.ProductType.RECYCLE_ITEM) {
-      return runSync(() -> placeRecycleOrder(userId, product, quantity, idempotencyKey));
+      return runSync(() -> placeRecycleOrder(userId, product, quantity, maxQuantity, idempotencyKey));
     }
 
     int cooldownSeconds = normalizedOrderCooldownSeconds();
     String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
     return databaseManager.inTransaction(connection ->
-        placePurchaseOrderInTransaction(connection, userId, product, quantity, normalizedKey, cooldownSeconds));
+        placePurchaseOrderInTransaction(
+            connection,
+            userId,
+            product,
+            quantity,
+            normalizedKey,
+            cooldownSeconds,
+            deliveryModeRaw));
   }
 
   private OrderPlacementResult placePurchaseOrderInTransaction(
@@ -68,7 +80,8 @@ class OrderService {
       ProductService.ProductView product,
       int quantity,
       String idempotencyKey,
-      int cooldownSeconds) throws SQLException {
+      int cooldownSeconds,
+      String deliveryModeRaw) throws SQLException {
     ExistingOrder existingOrder = readExistingOrder(connection, userId, idempotencyKey);
     if (existingOrder != null) {
       int effectiveCooldown = existingOrder.refundDeadline() == null ? 0 : cooldownSeconds;
@@ -122,9 +135,17 @@ class OrderService {
       groupBuyVoucherCode = insertGroupBuyVoucher(connection, orderId, userId, product.id());
       groupBuyVoucherStatus = "ISSUED";
     } else {
-      String commandText = buildCommandText(product, quantity);
+      DeliveryTaskSpec taskSpec = buildDeliveryTaskSpec(product, quantity);
+      DeliveryMode deliveryMode = resolveDeliveryMode(deliveryModeRaw, product.productType());
       LocalDateTime deliveryAt = refundDeadline == null ? now : refundDeadline;
-      insertDelivery(connection, orderId, itemId, playerUuid, commandText, quantity, deliveryAt);
+      insertDelivery(
+          connection,
+          orderId,
+          itemId,
+          playerUuid,
+          taskSpec,
+          deliveryMode,
+          deliveryAt);
     }
 
     return new OrderPlacementResult(
@@ -144,6 +165,7 @@ class OrderService {
       long userId,
       ProductService.ProductView product,
       int quantity,
+      int maxQuantity,
       String idempotencyKey) {
     if (product.productType() != ProductService.ProductType.RECYCLE_ITEM) {
       throw new ServiceException("invalid_product_type", "Product type is not recyclable");
@@ -151,15 +173,12 @@ class OrderService {
     if (product.itemMaterial() == null) {
       throw new ServiceException("invalid_product", "Recycle material is missing");
     }
-    int packSize = product.itemAmount() == null ? 1 : product.itemAmount();
-    int requiredAmount;
-    try {
-      requiredAmount = Math.multiplyExact(packSize, quantity);
-    } catch (ArithmeticException exception) {
-      throw new ServiceException("invalid_quantity", "Recycle quantity overflow");
-    }
+    int requiredAmount = quantity;
     if (requiredAmount <= 0) {
       throw new ServiceException("invalid_quantity", "Recycle amount must be positive");
+    }
+    if (quantity > maxQuantity) {
+      throw new ServiceException("invalid_quantity", "Quantity must be between 1 and " + maxQuantity);
     }
 
     String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
@@ -240,18 +259,30 @@ class OrderService {
     });
   }
 
-  private String buildCommandText(ProductService.ProductView product, int quantity) {
+  private DeliveryTaskSpec buildDeliveryTaskSpec(ProductService.ProductView product, int quantity) {
     ProductService.ProductType productType = product.productType();
     if (productType == ProductService.ProductType.COMMAND) {
-      return product.commandTemplate();
+      return new DeliveryTaskSpec(
+          DeliveryKind.COMMAND,
+          product.commandTemplate(),
+          null,
+          quantity);
     }
     if (productType == ProductService.ProductType.GIVE_ITEM) {
       if (product.itemMaterial() == null) {
         throw new ServiceException("invalid_product", "Item material is missing");
       }
-      int amount = Math.max(1, product.itemAmount() == null ? 1 : product.itemAmount());
-      int totalAmount = amount * quantity;
-      return "give %player% " + product.itemMaterial().toLowerCase(Locale.ROOT) + " " + totalAmount;
+      int totalAmount = quantity;
+      String payloadJson = "{\"material\":\""
+          + product.itemMaterial()
+          + "\",\"amount\":"
+          + totalAmount
+          + "}";
+      return new DeliveryTaskSpec(
+          DeliveryKind.GIVE_ITEM,
+          "",
+          payloadJson,
+          totalAmount);
     }
     if (productType == ProductService.ProductType.POTION_EFFECT) {
       if (product.effectType() == null) {
@@ -260,15 +291,49 @@ class OrderService {
       int seconds = product.effectSeconds() == null ? 30 : product.effectSeconds();
       long totalSeconds = Math.min(86_400L, (long) seconds * (long) quantity);
       int amplifier = product.effectAmplifier() == null ? 0 : product.effectAmplifier();
-      return "effect give %player% "
+      String payloadJson = "{\"effect\":\""
           + product.effectType()
-          + " "
+          + "\",\"seconds\":"
           + totalSeconds
-          + " "
+          + ",\"amplifier\":"
           + amplifier
-          + " true";
+          + "}";
+      return new DeliveryTaskSpec(
+          DeliveryKind.POTION_EFFECT,
+          "",
+          payloadJson,
+          quantity);
     }
     throw new ServiceException("invalid_product_type", "Unsupported product type");
+  }
+
+  private int resolveProductMaxQuantity(ProductService.ProductView product) {
+    int fallback = 64;
+    Integer configured = product.itemAmount();
+    if (configured == null || configured <= 0) {
+      return fallback;
+    }
+    return Math.max(1, configured);
+  }
+
+  private DeliveryMode resolveDeliveryMode(String rawMode, ProductService.ProductType productType) {
+    DeliveryMode defaultMode = defaultDeliveryMode(productType);
+    if (rawMode == null || rawMode.isBlank()) {
+      return defaultMode;
+    }
+    String normalized = rawMode.trim().toUpperCase(Locale.ROOT);
+    return switch (normalized) {
+      case "IMMEDIATE" -> DeliveryMode.IMMEDIATE;
+      case "CLAIM", "MANUAL", "MANUAL_CLAIM" -> DeliveryMode.CLAIM;
+      default -> throw new ServiceException("invalid_delivery_mode", "Delivery mode is invalid");
+    };
+  }
+
+  private DeliveryMode defaultDeliveryMode(ProductService.ProductType productType) {
+    return switch (productType) {
+      case COMMAND, POTION_EFFECT -> DeliveryMode.CLAIM;
+      case GIVE_ITEM, RECYCLE_ITEM, GROUP_BUY_VOUCHER -> DeliveryMode.IMMEDIATE;
+    };
   }
 
   private ExistingOrder readExistingOrder(Connection connection, long userId, String idempotencyKey)
@@ -429,20 +494,28 @@ class OrderService {
       long orderId,
       long itemId,
       UUID playerUuid,
-      String commandText,
-      int quantity,
+      DeliveryTaskSpec taskSpec,
+      DeliveryMode deliveryMode,
       LocalDateTime nextRetryAt) throws SQLException {
+    String status = deliveryMode == DeliveryMode.CLAIM ? "WAIT_CLAIM" : "PENDING";
     String sql = """
-        INSERT INTO delivery_queue (order_id, item_id, mc_uuid, command_text, quantity, status, next_retry_at)
-        VALUES (?, ?, ?, ?, ?, 'PENDING', ?)
+        INSERT INTO delivery_queue (
+          order_id, item_id, mc_uuid, command_text, delivery_kind, payload_json,
+          manual_claim, quantity, status, next_retry_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, orderId);
       statement.setLong(2, itemId);
       statement.setString(3, playerUuid.toString());
-      statement.setString(4, commandText);
-      statement.setInt(5, quantity);
-      statement.setTimestamp(6, Timestamp.valueOf(nextRetryAt));
+      statement.setString(4, taskSpec.commandText());
+      statement.setString(5, taskSpec.kind().name());
+      statement.setString(6, taskSpec.payloadJson());
+      statement.setBoolean(7, deliveryMode == DeliveryMode.CLAIM);
+      statement.setInt(8, taskSpec.quantity());
+      statement.setString(9, status);
+      statement.setTimestamp(10, Timestamp.valueOf(nextRetryAt));
       statement.executeUpdate();
     }
   }
@@ -645,14 +718,15 @@ class OrderService {
       LocalDateTime cutoff) throws SQLException {
     String cutoffSql = cutoff == null ? "" : " AND mt.created_at < ?";
     String sql = """
-        SELECT mt.id AS trade_id, mt.listing_id, mt.currency, mt.total_price, mt.buyer_total,
+        SELECT mt.id AS trade_id, mt.listing_id, mt.currency, mt.unit_price, mt.quantity AS trade_quantity,
+               mt.total_price, mt.buyer_total,
                mt.status AS trade_status, mt.refund_deadline, mt.refunded_at, mt.created_at,
-               ml.item_material, ml.remark, ml.quantity, ml.buyer_uuid,
+               ml.item_material, ml.remark, ml.buyer_uuid,
                md.status AS delivery_status, md.delivered_at
         FROM market_trades mt
         JOIN market_listings ml ON ml.id = mt.listing_id
         LEFT JOIN market_item_deliveries md
-          ON md.listing_id = ml.id AND md.delivery_type = 'SALE'
+          ON md.trade_id = mt.id AND md.delivery_type = 'SALE'
         WHERE mt.buyer_user_id = ?
         """ + cutoffSql + """
         ORDER BY mt.created_at DESC
@@ -710,10 +784,20 @@ class OrderService {
       Long cursor,
       String status,
       Long userId,
-      String orderNo) {
+      String orderNo,
+      String usernameKeyword,
+      String keyword,
+      String currencyFilter,
+      String productTypeFilter) {
     int pageSize = Math.min(Math.max(1, limit), 300);
     String normalizedStatus = status == null ? null : status.trim().toUpperCase(Locale.ROOT);
     String normalizedOrderNo = orderNo == null ? null : orderNo.trim();
+    String normalizedUsername = usernameKeyword == null ? null : usernameKeyword.trim().toLowerCase(Locale.ROOT);
+    String normalizedKeyword = keyword == null ? null : keyword.trim().toLowerCase(Locale.ROOT);
+    String normalizedCurrency = currencyFilter == null ? null : currencyFilter.trim().toUpperCase(Locale.ROOT);
+    String normalizedProductType = productTypeFilter == null
+        ? null
+        : productTypeFilter.trim().toUpperCase(Locale.ROOT);
     return databaseManager.withConnection(connection -> {
       List<String> clauses = new ArrayList<>();
       clauses.add("1=1");
@@ -725,6 +809,18 @@ class OrderService {
       }
       if (normalizedOrderNo != null && !normalizedOrderNo.isBlank()) {
         clauses.add("o.order_no = ?");
+      }
+      if (normalizedUsername != null && !normalizedUsername.isBlank()) {
+        clauses.add("LOWER(u.username) LIKE ?");
+      }
+      if (normalizedKeyword != null && !normalizedKeyword.isBlank()) {
+        clauses.add("(LOWER(o.order_no) LIKE ? OR LOWER(p.sku) LIKE ? OR LOWER(p.title) LIKE ?)");
+      }
+      if (normalizedCurrency != null && !normalizedCurrency.isBlank()) {
+        clauses.add("o.currency = ?");
+      }
+      if (normalizedProductType != null && !normalizedProductType.isBlank()) {
+        clauses.add("p.product_type = ?");
       }
       if (cursor != null) {
         clauses.add("o.id < ?");
@@ -745,10 +841,10 @@ class OrderService {
           JOIN order_items oi ON oi.order_id = o.id
           JOIN products p ON p.id = oi.product_id
           LEFT JOIN group_buy_vouchers gv ON gv.order_id = o.id
-          WHERE """ + String.join(" AND ", clauses) + """
-          ORDER BY o.id DESC
-          LIMIT ?
-          """;
+          """
+          + " WHERE " + String.join(" AND ", clauses)
+          + " ORDER BY o.id DESC"
+          + " LIMIT ?";
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         int index = 1;
         if (normalizedStatus != null && !normalizedStatus.isBlank()) {
@@ -759,6 +855,21 @@ class OrderService {
         }
         if (normalizedOrderNo != null && !normalizedOrderNo.isBlank()) {
           statement.setString(index++, normalizedOrderNo);
+        }
+        if (normalizedUsername != null && !normalizedUsername.isBlank()) {
+          statement.setString(index++, "%" + normalizedUsername + "%");
+        }
+        if (normalizedKeyword != null && !normalizedKeyword.isBlank()) {
+          String fuzzy = "%" + normalizedKeyword + "%";
+          statement.setString(index++, fuzzy);
+          statement.setString(index++, fuzzy);
+          statement.setString(index++, fuzzy);
+        }
+        if (normalizedCurrency != null && !normalizedCurrency.isBlank()) {
+          statement.setString(index++, normalizedCurrency);
+        }
+        if (normalizedProductType != null && !normalizedProductType.isBlank()) {
+          statement.setString(index++, normalizedProductType);
         }
         if (cursor != null) {
           statement.setLong(index++, cursor);
@@ -874,7 +985,8 @@ class OrderService {
       String cancelDeliverySql = """
           UPDATE delivery_queue
           SET status = 'CANCELLED', last_error = 'Refunded'
-          WHERE order_id = ? AND status = 'PENDING'
+          WHERE order_id = ?
+            AND status IN ('PENDING', 'WAIT_CLAIM')
           """;
       try (PreparedStatement statement = connection.prepareStatement(cancelDeliverySql)) {
         statement.setLong(1, row.id());
@@ -975,28 +1087,30 @@ class OrderService {
       String cancelDeliverySql = """
           UPDATE market_item_deliveries
           SET status = 'CANCELLED', last_error = 'Refunded'
-          WHERE listing_id = ?
+          WHERE trade_id = ?
             AND delivery_type = 'SALE'
-            AND status = 'PENDING'
+            AND status IN ('PENDING', 'WAIT_CLAIM')
           """;
       try (PreparedStatement statement = connection.prepareStatement(cancelDeliverySql)) {
-        statement.setLong(1, row.listingId());
+        statement.setLong(1, row.tradeId());
         statement.executeUpdate();
       }
 
       String restoreListingSql = """
           UPDATE market_listings
-          SET status = 'ACTIVE',
+          SET quantity = quantity + ?,
+              quantity_total = GREATEST(quantity_total, quantity + ?),
+              status = 'ACTIVE',
               buyer_user_id = NULL,
               buyer_uuid = NULL,
               sold_at = NULL
           WHERE id = ?
-            AND buyer_user_id = ?
-            AND status = 'SOLD'
+            AND status <> 'UNLISTED'
           """;
       try (PreparedStatement statement = connection.prepareStatement(restoreListingSql)) {
-        statement.setLong(1, row.listingId());
-        statement.setLong(2, userId);
+        statement.setInt(1, row.quantity());
+        statement.setInt(2, row.quantity());
+        statement.setLong(3, row.listingId());
         statement.executeUpdate();
       }
 
@@ -1057,7 +1171,7 @@ class OrderService {
   private MarketOrderRow readMarketTradeForRefund(Connection connection, long userId, long tradeId)
       throws SQLException {
     String sql = """
-        SELECT id, listing_id, currency, total_price, buyer_total, status, refund_deadline
+        SELECT id, listing_id, currency, unit_price, quantity, total_price, buyer_total, status, refund_deadline
         FROM market_trades
         WHERE id = ? AND buyer_user_id = ?
         FOR UPDATE
@@ -1074,6 +1188,8 @@ class OrderService {
             resultSet.getLong("id"),
             resultSet.getLong("listing_id"),
             resultSet.getString("currency"),
+            resultSet.getLong("unit_price"),
+            resultSet.getInt("quantity"),
             resultSet.getLong("total_price"),
             resultSet.getLong("buyer_total"),
             resultSet.getString("status"),
@@ -1119,6 +1235,8 @@ class OrderService {
     long tradeId = resultSet.getLong("trade_id");
     long listingId = resultSet.getLong("listing_id");
     String currencyRaw = resultSet.getString("currency");
+    long unitPrice = resultSet.getLong("unit_price");
+    int tradeQuantity = resultSet.getInt("trade_quantity");
     long totalPrice = resultSet.getLong("total_price");
     long buyerTotal = resultSet.getLong("buyer_total");
     String itemMaterial = resultSet.getString("item_material");
@@ -1165,8 +1283,8 @@ class OrderService {
         null,
         null,
         null,
-        resultSet.getInt("quantity"),
-        totalPrice,
+        tradeQuantity,
+        unitPrice > 0 ? unitPrice : totalPrice,
         null,
         null,
         null);
@@ -1196,6 +1314,8 @@ class OrderService {
       long tradeId,
       long listingId,
       String currency,
+      long unitPrice,
+      int quantity,
       long totalPrice,
       long buyerTotal,
       String status,
@@ -1205,6 +1325,24 @@ class OrderService {
   enum PlacementState {
     CREATED,
     EXISTING
+  }
+
+  enum DeliveryKind {
+    COMMAND,
+    GIVE_ITEM,
+    POTION_EFFECT
+  }
+
+  enum DeliveryMode {
+    IMMEDIATE,
+    CLAIM
+  }
+
+  private record DeliveryTaskSpec(
+      DeliveryKind kind,
+      String commandText,
+      String payloadJson,
+      int quantity) {
   }
 
   record OrderPlacementResult(

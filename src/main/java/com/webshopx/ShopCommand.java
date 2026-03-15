@@ -15,16 +15,19 @@ class ShopCommand implements CommandExecutor, TabCompleter {
   private final BindingService bindingService;
   private final RedeemCodeService redeemCodeService;
   private final MarketService marketService;
+  private final DeliveryService deliveryService;
 
   ShopCommand(
       WebShopPlugin plugin,
       BindingService bindingService,
       RedeemCodeService redeemCodeService,
-      MarketService marketService) {
+      MarketService marketService,
+      DeliveryService deliveryService) {
     this.plugin = plugin;
     this.bindingService = bindingService;
     this.redeemCodeService = redeemCodeService;
     this.marketService = marketService;
+    this.deliveryService = deliveryService;
   }
 
   @Override
@@ -42,10 +45,11 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       }
       case "bind" -> handleBind(sender, args);
       case "market" -> handleMarket(sender, args);
+      case "claim" -> handleClaim(sender, args);
       case "reload" -> handleReload(sender);
       case "redeem" -> handleRedeem(sender, args);
       default -> {
-        sender.sendMessage("§c未知子命令。使用 /webshopx help 查看帮助。");
+        sender.sendMessage("§c未知子命令，请使用 /webshopx help。");
         yield true;
       }
     };
@@ -62,6 +66,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       options.add("help");
       options.add("bind");
       options.add("market");
+      options.add("claim");
       if (sender.hasPermission("webshop.admin")) {
         options.add("reload");
         options.add("redeem");
@@ -83,6 +88,13 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       return List.of();
     }
 
+    if (top.equals("claim")) {
+      if (args.length == 2) {
+        return filterByPrefix(List.of("all", "ODR-", "MKT-"), args[1]);
+      }
+      return List.of();
+    }
+
     if (top.equals("redeem") && sender.hasPermission("webshop.admin")) {
       if (args.length == 2) {
         return filterByPrefix(List.of("create"), args[1]);
@@ -95,11 +107,11 @@ class ShopCommand implements CommandExecutor, TabCompleter {
 
   private boolean handleBind(CommandSender sender, String[] args) {
     if (!(sender instanceof Player player)) {
-      sender.sendMessage("§c只有玩家可以执行绑定命令，请在游戏内使用 /webshopx bind <code>。");
+      sender.sendMessage("§c该命令仅可在游戏内执行：/webshopx bind <code>");
       return true;
     }
     if (args.length < 2) {
-      player.sendMessage("§c用法: /webshopx bind <code>");
+      player.sendMessage("§e用法：/webshopx bind <code>");
       return true;
     }
 
@@ -107,31 +119,56 @@ class ShopCommand implements CommandExecutor, TabCompleter {
         player.getUniqueId(),
         player.getName(),
         args[1]);
+
     switch (result.status()) {
-      case SUCCESS -> player.sendMessage("§a绑定成功，账号: " + result.username());
-      case INVALID_CODE -> player.sendMessage("§c绑定码不存在或格式错误。");
-      case INVALID_USERNAME -> player.sendMessage("§c当前玩家名不合法，请联系管理员。");
-      case EXPIRED -> player.sendMessage("§c绑定码已过期，请在网页重新生成。");
-      case ALREADY_USED -> player.sendMessage("§c该绑定码已被使用。");
-      case USER_ALREADY_BOUND -> player.sendMessage("§c该网页账号已经绑定过游戏角色。");
-      case PLAYER_ALREADY_BOUND -> player.sendMessage("§c你的角色已绑定其他网页账号。");
-      case USERNAME_ALREADY_USED -> player.sendMessage("§c该 MC 名称已被其他账号使用。");
+      case SUCCESS -> player.sendMessage("§a绑定成功，网页账号：§f" + result.username());
+      case INVALID_CODE -> player.sendMessage("§c绑定码无效。");
+      case INVALID_USERNAME -> player.sendMessage("§c当前角色名不合法。");
+      case EXPIRED -> player.sendMessage("§c绑定码已过期。");
+      case ALREADY_USED -> player.sendMessage("§c绑定码已被使用。");
+      case USER_ALREADY_BOUND -> player.sendMessage("§c该网页账号已绑定其他角色。");
+      case PLAYER_ALREADY_BOUND -> player.sendMessage("§c该角色已绑定其他网页账号。");
+      case USERNAME_ALREADY_USED -> player.sendMessage("§c该 Minecraft 名称已被占用。");
       default -> player.sendMessage("§c绑定失败，请稍后重试。");
+    }
+    return true;
+  }
+
+  private boolean handleClaim(CommandSender sender, String[] args) {
+    if (!(sender instanceof Player player)) {
+      sender.sendMessage("§c仅玩家可领取待发货物品。");
+      return true;
+    }
+
+    String token = args.length >= 2 ? args[1] : null;
+    try {
+      DeliveryService.ClaimSummary summary = deliveryService.claimPending(player, token);
+      if (summary.success() == 0 && summary.failed() == 0) {
+        player.sendMessage("§e当前没有可领取内容。");
+      } else if (summary.failed() > 0) {
+        player.sendMessage(
+            "§6领取完成：成功 §a" + summary.success() + " §6条，失败 §c" + summary.failed()
+                + " §6条。可再次使用 /ws claim。");
+      } else {
+        player.sendMessage("§a领取完成：成功 " + summary.success() + " 条。");
+      }
+    } catch (ServiceException exception) {
+      player.sendMessage("§c领取失败：" + exception.getMessage());
     }
     return true;
   }
 
   private boolean handleMarket(CommandSender sender, String[] args) {
     if (!(sender instanceof Player player)) {
-      sender.sendMessage("§c只有玩家可以使用市场命令。");
+      sender.sendMessage("§c仅玩家可使用市场命令。");
       return true;
     }
     if (args.length < 2 || !args[1].equalsIgnoreCase("sell")) {
-      player.sendMessage("§c用法: /webshopx market sell <price> [amount] [currency]");
+      player.sendMessage("§e用法：/webshopx market sell <price> [amount] [currency]");
       return true;
     }
     if (args.length < 3) {
-      player.sendMessage("§c用法: /webshopx market sell <price> [amount] [currency]");
+      player.sendMessage("§e用法：/webshopx market sell <price> [amount] [currency]");
       return true;
     }
 
@@ -147,30 +184,30 @@ class ShopCommand implements CommandExecutor, TabCompleter {
           amount,
           currency);
       player.sendMessage(
-          "§a上架成功，ID: §e" + result.listingId()
-              + " §7| 物品: §f" + result.material()
+          "§a上架成功：§f#" + result.listingId()
+              + " §7| 物品 §f" + result.material()
               + " x" + result.quantity()
-              + " §7| 价格: §f" + result.price() + " " + result.currency().name());
+              + " §7| 单价 §f" + result.price() + " " + result.currency().name());
       return true;
     } catch (NumberFormatException exception) {
-      player.sendMessage("§c价格和数量必须是有效数字。");
+      player.sendMessage("§c价格与数量必须为数字。");
       return true;
     } catch (ServiceException exception) {
-      player.sendMessage("§c上架失败: " + exception.getMessage());
+      player.sendMessage("§c上架失败：" + exception.getMessage());
       return true;
     }
   }
 
   private boolean handleReload(CommandSender sender) {
     if (!sender.hasPermission("webshop.admin")) {
-      sender.sendMessage("§c你没有权限执行该命令。");
+      sender.sendMessage("§c你没有权限。");
       return true;
     }
     try {
       plugin.reloadRuntimeConfig();
       sender.sendMessage("§aWebShopX 配置已重载。");
     } catch (Exception exception) {
-      sender.sendMessage("§c配置重载失败，详见控制台日志。");
+      sender.sendMessage("§c重载失败，请查看服务端日志。");
       plugin.getLogger().log(java.util.logging.Level.SEVERE, "Reload failed", exception);
     }
     return true;
@@ -178,18 +215,18 @@ class ShopCommand implements CommandExecutor, TabCompleter {
 
   private boolean handleRedeem(CommandSender sender, String[] args) {
     if (!sender.hasPermission("webshop.admin")) {
-      sender.sendMessage("§c你没有权限执行该命令。");
+      sender.sendMessage("§c你没有权限。");
       return true;
     }
     if (args.length < 2 || !args[1].equalsIgnoreCase("create")) {
       sender.sendMessage(
-          "§c用法: /webshopx redeem create <shopCoin> <gameCoin>"
+          "§e用法：/webshopx redeem create <shopCoin> <gameCoin>"
               + " [maxUses] [perUserMaxUses] [minutes] [code]");
       return true;
     }
     if (args.length < 4) {
       sender.sendMessage(
-          "§c用法: /webshopx redeem create <shopCoin> <gameCoin>"
+          "§e用法：/webshopx redeem create <shopCoin> <gameCoin>"
               + " [maxUses] [perUserMaxUses] [minutes] [code]");
       return true;
     }
@@ -208,13 +245,13 @@ class ShopCommand implements CommandExecutor, TabCompleter {
           perUserMaxUses,
           minutes,
           customCode);
-      sender.sendMessage("§a兑换码已创建: §e" + code);
+      sender.sendMessage("§a兑换码已创建：§f" + code);
       return true;
     } catch (NumberFormatException exception) {
-      sender.sendMessage("§c参数必须是有效数字。");
+      sender.sendMessage("§c参数必须为有效数字。");
       return true;
     } catch (ServiceException exception) {
-      sender.sendMessage("§c创建失败: " + exception.getMessage());
+      sender.sendMessage("§c创建失败：" + exception.getMessage());
       return true;
     }
   }
@@ -223,11 +260,11 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     sender.sendMessage("§e/webshopx help §7- 查看帮助");
     sender.sendMessage("§e/webshopx bind <code> §7- 绑定网页账号");
     sender.sendMessage("§e/webshopx market sell <price> [amount] [currency] §7- 上架手持物品");
+    sender.sendMessage("§e/webshopx claim [all|ODR-...|MKT-...] §7- 领取待发货内容");
     if (sender.hasPermission("webshop.admin")) {
-      sender.sendMessage("§e/webshopx reload §7- 重载配置并重启内置 Web");
+      sender.sendMessage("§e/webshopx reload §7- 重载配置与内置网页");
       sender.sendMessage(
-          "§e/webshopx redeem create <shop> <game> [max] [perUserMax] [minutes] [code]"
-              + " §7- 创建兑换码");
+          "§e/webshopx redeem create <shop> <game> [max] [perUserMax] [minutes] [code] §7- 创建兑换码");
     }
   }
 

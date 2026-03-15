@@ -16,7 +16,9 @@ class PlayerJoinListener implements Listener {
 
   @EventHandler
   public void onPlayerJoin(PlayerJoinEvent event) {
-    plugin.getServer().getScheduler().runTaskLater(plugin, () ->
-        deliveryService.processDueDeliveries(event.getPlayer().getUniqueId()), 40L);
+    plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+      deliveryService.processDueDeliveries(event.getPlayer().getUniqueId());
+      deliveryService.notifyClaimHint(event.getPlayer());
+    }, 40L);
   }
 }

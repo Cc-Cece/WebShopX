@@ -18,6 +18,7 @@ record PluginSettings(
     int marketMaxActiveListings,
     CurrencyDisplaySettings currencyDisplaySettings,
     MaintenanceSettings maintenanceSettings,
+    LoggingSettings loggingSettings,
     AdminBootstrapSettings adminBootstrapSettings,
     EmbeddedWebSettings embeddedWebSettings,
     DatabaseSettings databaseSettings,
@@ -82,6 +83,14 @@ record PluginSettings(
         config.getInt("webshop.maintenance.bind-request-retention-hours", 24),
         config.getInt("webshop.maintenance.redeem-code-retention-days", 7));
 
+    LoggingSettings loggingSettings = new LoggingSettings(
+        config.getBoolean("webshop.logging.enabled", true),
+        LogLevel.fromRaw(config.getString("webshop.logging.level", "INFO")),
+        config.getString("webshop.logging.directory", "logs"),
+        config.getInt("webshop.logging.max-file-size-mb", 8),
+        config.getInt("webshop.logging.max-files", 8),
+        config.getInt("webshop.logging.retention-days", 14));
+
     return new PluginSettings(
         mode,
         config.getInt("webshop.session-expire-hours", 72),
@@ -93,6 +102,7 @@ record PluginSettings(
         config.getInt("webshop.market.max-active-listings", 10),
         currencyDisplaySettings,
         maintenanceSettings,
+        loggingSettings,
         adminBootstrapSettings,
         webSettings,
         databaseSettings,
@@ -223,6 +233,34 @@ record PluginSettings(
       int pendingPasswordRetentionHours,
       int bindRequestRetentionHours,
       int redeemCodeRetentionDays) {
+  }
+
+  record LoggingSettings(
+      boolean enabled,
+      LogLevel level,
+      String directory,
+      int maxFileSizeMb,
+      int maxFiles,
+      int retentionDays) {
+  }
+
+  enum LogLevel {
+    ERROR,
+    WARN,
+    INFO,
+    DEBUG,
+    TRACE;
+
+    static LogLevel fromRaw(String raw) {
+      if (raw == null || raw.isBlank()) {
+        return INFO;
+      }
+      try {
+        return LogLevel.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+      } catch (IllegalArgumentException exception) {
+        return INFO;
+      }
+    }
   }
 
   record EconomySettings(MarketEconomySettings marketSettings, InflationSettings inflationSettings) {

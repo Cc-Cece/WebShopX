@@ -15,14 +15,17 @@ class MaintenanceService {
   private final JavaPlugin plugin;
   private final DatabaseManager databaseManager;
   private final Supplier<PluginSettings> settingsSupplier;
+  private final PluginLogService pluginLogService;
 
   MaintenanceService(
       JavaPlugin plugin,
       DatabaseManager databaseManager,
-      Supplier<PluginSettings> settingsSupplier) {
+      Supplier<PluginSettings> settingsSupplier,
+      PluginLogService pluginLogService) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.settingsSupplier = settingsSupplier;
+    this.pluginLogService = pluginLogService;
   }
 
   void runCleanup() {
@@ -54,6 +57,9 @@ class MaintenanceService {
               result.pendingBindUsers,
               result.pendingPasswordUsers,
               result.redeemCodes));
+    }
+    if (pluginLogService != null) {
+      pluginLogService.cleanupOldLogs(settingsSupplier.get().loggingSettings());
     }
   }
 

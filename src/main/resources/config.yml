@@ -42,6 +42,20 @@ webshop:
     # 已失效兑换码保留时长（天）
     redeem-code-retention-days: 7
 
+  logging:
+    # 是否启用插件文件日志
+    enabled: true
+    # 日志级别：ERROR | WARN | INFO | DEBUG | TRACE
+    level: INFO
+    # 日志目录（相对于插件数据目录）
+    directory: logs
+    # 单个日志文件最大体积（MB）
+    max-file-size-mb: 8
+    # 最多保留的滚动文件数
+    max-files: 8
+    # 超过该天数的日志文件将被维护任务清理（<=0 表示不清理）
+    retention-days: 14
+
   admin-bootstrap:
     # 首次启动自动创建管理员
     enabled: true

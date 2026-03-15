@@ -346,9 +346,15 @@ class ProductService {
     if (itemMaterial == null || itemMaterial.isBlank()) {
       throw new ServiceException("invalid_product", "Item material is required");
     }
-    String normalized = itemMaterial.trim().toUpperCase(Locale.ROOT);
-    String withNamespace = normalized.startsWith("MINECRAFT:") ? normalized : "MINECRAFT:" + normalized;
-    Material material = Material.matchMaterial(withNamespace);
+    String normalized = itemMaterial.trim();
+    String key = normalized.toUpperCase(Locale.ROOT).replace("MINECRAFT:", "");
+    Material material = Material.matchMaterial(key);
+    if (material == null) {
+      material = Material.matchMaterial(aliasMaterialKey(key));
+    }
+    if (material == null) {
+      material = Material.matchMaterial(normalized.toLowerCase(Locale.ROOT));
+    }
     if (material == null || material == Material.AIR) {
       throw new ServiceException("invalid_product", "Item material is invalid");
     }
@@ -356,14 +362,24 @@ class ProductService {
   }
 
   private Integer normalizeItemAmount(Integer itemAmount, ProductType productType) {
-    if (productType != ProductType.GIVE_ITEM && productType != ProductType.RECYCLE_ITEM) {
+    if (itemAmount == null) {
       return null;
     }
-    int normalized = itemAmount == null ? 1 : itemAmount;
-    if (normalized <= 0 || normalized > 2304) {
-      throw new ServiceException("invalid_product", "Item amount must be between 1 and 2304");
+    int normalized = itemAmount;
+    if (normalized <= 0 || normalized > 100_000) {
+      throw new ServiceException("invalid_product", "Max quantity must be between 1 and 100000");
     }
     return normalized;
+  }
+
+  private String aliasMaterialKey(String key) {
+    if (key == null || key.isBlank()) {
+      return key;
+    }
+    if (key.startsWith("BLOCK_OF_") && key.length() > "BLOCK_OF_".length()) {
+      return key.substring("BLOCK_OF_".length()) + "_BLOCK";
+    }
+    return key;
   }
 
   private String normalizeEffectType(String effectType, ProductType productType) {

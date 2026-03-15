@@ -177,11 +177,11 @@
           </label>
           <label class="field">
             <span>物品材质（出售/回收）</span>
-            <input id="productItemMaterial" placeholder="例如 DIAMOND" />
+            <input id="productItemMaterial" list="materialSuggestList" placeholder="例如 DIAMOND / 钻石" />
           </label>
           <label class="field">
-            <span>物品数量（出售/回收）</span>
-            <input id="productItemAmount" type="number" min="1" step="1" value="1" />
+            <span>最大购买数量（上限/库存）</span>
+            <input id="productItemAmount" type="number" min="1" step="1" value="64" />
           </label>
           <label class="field">
             <span>药水效果（POTION）</span>
@@ -204,6 +204,31 @@
           <button id="productSaveBtn" type="button">保存商品</button>
         </div>
         <p class="meta" id="productStatus">等待操作</p>
+        <div class="field-grid three-col">
+          <label class="field">
+            <span>商品检索</span>
+            <input id="productSearchKeyword" placeholder="标题 / SKU / 材质 / 备注" />
+          </label>
+          <label class="field">
+            <span>类型筛选</span>
+            <select id="productSearchType">
+              <option value="">全部</option>
+              <option value="COMMAND">指令</option>
+              <option value="GIVE_ITEM">出售物品</option>
+              <option value="POTION_EFFECT">药水效果</option>
+              <option value="RECYCLE_ITEM">回收物品</option>
+              <option value="GROUP_BUY_VOUCHER">团购券</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>启用筛选</span>
+            <select id="productSearchActive">
+              <option value="">全部</option>
+              <option value="true">启用</option>
+              <option value="false">停用</option>
+            </select>
+          </label>
+        </div>
         <div class="md-tip md-tip-info">
           <strong>团购券核销入口</strong>
           <p>玩家购买“团购券（线下核销）”后会获得兑换码。管理员可在此输入兑换码进行核销，核销后兑换码失效。</p>
@@ -237,6 +262,7 @@
             <select id="orderStatus">
               <option value="">全部</option>
               <option value="PENDING">待发放</option>
+              <option value="WAIT_CLAIM">待领取</option>
               <option value="DELIVERED">已发放</option>
               <option value="REFUNDED">已退款</option>
               <option value="FAILED">失败</option>
@@ -250,6 +276,34 @@
           <label class="field">
             <span>订单号</span>
             <input id="orderNo" placeholder="ODR-..." />
+          </label>
+          <label class="field">
+            <span>用户名</span>
+            <input id="orderUsername" placeholder="用户昵称（模糊）" />
+          </label>
+          <label class="field">
+            <span>币种</span>
+            <select id="orderCurrency">
+              <option value="">全部</option>
+              <option value="SHOP_COIN">ShopCoin</option>
+              <option value="GAME_COIN">GameCoin</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>商品类型</span>
+            <select id="orderProductType">
+              <option value="">全部</option>
+              <option value="COMMAND">指令</option>
+              <option value="GIVE_ITEM">出售物品</option>
+              <option value="POTION_EFFECT">药水效果</option>
+              <option value="RECYCLE_ITEM">回收物品</option>
+              <option value="GROUP_BUY_VOUCHER">团购券</option>
+              <option value="MARKET">玩家市场</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>综合关键词</span>
+            <input id="orderKeyword" placeholder="订单号 / SKU / 标题" />
           </label>
         </div>
         <p class="meta" id="orderStatusView">等待刷新</p>
@@ -337,6 +391,30 @@
               <option value="SOLD">已售</option>
               <option value="UNLISTED">已下架</option>
             </select>
+          </label>
+          <label class="field">
+            <span>卖家</span>
+            <input id="marketSeller" placeholder="卖家昵称（模糊）" />
+          </label>
+          <label class="field">
+            <span>买家</span>
+            <input id="marketBuyer" placeholder="买家昵称（模糊）" />
+          </label>
+          <label class="field">
+            <span>材质</span>
+            <input id="marketMaterial" list="materialSuggestList" placeholder="材质英文或中文名" />
+          </label>
+          <label class="field">
+            <span>币种</span>
+            <select id="marketCurrency">
+              <option value="">全部</option>
+              <option value="SHOP_COIN">ShopCoin</option>
+              <option value="GAME_COIN">GameCoin</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>综合关键词</span>
+            <input id="marketKeyword" placeholder="ID / 材质 / 备注 / 用户名" />
           </label>
         </div>
         <p class="meta" id="marketStatusView">等待加载</p>
@@ -426,6 +504,7 @@
   </main>
 
   <div id="snackbarHost" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
+  <datalist id="materialSuggestList"></datalist>
 
   <script src="admin.js"></script>
 </body>

@@ -29,11 +29,13 @@ class SchemaManager {
     migrateOrders(connection);
     createOrderItems(connection);
     createDeliveryQueue(connection);
+    migrateDeliveryQueue(connection);
     createMarketListings(connection);
     migrateMarketListings(connection);
     createMarketTrades(connection);
     migrateMarketTrades(connection);
     createMarketItemDeliveries(connection);
+    migrateMarketItemDeliveries(connection);
     createGroupBuyVouchers(connection);
     return null;
   }
@@ -396,16 +398,21 @@ class SchemaManager {
           item_id BIGINT NOT NULL,
           mc_uuid CHAR(36) NOT NULL,
           command_text TEXT NOT NULL,
+          delivery_kind VARCHAR(24) NOT NULL DEFAULT 'COMMAND',
+          payload_json JSON NULL,
+          manual_claim BOOLEAN NOT NULL DEFAULT FALSE,
           quantity INT NOT NULL,
           status VARCHAR(24) NOT NULL DEFAULT 'PENDING',
           retry_count INT NOT NULL DEFAULT 0,
           last_error VARCHAR(255) NULL,
           next_retry_at DATETIME NOT NULL,
           delivered_at DATETIME NULL,
+          claimed_at DATETIME NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
           UNIQUE KEY uniq_delivery_order_item (order_id, item_id),
           KEY idx_delivery_due (status, next_retry_at),
+          KEY idx_delivery_claim (mc_uuid, status, created_at),
           CONSTRAINT fk_delivery_order_id
             FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
           CONSTRAINT fk_delivery_item_id
@@ -413,6 +420,39 @@ class SchemaManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
+  }
+
+  private void migrateDeliveryQueue(Connection connection) throws SQLException {
+    if (!columnExists(connection, "delivery_queue", "delivery_kind")) {
+      execute(
+          connection,
+          "ALTER TABLE delivery_queue "
+              + "ADD COLUMN delivery_kind VARCHAR(24) NOT NULL DEFAULT 'COMMAND' AFTER command_text");
+    }
+    if (!columnExists(connection, "delivery_queue", "payload_json")) {
+      execute(
+          connection,
+          "ALTER TABLE delivery_queue "
+              + "ADD COLUMN payload_json JSON NULL AFTER delivery_kind");
+    }
+    if (!columnExists(connection, "delivery_queue", "manual_claim")) {
+      execute(
+          connection,
+          "ALTER TABLE delivery_queue "
+              + "ADD COLUMN manual_claim BOOLEAN NOT NULL DEFAULT FALSE AFTER payload_json");
+    }
+    if (!columnExists(connection, "delivery_queue", "claimed_at")) {
+      execute(
+          connection,
+          "ALTER TABLE delivery_queue "
+              + "ADD COLUMN claimed_at DATETIME NULL AFTER delivered_at");
+    }
+    if (!indexExists(connection, "delivery_queue", "idx_delivery_claim")) {
+      execute(
+          connection,
+          "ALTER TABLE delivery_queue "
+              + "ADD INDEX idx_delivery_claim (mc_uuid, status, created_at)");
+    }
   }
 
   private void createMarketListings(Connection connection) throws SQLException {
@@ -426,6 +466,7 @@ class SchemaManager {
           currency VARCHAR(16) NOT NULL,
           price BIGINT NOT NULL,
           quantity INT NOT NULL,
+          quantity_total INT NOT NULL DEFAULT 0,
           item_material VARCHAR(64) NOT NULL,
           raw_item_blob LONGBLOB NOT NULL,
           item_meta_json JSON NOT NULL,
@@ -454,6 +495,19 @@ class SchemaManager {
           "ALTER TABLE market_listings "
               + "ADD COLUMN remark TEXT NULL AFTER item_meta_json");
     }
+    if (!columnExists(connection, "market_listings", "quantity_total")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN quantity_total INT NOT NULL DEFAULT 0 AFTER quantity");
+    }
+    execute(
+        connection,
+        "UPDATE market_listings SET quantity_total = quantity "
+            + "WHERE quantity_total IS NULL OR quantity_total <= 0");
+    execute(
+        connection,
+        "UPDATE market_listings SET quantity = 0 WHERE quantity < 0");
   }
 
   private void createMarketTrades(Connection connection) throws SQLException {
@@ -464,6 +518,8 @@ class SchemaManager {
           buyer_user_id BIGINT NOT NULL,
           seller_user_id BIGINT NOT NULL,
           currency VARCHAR(16) NOT NULL,
+          unit_price BIGINT NOT NULL DEFAULT 0,
+          quantity INT NOT NULL DEFAULT 1,
           total_price BIGINT NOT NULL,
           buyer_total BIGINT NOT NULL DEFAULT 0,
           seller_receive BIGINT NOT NULL DEFAULT 0,
@@ -476,8 +532,8 @@ class SchemaManager {
           settled_at DATETIME NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
-          UNIQUE KEY uniq_market_trade_listing (listing_id),
           UNIQUE KEY uniq_market_trade_idempotency (buyer_user_id, idempotency_key),
+          KEY idx_market_trade_listing_time (listing_id, created_at),
           KEY idx_market_trade_buyer (buyer_user_id, created_at),
           CONSTRAINT fk_market_trade_listing
             FOREIGN KEY (listing_id) REFERENCES market_listings(id) ON DELETE CASCADE,
@@ -491,6 +547,15 @@ class SchemaManager {
   }
 
   private void migrateMarketTrades(Connection connection) throws SQLException {
+    if (!columnExists(connection, "market_trades", "unit_price")) {
+      execute(connection, "ALTER TABLE market_trades "
+          + "ADD COLUMN unit_price BIGINT NOT NULL DEFAULT 0 AFTER currency");
+    }
+    if (!columnExists(connection, "market_trades", "quantity")) {
+      execute(connection, "ALTER TABLE market_trades "
+          + "ADD COLUMN quantity INT NOT NULL DEFAULT 1 AFTER unit_price");
+    }
+
     boolean buyerTotalExists = columnExists(connection, "market_trades", "buyer_total");
     if (!buyerTotalExists) {
       execute(connection, "ALTER TABLE market_trades "
@@ -531,6 +596,16 @@ class SchemaManager {
       execute(connection, "UPDATE market_trades SET tax_amount = 0 WHERE tax_amount IS NULL");
     }
 
+    execute(
+        connection,
+        "UPDATE market_trades SET quantity = 1 WHERE quantity IS NULL OR quantity <= 0");
+    execute(
+        connection,
+        "UPDATE market_trades SET unit_price = CASE "
+            + "WHEN quantity > 0 THEN FLOOR(total_price / quantity) "
+            + "ELSE total_price END "
+            + "WHERE unit_price IS NULL OR unit_price <= 0");
+
     boolean statusAdded = false;
     if (!columnExists(connection, "market_trades", "status")) {
       execute(
@@ -569,6 +644,14 @@ class SchemaManager {
         connection,
         "UPDATE market_trades SET settled_at = created_at "
             + "WHERE settled_at IS NULL AND status = 'DELIVERED'");
+
+    dropIndexIfExists(connection, "market_trades", "uniq_market_trade_listing");
+    if (!indexExists(connection, "market_trades", "idx_market_trade_listing_time")) {
+      execute(
+          connection,
+          "ALTER TABLE market_trades "
+              + "ADD INDEX idx_market_trade_listing_time (listing_id, created_at)");
+    }
   }
 
   private void createMarketItemDeliveries(Connection connection) throws SQLException {
@@ -576,6 +659,7 @@ class SchemaManager {
         CREATE TABLE IF NOT EXISTS market_item_deliveries (
           id BIGINT NOT NULL AUTO_INCREMENT,
           listing_id BIGINT NOT NULL,
+          trade_id BIGINT NULL,
           target_user_id BIGINT NOT NULL,
           target_uuid CHAR(36) NOT NULL,
           item_blob LONGBLOB NOT NULL,
@@ -586,17 +670,65 @@ class SchemaManager {
           last_error VARCHAR(255) NULL,
           next_retry_at DATETIME NOT NULL,
           delivered_at DATETIME NULL,
+          claimed_at DATETIME NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
-          UNIQUE KEY uniq_market_delivery (listing_id, delivery_type),
+          KEY idx_market_delivery_trade_type (trade_id, delivery_type),
+          KEY idx_market_delivery_listing_type (listing_id, delivery_type),
           KEY idx_market_delivery_due (status, next_retry_at),
+          KEY idx_market_delivery_claim (target_uuid, status, created_at),
           CONSTRAINT fk_market_delivery_listing
             FOREIGN KEY (listing_id) REFERENCES market_listings(id) ON DELETE CASCADE,
+          CONSTRAINT fk_market_delivery_trade
+            FOREIGN KEY (trade_id) REFERENCES market_trades(id) ON DELETE SET NULL,
           CONSTRAINT fk_market_delivery_user
             FOREIGN KEY (target_user_id) REFERENCES web_users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
+  }
+
+  private void migrateMarketItemDeliveries(Connection connection) throws SQLException {
+    if (!columnExists(connection, "market_item_deliveries", "trade_id")) {
+      execute(
+          connection,
+          "ALTER TABLE market_item_deliveries "
+              + "ADD COLUMN trade_id BIGINT NULL AFTER listing_id");
+    }
+    if (!columnExists(connection, "market_item_deliveries", "claimed_at")) {
+      execute(
+          connection,
+          "ALTER TABLE market_item_deliveries "
+              + "ADD COLUMN claimed_at DATETIME NULL AFTER delivered_at");
+    }
+
+    dropIndexIfExists(connection, "market_item_deliveries", "uniq_market_delivery");
+
+    if (!indexExists(connection, "market_item_deliveries", "idx_market_delivery_trade_type")) {
+      execute(
+          connection,
+          "ALTER TABLE market_item_deliveries "
+              + "ADD INDEX idx_market_delivery_trade_type (trade_id, delivery_type)");
+    }
+    if (!indexExists(connection, "market_item_deliveries", "idx_market_delivery_listing_type")) {
+      execute(
+          connection,
+          "ALTER TABLE market_item_deliveries "
+              + "ADD INDEX idx_market_delivery_listing_type (listing_id, delivery_type)");
+    }
+    if (!indexExists(connection, "market_item_deliveries", "idx_market_delivery_claim")) {
+      execute(
+          connection,
+          "ALTER TABLE market_item_deliveries "
+              + "ADD INDEX idx_market_delivery_claim (target_uuid, status, created_at)");
+    }
+
+    execute(
+        connection,
+        "UPDATE market_item_deliveries md "
+            + "JOIN market_trades mt ON mt.listing_id = md.listing_id "
+            + "SET md.trade_id = mt.id "
+            + "WHERE md.delivery_type = 'SALE' AND md.trade_id IS NULL");
   }
 
   private void createGroupBuyVouchers(Connection connection) throws SQLException {
@@ -648,5 +780,29 @@ class SchemaManager {
         return resultSet.getInt(1) > 0;
       }
     }
+  }
+
+  private boolean indexExists(Connection connection, String tableName, String indexName)
+      throws SQLException {
+    String sql = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS "
+        + "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, tableName);
+      statement.setString(2, indexName);
+      try (var resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return false;
+        }
+        return resultSet.getInt(1) > 0;
+      }
+    }
+  }
+
+  private void dropIndexIfExists(Connection connection, String tableName, String indexName)
+      throws SQLException {
+    if (!indexExists(connection, tableName, indexName)) {
+      return;
+    }
+    execute(connection, "ALTER TABLE " + tableName + " DROP INDEX " + indexName);
   }
 }

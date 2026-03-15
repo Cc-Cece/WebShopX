@@ -27,6 +27,7 @@ public class WebShopPlugin extends JavaPlugin {
   private StaticAssetInstaller staticAssetInstaller;
   private TextureAssetManager textureAssetManager;
   private MaintenanceService maintenanceService;
+  private PluginLogService pluginLogService;
   private BukkitTask deliveryTask;
   private BukkitTask maintenanceTask;
 
@@ -37,6 +38,8 @@ public class WebShopPlugin extends JavaPlugin {
 
     try {
       settings = PluginSettings.fromConfig(getConfig());
+      pluginLogService = new PluginLogService(this);
+      pluginLogService.apply(settings.loggingSettings());
       staticAssetInstaller = new StaticAssetInstaller(this);
       textureAssetManager = new TextureAssetManager(this);
 
@@ -54,7 +57,7 @@ public class WebShopPlugin extends JavaPlugin {
       deliveryService = new DeliveryService(this, databaseManager, walletService, this::settings);
       adminService = new AdminService(databaseManager, authService, walletService);
       adminAuditService = new AdminAuditService(databaseManager);
-      maintenanceService = new MaintenanceService(this, databaseManager, this::settings);
+      maintenanceService = new MaintenanceService(this, databaseManager, this::settings, pluginLogService);
       embeddedWebServer = new EmbeddedWebServer(
           this,
           this::settings,
@@ -105,11 +108,17 @@ public class WebShopPlugin extends JavaPlugin {
     if (databaseManager != null) {
       databaseManager.close();
     }
+    if (pluginLogService != null) {
+      pluginLogService.close();
+    }
   }
 
   void reloadRuntimeConfig() {
     reloadConfig();
     settings = PluginSettings.fromConfig(getConfig());
+    if (pluginLogService != null) {
+      pluginLogService.apply(settings.loggingSettings());
+    }
     if (walletService != null) {
       walletService.refreshVaultHook();
     }
@@ -122,7 +131,12 @@ public class WebShopPlugin extends JavaPlugin {
   }
 
   private void registerCommands() {
-    ShopCommand shopCommandHandler = new ShopCommand(this, bindingService, redeemCodeService, marketService);
+    ShopCommand shopCommandHandler = new ShopCommand(
+        this,
+        bindingService,
+        redeemCodeService,
+        marketService,
+        deliveryService);
     PluginCommand rootCommand = getCommand("webshopx");
     if (rootCommand == null) {
       throw new IllegalStateException("Command 'webshopx' is not defined in plugin.yml");

@@ -27,6 +27,14 @@
     status: "IDLE",
     pollTimer: null,
   },
+  realtime: {
+    timer: null,
+    busy: false,
+    hasBootstrapped: false,
+    orderDigest: {},
+    listingDigest: {},
+    wallet: null,
+  },
 };
 
 const CURRENCY_META = {
@@ -130,6 +138,8 @@ const ERROR_TIPS_BY_SCENE = {
     listing_unavailable: "该上架已下架或已售出。",
     invalid_trade: "不能购买自己上架的物品。",
     invalid_idempotency: "请求参数异常，请刷新后重试。",
+    invalid_quantity: "购买数量需在 1-64 之间。",
+    insufficient_quantity: "当前上架可购买数量不足，请刷新后重试。",
   },
   market_unlist: {
     invalid_listing: "上架 ID 无效，请刷新列表后重试。",
@@ -182,6 +192,7 @@ const REDEEM_STATUS_TIPS = {
 
 const ORDER_STATUS_LABELS = {
   PENDING: { label: "待发放", tone: "pending" },
+  WAIT_CLAIM: { label: "待领取", tone: "pending" },
   DELIVERED: { label: "已发放", tone: "delivered" },
   REFUNDED: { label: "已退款", tone: "refunded" },
   FAILED: { label: "失败", tone: "failed" },
@@ -547,6 +558,134 @@ function formatCurrency(amount, currency) {
   return `${meta.short} ${formatAmount(amount)}`;
 }
 
+function defaultDeliveryModeForProduct(product) {
+  const type = String(product?.productType || "").toUpperCase();
+  if (type === "COMMAND" || type === "POTION_EFFECT") {
+    return "CLAIM";
+  }
+  return "IMMEDIATE";
+}
+
+function deliveryModeLabel(mode) {
+  const key = String(mode || "").toUpperCase();
+  if (key === "CLAIM") {
+    return "手动领取";
+  }
+  return "即时到账";
+}
+
+function buildOrderDigest(orders) {
+  const digest = {};
+  (orders || []).forEach((order) => {
+    const key = String(order.orderNo || "");
+    if (!key) {
+      return;
+    }
+    digest[key] = [
+      String(order.status || ""),
+      String(order.deliveredAt || ""),
+      String(order.refundedAt || ""),
+      String(order.groupBuyVoucherStatus || ""),
+    ].join("|");
+  });
+  return digest;
+}
+
+function buildListingDigest(listings) {
+  const digest = {};
+  (listings || []).forEach((listing) => {
+    const key = String(listing.id || "");
+    if (!key) {
+      return;
+    }
+    digest[key] = [
+      String(listing.status || ""),
+      String(listing.quantity || ""),
+      String(listing.buyerName || ""),
+      String(listing.soldAt || ""),
+      String(listing.unlistedAt || ""),
+    ].join("|");
+  });
+  return digest;
+}
+
+function notifyOrderTransitions(previousDigest, orders) {
+  const previous = previousDigest || {};
+  const changes = [];
+  (orders || []).forEach((order) => {
+    const orderNo = String(order.orderNo || "");
+    if (!orderNo) {
+      return;
+    }
+    const current = [
+      String(order.status || ""),
+      String(order.deliveredAt || ""),
+      String(order.refundedAt || ""),
+      String(order.groupBuyVoucherStatus || ""),
+    ].join("|");
+    const old = previous[orderNo];
+    if (!old) {
+      changes.push(`新订单：${orderNo}（${ORDER_STATUS_LABELS[String(order.status || "").toUpperCase()]?.label || order.status || "状态未知"}）`);
+      return;
+    }
+    if (old === current) {
+      return;
+    }
+    const status = String(order.status || "").toUpperCase();
+    if (status === "DELIVERED") {
+      changes.push(`订单已发放：${orderNo}`);
+    } else if (status === "WAIT_CLAIM") {
+      changes.push(`订单待领取：${orderNo}（可在游戏内 /ws claim）`);
+    } else if (status === "REFUNDED") {
+      changes.push(`订单已退款：${orderNo}`);
+    } else {
+      changes.push(`订单状态更新：${orderNo} -> ${status || "UNKNOWN"}`);
+    }
+  });
+  changes.slice(0, 3).forEach((message) => notify(message, "info"));
+}
+
+function notifyListingTransitions(previousDigest, listings) {
+  const previous = previousDigest || {};
+  const changes = [];
+  (listings || []).forEach((listing) => {
+    const key = String(listing.id || "");
+    if (!key) {
+      return;
+    }
+    const current = [
+      String(listing.status || ""),
+      String(listing.quantity || ""),
+      String(listing.buyerName || ""),
+      String(listing.soldAt || ""),
+      String(listing.unlistedAt || ""),
+    ].join("|");
+    const old = previous[key];
+    if (!old) {
+      return;
+    }
+    if (old === current) {
+      return;
+    }
+    const oldParts = old.split("|");
+    const newStatus = String(listing.status || "").toUpperCase();
+    const oldQty = Number(oldParts[1] || listing.quantity || 0);
+    const newQty = Number(listing.quantity || 0);
+    if (newStatus === "SOLD") {
+      changes.push(`上架 #${listing.id} 已售出`);
+      return;
+    }
+    if (newStatus === "UNLISTED") {
+      changes.push(`上架 #${listing.id} 已下架，退回处理中`);
+      return;
+    }
+    if (Number.isFinite(oldQty) && Number.isFinite(newQty) && newQty < oldQty) {
+      changes.push(`上架 #${listing.id} 发生部分售出：剩余 ${newQty}`);
+    }
+  });
+  changes.slice(0, 3).forEach((message) => notify(message, "info"));
+}
+
 function applyCurrencyMeta(meta) {
   if (!meta) {
     return;
@@ -632,6 +771,17 @@ function normalizeMaterialKey(text) {
     .replace(/^_+|_+$/g, "");
 }
 
+function aliasMaterialKey(text) {
+  const key = normalizeMaterialKey(text);
+  if (!key) {
+    return "";
+  }
+  if (key.startsWith("BLOCK_OF_") && key.length > "BLOCK_OF_".length) {
+    return `${key.slice("BLOCK_OF_".length)}_BLOCK`;
+  }
+  return key;
+}
+
 function humanizeMaterial(materialKey) {
   return materialKey
     .toLowerCase()
@@ -642,10 +792,11 @@ function humanizeMaterial(materialKey) {
 
 function getLocalizedMaterialName(material) {
   const key = normalizeMaterialKey(material);
+  const aliasKey = aliasMaterialKey(key);
   if (!key) {
     return "未知物品";
   }
-  return state.zhNameMap[key] || humanizeMaterial(key);
+  return state.zhNameMap[key] || state.zhNameMap[aliasKey] || humanizeMaterial(aliasKey || key);
 }
 
 async function ensureZhNameMap() {
@@ -680,12 +831,16 @@ async function ensureZhNameMap() {
 
 function buildTextureAliases(material) {
   const key = normalizeMaterialKey(material);
+  const aliasKey = aliasMaterialKey(key);
   const aliases = new Set();
   if (!key) {
     return [];
   }
 
   aliases.add(key.toLowerCase());
+  if (aliasKey) {
+    aliases.add(aliasKey.toLowerCase());
+  }
   if (key.startsWith("LEGACY_")) {
     aliases.add(key.slice("LEGACY_".length).toLowerCase());
   }
@@ -960,6 +1115,7 @@ function setSession(payload) {
   clearRegistrationUi(false);
   updateAuthLayout();
   state.hasLoadedOrders = false;
+  startRealtimeSync();
 }
 
 function clearSession() {
@@ -972,6 +1128,7 @@ function clearSession() {
   window.localStorage.removeItem(SESSION_STORAGE_KEY);
   renderOrders(state.orders);
   updateAuthLayout();
+  stopRealtimeSync();
 }
 
 async function restoreSession() {
@@ -994,13 +1151,109 @@ async function restoreSession() {
     state.boundUuid = sessionData.boundUuid;
     updateAuthLayout();
     await loadOrders();
+    startRealtimeSync();
     log("会话已恢复。", "SUCCESS");
   } catch (error) {
     // token无效，清除存储
     state.token = null;
     window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    stopRealtimeSync();
     log("会话恢复失败，已清除。", "WARN");
   }
+}
+
+async function pollRealtimeSync() {
+  if (!state.token || state.realtime.busy) {
+    return;
+  }
+  state.realtime.busy = true;
+  try {
+    const [walletPayload, ordersPayload, listingsPayload] = await Promise.all([
+      api("/api/wallet", { method: "GET" }),
+      api("/api/orders/list?limit=30", { method: "GET" }),
+      api("/api/market/listings?mine=true&limit=80", { method: "GET" }),
+    ]);
+
+    if (state.realtime.hasBootstrapped) {
+      const previousWallet = state.realtime.wallet;
+      if (previousWallet) {
+        const deltaShop = Number(walletPayload.shopCoin || 0) - Number(previousWallet.shopCoin || 0);
+        const deltaGame = Number(walletPayload.gameCoin || 0) - Number(previousWallet.gameCoin || 0);
+        if (deltaShop !== 0 || deltaGame !== 0) {
+          const parts = [];
+          if (deltaShop !== 0) {
+            parts.push(`SC ${deltaShop > 0 ? "+" : ""}${formatAmount(deltaShop)}`);
+          }
+          if (deltaGame !== 0) {
+            parts.push(`GC ${deltaGame > 0 ? "+" : ""}${formatAmount(deltaGame)}`);
+          }
+          notify(`余额变动：${parts.join(" / ")}`, deltaShop + deltaGame >= 0 ? "success" : "warn");
+        }
+      }
+      notifyOrderTransitions(state.realtime.orderDigest, ordersPayload.orders || []);
+      notifyListingTransitions(state.realtime.listingDigest, listingsPayload.listings || []);
+    }
+
+    state.realtime.wallet = {
+      shopCoin: Number(walletPayload.shopCoin || 0),
+      gameCoin: Number(walletPayload.gameCoin || 0),
+    };
+    state.realtime.orderDigest = buildOrderDigest(ordersPayload.orders || []);
+    state.realtime.listingDigest = buildListingDigest(listingsPayload.listings || []);
+    state.realtime.hasBootstrapped = true;
+
+    if (state.activeTab === "wallet") {
+      updateWalletView(walletPayload);
+    }
+    if (state.activeTab === "orders") {
+      state.orders = ordersPayload.orders || [];
+      renderOrders(state.orders);
+    }
+    if (state.activeTab === "market" && state.marketMode === "mine") {
+      state.listings = listingsPayload.listings || [];
+      renderListings(state.listings);
+      setMetaText(elements.marketView, `我的上架：${state.listings.length} 条`, "info");
+    }
+  } catch (error) {
+    if (String(error?.message || "").toLowerCase().includes("auth")) {
+      clearSession();
+      switchTab("auth");
+    }
+  } finally {
+    state.realtime.busy = false;
+  }
+}
+
+function startRealtimeSync() {
+  stopRealtimeSync();
+  if (!state.token) {
+    return;
+  }
+  state.realtime.busy = false;
+  state.realtime.hasBootstrapped = false;
+  state.realtime.orderDigest = {};
+  state.realtime.listingDigest = {};
+  state.realtime.wallet = null;
+  pollRealtimeSync().catch(() => {
+    // ignore first poll errors, next tick will retry
+  });
+  state.realtime.timer = window.setInterval(() => {
+    pollRealtimeSync().catch(() => {
+      // ignore transient realtime sync failures
+    });
+  }, 8000);
+}
+
+function stopRealtimeSync() {
+  if (state.realtime.timer) {
+    clearInterval(state.realtime.timer);
+    state.realtime.timer = null;
+  }
+  state.realtime.busy = false;
+  state.realtime.hasBootstrapped = false;
+  state.realtime.orderDigest = {};
+  state.realtime.listingDigest = {};
+  state.realtime.wallet = null;
 }
 
 function updateWalletView(payload) {
@@ -1249,10 +1502,12 @@ function renderProducts(products) {
     }
 
     const actions = createEl("div", "product-actions");
+    const maxQuantity = Number(product.itemAmount || 64);
     const qty = document.createElement("input");
     qty.className = "product-qty";
     qty.type = "number";
     qty.min = "1";
+    qty.max = String(Math.max(1, Number.isFinite(maxQuantity) ? maxQuantity : 64));
     qty.step = "1";
     qty.value = "1";
 
@@ -1264,6 +1519,21 @@ function renderProducts(products) {
     actions.appendChild(qty);
     actions.appendChild(button);
     card.appendChild(actions);
+    card.appendChild(createEl("p", "product-sku", `可购买上限：x${qty.max}`));
+
+    if (!isGroupBuyVoucher) {
+      const modeRow = createEl("div", "inline-action");
+      const mode = document.createElement("select");
+      mode.className = "product-delivery-mode";
+      mode.dataset.role = "deliveryMode";
+      mode.innerHTML = `
+        <option value="IMMEDIATE">即时到账（默认）</option>
+        <option value="CLAIM">手动领取（/ws claim）</option>
+      `;
+      mode.value = defaultDeliveryModeForProduct(product);
+      modeRow.appendChild(mode);
+      card.appendChild(modeRow);
+    }
 
     elements.productList.appendChild(card);
   }
@@ -1305,7 +1575,14 @@ function renderListings(listings) {
     const detail = createEl("div");
     detail.appendChild(createEl("h3", "market-title", localizedName));
     detail.appendChild(createEl("p", "market-code", String(listing.itemMaterial)));
-    detail.appendChild(createEl("p", "market-sub", `数量 x${listing.quantity}`));
+    const quantityTotal = Number(listing.quantityTotal || listing.quantity || 0);
+    detail.appendChild(
+      createEl(
+        "p",
+        "market-sub",
+        `剩余 x${listing.quantity}` + (quantityTotal > 0 ? ` / 总量 x${quantityTotal}` : "")
+      )
+    );
     if (listing.remark) {
       detail.appendChild(createEl("p", "market-remark", listing.remark));
     }
@@ -1355,10 +1632,22 @@ function renderListings(listings) {
         actions.appendChild(editBtn);
         actions.appendChild(unlistBtn);
       } else {
+        const buyQty = document.createElement("input");
+        buyQty.className = "product-qty";
+        buyQty.type = "number";
+        buyQty.min = "1";
+        buyQty.max = String(Math.max(1, Number(listing.quantity || 1)));
+        buyQty.step = "1";
+        buyQty.value = "1";
+
         const buyBtn = createEl("button", "market-action-btn", "立即购买");
         buyBtn.type = "button";
         buyBtn.dataset.action = "buy";
         buyBtn.dataset.listingId = String(listing.id);
+        buyBtn.dataset.currency = listing.currency;
+        buyBtn.dataset.unitPrice = String(listing.price);
+        buyBtn.dataset.maxQuantity = String(Math.max(1, Number(listing.quantity || 1)));
+        actions.appendChild(buyQty);
         actions.appendChild(buyBtn);
       }
     } else {
@@ -1613,7 +1902,7 @@ async function loadOrders(options = {}) {
   }
 }
 
-async function confirmPurchase(product, quantity) {
+async function confirmPurchase(product, quantity, deliveryMode) {
   const qty = Number(quantity || 1);
   const total = formatCurrency(product.price * qty, product.currency);
   const cooldown = Number(state.orderPolicy.cooldownSeconds || 0);
@@ -1621,6 +1910,7 @@ async function confirmPurchase(product, quantity) {
     `商品：${product.title}`,
     `数量：x${qty}`,
     `总额：${total}`,
+    `发放方式：${deliveryModeLabel(deliveryMode)}`,
   ];
   if (product.remark) {
     details.push(`备注：${product.remark}`);
@@ -1641,16 +1931,19 @@ async function confirmPurchase(product, quantity) {
   });
 }
 
-async function confirmMarketBuy(listing) {
+async function confirmMarketBuy(listing, buyQuantity) {
   await ensureZhNameMap();
   const meta = parseMeta(listing.itemMetaJson);
   const displayName = stripColorCodes(meta.displayName || "");
   const localizedName = displayName || getLocalizedMaterialName(listing.itemMaterial);
+  const qty = Number(buyQuantity || 1);
   const cooldown = Number(state.orderPolicy.cooldownSeconds || 0);
+  const totalPrice = Number(listing.price || 0) * qty;
   const details = [
     `物品：${localizedName}`,
-    `数量：x${listing.quantity}`,
-    `价格：${formatCurrency(listing.price, listing.currency)}`,
+    `数量：x${qty}`,
+    `单价：${formatCurrency(listing.price, listing.currency)}`,
+    `小计：${formatCurrency(totalPrice, listing.currency)}`,
     `卖家：${listing.sellerName}`,
     "手续费/税率以服务器配置为准",
   ];
@@ -1681,7 +1974,7 @@ async function refundOrder(orderNo) {
   await loadOrders();
 }
 
-async function createOrder(productId, quantity) {
+async function createOrder(productId, quantity, deliveryMode) {
   ensureToken();
 
   const pid = Number(productId);
@@ -1698,6 +1991,7 @@ async function createOrder(productId, quantity) {
     body: JSON.stringify({
       productId: pid,
       quantity: qty,
+      deliveryMode: String(deliveryMode || "").toUpperCase() || undefined,
       idempotencyKey: createIdempotencyKey(),
     }),
   });
@@ -1734,12 +2028,17 @@ async function createOrder(productId, quantity) {
   return payload;
 }
 
-async function buyListing(listingId) {
+async function buyListing(listingId, buyQuantity) {
   ensureToken();
+  const qty = Number(buyQuantity || 1);
+  if (!Number.isFinite(qty) || qty <= 0 || qty > 64) {
+    throw new Error("购买数量需在 1-64 之间。");
+  }
   const payload = await api("/api/market/buy", {
     method: "POST",
     body: JSON.stringify({
       listingId,
+      buyQuantity: qty,
       idempotencyKey: createIdempotencyKey(),
     }),
   });
@@ -1757,15 +2056,21 @@ async function buyListing(listingId) {
     log(`市场购买请求去重：tradeId=${payload.tradeId}，listingId=${payload.listingId}`, "WARN");
     notify(`该交易已处理过，返回历史结果（交易号 ${payload.tradeId}）。`, "warn");
   } else {
-    log(`购买成功：tradeId=${payload.tradeId}，listingId=${payload.listingId}`, "SUCCESS");
+    log(
+      `购买成功：tradeId=${payload.tradeId}，listingId=${payload.listingId}，qty=${payload.quantity || qty}`,
+      "SUCCESS"
+    );
     const feeAmount = Number(payload.feeAmount || 0) + Number(payload.taxAmount || 0);
     if (feeAmount > 0) {
       notify(
-        `购买成功，实付 ${amountText}（含手续费/税收 ${formatCurrency(feeAmount, payload.currency)}），状态 ${statusText}${refundDeadlineText}。`,
+        `购买成功，数量 x${payload.quantity || qty}，实付 ${amountText}（含手续费/税收 ${formatCurrency(feeAmount, payload.currency)}），状态 ${statusText}${refundDeadlineText}。`,
         "success"
       );
     } else {
-      notify(`购买成功，成交金额 ${amountText}，状态 ${statusText}${refundDeadlineText}。`, "success");
+      notify(
+        `购买成功，数量 x${payload.quantity || qty}，成交金额 ${amountText}，状态 ${statusText}${refundDeadlineText}。`,
+        "success"
+      );
     }
   }
 
@@ -2060,8 +2365,16 @@ elements.productList.addEventListener("click", async (event) => {
     notify("商品信息异常，请刷新商品列表。", "warn");
     return;
   }
+  const modeInput = card.querySelector("select[data-role='deliveryMode']");
+  const deliveryMode = modeInput ? modeInput.value : defaultDeliveryModeForProduct(product);
+  const maxQuantity = Math.max(1, Number(product.itemAmount || 64));
+  const qtyValue = Number(quantity || 1);
+  if (!Number.isFinite(qtyValue) || qtyValue < 1 || qtyValue > maxQuantity) {
+    notify(`购买数量需在 1-${maxQuantity} 之间。`, "warn");
+    return;
+  }
 
-  const confirmed = await confirmPurchase(product, quantity);
+  const confirmed = await confirmPurchase(product, qtyValue, deliveryMode);
   if (!confirmed) {
     notify("已取消下单。", "info");
     return;
@@ -2071,7 +2384,7 @@ elements.productList.addEventListener("click", async (event) => {
   button.disabled = true;
   button.textContent = "下单中...";
   try {
-    await createOrder(productId, quantity);
+    await createOrder(productId, qtyValue, deliveryMode);
   } catch (error) {
     const message = resolveErrorMessage(error, "order_create");
     setMetaText(elements.orderView, `下单失败：${message}`, "error");
@@ -2151,17 +2464,25 @@ elements.marketList.addEventListener("click", async (event) => {
   try {
     if (button.dataset.action === "buy") {
       const listing = state.listings.find((item) => Number(item.id) === listingId);
-      const confirmed = listing ? await confirmMarketBuy(listing) : await openConfirmDialog({
+      const card = button.closest(".market-card");
+      const qtyInput = card ? card.querySelector(".product-qty") : null;
+      const rawQty = qtyInput ? qtyInput.value : "1";
+      const buyQty = Number(rawQty || 1);
+      const maxQty = Number(button.dataset.maxQuantity || 64);
+      if (!Number.isFinite(buyQty) || buyQty <= 0 || buyQty > Math.max(1, maxQty)) {
+        throw new Error(`购买数量需在 1-${Math.max(1, maxQty)} 之间。`);
+      }
+      const confirmed = listing ? await confirmMarketBuy(listing, buyQty) : await openConfirmDialog({
         title: "确认购买",
         message: "确认后将立即扣除余额。",
-        details: [`上架ID：${listingId}`],
+        details: [`上架ID：${listingId}`, `数量：x${buyQty}`],
         confirmText: "确认购买",
       });
       if (!confirmed) {
         notify("已取消购买。", "info");
         return;
       }
-      await buyListing(listingId);
+      await buyListing(listingId, buyQty);
       return;
     }
     if (button.dataset.action === "unlist") {

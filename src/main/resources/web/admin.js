@@ -3,8 +3,22 @@
   admin: null,
   activeTab: "login",
   selectedUser: null,
+  products: [],
   latestRedeemCode: null,
   theme: "light",
+  materialMap: {},
+  materialLookup: {},
+  materialMapReady: false,
+  materialMapPromise: null,
+  materialAllowSet: new Set(),
+  materialAllowReady: false,
+  materialAllowPromise: null,
+  autoSyncTimer: null,
+  autoSyncBusy: false,
+  realtime: {
+    orderDigest: {},
+    marketDigest: {},
+  },
   currencyMeta: {
     SHOP_COIN: { name: "ShopCoin", short: "SC" },
     GAME_COIN: { name: "GameCoin", short: "GC" },
@@ -51,6 +65,9 @@ const elements = {
   productSaveBtn: document.getElementById("productSaveBtn"),
   productRefreshBtn: document.getElementById("productRefreshBtn"),
   productStatus: document.getElementById("productStatus"),
+  productSearchKeyword: document.getElementById("productSearchKeyword"),
+  productSearchType: document.getElementById("productSearchType"),
+  productSearchActive: document.getElementById("productSearchActive"),
   productList: document.getElementById("productList"),
   groupBuyConsumeCode: document.getElementById("groupBuyConsumeCode"),
   groupBuyConsumeBtn: document.getElementById("groupBuyConsumeBtn"),
@@ -59,6 +76,10 @@ const elements = {
   orderStatus: document.getElementById("orderStatus"),
   orderUserId: document.getElementById("orderUserId"),
   orderNo: document.getElementById("orderNo"),
+  orderUsername: document.getElementById("orderUsername"),
+  orderCurrency: document.getElementById("orderCurrency"),
+  orderProductType: document.getElementById("orderProductType"),
+  orderKeyword: document.getElementById("orderKeyword"),
   orderRefreshBtn: document.getElementById("orderRefreshBtn"),
   orderStatusView: document.getElementById("orderStatusView"),
   adminOrderList: document.getElementById("adminOrderList"),
@@ -77,9 +98,15 @@ const elements = {
   vaultStatusView: document.getElementById("vaultStatusView"),
 
   marketStatus: document.getElementById("marketStatus"),
+  marketSeller: document.getElementById("marketSeller"),
+  marketBuyer: document.getElementById("marketBuyer"),
+  marketMaterial: document.getElementById("marketMaterial"),
+  marketCurrency: document.getElementById("marketCurrency"),
+  marketKeyword: document.getElementById("marketKeyword"),
   marketRefreshBtn: document.getElementById("marketRefreshBtn"),
   marketStatusView: document.getElementById("marketStatusView"),
   adminMarketList: document.getElementById("adminMarketList"),
+  materialSuggestList: document.getElementById("materialSuggestList"),
 
   userIdentifier: document.getElementById("userIdentifier"),
   userSearchBtn: document.getElementById("userSearchBtn"),
@@ -100,7 +127,6 @@ const elements = {
 
   snackbarHost: document.getElementById("snackbarHost"),
 };
-
 const tabs = Array.from(document.querySelectorAll(".top-tab"));
 const panels = Array.from(document.querySelectorAll(".tab-panel"));
 
@@ -195,6 +221,49 @@ function switchTab(tabName) {
 
 tabs.forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tabTarget)));
 
+async function runAutoSyncTick() {
+  if (!state.token || state.autoSyncBusy) {
+    return;
+  }
+  state.autoSyncBusy = true;
+  try {
+    if (state.activeTab === "orders") {
+      await loadAdminOrders();
+    } else if (state.activeTab === "market") {
+      await loadMarket();
+    } else if (state.activeTab === "redeem") {
+      await loadRedeemList();
+    } else if (state.activeTab === "audit") {
+      await loadAuditLogs();
+    } else if (state.activeTab === "economy") {
+      await loadEconomySettings();
+    }
+  } catch (error) {
+    // ignore transient auto-sync failures
+  } finally {
+    state.autoSyncBusy = false;
+  }
+}
+
+function startAdminAutoSync() {
+  stopAdminAutoSync();
+  if (!state.token) {
+    return;
+  }
+  runAutoSyncTick();
+  state.autoSyncTimer = window.setInterval(() => {
+    runAutoSyncTick();
+  }, 10000);
+}
+
+function stopAdminAutoSync() {
+  if (state.autoSyncTimer) {
+    clearInterval(state.autoSyncTimer);
+    state.autoSyncTimer = null;
+  }
+  state.autoSyncBusy = false;
+}
+
 async function apiAdmin(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (options.body !== undefined && !headers["Content-Type"]) {
@@ -271,6 +340,8 @@ function applyCurrencyMetaToUi() {
   };
 
   updateSelect(elements.productCurrency);
+  updateSelect(elements.orderCurrency);
+  updateSelect(elements.marketCurrency);
   updateSelect(elements.walletCurrency);
 
   applyText("adminRedeemShopCoinLabel", shopName);
@@ -320,7 +391,10 @@ function renderAdminProfile() {
 function setLoggedOut() {
   state.token = null;
   state.admin = null;
+  state.realtime.orderDigest = {};
+  state.realtime.marketDigest = {};
   sessionStorage.removeItem("webshop_admin_token");
+  stopAdminAutoSync();
   setStatus("未登录", "offline");
   renderAdminProfile();
   setMetaText(elements.adminLoginStatus, "已退出登录", "info");
@@ -342,6 +416,7 @@ async function loginAdmin() {
   setStatus(`已登录：${state.admin.username}`, "online");
   renderAdminProfile();
   setMetaText(elements.adminLoginStatus, "登录成功", "success");
+  startAdminAutoSync();
 }
 
 async function loadAdminProfile() {
@@ -353,6 +428,7 @@ async function loadAdminProfile() {
     state.admin = payload;
     setStatus(`已登录：${state.admin.username}`, "online");
     renderAdminProfile();
+    startAdminAutoSync();
   } catch (error) {
     setLoggedOut();
   }
@@ -408,6 +484,7 @@ function localizeOrderStatusOptions() {
   const labels = {
     "": "全部",
     PENDING: "待发放",
+    WAIT_CLAIM: "待领取",
     DELIVERED: "已发放",
     REFUNDED: "已退款",
     FAILED: "失败",
@@ -419,6 +496,304 @@ function localizeOrderStatusOptions() {
       option.textContent = labels[value];
     }
   });
+}
+
+function buildAdminOrderDigest(orders) {
+  const digest = {};
+  (orders || []).forEach((order) => {
+    const key = String(order.orderNo || "");
+    if (!key) {
+      return;
+    }
+    digest[key] = [
+      String(order.status || ""),
+      String(order.refundedAt || ""),
+      String(order.deliveredAt || ""),
+      String(order.groupBuyVoucherStatus || ""),
+    ].join("|");
+  });
+  return digest;
+}
+
+function notifyAdminOrderTransitions(previousDigest, orders) {
+  const previous = previousDigest || {};
+  if (Object.keys(previous).length === 0) {
+    return;
+  }
+  const changes = [];
+  (orders || []).forEach((order) => {
+    const orderNo = String(order.orderNo || "");
+    if (!orderNo) {
+      return;
+    }
+    const current = [
+      String(order.status || ""),
+      String(order.refundedAt || ""),
+      String(order.deliveredAt || ""),
+      String(order.groupBuyVoucherStatus || ""),
+    ].join("|");
+    const old = previous[orderNo];
+    if (!old || old === current) {
+      return;
+    }
+    const status = String(order.status || "").toUpperCase();
+    if (status === "DELIVERED") {
+      changes.push(`订单状态变更：${orderNo} 已发放`);
+    } else if (status === "WAIT_CLAIM") {
+      changes.push(`订单状态变更：${orderNo} 待领取`);
+    } else if (status === "REFUNDED") {
+      changes.push(`订单状态变更：${orderNo} 已退款`);
+    } else if (status === "PENDING") {
+      changes.push(`订单状态变更：${orderNo} 待发放`);
+    } else {
+      changes.push(`订单状态变更：${orderNo} -> ${status || "UNKNOWN"}`);
+    }
+  });
+  changes.slice(0, 3).forEach((message) => notify(message, "info"));
+}
+
+function buildAdminMarketDigest(listings) {
+  const digest = {};
+  (listings || []).forEach((listing) => {
+    const key = String(listing.id || "");
+    if (!key) {
+      return;
+    }
+    digest[key] = [
+      String(listing.status || ""),
+      String(listing.quantity || ""),
+      String(listing.buyerName || ""),
+      String(listing.soldAt || ""),
+      String(listing.unlistedAt || ""),
+    ].join("|");
+  });
+  return digest;
+}
+
+function notifyAdminMarketTransitions(previousDigest, listings) {
+  const previous = previousDigest || {};
+  if (Object.keys(previous).length === 0) {
+    return;
+  }
+  const changes = [];
+  (listings || []).forEach((listing) => {
+    const key = String(listing.id || "");
+    if (!key) {
+      return;
+    }
+    const current = [
+      String(listing.status || ""),
+      String(listing.quantity || ""),
+      String(listing.buyerName || ""),
+      String(listing.soldAt || ""),
+      String(listing.unlistedAt || ""),
+    ].join("|");
+    const old = previous[key];
+    if (!old || old === current) {
+      return;
+    }
+    const oldParts = old.split("|");
+    const oldQty = Number(oldParts[1] || listing.quantity || 0);
+    const newQty = Number(listing.quantity || 0);
+    const status = String(listing.status || "").toUpperCase();
+    if (status === "SOLD") {
+      changes.push(`上架 #${listing.id} 已售出`);
+      return;
+    }
+    if (status === "UNLISTED") {
+      changes.push(`上架 #${listing.id} 已下架`);
+      return;
+    }
+    if (Number.isFinite(oldQty) && Number.isFinite(newQty) && newQty < oldQty) {
+      changes.push(`上架 #${listing.id} 发生部分成交，剩余 ${newQty}`);
+    }
+  });
+  changes.slice(0, 3).forEach((message) => notify(message, "info"));
+}
+
+function normalizeMaterialKey(text) {
+  return String(text || "")
+    .toUpperCase()
+    .replace(/^MINECRAFT:/, "")
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function aliasMaterialKey(text) {
+  const key = normalizeMaterialKey(text);
+  if (!key) {
+    return "";
+  }
+  if (key.startsWith("BLOCK_OF_") && key.length > "BLOCK_OF_".length) {
+    return `${key.slice("BLOCK_OF_".length)}_BLOCK`;
+  }
+  return key;
+}
+
+function humanizeMaterial(materialKey) {
+  return String(materialKey || "")
+    .toLowerCase()
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function getLocalizedMaterialName(material) {
+  const key = normalizeMaterialKey(material);
+  const aliasKey = aliasMaterialKey(key);
+  if (!key) {
+    return "未知物品";
+  }
+  return state.materialMap[key] || state.materialMap[aliasKey] || humanizeMaterial(aliasKey || key);
+}
+
+function buildMaterialLookup() {
+  const lookup = {};
+  const allow = state.materialAllowSet;
+  Object.entries(state.materialMap || {}).forEach(([key, zhName]) => {
+    const normalizedKey = normalizeMaterialKey(key);
+    const aliasKey = aliasMaterialKey(normalizedKey);
+    if (
+      allow.size > 0
+      && !allow.has(normalizedKey)
+      && !allow.has(aliasKey)
+    ) {
+      return;
+    }
+    const normalizedZh = String(zhName || "").trim().toLowerCase();
+    const candidates = [normalizedKey, aliasKey].filter(Boolean);
+    candidates.forEach((candidate) => {
+      lookup[candidate.toLowerCase()] = candidate;
+      lookup[humanizeMaterial(candidate).toLowerCase()] = candidate;
+    });
+    if (normalizedZh && candidates.length > 0) {
+      lookup[normalizedZh] = candidates[0];
+    }
+  });
+  allow.forEach((candidate) => {
+    lookup[candidate.toLowerCase()] = candidate;
+    lookup[humanizeMaterial(candidate).toLowerCase()] = candidate;
+  });
+  state.materialLookup = lookup;
+}
+
+function resolveMaterialInput(raw) {
+  const text = String(raw || "").trim();
+  if (!text) {
+    return "";
+  }
+  const normalizedKey = normalizeMaterialKey(text);
+  const aliasKey = aliasMaterialKey(normalizedKey);
+  let candidate = "";
+  if (normalizedKey && state.materialMap[normalizedKey]) {
+    candidate = normalizedKey;
+  } else if (aliasKey && state.materialMap[aliasKey]) {
+    candidate = aliasKey;
+  } else if (normalizedKey && state.materialLookup[normalizedKey.toLowerCase()]) {
+    candidate = state.materialLookup[normalizedKey.toLowerCase()];
+  } else if (aliasKey && state.materialLookup[aliasKey.toLowerCase()]) {
+    candidate = state.materialLookup[aliasKey.toLowerCase()];
+  } else {
+    candidate = state.materialLookup[text.toLowerCase()] || aliasKey || normalizedKey;
+  }
+
+  if (state.materialAllowSet.size === 0) {
+    return candidate;
+  }
+  if (candidate && state.materialAllowSet.has(candidate)) {
+    return candidate;
+  }
+  const candidateAlias = aliasMaterialKey(candidate);
+  if (candidateAlias && state.materialAllowSet.has(candidateAlias)) {
+    return candidateAlias;
+  }
+  return "";
+}
+
+function populateMaterialSuggest() {
+  if (!elements.materialSuggestList) {
+    return;
+  }
+  elements.materialSuggestList.innerHTML = "";
+  const allow = state.materialAllowSet;
+  const keys = allow.size > 0
+    ? Array.from(allow)
+    : Object.keys(state.materialMap || {}).map((key) => normalizeMaterialKey(key));
+  keys
+    .filter(Boolean)
+    .sort((a, b) => String(a).localeCompare(String(b), "en"))
+    .forEach((key) => {
+      const zhName = state.materialMap[key] || state.materialMap[aliasMaterialKey(key)] || key;
+    const option = document.createElement("option");
+    option.value = key;
+    option.label = `${zhName || key} (${key})`;
+    elements.materialSuggestList.appendChild(option);
+  });
+}
+
+async function ensureMaterialAllowList() {
+  if (state.materialAllowReady) {
+    return;
+  }
+  if (state.materialAllowPromise) {
+    await state.materialAllowPromise;
+    return;
+  }
+  state.materialAllowPromise = fetch("/api/meta/materials")
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`material allow list load failed: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then((json) => {
+      const list = Array.isArray(json?.materials) ? json.materials : [];
+      const allow = new Set();
+      list.forEach((item) => {
+        const normalized = normalizeMaterialKey(item);
+        if (normalized) {
+          allow.add(normalized);
+        }
+      });
+      state.materialAllowSet = allow;
+      state.materialAllowReady = true;
+    })
+    .catch(() => {
+      state.materialAllowSet = new Set();
+      state.materialAllowReady = true;
+    });
+  await state.materialAllowPromise;
+}
+
+async function ensureMaterialMap() {
+  if (state.materialMapReady) {
+    return;
+  }
+  if (state.materialMapPromise) {
+    await state.materialMapPromise;
+    return;
+  }
+  state.materialMapPromise = ensureMaterialAllowList()
+    .then(() => fetch("/material_zh.json"))
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`material map load failed: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then((json) => {
+      state.materialMap = json || {};
+      state.materialMapReady = true;
+      buildMaterialLookup();
+      populateMaterialSuggest();
+    })
+    .catch(() => {
+      state.materialMap = {};
+      state.materialLookup = {};
+      state.materialMapReady = true;
+    });
+  await state.materialMapPromise;
 }
 
 function setProductFieldVisible(inputElement, visible) {
@@ -441,7 +816,7 @@ function updateProductTypeFieldsVisibility(typeRaw) {
   const effectVisible = type === "POTION_EFFECT";
   setProductFieldVisible(elements.productCommand, commandVisible);
   setProductFieldVisible(elements.productItemMaterial, itemVisible);
-  setProductFieldVisible(elements.productItemAmount, itemVisible);
+  setProductFieldVisible(elements.productItemAmount, true);
   setProductFieldVisible(elements.productEffectType, effectVisible);
   setProductFieldVisible(elements.productEffectSeconds, effectVisible);
   setProductFieldVisible(elements.productEffectAmplifier, effectVisible);
@@ -497,6 +872,8 @@ async function loadRedeemList() {
 }
 
 function getProductInput() {
+  const rawItemAmount = String(elements.productItemAmount.value || "").trim();
+  const parsedItemAmount = rawItemAmount ? Number(rawItemAmount) : null;
   return {
     sku: elements.productSku.value.trim(),
     title: elements.productTitle.value.trim(),
@@ -507,8 +884,11 @@ function getProductInput() {
     unpublishAt: elements.productUnpublishAt.value ? elements.productUnpublishAt.value : null,
     productType: elements.productType.value.trim(),
     commandTemplate: elements.productCommand.value.trim(),
-    itemMaterial: elements.productItemMaterial.value.trim(),
-    itemAmount: Number(elements.productItemAmount.value || 0),
+    itemMaterial: resolveMaterialInput(elements.productItemMaterial.value),
+    itemAmount:
+      parsedItemAmount && Number.isFinite(parsedItemAmount) && parsedItemAmount > 0
+        ? Math.floor(parsedItemAmount)
+        : null,
     effectType: elements.productEffectType.value.trim(),
     effectSeconds: Number(elements.productEffectSeconds.value || 0),
     effectAmplifier: Number(elements.productEffectAmplifier.value || 0),
@@ -550,12 +930,35 @@ async function consumeGroupBuyVoucher() {
   }
 }
 
-async function loadProducts() {
-  ensureAdmin();
-  const payload = await apiAdmin("/api/admin/products/list?includeInactive=true&limit=300", {
-    method: "GET",
+function renderProducts() {
+  const keyword = String(elements.productSearchKeyword?.value || "").trim().toLowerCase();
+  const type = String(elements.productSearchType?.value || "").trim().toUpperCase();
+  const active = String(elements.productSearchActive?.value || "").trim();
+  const filtered = (state.products || []).filter((product) => {
+    if (type && String(product.productType || "").toUpperCase() !== type) {
+      return false;
+    }
+    if (active && String(Boolean(product.active)) !== active) {
+      return false;
+    }
+    if (!keyword) {
+      return true;
+    }
+    const materialName = getLocalizedMaterialName(product.itemMaterial || "");
+    const haystack = [
+      product.title || "",
+      product.sku || "",
+      product.itemMaterial || "",
+      materialName,
+      product.remark || "",
+      product.productType || "",
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(keyword);
   });
-  const rows = payload.products.map((product) => {
+
+  const rows = filtered.map((product) => {
     const editBtn = document.createElement("button");
     editBtn.className = "btn-tonal";
     editBtn.textContent = "加载编辑";
@@ -572,7 +975,7 @@ async function loadProducts() {
       elements.productType.value = product.productType;
       elements.productCommand.value = product.commandTemplate || "";
       elements.productItemMaterial.value = product.itemMaterial || "";
-      elements.productItemAmount.value = product.itemAmount || 1;
+      elements.productItemAmount.value = product.itemAmount || 64;
       elements.productEffectType.value = product.effectType || "";
       elements.productEffectSeconds.value = product.effectSeconds || 30;
       elements.productEffectAmplifier.value = product.effectAmplifier || 0;
@@ -595,6 +998,8 @@ async function loadProducts() {
       [
         { label: "ID", value: product.id },
         { label: "类型", value: product.productType },
+        { label: "材质", value: product.itemMaterial ? `${product.itemMaterial} (${getLocalizedMaterialName(product.itemMaterial)})` : "-" },
+        { label: "上限", value: product.itemAmount ? `x${product.itemAmount}` : "x64(默认)" },
         { label: "币种/价格", value: `${currencyName(product.currency)} / ${formatCurrency(product.price, product.currency)}` },
         { label: "备注", value: product.remark || "-" },
         { label: "上架时间", value: product.publishAt || "立即" },
@@ -607,12 +1012,27 @@ async function loadProducts() {
   renderList(elements.productList, rows);
 }
 
+async function loadProducts() {
+  ensureAdmin();
+  await ensureMaterialMap();
+  const payload = await apiAdmin("/api/admin/products/list?includeInactive=true&limit=300", {
+    method: "GET",
+  });
+  state.products = payload.products || [];
+  renderProducts();
+}
+
 async function loadAdminOrders() {
   ensureAdmin();
+  await ensureMaterialMap();
   const params = new URLSearchParams();
   const status = elements.orderStatus.value.trim();
   const userId = elements.orderUserId.value.trim();
   const orderNo = elements.orderNo.value.trim();
+  const username = elements.orderUsername.value.trim();
+  const currency = elements.orderCurrency.value.trim();
+  const productType = elements.orderProductType.value.trim();
+  const keyword = elements.orderKeyword.value.trim();
   if (status) {
     params.set("status", status);
   }
@@ -622,10 +1042,25 @@ async function loadAdminOrders() {
   if (orderNo) {
     params.set("orderNo", orderNo);
   }
+  if (username) {
+    params.set("username", username);
+  }
+  if (currency) {
+    params.set("currency", currency);
+  }
+  if (productType) {
+    params.set("productType", productType);
+  }
+  if (keyword) {
+    params.set("keyword", keyword);
+  }
   params.set("limit", "200");
   const payload = await apiAdmin(`/api/admin/orders/list?${params.toString()}`, { method: "GET" });
-  setMetaText(elements.orderStatusView, `已加载 ${payload.orders.length} 条订单`, "info");
-  const rows = payload.orders.map((order) =>
+  const orders = payload.orders || [];
+  notifyAdminOrderTransitions(state.realtime.orderDigest, orders);
+  state.realtime.orderDigest = buildAdminOrderDigest(orders);
+  setMetaText(elements.orderStatusView, `已加载 ${orders.length} 条订单`, "info");
+  const rows = orders.map((order) =>
     renderKeyValueCard(
       `订单 ${order.orderNo}`,
       [
@@ -634,6 +1069,8 @@ async function loadAdminOrders() {
         { label: "状态", value: order.status },
         { label: "金额", value: formatCurrency(order.totalAmount, order.currency) },
         { label: "商品", value: `${order.productTitle || "-"} (${order.sku || "-"})` },
+        { label: "类型", value: order.productType || "-" },
+        { label: "材质", value: order.itemMaterial ? `${order.itemMaterial} (${getLocalizedMaterialName(order.itemMaterial)})` : "-" },
         { label: "备注", value: order.productRemark || "-" },
         { label: "数量", value: `x${order.quantity}` },
         { label: "团购码", value: order.groupBuyVoucherCode || "-" },
@@ -739,11 +1176,39 @@ async function saveMarketEconomySettings() {
 
 async function loadMarket() {
   ensureAdmin();
+  await ensureMaterialMap();
+  const params = new URLSearchParams();
   const status = elements.marketStatus.value.trim();
-  const query = status ? `?status=${encodeURIComponent(status)}&limit=200` : "?limit=200";
-  const payload = await apiAdmin(`/api/admin/market/listings${query}`, { method: "GET" });
-  setMetaText(elements.marketStatusView, `已加载 ${payload.listings.length} 条`, "info");
-  const rows = payload.listings.map((listing) => {
+  const seller = elements.marketSeller.value.trim();
+  const buyer = elements.marketBuyer.value.trim();
+  const material = resolveMaterialInput(elements.marketMaterial.value);
+  const currency = elements.marketCurrency.value.trim();
+  const keyword = elements.marketKeyword.value.trim();
+  if (status) {
+    params.set("status", status);
+  }
+  if (seller) {
+    params.set("seller", seller);
+  }
+  if (buyer) {
+    params.set("buyer", buyer);
+  }
+  if (material) {
+    params.set("material", material);
+  }
+  if (currency) {
+    params.set("currency", currency);
+  }
+  if (keyword) {
+    params.set("keyword", keyword);
+  }
+  params.set("limit", "200");
+  const payload = await apiAdmin(`/api/admin/market/listings?${params.toString()}`, { method: "GET" });
+  const listings = payload.listings || [];
+  notifyAdminMarketTransitions(state.realtime.marketDigest, listings);
+  state.realtime.marketDigest = buildAdminMarketDigest(listings);
+  setMetaText(elements.marketStatusView, `已加载 ${listings.length} 条`, "info");
+  const rows = listings.map((listing) => {
     const actions = [];
     if (listing.status === "ACTIVE") {
       const unlistBtn = document.createElement("button");
@@ -764,7 +1229,7 @@ async function loadMarket() {
       [
         { label: "卖家", value: `${listing.sellerName} (${listing.sellerUuid})` },
         { label: "买家", value: listing.buyerName ? `${listing.buyerName}` : "-" },
-        { label: "物品", value: `${listing.itemMaterial} x${listing.quantity}` },
+        { label: "物品", value: `${listing.itemMaterial} (${getLocalizedMaterialName(listing.itemMaterial)}) x${listing.quantity}` },
         { label: "备注", value: listing.remark || "-" },
         { label: "价格", value: formatCurrency(listing.price, listing.currency) },
         { label: "状态", value: listing.status },
@@ -1005,6 +1470,63 @@ elements.marketRefreshBtn.addEventListener("click", async () => {
   }
 });
 
+const productFilterInputs = [
+  elements.productSearchKeyword,
+  elements.productSearchType,
+  elements.productSearchActive,
+].filter(Boolean);
+productFilterInputs.forEach((node) => {
+  node.addEventListener("input", () => renderProducts());
+  node.addEventListener("change", () => renderProducts());
+});
+
+const orderFilterInputs = [
+  elements.orderStatus,
+  elements.orderUserId,
+  elements.orderNo,
+  elements.orderUsername,
+  elements.orderCurrency,
+  elements.orderProductType,
+  elements.orderKeyword,
+].filter(Boolean);
+orderFilterInputs.forEach((node) => {
+  node.addEventListener("change", async () => {
+    if (!state.token) {
+      return;
+    }
+    await loadAdminOrders();
+  });
+  node.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter" || !state.token) {
+      return;
+    }
+    await loadAdminOrders();
+  });
+});
+
+const marketFilterInputs = [
+  elements.marketStatus,
+  elements.marketSeller,
+  elements.marketBuyer,
+  elements.marketMaterial,
+  elements.marketCurrency,
+  elements.marketKeyword,
+].filter(Boolean);
+marketFilterInputs.forEach((node) => {
+  node.addEventListener("change", async () => {
+    if (!state.token) {
+      return;
+    }
+    await loadMarket();
+  });
+  node.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter" || !state.token) {
+      return;
+    }
+    await loadMarket();
+  });
+});
+
 elements.userSearchBtn.addEventListener("click", async () => {
   try {
     await lookupUser();
@@ -1076,14 +1598,37 @@ if (elements.productType) {
     updateProductTypeFieldsVisibility(elements.productType.value);
   });
 }
+if (elements.productItemMaterial) {
+  elements.productItemMaterial.addEventListener("blur", () => {
+    const resolved = resolveMaterialInput(elements.productItemMaterial.value);
+    if (resolved) {
+      elements.productItemMaterial.value = resolved;
+    } else if (String(elements.productItemMaterial.value || "").trim()) {
+      notify("材质无效，请从建议列表选择或输入正确英文材质名。", "warn");
+    }
+  });
+}
+if (elements.marketMaterial) {
+  elements.marketMaterial.addEventListener("blur", () => {
+    const resolved = resolveMaterialInput(elements.marketMaterial.value);
+    if (resolved) {
+      elements.marketMaterial.value = resolved;
+    } else if (String(elements.marketMaterial.value || "").trim()) {
+      notify("材质筛选无效，请输入可识别的物品材质。", "warn");
+    }
+  });
+}
 updateProductTypeFieldsVisibility(elements.productType ? elements.productType.value : "COMMAND");
 
 applyCurrencyMetaToUi();
 loadCurrencyMeta();
+ensureMaterialMap();
 setMetaText(elements.adminLoginStatus, "等待登录", "info");
 if (elements.groupBuyConsumeStatus) {
   setMetaText(elements.groupBuyConsumeStatus, "等待核销", "info");
 }
 renderAdminProfile();
+
+
 
 

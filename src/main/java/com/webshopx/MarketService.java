@@ -92,7 +92,8 @@ class MarketService {
     return databaseManager.withConnection(connection -> {
       StringBuilder sql = new StringBuilder("""
           SELECT ml.id, ml.seller_user_id, u.username AS seller_name, ml.seller_uuid, ml.currency, ml.price,
-                 ml.quantity, ml.item_material, ml.item_meta_json, ml.remark, ml.status, ml.created_at
+                 ml.quantity, ml.quantity_total, ml.item_material, ml.item_meta_json,
+                 ml.remark, ml.status, ml.created_at
           FROM market_listings ml
           JOIN web_users u ON u.id = ml.seller_user_id
           WHERE 1=1
@@ -143,27 +144,66 @@ class MarketService {
     });
   }
 
-  List<AdminListingView> listAllListings(String statusFilter, int requestedLimit) {
+  List<AdminListingView> listAllListings(
+      String statusFilter,
+      String sellerKeyword,
+      String buyerKeyword,
+      String materialFilter,
+      String keyword,
+      String currencyFilter,
+      int requestedLimit) {
     int limit = normalizeLimit(requestedLimit);
     return databaseManager.withConnection(connection -> {
-      String filter = statusFilter == null || statusFilter.isBlank()
-          ? ""
-          : "WHERE ml.status = ?";
+      List<String> clauses = new ArrayList<>();
+      List<Object> params = new ArrayList<>();
+      clauses.add("1=1");
+      if (statusFilter != null && !statusFilter.isBlank()) {
+        clauses.add("ml.status = ?");
+        params.add(statusFilter.trim().toUpperCase(Locale.ROOT));
+      }
+      if (sellerKeyword != null && !sellerKeyword.isBlank()) {
+        clauses.add("LOWER(us.username) LIKE ?");
+        params.add("%" + sellerKeyword.trim().toLowerCase(Locale.ROOT) + "%");
+      }
+      if (buyerKeyword != null && !buyerKeyword.isBlank()) {
+        clauses.add("LOWER(IFNULL(ub.username, '')) LIKE ?");
+        params.add("%" + buyerKeyword.trim().toLowerCase(Locale.ROOT) + "%");
+      }
+      if (materialFilter != null && !materialFilter.isBlank()) {
+        clauses.add("ml.item_material = ?");
+        params.add(materialFilter.trim().toUpperCase(Locale.ROOT));
+      }
+      if (currencyFilter != null && !currencyFilter.isBlank()) {
+        clauses.add("ml.currency = ?");
+        params.add(currencyFilter.trim().toUpperCase(Locale.ROOT));
+      }
+      if (keyword != null && !keyword.isBlank()) {
+        clauses.add(
+            "(CAST(ml.id AS CHAR) LIKE ? OR LOWER(ml.item_material) LIKE ? OR LOWER(IFNULL(ml.remark, '')) LIKE ? "
+                + "OR LOWER(us.username) LIKE ? OR LOWER(IFNULL(ub.username, '')) LIKE ?)");
+        String fuzzy = "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%";
+        params.add(fuzzy);
+        params.add(fuzzy);
+        params.add(fuzzy);
+        params.add(fuzzy);
+        params.add(fuzzy);
+      }
       String sql = """
           SELECT ml.id, ml.seller_user_id, us.username AS seller_name, ml.seller_uuid,
                  ml.buyer_user_id, ub.username AS buyer_name, ml.buyer_uuid,
-                 ml.currency, ml.price, ml.quantity, ml.item_material, ml.item_meta_json,
+                 ml.currency, ml.price, ml.quantity, ml.quantity_total, ml.item_material, ml.item_meta_json,
                  ml.remark, ml.status, ml.created_at, ml.sold_at, ml.unlisted_at
           FROM market_listings ml
           JOIN web_users us ON us.id = ml.seller_user_id
           LEFT JOIN web_users ub ON ub.id = ml.buyer_user_id
-          """ + filter + " ORDER BY ml.id DESC LIMIT ?";
+          """
+          + " WHERE " + String.join(" AND ", clauses)
+          + " ORDER BY ml.id DESC LIMIT ?";
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
-        int index = 1;
-        if (!filter.isBlank()) {
-          statement.setString(index++, statusFilter.trim().toUpperCase(Locale.ROOT));
+        for (int i = 0; i < params.size(); i++) {
+          statement.setObject(i + 1, params.get(i));
         }
-        statement.setInt(index, limit);
+        statement.setInt(params.size() + 1, limit);
         return readAdminListingViews(statement.executeQuery());
       }
     });
@@ -176,13 +216,16 @@ class MarketService {
     return databaseManager.inTransaction(connection -> adminUnlistInTransaction(connection, listingId));
   }
 
-  TradeResult buyListing(long buyerUserId, long listingId, String idempotencyKey) {
+  TradeResult buyListing(long buyerUserId, long listingId, int buyQuantity, String idempotencyKey) {
     if (listingId <= 0L) {
       throw new ServiceException("invalid_listing", "Listing id must be positive");
     }
+    if (buyQuantity <= 0 || buyQuantity > 64) {
+      throw new ServiceException("invalid_quantity", "Buy quantity must be between 1 and 64");
+    }
     String normalizedIdempotency = normalizeIdempotencyKey(idempotencyKey);
     return databaseManager.inTransaction(connection ->
-        buyListingInTransaction(connection, buyerUserId, listingId, normalizedIdempotency));
+        buyListingInTransaction(connection, buyerUserId, listingId, buyQuantity, normalizedIdempotency));
   }
 
   UnlistResult unlist(long sellerUserId, long listingId) {
@@ -290,10 +333,10 @@ class MarketService {
 
     String sql = """
         INSERT INTO market_listings (
-          seller_user_id, seller_uuid, currency, price, quantity, item_material, raw_item_blob,
+          seller_user_id, seller_uuid, currency, price, quantity, quantity_total, item_material, raw_item_blob,
           item_meta_json, remark, item_hash, status
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
         """;
     try (PreparedStatement statement =
              connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -302,11 +345,12 @@ class MarketService {
       statement.setString(3, currency.name());
       statement.setLong(4, price);
       statement.setInt(5, listingItem.getAmount());
-      statement.setString(6, listingItem.getType().name());
-      statement.setBytes(7, snapshot.rawItemBlob());
-      statement.setString(8, snapshot.itemMetaJson());
-      statement.setString(9, null);
-      statement.setString(10, snapshot.itemHash());
+      statement.setInt(6, listingItem.getAmount());
+      statement.setString(7, listingItem.getType().name());
+      statement.setBytes(8, snapshot.rawItemBlob());
+      statement.setString(9, snapshot.itemMetaJson());
+      statement.setString(10, null);
+      statement.setString(11, snapshot.itemHash());
       statement.executeUpdate();
       try (ResultSet keyResult = statement.getGeneratedKeys()) {
         if (!keyResult.next()) {
@@ -321,6 +365,7 @@ class MarketService {
       Connection connection,
       long buyerUserId,
       long listingId,
+      int buyQuantity,
       String idempotencyKey) throws SQLException {
     int cooldownSeconds = normalizedOrderCooldownSeconds();
     ExistingTrade existingTrade = readExistingTrade(connection, buyerUserId, idempotencyKey);
@@ -336,6 +381,8 @@ class MarketService {
           existingTrade.tradeId(),
           existingTrade.listingId(),
           CurrencyType.valueOf(existingTrade.currency()),
+          existingTrade.unitPrice(),
+          existingTrade.quantity(),
           existingTrade.totalPrice(),
           buyerTotal,
           sellerReceive,
@@ -353,13 +400,17 @@ class MarketService {
     if (listing.sellerUserId() == buyerUserId) {
       throw new ServiceException("invalid_trade", "You cannot buy your own listing");
     }
+    if (buyQuantity > listing.quantity()) {
+      throw new ServiceException("insufficient_quantity", "Listing does not have enough remaining quantity");
+    }
 
     BoundUser buyer = readBoundUserById(connection, buyerUserId, true);
     PluginSettings.MarketEconomySettings marketEconomy = settingsSupplier.get().economySettings().marketSettings();
-    long fee = calculatePercent(listing.price(), marketEconomy.tradeFeePercent());
-    long tax = calculatePercent(listing.price(), marketEconomy.tradeTaxPercent());
-    long buyerTotal = Math.addExact(listing.price(), tax);
-    long sellerReceive = Math.max(0L, listing.price() - fee);
+    long tradeSubtotal = Math.multiplyExact(listing.price(), buyQuantity);
+    long fee = calculatePercent(tradeSubtotal, marketEconomy.tradeFeePercent());
+    long tax = calculatePercent(tradeSubtotal, marketEconomy.tradeTaxPercent());
+    long buyerTotal = Math.addExact(tradeSubtotal, tax);
+    long sellerReceive = Math.max(0L, tradeSubtotal - fee);
     LocalDateTime now = LocalDateTime.now();
     LocalDateTime refundDeadline = cooldownSeconds > 0
         ? now.plusSeconds(cooldownSeconds)
@@ -384,6 +435,8 @@ class MarketService {
         listing.sellerUserId(),
         listing.currency(),
         listing.price(),
+        buyQuantity,
+        tradeSubtotal,
         buyerTotal,
         sellerReceive,
         fee,
@@ -391,15 +444,16 @@ class MarketService {
         idempotencyKey,
         tradeStatus,
         refundDeadline);
-    updateListingToSold(connection, listing.id(), buyer);
+    updateListingAfterPurchase(connection, listing, buyer, buyQuantity);
     LocalDateTime deliveryAt = refundDeadline == null ? now : refundDeadline;
     enqueueMarketItemDelivery(
         connection,
         listing.id(),
+        tradeId,
         buyer.userId(),
         buyer.boundUuid(),
         listing.rawItemBlob(),
-        listing.quantity(),
+        buyQuantity,
         DeliveryType.SALE,
         deliveryAt);
     return new TradeResult(
@@ -408,6 +462,8 @@ class MarketService {
         listing.id(),
         listing.currency(),
         listing.price(),
+        buyQuantity,
+        tradeSubtotal,
         buyerTotal,
         sellerReceive,
         fee,
@@ -441,6 +497,7 @@ class MarketService {
     enqueueMarketItemDelivery(
         connection,
         listing.id(),
+        null,
         seller.userId(),
         seller.boundUuid(),
         listing.rawItemBlob(),
@@ -505,7 +562,7 @@ class MarketService {
   private ExistingTrade readExistingTrade(Connection connection, long buyerUserId, String idempotencyKey)
       throws SQLException {
     String sql = """
-        SELECT t.id, t.listing_id, t.currency, t.total_price,
+        SELECT t.id, t.listing_id, t.currency, t.unit_price, t.quantity, t.total_price,
                t.buyer_total, t.seller_receive, t.fee_amount, t.tax_amount,
                t.status, t.refund_deadline
         FROM market_trades t
@@ -523,6 +580,8 @@ class MarketService {
             resultSet.getLong("id"),
             resultSet.getLong("listing_id"),
             resultSet.getString("currency"),
+            resultSet.getLong("unit_price"),
+            resultSet.getInt("quantity"),
             resultSet.getLong("total_price"),
             resultSet.getLong("buyer_total"),
             resultSet.getLong("seller_receive"),
@@ -542,6 +601,8 @@ class MarketService {
       long buyerUserId,
       long sellerUserId,
       CurrencyType currency,
+      long unitPrice,
+      int quantity,
       long totalPrice,
       long buyerTotal,
       long sellerReceive,
@@ -552,11 +613,11 @@ class MarketService {
       LocalDateTime refundDeadline) throws SQLException {
     String sql = """
         INSERT INTO market_trades (
-          listing_id, buyer_user_id, seller_user_id, currency, total_price,
+          listing_id, buyer_user_id, seller_user_id, currency, unit_price, quantity, total_price,
           buyer_total, seller_receive, fee_amount, tax_amount, idempotency_key,
           status, refund_deadline
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement =
              connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -564,17 +625,19 @@ class MarketService {
       statement.setLong(2, buyerUserId);
       statement.setLong(3, sellerUserId);
       statement.setString(4, currency.name());
-      statement.setLong(5, totalPrice);
-      statement.setLong(6, buyerTotal);
-      statement.setLong(7, sellerReceive);
-      statement.setLong(8, feeAmount);
-      statement.setLong(9, taxAmount);
-      statement.setString(10, idempotencyKey);
-      statement.setString(11, status);
+      statement.setLong(5, unitPrice);
+      statement.setInt(6, quantity);
+      statement.setLong(7, totalPrice);
+      statement.setLong(8, buyerTotal);
+      statement.setLong(9, sellerReceive);
+      statement.setLong(10, feeAmount);
+      statement.setLong(11, taxAmount);
+      statement.setString(12, idempotencyKey);
+      statement.setString(13, status);
       if (refundDeadline == null) {
-        statement.setTimestamp(12, null);
+        statement.setTimestamp(14, null);
       } else {
-        statement.setTimestamp(12, Timestamp.valueOf(refundDeadline));
+        statement.setTimestamp(14, Timestamp.valueOf(refundDeadline));
       }
       statement.executeUpdate();
       try (ResultSet keyResult = statement.getGeneratedKeys()) {
@@ -586,17 +649,37 @@ class MarketService {
     }
   }
 
-  private void updateListingToSold(Connection connection, long listingId, BoundUser buyer)
-      throws SQLException {
-    String sql = """
-        UPDATE market_listings
-        SET status = 'SOLD', buyer_user_id = ?, buyer_uuid = ?, sold_at = NOW()
-        WHERE id = ?
-        """;
+  private void updateListingAfterPurchase(
+      Connection connection,
+      MarketListing listing,
+      BoundUser buyer,
+      int buyQuantity) throws SQLException {
+    int remain = listing.quantity() - buyQuantity;
+    if (remain < 0) {
+      throw new ServiceException("insufficient_quantity", "Listing does not have enough remaining quantity");
+    }
+    boolean soldOut = remain == 0;
+    String sql = soldOut
+        ? """
+            UPDATE market_listings
+            SET quantity = 0, status = 'SOLD', buyer_user_id = ?, buyer_uuid = ?, sold_at = NOW()
+            WHERE id = ?
+            """
+        : """
+            UPDATE market_listings
+            SET quantity = ?, status = 'ACTIVE',
+                buyer_user_id = NULL, buyer_uuid = NULL, sold_at = NULL
+            WHERE id = ?
+            """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
-      statement.setLong(1, buyer.userId());
-      statement.setString(2, buyer.boundUuid().toString());
-      statement.setLong(3, listingId);
+      if (soldOut) {
+        statement.setLong(1, buyer.userId());
+        statement.setString(2, buyer.boundUuid().toString());
+        statement.setLong(3, listing.id());
+      } else {
+        statement.setInt(1, remain);
+        statement.setLong(2, listing.id());
+      }
       statement.executeUpdate();
     }
   }
@@ -621,6 +704,7 @@ class MarketService {
     enqueueMarketItemDelivery(
         connection,
         listing.id(),
+        null,
         listing.sellerUserId(),
         listing.sellerUuid(),
         listing.rawItemBlob(),
@@ -633,6 +717,7 @@ class MarketService {
   private void enqueueMarketItemDelivery(
       Connection connection,
       long listingId,
+      Long tradeId,
       long targetUserId,
       UUID targetUuid,
       byte[] itemBlob,
@@ -641,25 +726,31 @@ class MarketService {
       LocalDateTime nextRetryAt) throws SQLException {
     String sql = """
         INSERT INTO market_item_deliveries (
-          listing_id, target_user_id, target_uuid, item_blob, quantity, delivery_type, status, next_retry_at
+          listing_id, trade_id, target_user_id, target_uuid, item_blob, quantity, delivery_type, status, next_retry_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, listingId);
-      statement.setLong(2, targetUserId);
-      statement.setString(3, targetUuid.toString());
-      statement.setBytes(4, itemBlob);
-      statement.setInt(5, quantity);
-      statement.setString(6, deliveryType.name());
-      statement.setTimestamp(7, Timestamp.valueOf(nextRetryAt));
+      if (tradeId == null) {
+        statement.setObject(2, null);
+      } else {
+        statement.setLong(2, tradeId);
+      }
+      statement.setLong(3, targetUserId);
+      statement.setString(4, targetUuid.toString());
+      statement.setBytes(5, itemBlob);
+      statement.setInt(6, quantity);
+      statement.setString(7, deliveryType.name());
+      statement.setTimestamp(8, Timestamp.valueOf(nextRetryAt));
       statement.executeUpdate();
     }
   }
 
   private MarketListing readListingForUpdate(Connection connection, long listingId) throws SQLException {
     String sql = """
-        SELECT id, seller_user_id, seller_uuid, currency, price, quantity, item_material, raw_item_blob,
+        SELECT id, seller_user_id, seller_uuid, currency, price, quantity, quantity_total,
+               item_material, raw_item_blob,
                item_meta_json, remark, item_hash, status
         FROM market_listings
         WHERE id = ?
@@ -678,6 +769,7 @@ class MarketService {
             CurrencyType.valueOf(resultSet.getString("currency")),
             resultSet.getLong("price"),
             resultSet.getInt("quantity"),
+            resultSet.getInt("quantity_total"),
             resultSet.getString("item_material"),
             resultSet.getBytes("raw_item_blob"),
             resultSet.getString("item_meta_json"),
@@ -699,6 +791,7 @@ class MarketService {
           CurrencyType.valueOf(resultSet.getString("currency")),
           resultSet.getLong("price"),
           resultSet.getInt("quantity"),
+          resultSet.getInt("quantity_total"),
           resultSet.getString("item_material"),
           resultSet.getString("item_meta_json"),
           resultSet.getString("remark"),
@@ -724,6 +817,7 @@ class MarketService {
           CurrencyType.valueOf(resultSet.getString("currency")),
           resultSet.getLong("price"),
           resultSet.getInt("quantity"),
+          resultSet.getInt("quantity_total"),
           resultSet.getString("item_material"),
           resultSet.getString("item_meta_json"),
           resultSet.getString("remark"),
@@ -902,6 +996,8 @@ class MarketService {
       long tradeId,
       long listingId,
       String currency,
+      long unitPrice,
+      int quantity,
       long totalPrice,
       long buyerTotal,
       long sellerReceive,
@@ -918,6 +1014,7 @@ class MarketService {
       CurrencyType currency,
       long price,
       int quantity,
+      int quantityTotal,
       String itemMaterial,
       byte[] rawItemBlob,
       String itemMetaJson,
@@ -965,6 +1062,7 @@ class MarketService {
       CurrencyType currency,
       long price,
       int quantity,
+      int quantityTotal,
       String itemMaterial,
       String itemMetaJson,
       String remark,
@@ -983,6 +1081,7 @@ class MarketService {
       CurrencyType currency,
       long price,
       int quantity,
+      int quantityTotal,
       String itemMaterial,
       String itemMetaJson,
       String remark,
@@ -997,6 +1096,8 @@ class MarketService {
       long tradeId,
       long listingId,
       CurrencyType currency,
+      long unitPrice,
+      int quantity,
       long totalPrice,
       long buyerTotal,
       long sellerReceive,
