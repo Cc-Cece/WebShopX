@@ -42,11 +42,15 @@ const elements = {
   productEffectType: document.getElementById("productEffectType"),
   productEffectSeconds: document.getElementById("productEffectSeconds"),
   productEffectAmplifier: document.getElementById("productEffectAmplifier"),
+  productRemark: document.getElementById("productRemark"),
   productActive: document.getElementById("productActive"),
   productSaveBtn: document.getElementById("productSaveBtn"),
   productRefreshBtn: document.getElementById("productRefreshBtn"),
   productStatus: document.getElementById("productStatus"),
   productList: document.getElementById("productList"),
+  groupBuyConsumeCode: document.getElementById("groupBuyConsumeCode"),
+  groupBuyConsumeBtn: document.getElementById("groupBuyConsumeBtn"),
+  groupBuyConsumeStatus: document.getElementById("groupBuyConsumeStatus"),
 
   orderStatus: document.getElementById("orderStatus"),
   orderUserId: document.getElementById("orderUserId"),
@@ -180,9 +184,59 @@ async function loadCurrencyMeta() {
         short: payload.gameCoin.short || state.currencyMeta.GAME_COIN.short,
       };
     }
+    applyCurrencyMetaToUi();
   } catch (error) {
     // Ignore missing metadata.
   }
+}
+
+function currencyName(currency) {
+  const meta = state.currencyMeta[currency] || { name: String(currency || "--") };
+  return meta.name;
+}
+
+function applyCurrencyMetaToUi() {
+  const shopName = currencyName("SHOP_COIN");
+  const gameName = currencyName("GAME_COIN");
+
+  const applyText = (id, text) => {
+    const node = document.getElementById(id);
+    if (node) {
+      node.textContent = text;
+    }
+  };
+
+  const updateSelect = (select) => {
+    if (!select) {
+      return;
+    }
+    Array.from(select.options || []).forEach((option) => {
+      if (option.value === "SHOP_COIN") {
+        option.textContent = shopName;
+      }
+      if (option.value === "GAME_COIN") {
+        option.textContent = gameName;
+      }
+    });
+  };
+
+  updateSelect(elements.productCurrency);
+  updateSelect(elements.walletCurrency);
+
+  applyText("adminRedeemShopCoinLabel", shopName);
+  applyText("adminRedeemGameCoinLabel", gameName);
+  applyText("economyShopCoinName", shopName);
+  applyText("economyGameCoinName", gameName);
+  applyText("exchangeShopToGameNameA", shopName);
+  applyText("exchangeShopToGameNameB", gameName);
+  applyText("exchangeShopToGameNameC", shopName);
+  applyText("exchangeShopToGameNameD", gameName);
+  applyText("exchangeGameToShopNameA", gameName);
+  applyText("exchangeGameToShopNameB", shopName);
+  applyText("exchangeGameToShopNameC", gameName);
+  applyText("exchangeGameToShopNameD", shopName);
+  applyText("vaultGameCoinName", gameName);
+  applyText("userCurrencyHint", `余额字段显示为：${shopName} / ${gameName}`);
 }
 
 function ensureAdmin() {
@@ -379,8 +433,8 @@ async function loadRedeemList() {
     renderKeyValueCard(
       code.code,
       [
-        { label: "ShopCoin", value: code.shopCoin },
-        { label: "GameCoin", value: code.gameCoin },
+        { label: currencyName("SHOP_COIN"), value: code.shopCoin },
+        { label: currencyName("GAME_COIN"), value: code.gameCoin },
         { label: "已用 / 总次数", value: `${code.usedCount}/${code.maxUses}` },
         { label: "单账号上限", value: code.perUserMaxUses || 1 },
         { label: "有效期", value: code.expiresAt || "永久" },
@@ -395,6 +449,7 @@ function getProductInput() {
   return {
     sku: elements.productSku.value.trim(),
     title: elements.productTitle.value.trim(),
+    remark: elements.productRemark ? elements.productRemark.value.trim() : "",
     currency: elements.productCurrency.value.trim(),
     price: Number(elements.productPrice.value || 0),
     publishAt: elements.productPublishAt.value ? elements.productPublishAt.value : null,
@@ -422,6 +477,28 @@ async function saveProduct() {
   await loadProducts();
 }
 
+async function consumeGroupBuyVoucher() {
+  ensureAdmin();
+  const code = elements.groupBuyConsumeCode ? elements.groupBuyConsumeCode.value.trim() : "";
+  if (!code) {
+    throw new Error("请输入要核销的团购兑换码。");
+  }
+  const payload = await apiAdmin("/api/admin/group-buy/consume", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+  const consumedAt = payload.consumedAt || "刚刚";
+  setMetaText(
+    elements.groupBuyConsumeStatus,
+    `核销成功：${payload.code} | 订单 ${payload.orderNo} | 用户 ${payload.username} | 时间 ${consumedAt}`,
+    "success"
+  );
+  notify(`团购兑换码已核销：${payload.code}`, "success");
+  if (elements.groupBuyConsumeCode) {
+    elements.groupBuyConsumeCode.value = "";
+  }
+}
+
 async function loadProducts() {
   ensureAdmin();
   const payload = await apiAdmin("/api/admin/products/list?includeInactive=true&limit=300", {
@@ -434,6 +511,9 @@ async function loadProducts() {
     editBtn.addEventListener("click", () => {
       elements.productSku.value = product.sku;
       elements.productTitle.value = product.title;
+      if (elements.productRemark) {
+        elements.productRemark.value = product.remark || "";
+      }
       elements.productCurrency.value = product.currency;
       elements.productPrice.value = product.price;
       elements.productPublishAt.value = toLocalInput(product.publishAt);
@@ -464,7 +544,8 @@ async function loadProducts() {
       [
         { label: "ID", value: product.id },
         { label: "类型", value: product.productType },
-        { label: "币种/价格", value: `${product.currency} ${product.price}` },
+        { label: "币种/价格", value: `${currencyName(product.currency)} / ${formatCurrency(product.price, product.currency)}` },
+        { label: "备注", value: product.remark || "-" },
         { label: "上架时间", value: product.publishAt || "立即" },
         { label: "下架时间", value: product.unpublishAt || "不自动下架" },
         { label: "启用", value: product.active ? "是" : "否" },
@@ -502,7 +583,10 @@ async function loadAdminOrders() {
         { label: "状态", value: order.status },
         { label: "金额", value: formatCurrency(order.totalAmount, order.currency) },
         { label: "商品", value: `${order.productTitle || "-"} (${order.sku || "-"})` },
+        { label: "备注", value: order.productRemark || "-" },
         { label: "数量", value: `x${order.quantity}` },
+        { label: "团购码", value: order.groupBuyVoucherCode || "-" },
+        { label: "团购码状态", value: order.groupBuyVoucherStatus || "-" },
         { label: "时间", value: order.createdAt },
       ]
     )
@@ -539,12 +623,13 @@ async function loadEconomySettings() {
   }
 
   const vault = payload.vault || {};
+  const gameCoinName = currencyName("GAME_COIN");
   if (elements.vaultStatusView) {
     const provider = vault.provider || "未提供";
     if (vault.hooked) {
       setMetaText(
         elements.vaultStatusView,
-        `已连接 Vault 经济：${provider}（GameCoin 由 Vault 托管）`,
+        `已连接 Vault 经济：${provider}（${gameCoinName} 由 Vault 托管）`,
         "success"
       );
     } else if (vault.vaultPluginPresent) {
@@ -556,7 +641,7 @@ async function loadEconomySettings() {
     } else {
       setMetaText(
         elements.vaultStatusView,
-        "未检测到 Vault 插件，GameCoin 当前使用本地钱包。",
+        `未检测到 Vault 插件，${gameCoinName} 当前使用本地钱包。`,
         "warn"
       );
     }
@@ -629,6 +714,7 @@ async function loadMarket() {
         { label: "卖家", value: `${listing.sellerName} (${listing.sellerUuid})` },
         { label: "买家", value: listing.buyerName ? `${listing.buyerName}` : "-" },
         { label: "物品", value: `${listing.itemMaterial} x${listing.quantity}` },
+        { label: "备注", value: listing.remark || "-" },
         { label: "价格", value: formatCurrency(listing.price, listing.currency) },
         { label: "状态", value: listing.status },
       ],
@@ -655,8 +741,8 @@ async function lookupUser() {
       { label: "用户ID", value: payload.id },
       { label: "UUID", value: payload.boundUuid || "未绑定" },
       { label: "状态", value: payload.authState },
-      { label: "ShopCoin", value: payload.shopCoin },
-      { label: "GameCoin", value: payload.gameCoin },
+      { label: currencyName("SHOP_COIN"), value: payload.shopCoin },
+      { label: currencyName("GAME_COIN"), value: payload.gameCoin },
     ]
   );
   renderList(elements.userInfoBox, [info]);
@@ -722,7 +808,7 @@ async function adjustWallet() {
   });
   setMetaText(
     elements.userActionStatus,
-    `余额已更新：SC ${payload.shopCoin} | GC ${payload.gameCoin}`,
+    `余额已更新：${formatCurrency(payload.shopCoin, "SHOP_COIN")} | ${formatCurrency(payload.gameCoin, "GAME_COIN")}`,
     "success"
   );
   notify("余额调整成功", "success");
@@ -793,6 +879,17 @@ elements.productSaveBtn.addEventListener("click", async () => {
     notify(`保存失败：${error.message}`, "error");
   }
 });
+
+if (elements.groupBuyConsumeBtn) {
+  elements.groupBuyConsumeBtn.addEventListener("click", async () => {
+    try {
+      await consumeGroupBuyVoucher();
+    } catch (error) {
+      setMetaText(elements.groupBuyConsumeStatus, `核销失败：${error.message}`, "error");
+      notify(`核销失败：${error.message}`, "error");
+    }
+  });
+}
 
 elements.productRefreshBtn.addEventListener("click", async () => {
   try {
@@ -914,8 +1011,12 @@ if (elements.productType) {
 }
 updateProductTypeFieldsVisibility(elements.productType ? elements.productType.value : "COMMAND");
 
+applyCurrencyMetaToUi();
 loadCurrencyMeta();
 setMetaText(elements.adminLoginStatus, "等待登录", "info");
+if (elements.groupBuyConsumeStatus) {
+  setMetaText(elements.groupBuyConsumeStatus, "等待核销", "info");
+}
 renderAdminProfile();
 
 

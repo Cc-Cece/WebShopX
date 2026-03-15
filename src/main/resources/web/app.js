@@ -143,6 +143,13 @@ const ERROR_TIPS_BY_SCENE = {
     forbidden: "仅上架者本人可以改价。",
     invalid_price: "价格必须大于 0。",
   },
+  market_remark: {
+    invalid_listing: "上架 ID 无效，请刷新列表后重试。",
+    listing_missing: "该上架不存在，可能已被移除。",
+    listing_unavailable: "该上架已下架或已售出。",
+    forbidden: "仅上架者本人可以编辑备注。",
+    invalid_remark: "备注长度超出限制。",
+  },
   wallet_refresh: {
     bad_request: "请求参数异常，请重新登录后再试。",
   },
@@ -505,11 +512,19 @@ function applyCurrencyMeta(meta) {
   updateSelect(document.getElementById("exchangeTo"));
   updateSelect(document.getElementById("marketCurrency"));
 
-  const pillLabels = document.querySelectorAll(".wallet-pill span");
-  if (pillLabels.length >= 2) {
-    pillLabels[0].textContent = CURRENCY_META.SHOP_COIN.label;
-    pillLabels[1].textContent = CURRENCY_META.GAME_COIN.label;
-  }
+  const applyText = (id, text) => {
+    const node = document.getElementById(id);
+    if (node) {
+      node.textContent = text;
+    }
+  };
+
+  applyText("walletShopLabel", CURRENCY_META.SHOP_COIN.label);
+  applyText("walletGameLabel", CURRENCY_META.GAME_COIN.label);
+  applyText("walletDescShopCoin", CURRENCY_META.SHOP_COIN.label);
+  applyText("walletDescGameCoin", CURRENCY_META.GAME_COIN.label);
+  applyText("exchangeDescShopCoin", CURRENCY_META.SHOP_COIN.label);
+  applyText("exchangeDescGameCoin", CURRENCY_META.GAME_COIN.label);
 }
 
 async function loadCurrencyMeta() {
@@ -844,7 +859,7 @@ function renderProfile() {
   elements.profileName.textContent = state.username || "-";
   elements.profileUuid.textContent = state.boundUuid || "未绑定";
 
-  const avatarKey = state.boundUuid || state.username;
+  const avatarKey = state.username || state.boundUuid;
   if (!avatarKey) {
     elements.profileAvatar.src = FALLBACK_AVATAR;
     return;
@@ -1112,6 +1127,12 @@ function renderProducts(products) {
     card.appendChild(top);
 
     card.appendChild(createEl("p", "product-price", formatCurrency(product.price, product.currency)));
+    if (product.remark) {
+      card.appendChild(createEl("p", "product-remark", product.remark));
+    }
+    if (String(product.productType || "").toUpperCase() === "GROUP_BUY_VOUCHER") {
+      card.appendChild(createEl("p", "product-sku", "该商品购买后将生成团购兑换码，需交由管理员核销。"));
+    }
     if (product.unpublishAt) {
       card.appendChild(createEl("p", "product-sku", `下架时间：${formatDateTime(product.unpublishAt)}`));
     }
@@ -1124,7 +1145,8 @@ function renderProducts(products) {
     qty.step = "1";
     qty.value = "1";
 
-    const button = createEl("button", "product-buy-btn", "立即下单");
+    const isGroupBuyVoucher = String(product.productType || "").toUpperCase() === "GROUP_BUY_VOUCHER";
+    const button = createEl("button", "product-buy-btn", isGroupBuyVoucher ? "购买兑换码" : "立即下单");
     button.type = "button";
     button.dataset.productId = String(product.id);
 
@@ -1173,6 +1195,9 @@ function renderListings(listings) {
     detail.appendChild(createEl("h3", "market-title", localizedName));
     detail.appendChild(createEl("p", "market-code", String(listing.itemMaterial)));
     detail.appendChild(createEl("p", "market-sub", `数量 x${listing.quantity}`));
+    if (listing.remark) {
+      detail.appendChild(createEl("p", "market-remark", listing.remark));
+    }
     main.appendChild(detail);
     card.appendChild(main);
 
@@ -1198,6 +1223,12 @@ function renderListings(listings) {
     const actions = createEl("div", "market-actions-row");
     if (isActive) {
       if (isOwner) {
+        const remarkBtn = createEl("button", "market-action-btn btn-tonal", "备注");
+        remarkBtn.type = "button";
+        remarkBtn.dataset.action = "remark";
+        remarkBtn.dataset.listingId = String(listing.id);
+        remarkBtn.dataset.currentRemark = listing.remark || "";
+
         const editBtn = createEl("button", "market-action-btn btn-tonal", "改价");
         editBtn.type = "button";
         editBtn.dataset.action = "price";
@@ -1209,6 +1240,7 @@ function renderListings(listings) {
         unlistBtn.type = "button";
         unlistBtn.dataset.action = "unlist";
         unlistBtn.dataset.listingId = String(listing.id);
+        actions.appendChild(remarkBtn);
         actions.appendChild(editBtn);
         actions.appendChild(unlistBtn);
       } else {
@@ -1384,6 +1416,9 @@ function renderOrders(orders) {
 
     const meta = createEl("div", "order-meta");
     meta.appendChild(createEl("div", "", `数量：x${order.quantity}`));
+    if (order.productRemark) {
+      meta.appendChild(createEl("div", "", `备注：${order.productRemark}`));
+    }
     const createdLabel = isMarket ? "成交时间" : "下单时间";
     meta.appendChild(createEl("div", "", `${createdLabel}：${formatDateTime(order.createdAt)}`));
     if (order.deliveredAt) {
@@ -1396,6 +1431,14 @@ function renderOrders(orders) {
       const remain = formatCountdown(order.refundDeadline);
       if (remain) {
         meta.appendChild(createEl("div", "", `冷静期剩余：${remain}`));
+      }
+    }
+    if (order.groupBuyVoucherCode) {
+      const voucherStatus = order.groupBuyVoucherStatus || "ISSUED";
+      meta.appendChild(createEl("div", "", `团购兑换码：${order.groupBuyVoucherCode}`));
+      meta.appendChild(createEl("div", "", `团购兑换状态：${voucherStatus}`));
+      if (order.groupBuyVoucherConsumedAt) {
+        meta.appendChild(createEl("div", "", `核销时间：${formatDateTime(order.groupBuyVoucherConsumedAt)}`));
       }
     }
     card.appendChild(meta);
@@ -1455,6 +1498,12 @@ async function confirmPurchase(product, quantity) {
     `数量：x${qty}`,
     `总额：${total}`,
   ];
+  if (product.remark) {
+    details.push(`备注：${product.remark}`);
+  }
+  if (String(product.productType || "").toUpperCase() === "GROUP_BUY_VOUCHER") {
+    details.push("该商品会生成团购兑换码，需由管理员在后台核销。");
+  }
   if (cooldown > 0) {
     details.push(`冷静期：${cooldown} 秒（可在冷静期内退款）`);
   } else {
@@ -1481,6 +1530,9 @@ async function confirmMarketBuy(listing) {
     `卖家：${listing.sellerName}`,
     "手续费/税率以服务器配置为准",
   ];
+  if (listing.remark) {
+    details.push(`备注：${listing.remark}`);
+  }
   if (cooldown > 0) {
     details.push(`冷静期：${cooldown} 秒（冷静期内可退款）`);
   } else {
@@ -1528,6 +1580,7 @@ async function createOrder(productId, quantity) {
 
   const isExisting = String(payload.state || "").toUpperCase() === "EXISTING";
   const orderStatus = payload.orderStatus || payload.state;
+  const groupBuyVoucherCode = payload.groupBuyVoucherCode || null;
   const summary = `订单 ${payload.orderNo} | 总额 ${formatCurrency(payload.totalAmount, payload.currency)} | ${orderStatus}`;
   setMetaText(elements.orderView, summary, isExisting ? "warn" : "success");
   if (isExisting) {
@@ -1536,6 +1589,10 @@ async function createOrder(productId, quantity) {
   } else {
     log(`下单成功：${summary}`, "SUCCESS");
     notify(`下单成功：${summary}`, "success");
+  }
+  if (groupBuyVoucherCode) {
+    notify(`已生成团购兑换码：${groupBuyVoucherCode}`, "success", 5200);
+    log(`团购兑换码已生成：${groupBuyVoucherCode}`, "SUCCESS");
   }
 
   try {
@@ -1619,6 +1676,18 @@ async function updateListingPrice(listingId, price) {
   });
   log(`改价成功：listingId=${payload.listingId} price=${payload.price}`, "SUCCESS");
   notify(`改价成功：新价格 ${formatCurrency(payload.price, payload.currency)}。`, "success");
+  await loadMarket(state.marketMode);
+}
+
+async function updateListingRemark(listingId, remark) {
+  ensureToken();
+  const payload = await api("/api/market/remark", {
+    method: "POST",
+    body: JSON.stringify({ listingId, remark }),
+  });
+  const remarkText = payload.remark ? payload.remark : "（空）";
+  log(`备注更新成功：listingId=${payload.listingId}`, "SUCCESS");
+  notify(`备注已更新：${remarkText}`, "success");
   await loadMarket(state.marketMode);
 }
 
@@ -1760,13 +1829,14 @@ document.getElementById("exchangeBtn").addEventListener("click", async () => {
     });
 
     updateWalletView(payload);
+    const toMeta = CURRENCY_META[toCurrency] || { label: toCurrency };
     setMetaText(
       elements.exchangeView,
-      `兑换成功：${formatCurrency(amount, fromCurrency)} -> ${toCurrency}`,
+      `兑换成功：${formatCurrency(amount, fromCurrency)} -> ${toMeta.label}`,
       "success"
     );
-    log(`货币兑换成功：${formatCurrency(amount, fromCurrency)} -> ${toCurrency}`, "SUCCESS");
-    notify(`兑换成功：${formatCurrency(amount, fromCurrency)} -> ${toCurrency}`, "success");
+    log(`货币兑换成功：${formatCurrency(amount, fromCurrency)} -> ${toMeta.label}`, "SUCCESS");
+    notify(`兑换成功：${formatCurrency(amount, fromCurrency)} -> ${toMeta.label}`, "success");
   } catch (error) {
     const message = resolveErrorMessage(error, "exchange");
     setMetaText(elements.exchangeView, `兑换失败：${message}`, "error");
@@ -1937,12 +2007,25 @@ elements.marketList.addEventListener("click", async (event) => {
         return;
       }
       await updateListingPrice(listingId, newPrice);
+      return;
+    }
+    if (button.dataset.action === "remark") {
+      const currentRemark = button.dataset.currentRemark || "";
+      const raw = window.prompt("请输入备注（留空将清空备注）", currentRemark);
+      if (raw === null) {
+        notify("已取消备注编辑。", "info");
+        return;
+      }
+      const remark = raw.trim();
+      await updateListingRemark(listingId, remark ? remark : null);
     }
   } catch (error) {
     const scene = button.dataset.action === "unlist"
       ? "market_unlist"
       : button.dataset.action === "price"
         ? "market_price"
+        : button.dataset.action === "remark"
+          ? "market_remark"
         : "market_buy";
     const message = resolveErrorMessage(error, scene);
     log(`市场操作失败：${message}`, "ERROR");
@@ -1992,6 +2075,7 @@ if (elements.priceDialog) {
 setAuthMode("login");
 updateAuthLayout();
 clearRegistrationUi();
+setMetaText(elements.walletView, formatWalletInline(0, 0), "info");
 setMetaText(elements.redeemView, "等待兑换操作", "info");
 setMetaText(elements.exchangeView, "等待兑换操作", "info");
 setMetaText(elements.orderView, "暂无订单", "info");

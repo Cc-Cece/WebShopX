@@ -229,6 +229,7 @@ body {
 
 input,
 select,
+textarea,
 button {
   border-radius: var(--radius-small);
   font-family: inherit;
@@ -236,7 +237,8 @@ button {
 }
 
 input,
-select {
+select,
+textarea {
   border: 1px solid var(--md-sys-color-outline);
   background: var(--md-sys-color-surface-container-low);
   color: var(--md-sys-color-on-surface);
@@ -245,10 +247,18 @@ select {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: none;
   border-color: #4f8cff;
   box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.16);
+}
+
+textarea {
+  min-height: 84px;
+  height: auto;
+  padding: 10px 12px;
+  resize: vertical;
 }
 
 button {
@@ -684,6 +694,17 @@ code {
   font-size: 12px;
 }
 
+.product-remark {
+  margin: 0;
+  border-radius: 12px;
+  border: 1px solid #d7dfea;
+  background: #f7f9fd;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #546279;
+  line-height: 1.45;
+}
+
 .currency-chip {
   border-radius: 999px;
   background: #eff4ff;
@@ -836,6 +857,17 @@ code {
   color: #60708a;
 }
 
+.market-remark {
+  margin: 4px 0 0;
+  border-radius: 10px;
+  border: 1px solid #d7dfea;
+  background: #f7f9fd;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: #556278;
+  line-height: 1.45;
+}
+
 .market-price-row {
   border-top: 1px solid #e0e5ef;
   border-bottom: 1px solid #e0e5ef;
@@ -936,6 +968,10 @@ code {
 
 .market-actions {
   margin-top: 14px;
+}
+
+.product-remark-field {
+  grid-column: 1 / -1;
 }
 
 pre {

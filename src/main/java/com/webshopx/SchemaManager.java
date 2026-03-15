@@ -30,9 +30,11 @@ class SchemaManager {
     createOrderItems(connection);
     createDeliveryQueue(connection);
     createMarketListings(connection);
+    migrateMarketListings(connection);
     createMarketTrades(connection);
     migrateMarketTrades(connection);
     createMarketItemDeliveries(connection);
+    createGroupBuyVouchers(connection);
     return null;
   }
 
@@ -244,6 +246,7 @@ class SchemaManager {
           id BIGINT NOT NULL AUTO_INCREMENT,
           sku VARCHAR(64) NOT NULL,
           title VARCHAR(128) NOT NULL,
+          remark TEXT NULL,
           currency VARCHAR(16) NOT NULL,
           price BIGINT NOT NULL,
           product_type VARCHAR(24) NOT NULL DEFAULT 'COMMAND',
@@ -272,6 +275,12 @@ class SchemaManager {
           connection,
           "ALTER TABLE products "
               + "ADD COLUMN product_type VARCHAR(24) NOT NULL DEFAULT 'COMMAND' AFTER price");
+    }
+    if (!columnExists(connection, "products", "remark")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN remark TEXT NULL AFTER title");
     }
     if (!columnExists(connection, "products", "item_material")) {
       execute(
@@ -420,6 +429,7 @@ class SchemaManager {
           item_material VARCHAR(64) NOT NULL,
           raw_item_blob LONGBLOB NOT NULL,
           item_meta_json JSON NOT NULL,
+          remark TEXT NULL,
           item_hash VARCHAR(64) NOT NULL,
           status VARCHAR(24) NOT NULL DEFAULT 'ACTIVE',
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -435,6 +445,15 @@ class SchemaManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
+  }
+
+  private void migrateMarketListings(Connection connection) throws SQLException {
+    if (!columnExists(connection, "market_listings", "remark")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN remark TEXT NULL AFTER item_meta_json");
+    }
   }
 
   private void createMarketTrades(Connection connection) throws SQLException {
@@ -575,6 +594,35 @@ class SchemaManager {
             FOREIGN KEY (listing_id) REFERENCES market_listings(id) ON DELETE CASCADE,
           CONSTRAINT fk_market_delivery_user
             FOREIGN KEY (target_user_id) REFERENCES web_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void createGroupBuyVouchers(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS group_buy_vouchers (
+          id BIGINT NOT NULL AUTO_INCREMENT,
+          code VARCHAR(40) NOT NULL,
+          order_id BIGINT NOT NULL,
+          user_id BIGINT NOT NULL,
+          product_id BIGINT NOT NULL,
+          status VARCHAR(24) NOT NULL DEFAULT 'ISSUED',
+          consumed_by_admin_id BIGINT NULL,
+          consumed_at DATETIME NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uniq_group_buy_voucher_code (code),
+          UNIQUE KEY uniq_group_buy_voucher_order (order_id),
+          KEY idx_group_buy_voucher_status_time (status, created_at),
+          CONSTRAINT fk_group_buy_voucher_order
+            FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+          CONSTRAINT fk_group_buy_voucher_user
+            FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE,
+          CONSTRAINT fk_group_buy_voucher_product
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+          CONSTRAINT fk_group_buy_voucher_admin
+            FOREIGN KEY (consumed_by_admin_id) REFERENCES web_users(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);

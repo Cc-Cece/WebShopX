@@ -92,7 +92,7 @@ class MarketService {
     return databaseManager.withConnection(connection -> {
       StringBuilder sql = new StringBuilder("""
           SELECT ml.id, ml.seller_user_id, u.username AS seller_name, ml.seller_uuid, ml.currency, ml.price,
-                 ml.quantity, ml.item_material, ml.item_meta_json, ml.status, ml.created_at
+                 ml.quantity, ml.item_material, ml.item_meta_json, ml.remark, ml.status, ml.created_at
           FROM market_listings ml
           JOIN web_users u ON u.id = ml.seller_user_id
           WHERE 1=1
@@ -123,8 +123,9 @@ class MarketService {
         params.add(query.maxPrice());
       }
       if (query.keyword() != null && !query.keyword().isBlank()) {
-        sql.append(" AND (LOWER(ml.item_material) LIKE ? OR LOWER(u.username) LIKE ?)");
+        sql.append(" AND (LOWER(ml.item_material) LIKE ? OR LOWER(u.username) LIKE ? OR LOWER(ml.remark) LIKE ?)");
         String keyword = "%" + query.keyword().toLowerCase(Locale.ROOT) + "%";
+        params.add(keyword);
         params.add(keyword);
         params.add(keyword);
       }
@@ -152,7 +153,7 @@ class MarketService {
           SELECT ml.id, ml.seller_user_id, us.username AS seller_name, ml.seller_uuid,
                  ml.buyer_user_id, ub.username AS buyer_name, ml.buyer_uuid,
                  ml.currency, ml.price, ml.quantity, ml.item_material, ml.item_meta_json,
-                 ml.status, ml.created_at, ml.sold_at, ml.unlisted_at
+                 ml.remark, ml.status, ml.created_at, ml.sold_at, ml.unlisted_at
           FROM market_listings ml
           JOIN web_users us ON us.id = ml.seller_user_id
           LEFT JOIN web_users ub ON ub.id = ml.buyer_user_id
@@ -204,6 +205,18 @@ class MarketService {
         sellerUserId,
         listingId,
         newPrice));
+  }
+
+  ListingRemarkUpdateResult updateListingRemark(long sellerUserId, long listingId, String remark) {
+    if (listingId <= 0L) {
+      throw new ServiceException("invalid_listing", "Listing id must be positive");
+    }
+    String normalizedRemark = normalizeRemark(remark);
+    return databaseManager.inTransaction(connection -> updateListingRemarkInTransaction(
+        connection,
+        sellerUserId,
+        listingId,
+        normalizedRemark));
   }
 
   @SuppressFBWarnings(
@@ -278,9 +291,9 @@ class MarketService {
     String sql = """
         INSERT INTO market_listings (
           seller_user_id, seller_uuid, currency, price, quantity, item_material, raw_item_blob,
-          item_meta_json, item_hash, status
+          item_meta_json, remark, item_hash, status
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
         """;
     try (PreparedStatement statement =
              connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -292,7 +305,8 @@ class MarketService {
       statement.setString(6, listingItem.getType().name());
       statement.setBytes(7, snapshot.rawItemBlob());
       statement.setString(8, snapshot.itemMetaJson());
-      statement.setString(9, snapshot.itemHash());
+      statement.setString(9, null);
+      statement.setString(10, snapshot.itemHash());
       statement.executeUpdate();
       try (ResultSet keyResult = statement.getGeneratedKeys()) {
         if (!keyResult.next()) {
@@ -462,6 +476,32 @@ class MarketService {
     return new ListingPriceUpdateResult(listingId, listing.currency(), newPrice);
   }
 
+  private ListingRemarkUpdateResult updateListingRemarkInTransaction(
+      Connection connection,
+      long sellerUserId,
+      long listingId,
+      String remark) throws SQLException {
+    MarketListing listing = readListingForUpdate(connection, listingId);
+    if (!listing.status().equals("ACTIVE")) {
+      throw new ServiceException("listing_unavailable", "Listing is no longer active");
+    }
+    if (listing.sellerUserId() != sellerUserId) {
+      throw new ServiceException("forbidden", "Only the owner can update listing remark");
+    }
+
+    String sql = """
+        UPDATE market_listings
+        SET remark = ?
+        WHERE id = ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, remark);
+      statement.setLong(2, listingId);
+      statement.executeUpdate();
+    }
+    return new ListingRemarkUpdateResult(listingId, remark);
+  }
+
   private ExistingTrade readExistingTrade(Connection connection, long buyerUserId, String idempotencyKey)
       throws SQLException {
     String sql = """
@@ -620,7 +660,7 @@ class MarketService {
   private MarketListing readListingForUpdate(Connection connection, long listingId) throws SQLException {
     String sql = """
         SELECT id, seller_user_id, seller_uuid, currency, price, quantity, item_material, raw_item_blob,
-               item_meta_json, item_hash, status
+               item_meta_json, remark, item_hash, status
         FROM market_listings
         WHERE id = ?
         FOR UPDATE
@@ -641,6 +681,7 @@ class MarketService {
             resultSet.getString("item_material"),
             resultSet.getBytes("raw_item_blob"),
             resultSet.getString("item_meta_json"),
+            resultSet.getString("remark"),
             resultSet.getString("item_hash"),
             resultSet.getString("status"));
       }
@@ -660,6 +701,7 @@ class MarketService {
           resultSet.getInt("quantity"),
           resultSet.getString("item_material"),
           resultSet.getString("item_meta_json"),
+          resultSet.getString("remark"),
           resultSet.getString("status"),
           resultSet.getTimestamp("created_at").toLocalDateTime()));
     }
@@ -684,6 +726,7 @@ class MarketService {
           resultSet.getInt("quantity"),
           resultSet.getString("item_material"),
           resultSet.getString("item_meta_json"),
+          resultSet.getString("remark"),
           resultSet.getString("status"),
           resultSet.getTimestamp("created_at").toLocalDateTime(),
           resultSet.getTimestamp("sold_at") == null
@@ -712,6 +755,20 @@ class MarketService {
       return DEFAULT_LIMIT;
     }
     return Math.min(limit, 200);
+  }
+
+  private String normalizeRemark(String rawRemark) {
+    if (rawRemark == null) {
+      return null;
+    }
+    String normalized = rawRemark.trim();
+    if (normalized.isEmpty()) {
+      return null;
+    }
+    if (normalized.length() > 1000) {
+      throw new ServiceException("invalid_remark", "Remark must be <= 1000 chars");
+    }
+    return normalized;
   }
 
   private int normalizedOrderCooldownSeconds() {
@@ -864,6 +921,7 @@ class MarketService {
       String itemMaterial,
       byte[] rawItemBlob,
       String itemMetaJson,
+      String remark,
       String itemHash,
       String status) {
   }
@@ -909,6 +967,7 @@ class MarketService {
       int quantity,
       String itemMaterial,
       String itemMetaJson,
+      String remark,
       String status,
       LocalDateTime createdAt) {
   }
@@ -926,6 +985,7 @@ class MarketService {
       int quantity,
       String itemMaterial,
       String itemMetaJson,
+      String remark,
       String status,
       LocalDateTime createdAt,
       LocalDateTime soldAt,
@@ -951,5 +1011,8 @@ class MarketService {
   }
 
   record ListingPriceUpdateResult(long listingId, CurrencyType currency, long price) {
+  }
+
+  record ListingRemarkUpdateResult(long listingId, String remark) {
   }
 }

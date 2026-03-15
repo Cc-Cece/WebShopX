@@ -45,7 +45,7 @@ class ProductService {
               + "AND (publish_at IS NULL OR publish_at <= NOW()) "
               + "AND (unpublish_at IS NULL OR unpublish_at > NOW())";
       String sql = """
-          SELECT id, sku, title, currency, price, product_type, command_template,
+          SELECT id, sku, title, remark, currency, price, product_type, command_template,
                  item_material, item_amount, effect_type, effect_seconds, effect_amplifier,
                  publish_at, unpublish_at, active
           FROM products
@@ -68,6 +68,7 @@ class ProductService {
     return databaseManager.inTransaction(connection -> {
       String normalizedSku = normalizeSku(input.sku());
       ProductType productType = ProductType.fromRaw(input.productType());
+      String normalizedRemark = normalizeRemark(input.remark());
       String normalizedCommand = normalizeCommandTemplate(input.commandTemplate(), productType);
       String normalizedItemMaterial = normalizeItemMaterial(input.itemMaterial(), productType);
       Integer normalizedItemAmount = normalizeItemAmount(input.itemAmount(), productType);
@@ -80,13 +81,14 @@ class ProductService {
 
       String sql = """
           INSERT INTO products (
-            sku, title, currency, price, product_type, command_template,
+            sku, title, remark, currency, price, product_type, command_template,
             item_material, item_amount, effect_type, effect_seconds, effect_amplifier,
             publish_at, unpublish_at, active
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON DUPLICATE KEY UPDATE
             title = VALUES(title),
+            remark = VALUES(remark),
             currency = VALUES(currency),
             price = VALUES(price),
             product_type = VALUES(product_type),
@@ -103,38 +105,39 @@ class ProductService {
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setString(1, normalizedSku);
         statement.setString(2, input.title().trim());
-        statement.setString(3, input.currency().name());
-        statement.setLong(4, input.price());
-        statement.setString(5, productType.name());
-        statement.setString(6, normalizedCommand);
-        statement.setString(7, normalizedItemMaterial);
+        statement.setString(3, normalizedRemark);
+        statement.setString(4, input.currency().name());
+        statement.setLong(5, input.price());
+        statement.setString(6, productType.name());
+        statement.setString(7, normalizedCommand);
+        statement.setString(8, normalizedItemMaterial);
         if (normalizedItemAmount == null) {
-          statement.setObject(8, null);
+          statement.setObject(9, null);
         } else {
-          statement.setInt(8, normalizedItemAmount);
+          statement.setInt(9, normalizedItemAmount);
         }
-        statement.setString(9, normalizedEffectType);
+        statement.setString(10, normalizedEffectType);
         if (normalizedEffectSeconds == null) {
-          statement.setObject(10, null);
-        } else {
-          statement.setInt(10, normalizedEffectSeconds);
-        }
-        if (normalizedEffectAmplifier == null) {
           statement.setObject(11, null);
         } else {
-          statement.setInt(11, normalizedEffectAmplifier);
+          statement.setInt(11, normalizedEffectSeconds);
         }
-        if (input.publishAt() == null) {
+        if (normalizedEffectAmplifier == null) {
           statement.setObject(12, null);
         } else {
-          statement.setTimestamp(12, java.sql.Timestamp.valueOf(input.publishAt()));
+          statement.setInt(12, normalizedEffectAmplifier);
         }
-        if (input.unpublishAt() == null) {
+        if (input.publishAt() == null) {
           statement.setObject(13, null);
         } else {
-          statement.setTimestamp(13, java.sql.Timestamp.valueOf(input.unpublishAt()));
+          statement.setTimestamp(13, java.sql.Timestamp.valueOf(input.publishAt()));
         }
-        statement.setBoolean(14, input.active());
+        if (input.unpublishAt() == null) {
+          statement.setObject(14, null);
+        } else {
+          statement.setTimestamp(14, java.sql.Timestamp.valueOf(input.unpublishAt()));
+        }
+        statement.setBoolean(15, input.active());
         statement.executeUpdate();
       }
       return readProductBySku(connection, normalizedSku);
@@ -166,7 +169,7 @@ class ProductService {
       throws SQLException {
     String lockClause = forUpdate ? " FOR UPDATE" : "";
     String sql = """
-        SELECT id, sku, title, currency, price, product_type, command_template,
+        SELECT id, sku, title, remark, currency, price, product_type, command_template,
                item_material, item_amount, effect_type, effect_seconds, effect_amplifier,
                publish_at, unpublish_at, active
         FROM products
@@ -187,7 +190,7 @@ class ProductService {
 
   private ProductView readProductById(Connection connection, long productId) throws SQLException {
     String sql = """
-        SELECT id, sku, title, currency, price, product_type, command_template,
+        SELECT id, sku, title, remark, currency, price, product_type, command_template,
                item_material, item_amount, effect_type, effect_seconds, effect_amplifier,
                publish_at, unpublish_at, active
         FROM products
@@ -206,7 +209,7 @@ class ProductService {
 
   private ProductView readProductBySku(Connection connection, String sku) throws SQLException {
     String sql = """
-        SELECT id, sku, title, currency, price, product_type, command_template,
+        SELECT id, sku, title, remark, currency, price, product_type, command_template,
                item_material, item_amount, effect_type, effect_seconds, effect_amplifier,
                publish_at, unpublish_at, active
         FROM products
@@ -265,6 +268,7 @@ class ProductService {
         resultSet.getLong("id"),
         resultSet.getString("sku"),
         resultSet.getString("title"),
+        resultSet.getString("remark"),
         CurrencyType.valueOf(resultSet.getString("currency")),
         resultSet.getLong("price"),
         productType,
@@ -295,6 +299,9 @@ class ProductService {
     if (input.price() <= 0L) {
       throw new ServiceException("invalid_product", "Price must be positive");
     }
+    if (input.remark() != null && input.remark().length() > 1000) {
+      throw new ServiceException("invalid_product", "Remark must be <= 1000 chars");
+    }
     ProductType.fromRaw(input.productType());
   }
 
@@ -316,6 +323,20 @@ class ProductService {
       throw new ServiceException("invalid_product", "Command template is required for COMMAND type");
     }
     return commandTemplate.trim();
+  }
+
+  private String normalizeRemark(String remark) {
+    if (remark == null) {
+      return null;
+    }
+    String normalized = remark.trim();
+    if (normalized.isEmpty()) {
+      return null;
+    }
+    if (normalized.length() > 1000) {
+      throw new ServiceException("invalid_product", "Remark must be <= 1000 chars");
+    }
+    return normalized;
   }
 
   private String normalizeItemMaterial(String itemMaterial, ProductType productType) {
@@ -403,7 +424,8 @@ class ProductService {
     COMMAND,
     GIVE_ITEM,
     POTION_EFFECT,
-    RECYCLE_ITEM;
+    RECYCLE_ITEM,
+    GROUP_BUY_VOUCHER;
 
     static ProductType fromRaw(String raw) {
       if (raw == null || raw.isBlank()) {
@@ -420,6 +442,7 @@ class ProductService {
   record AdminProductInput(
       String sku,
       String title,
+      String remark,
       CurrencyType currency,
       long price,
       String productType,
@@ -438,6 +461,7 @@ class ProductService {
       long id,
       String sku,
       String title,
+      String remark,
       CurrencyType currency,
       long price,
       ProductType productType,

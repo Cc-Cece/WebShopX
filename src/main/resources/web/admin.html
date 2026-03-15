@@ -77,11 +77,11 @@
         </div>
         <div class="field-grid three-col">
           <label class="field">
-            <span>ShopCoin</span>
+            <span id="adminRedeemShopCoinLabel">ShopCoin</span>
             <input id="redeemShopCoin" type="number" min="0" step="1" value="0" />
           </label>
           <label class="field">
-            <span>GameCoin</span>
+            <span id="adminRedeemGameCoinLabel">GameCoin</span>
             <input id="redeemGameCoin" type="number" min="0" step="1" value="0" />
           </label>
           <label class="field">
@@ -157,6 +157,7 @@
               <option value="GIVE_ITEM">出售物品</option>
               <option value="POTION_EFFECT">药水效果</option>
               <option value="RECYCLE_ITEM">回收物品</option>
+              <option value="GROUP_BUY_VOUCHER">团购券（线下核销）</option>
             </select>
           </label>
           <label class="field">
@@ -190,11 +191,29 @@
             <span>药水等级（0=I）</span>
             <input id="productEffectAmplifier" type="number" min="0" step="1" value="0" />
           </label>
+          <label class="field product-remark-field">
+            <span>商品备注（玩家端展示）</span>
+            <textarea id="productRemark" rows="3" placeholder="可填写用途说明、注意事项、团购兑换说明等"></textarea>
+          </label>
         </div>
         <div class="actions">
           <button id="productSaveBtn" type="button">保存商品</button>
         </div>
         <p class="meta" id="productStatus">等待操作</p>
+        <div class="md-tip md-tip-info">
+          <strong>团购券核销入口</strong>
+          <p>玩家购买“团购券（线下核销）”后会获得兑换码。管理员可在此输入兑换码进行核销，核销后兑换码失效。</p>
+        </div>
+        <div class="field-grid two-col">
+          <label class="field">
+            <span>团购兑换码</span>
+            <input id="groupBuyConsumeCode" placeholder="例如 GB-XXXXXXXXXXXX" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="groupBuyConsumeBtn" type="button">核销团购兑换码</button>
+        </div>
+        <p class="meta" id="groupBuyConsumeStatus">等待核销</p>
         <div class="admin-list" id="productList"></div>
       </article>
     </section>
@@ -238,28 +257,28 @@
       <div class="grid two-col">
         <article class="md-card section-card">
           <h2>兑换方向与比例</h2>
-          <p class="card-desc">配置 ShopCoin 与 GameCoin 的兑换方向与比例。</p>
+          <p class="card-desc">配置 <span id="economyShopCoinName">ShopCoin</span> 与 <span id="economyGameCoinName">GameCoin</span> 的兑换方向与比例。</p>
           <div class="field-grid">
             <label class="field">
-              <span>ShopCoin -> GameCoin 开关</span>
+              <span><span id="exchangeShopToGameNameA">ShopCoin</span> -> <span id="exchangeShopToGameNameB">GameCoin</span> 开关</span>
               <select id="exchangeShopToGameEnabled">
                 <option value="true">启用</option>
                 <option value="false">禁用</option>
               </select>
             </label>
             <label class="field">
-              <span>ShopCoin -> GameCoin 比例</span>
+              <span><span id="exchangeShopToGameNameC">ShopCoin</span> -> <span id="exchangeShopToGameNameD">GameCoin</span> 比例</span>
               <input id="exchangeShopToGameRatio" type="number" min="0" step="0.01" value="1.0" />
             </label>
             <label class="field">
-              <span>GameCoin -> ShopCoin 开关</span>
+              <span><span id="exchangeGameToShopNameA">GameCoin</span> -> <span id="exchangeGameToShopNameB">ShopCoin</span> 开关</span>
               <select id="exchangeGameToShopEnabled">
                 <option value="true">启用</option>
                 <option value="false">禁用</option>
               </select>
             </label>
             <label class="field">
-              <span>GameCoin -> ShopCoin 比例</span>
+              <span><span id="exchangeGameToShopNameC">GameCoin</span> -> <span id="exchangeGameToShopNameD">ShopCoin</span> 比例</span>
               <input id="exchangeGameToShopRatio" type="number" min="0" step="0.01" value="1.0" />
             </label>
           </div>
@@ -290,7 +309,7 @@
 
         <article class="md-card section-card">
           <h2>Vault 对接状态</h2>
-          <p class="card-desc">GameCoin 与 Vault 经济系统的连接状态。</p>
+          <p class="card-desc"><span id="vaultGameCoinName">GameCoin</span> 与 Vault 经济系统的连接状态。</p>
           <p class="meta" id="vaultStatusView">等待加载</p>
         </article>
       </div>
@@ -383,6 +402,7 @@
       <article class="md-card section-card">
         <h2>账号详情</h2>
         <p class="card-desc">当前查询到的账号信息。</p>
+        <p class="meta meta-info" id="userCurrencyHint">余额字段会根据配置货币名显示。</p>
         <div class="admin-list" id="userInfoBox"></div>
       </article>
     </section>

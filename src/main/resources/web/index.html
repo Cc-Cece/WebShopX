@@ -23,6 +23,7 @@
       <button class="top-tab" data-tab-target="shop" type="button">官方商城</button>
       <button class="top-tab" data-tab-target="market" type="button">玩家市场</button>
       <button class="top-tab" data-tab-target="orders" type="button">订单记录</button>
+      <button class="top-tab" data-tab-target="guide" type="button">使用教程</button>
       <button class="top-tab" data-tab-target="logs" type="button">操作日志</button>
     </nav>
 
@@ -123,18 +124,18 @@
       <div class="grid two-col">
         <article class="md-card section-card">
           <h2>钱包资产</h2>
-          <p class="card-desc">ShopCoin 用于网页支付，GameCoin 用于游戏内资产流转。</p>
+          <p class="card-desc"><span id="walletDescShopCoin">ShopCoin</span> 用于网页支付，<span id="walletDescGameCoin">GameCoin</span> 用于游戏内资产流转。</p>
           <div class="md-tip md-tip-info">
             <strong>资产说明</strong>
             <p>建议下单或交易前先点击“刷新余额”，确保显示与数据库当前余额一致。</p>
           </div>
           <div class="wallet-overview">
             <div class="wallet-pill">
-              <span>ShopCoin</span>
+              <span id="walletShopLabel">ShopCoin</span>
               <strong id="shopCoinValue">0</strong>
             </div>
             <div class="wallet-pill">
-              <span>GameCoin</span>
+              <span id="walletGameLabel">GameCoin</span>
               <strong id="gameCoinValue">0</strong>
             </div>
           </div>
@@ -165,7 +166,7 @@
 
         <article class="md-card section-card">
           <h2>货币互换</h2>
-          <p class="card-desc">按服务器配置的兑换比例在 ShopCoin 与 GameCoin 之间转换。</p>
+          <p class="card-desc">按服务器配置的兑换比例在 <span id="exchangeDescShopCoin">ShopCoin</span> 与 <span id="exchangeDescGameCoin">GameCoin</span> 之间转换。</p>
           <div class="md-tip md-tip-info">
             <strong>兑换说明</strong>
             <p>若提示方向不可兑换，说明管理员在当前服务器配置中关闭了该兑换方向。</p>
@@ -304,6 +305,30 @@
 
         <p class="meta" id="marketView">暂无市场数据</p>
         <div id="marketList" class="market-grid"></div>
+      </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="guide">
+      <article class="md-card section-card">
+        <h2>使用教程</h2>
+        <p class="card-desc">以下是常用流程的简版说明，后续可继续补充为完整文档。</p>
+        <div class="md-tip md-tip-info">
+          <strong>注册与登录</strong>
+          <p>新玩家：先点“获取绑定码”，回游戏执行 <code>/webshopx bind &lt;code&gt;</code>（或 <code>/ws bind &lt;code&gt;</code>），再回网页设置密码完成注册。</p>
+          <p>老玩家：直接使用 UUID 或 MC 名 + 密码登录。</p>
+        </div>
+        <div class="md-tip md-tip-info">
+          <strong>购买与退款</strong>
+          <p>下单前会二次确认；若服务器开启冷静期，订单会延迟发放并可在冷静期内退款。</p>
+        </div>
+        <div class="md-tip md-tip-info">
+          <strong>玩家市场</strong>
+          <p>上架在游戏内执行命令，价格与备注在网页内管理。购买玩家也走订单流程，可在订单页查看状态。</p>
+        </div>
+        <div class="md-tip md-tip-warn">
+          <strong>团购券商品</strong>
+          <p>购买后会生成团购兑换码，请通过你自己的渠道提供给管理员核销。核销后该兑换码失效。</p>
+        </div>
       </article>
     </section>
 

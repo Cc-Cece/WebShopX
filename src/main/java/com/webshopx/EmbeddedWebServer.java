@@ -105,6 +105,7 @@ class EmbeddedWebServer {
     server.createContext("/api/market/buy", this::handleMarketBuy);
     server.createContext("/api/market/unlist", this::handleMarketUnlist);
     server.createContext("/api/market/price", this::handleMarketPrice);
+    server.createContext("/api/market/remark", this::handleMarketRemark);
     server.createContext("/api/admin/auth/login", this::handleAdminLogin);
     server.createContext("/api/admin/auth/me", this::handleAdminMe);
     server.createContext("/api/admin/auth/logout", this::handleAdminLogout);
@@ -113,6 +114,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/products/list", this::handleAdminProductsList);
     server.createContext("/api/admin/products/upsert", this::handleAdminProductsUpsert);
     server.createContext("/api/admin/products/active", this::handleAdminProductsActive);
+    server.createContext("/api/admin/group-buy/consume", this::handleAdminGroupBuyConsume);
     server.createContext("/api/admin/orders/list", this::handleAdminOrdersList);
     server.createContext("/api/admin/economy/settings", this::handleAdminEconomySettings);
     server.createContext("/api/admin/economy/exchange", this::handleAdminExchangeUpdate);
@@ -384,6 +386,11 @@ class EmbeddedWebServer {
         item.addProperty("id", product.id());
         item.addProperty("sku", product.sku());
         item.addProperty("title", product.title());
+        if (product.remark() == null) {
+          item.add("remark", JsonNull.INSTANCE);
+        } else {
+          item.addProperty("remark", product.remark());
+        }
         item.addProperty("currency", product.currency().name());
         item.addProperty("price", product.price());
         item.addProperty("productType", product.productType().name());
@@ -461,6 +468,21 @@ class EmbeddedWebServer {
       } else {
         response.addProperty("refundDeadline", result.refundDeadline().toString());
       }
+      if (result.groupBuyVoucherCode() == null) {
+        response.add("groupBuyVoucherCode", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("groupBuyVoucherCode", result.groupBuyVoucherCode());
+      }
+      if (result.groupBuyVoucherStatus() == null) {
+        response.add("groupBuyVoucherStatus", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("groupBuyVoucherStatus", result.groupBuyVoucherStatus());
+      }
+      if (result.groupBuyVoucherConsumedAt() == null) {
+        response.add("groupBuyVoucherConsumedAt", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("groupBuyVoucherConsumedAt", result.groupBuyVoucherConsumedAt().toString());
+      }
       sendJson(exchange, 200, response);
     });
   }
@@ -510,6 +532,11 @@ class EmbeddedWebServer {
         }
         row.addProperty("sku", order.productSku());
         row.addProperty("productTitle", order.productTitle());
+        if (order.productRemark() == null) {
+          row.add("productRemark", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("productRemark", order.productRemark());
+        }
         row.addProperty("productType", order.productType());
         if (order.itemMaterial() == null) {
           row.add("itemMaterial", JsonNull.INSTANCE);
@@ -538,6 +565,21 @@ class EmbeddedWebServer {
         }
         row.addProperty("quantity", order.quantity());
         row.addProperty("unitPrice", order.unitPrice());
+        if (order.groupBuyVoucherCode() == null) {
+          row.add("groupBuyVoucherCode", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("groupBuyVoucherCode", order.groupBuyVoucherCode());
+        }
+        if (order.groupBuyVoucherStatus() == null) {
+          row.add("groupBuyVoucherStatus", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("groupBuyVoucherStatus", order.groupBuyVoucherStatus());
+        }
+        if (order.groupBuyVoucherConsumedAt() == null) {
+          row.add("groupBuyVoucherConsumedAt", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("groupBuyVoucherConsumedAt", order.groupBuyVoucherConsumedAt().toString());
+        }
 
         boolean canRefund = "PENDING".equalsIgnoreCase(order.status())
             && order.refundDeadline() != null
@@ -666,6 +708,11 @@ class EmbeddedWebServer {
         row.addProperty("quantity", listing.quantity());
         row.addProperty("itemMaterial", listing.itemMaterial());
         row.addProperty("itemMetaJson", listing.itemMetaJson());
+        if (listing.remark() == null) {
+          row.add("remark", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("remark", listing.remark());
+        }
         row.addProperty("status", listing.status());
         row.addProperty("createdAt", listing.createdAt().toString());
         rows.add(row);
@@ -750,6 +797,31 @@ class EmbeddedWebServer {
       response.addProperty("listingId", result.listingId());
       response.addProperty("currency", result.currency().name());
       response.addProperty("price", result.price());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleMarketRemark(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      long listingId = getLong(payload, "listingId", -1L);
+      String remark = getOptionalString(payload, "remark").orElse(null);
+      MarketService.ListingRemarkUpdateResult result =
+          marketService.updateListingRemark(user.id(), listingId, remark);
+      JsonObject response = new JsonObject();
+      response.addProperty("listingId", result.listingId());
+      if (result.remark() == null) {
+        response.add("remark", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("remark", result.remark());
+      }
       sendJson(exchange, 200, response);
     });
   }
@@ -938,6 +1010,11 @@ class EmbeddedWebServer {
         row.addProperty("id", product.id());
         row.addProperty("sku", product.sku());
         row.addProperty("title", product.title());
+        if (product.remark() == null) {
+          row.add("remark", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("remark", product.remark());
+        }
         row.addProperty("currency", product.currency().name());
         row.addProperty("price", product.price());
         row.addProperty("productType", product.productType().name());
@@ -1000,6 +1077,7 @@ class EmbeddedWebServer {
       ProductService.AdminProductInput input = new ProductService.AdminProductInput(
           getString(payload, "sku"),
           getString(payload, "title"),
+          getOptionalString(payload, "remark").orElse(null),
           CurrencyType.fromConfig(getString(payload, "currency")),
           getLong(payload, "price", 0L),
           getOptionalString(payload, "productType").orElse("COMMAND"),
@@ -1017,6 +1095,11 @@ class EmbeddedWebServer {
       response.addProperty("id", product.id());
       response.addProperty("sku", product.sku());
       response.addProperty("title", product.title());
+      if (product.remark() == null) {
+        response.add("remark", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("remark", product.remark());
+      }
       response.addProperty("currency", product.currency().name());
       response.addProperty("price", product.price());
       response.addProperty("productType", product.productType().name());
@@ -1052,6 +1135,43 @@ class EmbeddedWebServer {
       JsonObject detail = new JsonObject();
       detail.addProperty("active", active);
       adminAuditService.log(admin, "PRODUCT_ACTIVE", "product", String.valueOf(product.id()), detail, clientIp(exchange));
+    });
+  }
+
+  private void handleAdminGroupBuyConsume(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.PRODUCT_MANAGE);
+      String code = getString(payload, "code");
+      OrderService.GroupBuyVoucherConsumeResult result =
+          orderService.consumeGroupBuyVoucher(admin.userId(), code);
+
+      JsonObject response = new JsonObject();
+      response.addProperty("code", result.code());
+      response.addProperty("status", result.status());
+      response.addProperty("orderNo", result.orderNo());
+      response.addProperty("userId", result.userId());
+      response.addProperty("username", result.username());
+      response.addProperty("productSku", result.productSku());
+      response.addProperty("productTitle", result.productTitle());
+      if (result.consumedAt() == null) {
+        response.add("consumedAt", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("consumedAt", result.consumedAt().toString());
+      }
+      sendJson(exchange, 200, response);
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("code", result.code());
+      detail.addProperty("orderNo", result.orderNo());
+      detail.addProperty("userId", result.userId());
+      adminAuditService.log(admin, "GROUP_BUY_CONSUME", "group_buy_voucher", result.code(), detail, clientIp(exchange));
     });
   }
 
@@ -1231,6 +1351,11 @@ class EmbeddedWebServer {
         row.addProperty("mcUuid", order.mcUuid().toString());
         row.addProperty("sku", order.productSku());
         row.addProperty("productTitle", order.productTitle());
+        if (order.productRemark() == null) {
+          row.add("productRemark", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("productRemark", order.productRemark());
+        }
         row.addProperty("productType", order.productType());
         if (order.itemMaterial() == null) {
           row.add("itemMaterial", JsonNull.INSTANCE);
@@ -1239,6 +1364,21 @@ class EmbeddedWebServer {
         }
         row.addProperty("quantity", order.quantity());
         row.addProperty("unitPrice", order.unitPrice());
+        if (order.groupBuyVoucherCode() == null) {
+          row.add("groupBuyVoucherCode", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("groupBuyVoucherCode", order.groupBuyVoucherCode());
+        }
+        if (order.groupBuyVoucherStatus() == null) {
+          row.add("groupBuyVoucherStatus", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("groupBuyVoucherStatus", order.groupBuyVoucherStatus());
+        }
+        if (order.groupBuyVoucherConsumedAt() == null) {
+          row.add("groupBuyVoucherConsumedAt", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("groupBuyVoucherConsumedAt", order.groupBuyVoucherConsumedAt().toString());
+        }
         array.add(row);
       }
       JsonObject response = new JsonObject();
@@ -1288,6 +1428,11 @@ class EmbeddedWebServer {
         row.addProperty("quantity", listing.quantity());
         row.addProperty("itemMaterial", listing.itemMaterial());
         row.addProperty("itemMetaJson", listing.itemMetaJson());
+        if (listing.remark() == null) {
+          row.add("remark", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("remark", listing.remark());
+        }
         row.addProperty("status", listing.status());
         row.addProperty("createdAt", listing.createdAt().toString());
         if (listing.soldAt() == null) {
