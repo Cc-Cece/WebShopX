@@ -1,15 +1,13 @@
 name: Test and Release
 
 permissions:
-  contents: read
+  contents: write 
 
 on:
   push:
     branches:
       - 'main'
   schedule:
-    # PaperMC doesn't change version numbers for latest releases meaning the build may break
-    #   unexpectedly. Build every so often so that we know if a breaking change has been published
     - cron: '0 0 * * 6'
 
 concurrency:
@@ -24,8 +22,6 @@ jobs:
         os: [ ubuntu-latest, windows-latest ]
         java: [ 21 ]
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -39,7 +35,6 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build with Gradle (Ignoring Quality Checks)
-        # 使用 -x 参数跳过 checkstyle 和 spotbugs
         run: ./gradlew build --info -x checkstyleMain -x checkstyleTest -x spotbugsMain -x spotbugsTest
 
       - name: Upload build results
@@ -57,8 +52,6 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     needs:
       - test
     steps:
@@ -74,7 +67,6 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build with Gradle (Ignoring Quality Checks)
-        # 同样在这里跳过检查以确保 release 流程顺利
         run: ./gradlew build -x checkstyleMain -x checkstyleTest -x spotbugsMain -x spotbugsTest
 
       - name: Upload build results
@@ -85,6 +77,8 @@ jobs:
           retention-days: 14
 
       - name: Create Dev Release
+        env:
+          GH_TOKEN: ${{ github.token }} 
         run: |
           if gh release view dev >/dev/null 2>&1; then
             gh release upload dev ${{ github.workspace }}/build/libs/* --clobber
