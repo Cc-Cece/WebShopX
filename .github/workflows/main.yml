@@ -66,14 +66,23 @@ jobs:
         with:
           java-version: 21
 
-      - name: Publish with Gradle
-        run: ./gradlew -Pver="0.0.0-RC-1" release
+      - name: Build with Gradle
+        run: ./gradlew build
 
       - name: Upload build results
         uses: actions/upload-artifact@v6
         with:
-          name: Release Build
+          name: Dev Build
           path: ${{ github.workspace }}/build/libs/
+          retention-days: 14
+
+      - name: Create Dev Release
+        run: |
+          if gh release view dev >/dev/null 2>&1; then
+            gh release upload dev ${{ github.workspace }}/build/libs/* --clobber
+          else
+            gh release create dev --generate-notes --prerelease --title "Dev Build" ${{ github.workspace }}/build/libs/*
+          fi
 
   notify:
     name: Send job complete notification
@@ -103,7 +112,7 @@ jobs:
           color: "#00FF00"
           username: "${{ env.PROJECT_NAME }} Release Bot"
           message: >
-            An ${{ env.PROJECT_NAME }} snapshot was deployed by ${{ github.actor }}:
+            An ${{ env.PROJECT_NAME }} dev build was deployed by ${{ github.actor }}:
             https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
       - name: Notify on failure
@@ -115,5 +124,5 @@ jobs:
           color: "#FF0000"
           username: "${{ env.PROJECT_NAME }} Release Bot"
           message: >
-            An ${{ env.PROJECT_NAME }} snapshot deployment ran by ${{ github.actor }} failed:
+            An ${{ env.PROJECT_NAME }} dev build deployment ran by ${{ github.actor }} failed:
             https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

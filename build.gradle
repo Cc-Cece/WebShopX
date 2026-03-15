@@ -8,6 +8,8 @@ plugins {
     id 'java'
 }
 
+version = 'dev'
+
 group = "com.webshopx"
 
 static def getTime() {
