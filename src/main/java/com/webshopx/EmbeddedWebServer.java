@@ -77,6 +77,7 @@ class EmbeddedWebServer {
     stop();
     this.staticRoot = staticRoot;
     PluginSettings.EmbeddedWebSettings webSettings = settingsSupplier.get().embeddedWebSettings();
+    PluginSettings.ServerMode serverMode = settingsSupplier.get().serverMode();
 
     InetSocketAddress address = new InetSocketAddress(webSettings.host(), webSettings.port());
     server = HttpServer.create(address, 0);
@@ -127,11 +128,15 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/users/logout", this::handleAdminForceLogout);
     server.createContext("/api/admin/users/wallet-adjust", this::handleAdminWalletAdjust);
     server.createContext("/api/admin/audit/list", this::handleAdminAuditList);
-    server.createContext("/", this::handleStatic);
+
+    // Only serve static files in INTERNAL mode
+    if (serverMode == PluginSettings.ServerMode.INTERNAL) {
+      server.createContext("/", this::handleStatic);
+    }
 
     server.start();
     plugin.getLogger().info("Embedded HTTP server started at " + webSettings.host() + ":"
-        + webSettings.port());
+        + webSettings.port() + " (mode: " + serverMode + ")");
   }
 
   void stop() {

@@ -237,6 +237,7 @@ const elements = {
   marketMaxPrice: document.getElementById("marketMaxPrice"),
   marketSort: document.getElementById("marketSort"),
   marketSearchBtn: document.getElementById("marketSearchBtn"),
+  marketKeywordClearBtn: document.getElementById("marketKeywordClearBtn"),
   marketApplyBtn: document.getElementById("marketApplyBtn"),
   marketClearBtn: document.getElementById("marketClearBtn"),
   snackbarHost: document.getElementById("snackbarHost"),
@@ -300,6 +301,7 @@ function notify(message, tone = "info", durationMs = 3200) {
 }
 
 const THEME_STORAGE_KEY = "webshopx_theme";
+const SESSION_STORAGE_KEY = "webshopx_session";
 
 function getInitialTheme() {
   const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -946,6 +948,14 @@ function setSession(payload) {
     state.boundUuid = payload.boundUuid || null;
   }
 
+  // 保存会话到本地存储
+  const sessionData = {
+    token: state.token,
+    username: state.username,
+    boundUuid: state.boundUuid,
+  };
+  window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionData));
+
   stopRegistrationPolling();
   clearRegistrationUi(false);
   updateAuthLayout();
@@ -958,8 +968,39 @@ function clearSession() {
   state.boundUuid = null;
   state.orders = [];
   state.hasLoadedOrders = false;
+  // 移除本地存储的会话
+  window.localStorage.removeItem(SESSION_STORAGE_KEY);
   renderOrders(state.orders);
   updateAuthLayout();
+}
+
+async function restoreSession() {
+  try {
+    const saved = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!saved) {
+      return;
+    }
+    const sessionData = JSON.parse(saved);
+    if (!sessionData.token) {
+      return;
+    }
+    // 临时设置token来验证
+    const originalToken = state.token;
+    state.token = sessionData.token;
+    // 尝试刷新钱包来验证token
+    await refreshWallet();
+    // 如果成功，恢复完整会话
+    state.username = sessionData.username;
+    state.boundUuid = sessionData.boundUuid;
+    updateAuthLayout();
+    await loadOrders();
+    log("会话已恢复。", "SUCCESS");
+  } catch (error) {
+    // token无效，清除存储
+    state.token = null;
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    log("会话恢复失败，已清除。", "WARN");
+  }
 }
 
 function updateWalletView(payload) {
@@ -1183,7 +1224,7 @@ function renderProducts(products) {
     const card = createEl("article", "product-card");
 
     const top = createEl("div", "product-top");
-    const titleWrap = createEl("div");
+    const titleWrap = createEl("div", "order-title-wrap");
     titleWrap.appendChild(createEl("h3", "product-title", product.title));
     titleWrap.appendChild(createEl("p", "product-sku", `SKU: ${product.sku} | ID: ${product.id}`));
     top.appendChild(titleWrap);
@@ -1961,6 +2002,15 @@ if (elements.marketSearchBtn) {
     loadMarket(state.marketMode || "public", { announce: true });
   });
 }
+if (elements.marketKeywordClearBtn) {
+  elements.marketKeywordClearBtn.addEventListener("click", () => {
+    if (elements.marketKeyword) {
+      elements.marketKeyword.value = "";
+      elements.marketKeyword.focus();
+    }
+    loadMarket(state.marketMode || "public", { announce: true });
+  });
+}
 if (elements.marketKeyword) {
   elements.marketKeyword.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -2215,4 +2265,5 @@ loadCurrencyMeta().finally(() => {
   loadProducts();
   loadMarket("public");
 });
-log("前端已启动，默认加载官方商品和市场在售列表。");
+// 尝试恢复会话
+restoreSession();

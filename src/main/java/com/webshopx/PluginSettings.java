@@ -8,7 +8,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 
 record PluginSettings(
-    WebMode webMode,
+    ServerMode serverMode,
     int sessionExpireHours,
     int bindRequestExpireMinutes,
     int accessTokenLength,
@@ -27,8 +27,8 @@ record PluginSettings(
     List<ProductSeed> productSeeds) {
 
   static PluginSettings fromConfig(FileConfiguration config) {
-    String rawMode = config.getString("webshop.web-mode", "embedded_http");
-    WebMode mode = WebMode.fromRaw(rawMode);
+    String rawMode = config.getString("webshop.server-mode", "internal");
+    ServerMode mode = ServerMode.fromRaw(rawMode);
 
     EmbeddedWebSettings webSettings = new EmbeddedWebSettings(
         config.getString("webshop.embedded-http.host", "0.0.0.0"),
@@ -145,16 +145,25 @@ record PluginSettings(
     return value.toString();
   }
 
-  enum WebMode {
-    EMBEDDED,
-    NGINX_ONLY;
+  enum ServerMode {
+    INTERNAL,
+    EXTERNAL;
 
-    static WebMode fromRaw(String raw) {
+    static ServerMode fromRaw(String raw) {
       String normalized = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
-      if (normalized.equals("nginx_only")) {
-        return NGINX_ONLY;
+      if (normalized.equals("external")
+          || normalized.equals("nginx_only")
+          || normalized.equals("nginx")
+          || normalized.equals("reverse_proxy")) {
+        return EXTERNAL;
       }
-      return EMBEDDED;
+      if (normalized.equals("internal")
+          || normalized.equals("embedded_http")
+          || normalized.equals("embedded")
+          || normalized.equals("builtin")) {
+        return INTERNAL;
+      }
+      return INTERNAL;
     }
   }
 
