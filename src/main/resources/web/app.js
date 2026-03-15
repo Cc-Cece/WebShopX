@@ -551,68 +551,6 @@ function normalizeMaterialKey(text) {
     .replace(/^_+|_+$/g, "");
 }
 
-function toMaterialKeyFromEnglish(english) {
-  const base = normalizeMaterialKey(english);
-  if (!base) {
-    return [];
-  }
-
-  const aliases = new Set([base]);
-  if (base.startsWith("BLOCK_OF_")) {
-    aliases.add(`${base.slice("BLOCK_OF_".length)}_BLOCK`);
-  }
-  if (base.startsWith("MINECART_WITH_")) {
-    aliases.add(`${base.slice("MINECART_WITH_".length)}_MINECART`);
-  }
-  if (base.endsWith("_WITH_CHEST")) {
-    aliases.add(`CHEST_${base.slice(0, -"_WITH_CHEST".length)}`);
-  }
-  if (base.includes("LAPIS_LAZULI")) {
-    aliases.add(base.replaceAll("LAPIS_LAZULI", "LAPIS"));
-  }
-
-  return Array.from(aliases);
-}
-
-function parseZhNameTable(text) {
-  const map = {};
-  const lines = text.split(/\r?\n/);
-  const skipHeaders = new Set([
-    "Minecraft中英文对照表",
-    "方块",
-    "物品",
-    "实体",
-    "环境",
-    "魔咒",
-  ]);
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line || skipHeaders.has(line)) {
-      continue;
-    }
-
-    const match = line.match(/^(.+?)\s+([\u4e00-\u9fff].+)$/);
-    if (!match) {
-      continue;
-    }
-
-    const english = match[1].trim();
-    const chinese = match[2].trim();
-    if (!english || !chinese) {
-      continue;
-    }
-
-    for (const key of toMaterialKeyFromEnglish(english)) {
-      if (!map[key]) {
-        map[key] = chinese;
-      }
-    }
-  }
-
-  return map;
-}
-
 function humanizeMaterial(materialKey) {
   return materialKey
     .toLowerCase()
@@ -648,22 +586,7 @@ async function ensureZhNameMap() {
     .then((json) => {
       state.zhNameMap = json || {};
       state.zhNameMapReady = true;
-      log(`中文词库已加载（JSON）：${Object.keys(state.zhNameMap).length} 条。`);
-    })
-    .catch((error) => {
-      log(`${error.message}，尝试 TXT 回退。`, "WARN");
-      return fetch("/material_zh.txt")
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`TXT 词库加载失败: ${response.status}`);
-          }
-          return response.text();
-        })
-        .then((text) => {
-          state.zhNameMap = parseZhNameTable(text);
-          state.zhNameMapReady = true;
-          log(`中文词库已加载（TXT）：${Object.keys(state.zhNameMap).length} 条。`);
-        });
+      log(`中文词库已加载：${Object.keys(state.zhNameMap).length} 条。`);
     })
     .catch((error) => {
       state.zhNameMap = {};

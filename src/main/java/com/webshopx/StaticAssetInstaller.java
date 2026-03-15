@@ -16,7 +16,6 @@ class StaticAssetInstaller {
       "web/app.js",
       "web/admin.js",
       "web/styles.css",
-      "web/material_zh.txt",
       "web/material_zh.json");
 
   private final JavaPlugin plugin;

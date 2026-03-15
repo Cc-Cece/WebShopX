@@ -1,47 +1,121 @@
+# ============================================================
+# WebShopX 配置文件（含中文注释）
+# 说明：
+# 1) 修改后可用 /webshopx reload 热重载大部分配置。
+# 2) 数据库连接相关建议重启服务器后生效更稳妥。
+# 3) 金额相关默认使用整数（避免小数精度问题）。
+# ============================================================
+
 webshop:
+  # Web 运行模式：
+  # - embedded_http: 使用插件内置 HTTP 服务（默认，开箱即用）
+  # - nginx_only:    不启用内置 HTTP，改由外部 Nginx/反代托管静态资源
   web-mode: embedded_http
+
+  # 玩家登录会话有效期（小时）
+  # 建议：24~168
   session-expire-hours: 72
+
+  # 注册绑定码有效期（分钟）
+  # 建议：5~30
   bind-request-expire-minutes: 15
+
+  # API 访问令牌长度（字符）
+  # 建议：32~64
   access-token-length: 48
+
+  # 每轮发货处理的订单数量（批大小）
+  # 越大吞吐越高，但单次负载也越高
   delivery-batch-size: 20
+
+  # 发货失败后的重试间隔（秒）
+  # 建议：10~120
   delivery-retry-seconds: 30
+
+  # 下单冷静期（秒）
+  # - 0 表示关闭冷静期（立即可发货）
+  # - >0 表示冷静期内可退款，超时后才会实际发货
   order-cooldown-seconds: 15
+
   market:
+    # 玩家市场默认最大上架数量（每个玩家）
+    # 可用权限节点覆盖：webshop.market.limit.<数字>
+    # 示例：webshop.market.limit.30 -> 该玩家上限 30
+    # 若有多个节点，取最大值
     max-active-listings: 10
+
   maintenance:
+    # 后台清理任务执行间隔（分钟）
     cleanup-interval-minutes: 30
+
+    # PENDING_BIND（待游戏内绑定）状态保留时长（小时）
     pending-bind-retention-hours: 6
+
+    # PENDING_PASSWORD（待设置密码）状态保留时长（小时）
     pending-password-retention-hours: 6
+
+    # 绑定请求记录保留时长（小时）
     bind-request-retention-hours: 24
+
+    # 已过期兑换码保留时长（天）
     redeem-code-retention-days: 7
+
   admin-bootstrap:
+    # 是否在启动时确保存在引导管理员账号
+    # 首次部署建议 true，正式环境建议完成初始化后改为 false
     enabled: true
+
+    # 引导管理员账号（仅在 enabled=true 时生效）
     username: admin
     password: admin123456
+
+    # 可选角色：
+    # SUPER_ADMIN / SHOP_ADMIN / MARKET_MODERATOR / SUPPORT_ADMIN / AUDITOR
     role: SUPER_ADMIN
+
   embedded-http:
+    # 内置 HTTP 监听地址
+    # - 0.0.0.0: 对外网卡开放（可被局域网/公网访问，需配合防火墙）
+    # - 127.0.0.1: 仅本机访问（推荐配合 Nginx 反向代理）
     host: 0.0.0.0
+
+    # 内置 HTTP 端口
     port: 8819
+
+    # 静态资源目录（相对于插件数据目录）
     static-root: web
 
 database:
+  # MariaDB/MySQL 连接配置
   host: 127.0.0.1
   port: 3306
   schema: webshop
   username: webshop
   password: change_me
+
+  # 是否启用 SSL
+  # 公网数据库建议 true，并正确配置证书链
   use-ssl: false
+
+  # 连接池大小
+  # 小服建议 5~15，大服按压测调整
   pool-size: 10
 
 exchange:
+  # ShopCoin -> GameCoin 兑换方向
   shopcoin-to-gamecoin:
+    # 是否启用该方向兑换
     enabled: true
+    # 兑换比例（输出 = 输入 * ratio）
     ratio: 1.0
+
+  # GameCoin -> ShopCoin 兑换方向
   gamecoin-to-shopcoin:
     enabled: false
     ratio: 1.0
 
 currency:
+  # 两种货币名称（用于网页/管理后台显示）
   shopcoin:
     name: ShopCoin
     short: SC
@@ -51,13 +125,27 @@ currency:
 
 economy:
   market:
+    # 玩家市场交易手续费（卖家侧，单位 %）
+    # 示例：5.5 表示 5.5%
+    # 建议范围：0~100
     trade-fee-percent: 0.0
+
+    # 玩家市场交易税率（买家侧，单位 %）
+    # 建议范围：0~100
     trade-tax-percent: 0.0
+
   inflation-control:
+    # 手续费/税金去向模式：
+    # - burn:     直接销毁（默认，控制通胀）
+    # - treasury: 注入 treasury-user-id 指定账户
     mode: burn
+
+    # 当 mode=treasury 时生效，填写 web_users.id
+    # 0 表示未配置
     treasury-user-id: 0
 
 redis:
+  # Redis 当前为可选预留项，V1 默认不接入核心链路
   enabled: false
   host: 127.0.0.1
   port: 6379
