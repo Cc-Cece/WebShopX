@@ -3,6 +3,8 @@
   admin: null,
   activeTab: "login",
   selectedUser: null,
+  latestRedeemCode: null,
+  theme: "light",
   currencyMeta: {
     SHOP_COIN: { name: "ShopCoin", short: "SC" },
     GAME_COIN: { name: "GameCoin", short: "GC" },
@@ -11,6 +13,7 @@
 
 const elements = {
   statusChip: document.getElementById("adminStatusChip"),
+  adminThemeToggleBtn: document.getElementById("adminThemeToggleBtn"),
   adminIdentifier: document.getElementById("adminIdentifier"),
   adminPassword: document.getElementById("adminPassword"),
   adminLoginBtn: document.getElementById("adminLoginBtn"),
@@ -25,6 +28,7 @@ const elements = {
   redeemExpires: document.getElementById("redeemExpires"),
   redeemCustomCode: document.getElementById("redeemCustomCode"),
   redeemCreateBtn: document.getElementById("redeemCreateBtn"),
+  redeemCopyBtn: document.getElementById("redeemCopyBtn"),
   redeemCreateResult: document.getElementById("redeemCreateResult"),
   redeemRefreshBtn: document.getElementById("redeemRefreshBtn"),
   redeemList: document.getElementById("redeemList"),
@@ -114,6 +118,52 @@ function notify(message, tone = "info", durationMs = 3200) {
     node.classList.remove("show");
     setTimeout(() => node.remove(), 200);
   }, durationMs);
+}
+
+const THEME_STORAGE_KEY = "webshopx_theme";
+
+function getInitialTheme() {
+  const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (saved === "dark" || saved === "light") {
+    return saved;
+  }
+  if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+    return "dark";
+  }
+  return "light";
+}
+
+function applyTheme(theme) {
+  const normalized = theme === "dark" ? "dark" : "light";
+  state.theme = normalized;
+  document.body.dataset.theme = normalized;
+  window.localStorage.setItem(THEME_STORAGE_KEY, normalized);
+  if (elements.adminThemeToggleBtn) {
+    elements.adminThemeToggleBtn.textContent = normalized === "dark" ? "切换亮色" : "切换暗色";
+  }
+}
+
+function toggleTheme() {
+  applyTheme(state.theme === "dark" ? "light" : "dark");
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text || "").trim();
+  if (!value) {
+    throw new Error("没有可复制的内容。");
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const tmp = document.createElement("textarea");
+  tmp.value = value;
+  tmp.style.position = "fixed";
+  tmp.style.opacity = "0";
+  document.body.appendChild(tmp);
+  tmp.select();
+  document.execCommand("copy");
+  tmp.remove();
 }
 
 function setStatus(text, stateName) {
@@ -421,6 +471,7 @@ async function createRedeemCode() {
     method: "POST",
     body: JSON.stringify(body),
   });
+  state.latestRedeemCode = payload.code || null;
   setMetaText(elements.redeemCreateResult, `兑换码已生成：${payload.code}`, "success");
   notify(`兑换码生成成功：${payload.code}`, "success");
   await loadRedeemList();
@@ -862,6 +913,17 @@ elements.redeemCreateBtn.addEventListener("click", async () => {
   }
 });
 
+if (elements.redeemCopyBtn) {
+  elements.redeemCopyBtn.addEventListener("click", async () => {
+    try {
+      await copyTextToClipboard(state.latestRedeemCode || "");
+      notify("兑换码已复制到剪贴板。", "success");
+    } catch (error) {
+      notify(error.message || "复制失败，请手动复制。", "error");
+    }
+  });
+}
+
 elements.redeemRefreshBtn.addEventListener("click", async () => {
   try {
     await loadRedeemList();
@@ -997,12 +1059,17 @@ elements.auditRefreshBtn.addEventListener("click", async () => {
   }
 });
 
+if (elements.adminThemeToggleBtn) {
+  elements.adminThemeToggleBtn.addEventListener("click", toggleTheme);
+}
+
 const savedToken = sessionStorage.getItem("webshop_admin_token");
 if (savedToken) {
   state.token = savedToken;
   loadAdminProfile();
 }
 
+applyTheme(getInitialTheme());
 localizeOrderStatusOptions();
 if (elements.productType) {
   elements.productType.addEventListener("change", () => {

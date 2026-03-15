@@ -14,7 +14,10 @@
         <h1>商城管理控制台</h1>
         <p class="app-subtitle">统一管理兑换码、官方商品、玩家市场与账号支持。</p>
       </div>
-      <div class="status-chip" id="adminStatusChip" data-state="offline">未登录</div>
+      <div class="header-controls">
+        <button id="adminThemeToggleBtn" class="btn-tonal theme-toggle-btn" type="button">切换暗色</button>
+        <div class="status-chip" id="adminStatusChip" data-state="offline">未登录</div>
+      </div>
     </header>
 
     <nav class="top-tabs" role="tablist" aria-label="管理功能">
@@ -103,6 +106,7 @@
         </div>
         <div class="actions">
           <button id="redeemCreateBtn" type="button">生成兑换码</button>
+          <button id="redeemCopyBtn" class="btn-tonal" type="button">复制最新兑换码</button>
         </div>
         <p class="meta" id="redeemCreateResult">等待生成</p>
         <div class="md-tip md-tip-info">

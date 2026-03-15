@@ -14,7 +14,10 @@
         <h1>WebShopX 仪表盘</h1>
         <p class="app-subtitle">致力于实现更完善的官方商城和玩家市场。</p>
       </div>
-      <div class="status-chip" id="statusChip" data-state="offline">未登录</div>
+      <div class="header-controls">
+        <button id="themeToggleBtn" class="btn-tonal theme-toggle-btn" type="button">切换暗色</button>
+        <div class="status-chip" id="statusChip" data-state="offline">未登录</div>
+      </div>
     </header>
 
     <nav class="top-tabs" role="tablist" aria-label="功能标签">
@@ -66,7 +69,10 @@
               <button id="registerStartBtn" type="button">获取绑定码</button>
             </div>
 
-            <p class="bind-code" id="registerBindCodeView">绑定码：- </p>
+            <div class="bind-code-row">
+              <p class="bind-code" id="registerBindCodeView">绑定码：- </p>
+              <button id="registerBindCopyBtn" class="btn-tonal" type="button">复制绑定码</button>
+            </div>
             <p class="meta" id="registerStatusView">状态：等待开始注册</p>
             <div class="md-tip md-tip-info" id="registerFlowTip">
               <strong>注册步骤</strong>
@@ -125,10 +131,6 @@
         <article class="md-card section-card">
           <h2>钱包资产</h2>
           <p class="card-desc"><span id="walletDescShopCoin">ShopCoin</span> 用于网页支付，<span id="walletDescGameCoin">GameCoin</span> 用于游戏内资产流转。</p>
-          <div class="md-tip md-tip-info">
-            <strong>资产说明</strong>
-            <p>建议下单或交易前先点击“刷新余额”，确保显示与数据库当前余额一致。</p>
-          </div>
           <div class="wallet-overview">
             <div class="wallet-pill">
               <span id="walletShopLabel">ShopCoin</span>
@@ -142,7 +144,7 @@
           <div class="actions">
             <button id="walletBtn" type="button">刷新余额</button>
           </div>
-          <p class="meta" id="walletView">SC 0 | GC 0</p>
+          <p class="meta" id="walletView">等待刷新余额</p>
         </article>
 
         <article class="md-card section-card">
@@ -167,10 +169,6 @@
         <article class="md-card section-card">
           <h2>货币互换</h2>
           <p class="card-desc">按服务器配置的兑换比例在 <span id="exchangeDescShopCoin">ShopCoin</span> 与 <span id="exchangeDescGameCoin">GameCoin</span> 之间转换。</p>
-          <div class="md-tip md-tip-info">
-            <strong>兑换说明</strong>
-            <p>若提示方向不可兑换，说明管理员在当前服务器配置中关闭了该兑换方向。</p>
-          </div>
           <div class="field-grid three-col compact">
             <label class="field">
               <span>从</span>
@@ -210,14 +208,6 @@
             <button id="productsBtn" type="button">刷新商品</button>
           </div>
         </div>
-        <div class="md-tip md-tip-info">
-          <strong>下单提示</strong>
-          <p>订单创建后会进入发货队列。若角色离线，物品会在下次上线时自动投递。</p>
-        </div>
-        <div class="md-tip md-tip-warn">
-          <strong>冷静期说明</strong>
-          <p>若服务器开启冷静期，下单后会延迟发放，并允许在冷静期内退款。</p>
-        </div>
         <div id="productList" class="product-grid"></div>
       </article>
     </section>
@@ -251,10 +241,13 @@
           <p>“我的上架”仅显示当前登录账号发布的商品；下架后物品会回到你的待投递队列。</p>
         </div>
 
-        <div class="field-grid three-col">
+        <div class="field-grid two-col">
           <label class="field">
             <span>关键词</span>
-            <input id="marketKeyword" placeholder="物品/卖家关键词" />
+            <div class="inline-action">
+              <input id="marketKeyword" placeholder="物品/卖家关键词" />
+              <button id="marketSearchBtn" class="btn-tonal" type="button">搜索</button>
+            </div>
           </label>
           <label class="field">
             <span>排序</span>
@@ -293,14 +286,16 @@
               <input id="marketMaxPrice" type="number" min="0" step="1" />
             </label>
           </div>
+          <div class="actions compact-actions">
+            <button id="marketApplyBtn" class="btn-tonal" type="button">应用筛选</button>
+            <button id="marketClearBtn" class="btn-tonal" type="button">重置筛选</button>
+          </div>
         </details>
 
         <div class="actions market-actions">
           <button id="marketListBtn" class="btn-segment active" type="button">市场在售</button>
           <button id="marketMineBtn" class="btn-segment" type="button">我的上架</button>
           <button id="marketRefreshBtn" class="btn-tonal" type="button">刷新</button>
-          <button id="marketApplyBtn" class="btn-tonal" type="button">应用筛选</button>
-          <button id="marketClearBtn" class="btn-tonal" type="button">重置筛选</button>
         </div>
 
         <p class="meta" id="marketView">暂无市场数据</p>
@@ -324,6 +319,22 @@
         <div class="md-tip md-tip-info">
           <strong>玩家市场</strong>
           <p>上架在游戏内执行命令，价格与备注在网页内管理。购买玩家也走订单流程，可在订单页查看状态。</p>
+        </div>
+        <div class="md-tip md-tip-info">
+          <strong>资产说明</strong>
+          <p>建议下单或交易前先点击“刷新余额”，确保显示与数据库当前余额一致。</p>
+        </div>
+        <div class="md-tip md-tip-info">
+          <strong>兑换说明</strong>
+          <p>若提示方向不可兑换，说明管理员在当前服务器配置中关闭了该兑换方向。</p>
+        </div>
+        <div class="md-tip md-tip-info">
+          <strong>下单提示</strong>
+          <p>订单创建后会进入发货队列。若角色离线，物品会在下次上线时自动投递。</p>
+        </div>
+        <div class="md-tip md-tip-warn">
+          <strong>冷静期说明</strong>
+          <p>若服务器开启冷静期，下单后会延迟发放，并允许在冷静期内退款。</p>
         </div>
         <div class="md-tip md-tip-warn">
           <strong>团购券商品</strong>

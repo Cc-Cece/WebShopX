@@ -19,6 +19,7 @@
   hasLoadedProducts: false,
   hasLoadedMarket: false,
   hasLoadedOrders: false,
+  theme: "light",
   registration: {
     bindCode: null,
     username: null,
@@ -190,6 +191,7 @@ const ORDER_STATUS_LABELS = {
 const elements = {
   logBox: document.getElementById("logBox"),
   statusChip: document.getElementById("statusChip"),
+  themeToggleBtn: document.getElementById("themeToggleBtn"),
 
   authEntryCard: document.getElementById("authEntryCard"),
   authProfileCard: document.getElementById("authProfileCard"),
@@ -203,6 +205,7 @@ const elements = {
   loginBtn: document.getElementById("loginBtn"),
 
   registerStartBtn: document.getElementById("registerStartBtn"),
+  registerBindCopyBtn: document.getElementById("registerBindCopyBtn"),
   registerBindCodeView: document.getElementById("registerBindCodeView"),
   registerStatusView: document.getElementById("registerStatusView"),
   registerFlowTip: document.getElementById("registerFlowTip"),
@@ -233,6 +236,7 @@ const elements = {
   marketMinPrice: document.getElementById("marketMinPrice"),
   marketMaxPrice: document.getElementById("marketMaxPrice"),
   marketSort: document.getElementById("marketSort"),
+  marketSearchBtn: document.getElementById("marketSearchBtn"),
   marketApplyBtn: document.getElementById("marketApplyBtn"),
   marketClearBtn: document.getElementById("marketClearBtn"),
   snackbarHost: document.getElementById("snackbarHost"),
@@ -293,6 +297,52 @@ function notify(message, tone = "info", durationMs = 3200) {
       node.remove();
     }, 200);
   }, durationMs);
+}
+
+const THEME_STORAGE_KEY = "webshopx_theme";
+
+function getInitialTheme() {
+  const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (saved === "dark" || saved === "light") {
+    return saved;
+  }
+  if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+    return "dark";
+  }
+  return "light";
+}
+
+function applyTheme(theme) {
+  const normalized = theme === "dark" ? "dark" : "light";
+  state.theme = normalized;
+  document.body.dataset.theme = normalized;
+  window.localStorage.setItem(THEME_STORAGE_KEY, normalized);
+  if (elements.themeToggleBtn) {
+    elements.themeToggleBtn.textContent = normalized === "dark" ? "切换亮色" : "切换暗色";
+  }
+}
+
+function toggleTheme() {
+  applyTheme(state.theme === "dark" ? "light" : "dark");
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text || "").trim();
+  if (!value) {
+    throw new Error("没有可复制的内容。");
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const tmp = document.createElement("textarea");
+  tmp.value = value;
+  tmp.style.position = "fixed";
+  tmp.style.opacity = "0";
+  document.body.appendChild(tmp);
+  tmp.select();
+  document.execCommand("copy");
+  tmp.remove();
 }
 
 let confirmResolver = null;
@@ -444,14 +494,28 @@ function switchTab(tabName) {
     panel.classList.toggle("active", panel.dataset.tabPanel === tabName);
   });
 
-  if (tabName === "shop" && !state.hasLoadedProducts) {
+  if (tabName === "wallet") {
+    if (state.token) {
+      refreshWallet().catch((error) => {
+        const message = resolveErrorMessage(error, "wallet_refresh");
+        setMetaText(elements.walletView, `刷新钱包失败：${message}`, "error");
+      });
+    } else {
+      setMetaText(elements.walletView, "请先登录后查看钱包。", "warn");
+    }
+  }
+  if (tabName === "shop") {
     loadProducts();
   }
-  if (tabName === "orders" && state.token && !state.hasLoadedOrders) {
-    loadOrders();
+  if (tabName === "orders") {
+    if (state.token) {
+      loadOrders();
+    } else {
+      setMetaText(elements.orderView, "请先登录后查看订单。", "warn");
+    }
   }
-  if (tabName === "market" && !state.hasLoadedMarket) {
-    loadMarket("public");
+  if (tabName === "market") {
+    loadMarket(state.marketMode || "public");
   }
 }
 
@@ -932,6 +996,9 @@ function clearRegistrationUi(resetStatus = true) {
   state.registration.status = "IDLE";
 
   elements.registerBindCodeView.textContent = "绑定码：-";
+  if (elements.registerBindCopyBtn) {
+    elements.registerBindCopyBtn.disabled = true;
+  }
   if (resetStatus) {
     elements.registerStatusView.textContent = "状态：等待开始注册";
   }
@@ -1021,6 +1088,9 @@ async function startRegistration() {
   state.registration.status = "WAITING_BIND";
 
   elements.registerBindCodeView.textContent = `绑定码：${payload.bindCode}`;
+  if (elements.registerBindCopyBtn) {
+    elements.registerBindCopyBtn.disabled = false;
+  }
   setRegisterFlowTip(
     "info",
     "绑定码已生成",
@@ -1443,8 +1513,19 @@ function renderOrders(orders) {
     }
     card.appendChild(meta);
 
+    let actions = null;
+    if (order.groupBuyVoucherCode) {
+      actions = createEl("div", "order-actions");
+      const copyVoucherBtn = createEl("button", "btn-tonal", "复制团购码");
+      copyVoucherBtn.type = "button";
+      copyVoucherBtn.dataset.action = "copyVoucher";
+      copyVoucherBtn.dataset.code = order.groupBuyVoucherCode;
+      actions.appendChild(copyVoucherBtn);
+    }
     if (order.canRefund) {
-      const actions = createEl("div", "order-actions");
+      if (!actions) {
+        actions = createEl("div", "order-actions");
+      }
       const refundBtn = createEl("button", "btn-tonal", "申请退款");
       refundBtn.type = "button";
       refundBtn.dataset.action = "refund";
@@ -1452,6 +1533,8 @@ function renderOrders(orders) {
       refundBtn.dataset.currency = order.currency;
       refundBtn.dataset.amount = order.totalAmount;
       actions.appendChild(refundBtn);
+    }
+    if (actions) {
       card.appendChild(actions);
     }
 
@@ -1735,6 +1818,17 @@ elements.registerStartBtn.addEventListener("click", async () => {
   }
 });
 
+if (elements.registerBindCopyBtn) {
+  elements.registerBindCopyBtn.addEventListener("click", async () => {
+    try {
+      await copyTextToClipboard(state.registration.bindCode || "");
+      notify("绑定码已复制到剪贴板。", "success");
+    } catch (error) {
+      notify(error.message || "复制失败，请手动复制。", "error");
+    }
+  });
+}
+
 elements.registerFinishBtn.addEventListener("click", async () => {
   try {
     await finishRegistration();
@@ -1862,6 +1956,24 @@ document.getElementById("marketMineBtn").addEventListener("click", () => {
 document.getElementById("marketRefreshBtn").addEventListener("click", () => {
   loadMarket(state.marketMode || "public", { announce: true });
 });
+if (elements.marketSearchBtn) {
+  elements.marketSearchBtn.addEventListener("click", () => {
+    loadMarket(state.marketMode || "public", { announce: true });
+  });
+}
+if (elements.marketKeyword) {
+  elements.marketKeyword.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      loadMarket(state.marketMode || "public", { announce: true });
+    }
+  });
+}
+if (elements.marketSort) {
+  elements.marketSort.addEventListener("change", () => {
+    loadMarket(state.marketMode || "public", { announce: true });
+  });
+}
 if (elements.marketApplyBtn) {
   elements.marketApplyBtn.addEventListener("click", () => {
     loadMarket(state.marketMode || "public", { announce: true });
@@ -1923,8 +2035,20 @@ elements.productList.addEventListener("click", async (event) => {
 
 if (elements.orderList) {
   elements.orderList.addEventListener("click", async (event) => {
-    const button = event.target.closest("button[data-action='refund']");
+    const button = event.target.closest("button[data-action]");
     if (!button) {
+      return;
+    }
+    if (button.dataset.action === "copyVoucher") {
+      try {
+        await copyTextToClipboard(button.dataset.code || "");
+        notify("团购兑换码已复制。", "success");
+      } catch (error) {
+        notify(error.message || "复制失败，请手动复制。", "error");
+      }
+      return;
+    }
+    if (button.dataset.action !== "refund") {
       return;
     }
     const orderNo = button.dataset.orderNo;
@@ -2072,10 +2196,15 @@ if (elements.priceDialog) {
   });
 }
 
+if (elements.themeToggleBtn) {
+  elements.themeToggleBtn.addEventListener("click", toggleTheme);
+}
+
+applyTheme(getInitialTheme());
 setAuthMode("login");
 updateAuthLayout();
 clearRegistrationUi();
-setMetaText(elements.walletView, formatWalletInline(0, 0), "info");
+setMetaText(elements.walletView, "等待刷新余额", "info");
 setMetaText(elements.redeemView, "等待兑换操作", "info");
 setMetaText(elements.exchangeView, "等待兑换操作", "info");
 setMetaText(elements.orderView, "暂无订单", "info");
