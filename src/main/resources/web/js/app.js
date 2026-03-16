@@ -18,6 +18,7 @@
     refundUndeliveredEnabled: false,
     marketFeePercent: 0,
     marketTaxPercent: 0,
+    sharedClaimAllowed: false,
   },
   orderPolicyReady: false,
   zhNameMap: {},
@@ -451,9 +452,9 @@ function openDeliveryConfirmDialog({
     const rows = [
       ["小计", formatCurrency(summary.subtotal, summary.currency)],
       [summary.taxLabel || "税额（买家承担）", formatCurrency(summary.taxAmount, summary.currency)],
-      [summary.feeLabel || "手续费（卖家承担）", formatCurrency(summary.feeAmount, summary.currency)],
+      // [summary.feeLabel || "手续费（卖家承担）", formatCurrency(summary.feeAmount, summary.currency)],
       ["最终扣款", formatCurrency(summary.finalAmount, summary.currency)],
-      ["当前余额", formatCurrency(summary.currentBalance, summary.currency)],
+      // ["当前余额", formatCurrency(summary.currentBalance, summary.currency)],
       ["结算后余额", formatCurrency(summary.remainingBalance, summary.currency)],
     ];
     rows.forEach(([label, value]) => {
@@ -470,27 +471,6 @@ function openDeliveryConfirmDialog({
       summaryCard.appendChild(row);
     });
     elements.confirmDetails.appendChild(summaryCard);
-
-    const balanceCard = createEl("div", "checkout-summary balance-summary");
-    balanceCard.appendChild(createEl("p", "checkout-kicker", "余额变化"));
-    const balanceRows = [
-      ["当前余额", formatCurrency(summary.currentBalance, summary.currency)],
-      ["结算后余额", formatCurrency(summary.remainingBalance, summary.currency)],
-    ];
-    balanceRows.forEach(([label, value]) => {
-      const row = createEl("div", "checkout-row");
-      row.appendChild(createEl("span", "", label));
-      const valueNode = createEl("strong", "checkout-value", value);
-      row.appendChild(valueNode);
-      if (label === "结算后余额") {
-        row.classList.add("emphasis");
-      }
-      if (label === "结算后余额" && summary.remainingBalance < 0) {
-        row.classList.add("negative");
-      }
-      balanceCard.appendChild(row);
-    });
-    elements.confirmDetails.appendChild(balanceCard);
 
     const note = createEl(
       "p",
@@ -2018,6 +1998,7 @@ async function loadOrderPolicy() {
     state.orderPolicy.refundUndeliveredEnabled = !!payload.refundUndeliveredEnabled;
     state.orderPolicy.marketFeePercent = Number(payload.marketFeePercent || 0);
     state.orderPolicy.marketTaxPercent = Number(payload.marketTaxPercent || 0);
+    state.orderPolicy.sharedClaimAllowed = !!payload.sharedClaimAllowed;
     state.orderPolicyReady = true;
   } catch (error) {
     state.orderPolicy.cooldownSeconds = 0;
@@ -2025,6 +2006,7 @@ async function loadOrderPolicy() {
     state.orderPolicy.refundUndeliveredEnabled = false;
     state.orderPolicy.marketFeePercent = 0;
     state.orderPolicy.marketTaxPercent = 0;
+    state.orderPolicy.sharedClaimAllowed = false;
     state.orderPolicyReady = true;
   }
 }
@@ -2081,7 +2063,7 @@ function renderOrders(orders) {
     if (order.productRemark) {
       meta.appendChild(createEl("div", "", `备注：${order.productRemark}`));
     }
-    const createdLabel = isMarket ? "成交时间" : "下单时间";
+    const createdLabel = isMarket ? "交易时间" : "下单时间";
     meta.appendChild(createEl("div", "", `${createdLabel}：${formatDateTime(order.createdAt)}`));
     if (order.deliveredAt) {
       meta.appendChild(createEl("div", "", `发放时间：${formatDateTime(order.deliveredAt)}`));
@@ -2092,7 +2074,7 @@ function renderOrders(orders) {
     if (order.refundDeadline) {
       const remain = formatCountdown(order.refundDeadline);
       if (remain) {
-        meta.appendChild(createEl("div", "", `冷静期剩余：${remain}`));
+        // meta.appendChild(createEl("div", "", `冷静期剩余：${remain}`));
       }
     }
     if (order.groupBuyVoucherCode) {
@@ -2104,6 +2086,28 @@ function renderOrders(orders) {
       }
     }
     card.appendChild(meta);
+
+    const isWaitClaim = String(order.status || "").toUpperCase() === "WAIT_CLAIM";
+    if (isWaitClaim && order.claimToken) {
+      const claimBox = createEl("div", "claim-command");
+      const command = `/ws claim ${order.claimToken}`;
+      const label = createEl("div", "claim-command__label", "????");
+      const commandNode = createEl("code", "claim-command__code", command);
+      const copyBtn = createEl("button", "btn-tonal", "??");
+      copyBtn.type = "button";
+      copyBtn.dataset.action = "copyClaim";
+      copyBtn.dataset.command = command;
+      label.appendChild(commandNode);
+      claimBox.appendChild(label);
+      claimBox.appendChild(copyBtn);
+      const hintText = state.orderPolicy.sharedClaimAllowed
+        ? "???????????????"
+        : "??????????????";
+      claimBox.appendChild(createEl("p", "claim-command__hint", hintText));
+      card.appendChild(claimBox);
+    }
+
+
 
     let actions = null;
     if (order.groupBuyVoucherCode) {
@@ -2692,6 +2696,15 @@ if (elements.orderList) {
         notify("团购兑换码已复制。", "success");
       } catch (error) {
         notify(error.message || "复制失败，请手动复制。", "error");
+      }
+      return;
+    }
+    if (button.dataset.action === "copyClaim") {
+      try {
+        await copyTextToClipboard(button.dataset.command || "");
+        notify("领取命令已复制，可以在游戏内直接粘贴。", "success");
+      } catch (error) {
+        notify(error.message || "复制失败，请手动复制领取命令。", "error");
       }
       return;
     }

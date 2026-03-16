@@ -343,6 +343,7 @@ class SchemaManager {
           total_amount BIGINT NOT NULL,
           status VARCHAR(24) NOT NULL,
           idempotency_key VARCHAR(96) NOT NULL,
+          claim_token VARCHAR(64) NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           refund_deadline DATETIME NULL,
           delivered_at DATETIME NULL,
@@ -350,6 +351,7 @@ class SchemaManager {
           PRIMARY KEY (id),
           UNIQUE KEY uniq_orders_order_no (order_no),
           UNIQUE KEY uniq_orders_idempotency (user_id, idempotency_key),
+          UNIQUE KEY uniq_orders_claim_token (claim_token),
           KEY idx_orders_user_id (user_id),
           CONSTRAINT fk_orders_user_id
             FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
@@ -368,6 +370,16 @@ class SchemaManager {
       execute(
           connection,
           "ALTER TABLE orders ADD COLUMN refunded_at DATETIME NULL AFTER delivered_at");
+    }
+    if (!columnExists(connection, "orders", "claim_token")) {
+      execute(
+          connection,
+          "ALTER TABLE orders ADD COLUMN claim_token VARCHAR(64) NULL AFTER idempotency_key");
+    }
+    if (!indexExists(connection, "orders", "uniq_orders_claim_token")) {
+      execute(
+          connection,
+          "ALTER TABLE orders ADD UNIQUE KEY uniq_orders_claim_token (claim_token)");
     }
   }
 
@@ -526,6 +538,7 @@ class SchemaManager {
           fee_amount BIGINT NOT NULL DEFAULT 0,
           tax_amount BIGINT NOT NULL DEFAULT 0,
           idempotency_key VARCHAR(96) NOT NULL,
+          claim_token VARCHAR(64) NULL,
           status VARCHAR(24) NOT NULL DEFAULT 'PENDING',
           refund_deadline DATETIME NULL,
           refunded_at DATETIME NULL,
@@ -533,6 +546,7 @@ class SchemaManager {
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
           UNIQUE KEY uniq_market_trade_idempotency (buyer_user_id, idempotency_key),
+          UNIQUE KEY uniq_market_trade_claim_token (claim_token),
           KEY idx_market_trade_listing_time (listing_id, created_at),
           KEY idx_market_trade_buyer (buyer_user_id, created_at),
           CONSTRAINT fk_market_trade_listing
@@ -631,6 +645,18 @@ class SchemaManager {
           connection,
           "ALTER TABLE market_trades "
               + "ADD COLUMN settled_at DATETIME NULL AFTER refunded_at");
+    }
+    if (!columnExists(connection, "market_trades", "claim_token")) {
+      execute(
+          connection,
+          "ALTER TABLE market_trades "
+              + "ADD COLUMN claim_token VARCHAR(64) NULL AFTER idempotency_key");
+    }
+    if (!indexExists(connection, "market_trades", "uniq_market_trade_claim_token")) {
+      execute(
+          connection,
+          "ALTER TABLE market_trades "
+              + "ADD UNIQUE KEY uniq_market_trade_claim_token (claim_token)");
     }
     if (statusAdded) {
       execute(connection, "UPDATE market_trades SET status = 'DELIVERED'");

@@ -63,33 +63,138 @@ class DeliveryService {
   }
 
   ClaimSummary claimPending(Player player, String token) {
-    UUID playerUuid = player.getUniqueId();
-    String orderNoFilter = normalizeOrderNoFilter(token);
-    Long tradeIdFilter = parseTradeIdFilter(token);
+    ClaimFilters filters = resolveClaimFilters(player, token);
     int success = 0;
     int failed = 0;
 
-    List<CommandDeliveryTask> commandTasks = databaseManager.withConnection(
-        connection -> readClaimCommandTasks(connection, playerUuid, orderNoFilter));
-    for (CommandDeliveryTask task : commandTasks) {
-      if (handleCommandTask(task, true, player)) {
-        success++;
-      } else {
-        failed++;
+    if (filters.includeCommands()) {
+      List<CommandDeliveryTask> commandTasks = databaseManager.withConnection(
+          connection -> readClaimCommandTasks(connection, filters.commandOwnerUuid(), filters.orderNoFilter()));
+      for (CommandDeliveryTask task : commandTasks) {
+        if (handleCommandTask(task, true, player)) {
+          success++;
+        } else {
+          failed++;
+        }
       }
     }
 
-    List<MarketItemDeliveryTask> marketTasks = databaseManager.withConnection(
-        connection -> readClaimMarketTasks(connection, playerUuid, tradeIdFilter));
-    for (MarketItemDeliveryTask task : marketTasks) {
-      if (handleMarketTask(task, true, player)) {
-        success++;
-      } else {
-        failed++;
+    if (filters.includeMarket()) {
+      List<MarketItemDeliveryTask> marketTasks = databaseManager.withConnection(
+          connection -> readClaimMarketTasks(connection, filters.marketOwnerUuid(), filters.tradeIdFilter()));
+      for (MarketItemDeliveryTask task : marketTasks) {
+        if (handleMarketTask(task, true, player)) {
+          success++;
+        } else {
+          failed++;
+        }
       }
     }
 
     return new ClaimSummary(success, failed);
+  }
+
+  private ClaimFilters resolveClaimFilters(Player player, String rawToken) {
+    UUID playerUuid = player.getUniqueId();
+    if (rawToken == null || rawToken.isBlank() || rawToken.equalsIgnoreCase("all")) {
+      return new ClaimFilters(playerUuid, null, true, playerUuid, null, true);
+    }
+    String normalized = rawToken.trim();
+    String upper = normalized.toUpperCase(Locale.ROOT);
+    if (upper.startsWith("CLM-")) {
+      OrderClaimTarget target = findOrderClaimTarget(upper);
+      validateSharedClaim(playerUuid, target.ownerUuid());
+      return new ClaimFilters(target.ownerUuid(), target.orderNo(), true, null, null, false);
+    }
+    if (upper.startsWith("MCL-")) {
+      MarketClaimTarget target = findMarketClaimTarget(upper);
+      validateSharedClaim(playerUuid, target.ownerUuid());
+      return new ClaimFilters(null, null, false, target.ownerUuid(), target.tradeId(), true);
+    }
+    if (upper.startsWith("ODR-")) {
+      return new ClaimFilters(playerUuid, upper, true, null, null, false);
+    }
+    if (upper.startsWith("MKT-")) {
+      Long tradeId = parseTradeIdFilter(upper);
+      if (tradeId == null) {
+        throw new ServiceException("claim_token_invalid", "领取命令格式不正确，请重新复制。");
+      }
+      return new ClaimFilters(null, null, false, playerUuid, tradeId, true);
+    }
+
+    String orderNoFilter = normalizeOrderNoFilter(upper);
+    if (orderNoFilter != null) {
+      return new ClaimFilters(playerUuid, orderNoFilter, true, null, null, false);
+    }
+    Long tradeIdFilter = parseTradeIdFilter(upper);
+    if (tradeIdFilter != null) {
+      return new ClaimFilters(null, null, false, playerUuid, tradeIdFilter, true);
+    }
+    return new ClaimFilters(playerUuid, null, true, playerUuid, null, true);
+  }
+
+  private void validateSharedClaim(UUID requester, UUID owner) {
+    if (requester.equals(owner)) {
+      return;
+    }
+    if (settingsSupplier.get().allowSharedClaimCommand()) {
+      return;
+    }
+    throw new ServiceException("claim_forbidden", "该领取命令仅限订单本人使用。");
+  }
+
+  private OrderClaimTarget findOrderClaimTarget(String token) {
+    return databaseManager.withConnection(connection -> {
+      String sql = """
+          SELECT id, order_no, mc_uuid
+          FROM orders
+          WHERE claim_token = ?
+            AND status = 'WAIT_CLAIM'
+          LIMIT 1
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, token);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (!resultSet.next()) {
+            throw new ServiceException("claim_token_invalid", "领取命令已失效，请在订单界面重新复制。");
+          }
+          String uuidRaw = resultSet.getString("mc_uuid");
+          return new OrderClaimTarget(
+              resultSet.getLong("id"),
+              resultSet.getString("order_no"),
+              uuidRaw == null ? null : UUID.fromString(uuidRaw));
+        }
+      }
+    });
+  }
+
+  private MarketClaimTarget findMarketClaimTarget(String token) {
+    return databaseManager.withConnection(connection -> {
+      String sql = """
+          SELECT mt.id, md.target_uuid
+          FROM market_trades mt
+          JOIN market_item_deliveries md ON md.trade_id = mt.id
+          WHERE mt.claim_token = ?
+            AND mt.status = 'WAIT_CLAIM'
+            AND md.status = 'WAIT_CLAIM'
+          ORDER BY md.id ASC
+          LIMIT 1
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, token);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (!resultSet.next()) {
+            throw new ServiceException("claim_token_invalid", "领取命令已失效，请在订单界面重新复制。");
+          }
+          String uuidRaw = resultSet.getString("target_uuid");
+          UUID ownerUuid = uuidRaw == null ? null : UUID.fromString(uuidRaw);
+          if (ownerUuid == null) {
+            throw new ServiceException("claim_token_invalid", "领取命令暂不可用，请稍后重试。");
+          }
+          return new MarketClaimTarget(resultSet.getLong("id"), ownerUuid);
+        }
+      }
+    });
   }
 
   void notifyClaimHint(Player player) {
@@ -140,8 +245,11 @@ class DeliveryService {
       justification = "Query template is built from constant fragments only")
   private List<CommandDeliveryTask> readClaimCommandTasks(
       Connection connection,
-      UUID playerUuid,
+      UUID ownerUuid,
       String orderNoFilter) throws SQLException {
+    if (ownerUuid == null) {
+      return List.of();
+    }
     String filterByOrder = orderNoFilter == null ? "" : " AND o.order_no = ?";
     String sql = """
         SELECT dq.id, dq.order_id, dq.item_id, dq.mc_uuid, dq.command_text,
@@ -154,7 +262,7 @@ class DeliveryService {
         """ + filterByOrder + " ORDER BY dq.id ASC";
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       int parameterIndex = 1;
-      statement.setString(parameterIndex++, playerUuid.toString());
+      statement.setString(parameterIndex++, ownerUuid.toString());
       if (orderNoFilter != null) {
         statement.setString(parameterIndex, orderNoFilter);
       }
@@ -167,8 +275,11 @@ class DeliveryService {
       justification = "Query template is built from constant fragments only")
   private List<MarketItemDeliveryTask> readClaimMarketTasks(
       Connection connection,
-      UUID playerUuid,
+      UUID targetUuid,
       Long tradeIdFilter) throws SQLException {
+    if (targetUuid == null && tradeIdFilter == null) {
+      return List.of();
+    }
     String filterByTrade = tradeIdFilter == null ? "" : " AND md.trade_id = ?";
     String sql = """
         SELECT md.id, md.listing_id, md.trade_id, md.target_user_id, md.target_uuid, md.item_blob, md.quantity,
@@ -179,7 +290,7 @@ class DeliveryService {
         """ + filterByTrade + " ORDER BY md.id ASC";
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       int parameterIndex = 1;
-      statement.setString(parameterIndex++, playerUuid.toString());
+      statement.setString(parameterIndex++, targetUuid.toString());
       if (tradeIdFilter != null) {
         statement.setLong(parameterIndex, tradeIdFilter);
       }
@@ -273,10 +384,10 @@ class DeliveryService {
       String raw = exception.getMessage() == null ? "发货失败" : exception.getMessage();
       String error = truncate(localizeDeliveryError(raw), 255);
       if (claimMode) {
-        markCommandWaitClaim(task.id(), error);
+        markCommandWaitClaim(task.orderId(), task.id(), error);
         sendWarnActionBar(player, "领取失败：" + error);
       } else if (task.retryCount() + 1 >= MAX_AUTO_RETRY_BEFORE_CLAIM) {
-        markCommandWaitClaim(task.id(), error);
+        markCommandWaitClaim(task.orderId(), task.id(), error);
         sendWarnActionBar(player, "自动发货失败，已转手动领取：/ws claim " + task.orderNo());
       } else {
         rescheduleCommand(task.id(), error, true);
@@ -314,10 +425,10 @@ class DeliveryService {
       String raw = exception.getMessage() == null ? "发货失败" : exception.getMessage();
       String error = truncate(localizeDeliveryError(raw), 255);
       if (claimMode) {
-        markMarketWaitClaim(task.id(), error);
+        markMarketWaitClaim(task, error);
         sendWarnActionBar(player, "领取失败：" + error);
       } else if (task.retryCount() + 1 >= MAX_AUTO_RETRY_BEFORE_CLAIM) {
-        markMarketWaitClaim(task.id(), error);
+        markMarketWaitClaim(task, error);
         String token = task.tradeId() == null ? "#" + task.listingId() : "MKT-" + task.tradeId();
         sendWarnActionBar(player, "自动发货失败，已转手动领取：/ws claim " + token);
       } else {
@@ -345,7 +456,7 @@ class DeliveryService {
 
       String updateOrderSql = """
           UPDATE orders
-          SET status = 'DELIVERED', delivered_at = NOW()
+          SET status = 'DELIVERED', delivered_at = NOW(), claim_token = NULL
           WHERE id = ?
             AND status IN ('PENDING', 'WAIT_CLAIM')
             AND NOT EXISTS (
@@ -419,7 +530,7 @@ class DeliveryService {
 
     String settleSql = """
         UPDATE market_trades
-        SET status = 'DELIVERED', settled_at = NOW()
+        SET status = 'DELIVERED', settled_at = NOW(), claim_token = NULL
         WHERE id = ? AND status IN ('PENDING', 'WAIT_CLAIM')
         """;
     try (PreparedStatement statement = connection.prepareStatement(settleSql)) {
@@ -490,8 +601,9 @@ class DeliveryService {
     });
   }
 
-  private void markCommandWaitClaim(long deliveryId, String errorMessage) {
+  private void markCommandWaitClaim(long orderId, long deliveryId, String errorMessage) {
     databaseManager.withConnection(connection -> {
+      ClaimTokenRepository.ensureOrderToken(connection, orderId);
       String sql = """
           UPDATE delivery_queue
           SET status = 'WAIT_CLAIM',
@@ -532,8 +644,11 @@ class DeliveryService {
     });
   }
 
-  private void markMarketWaitClaim(long deliveryId, String errorMessage) {
+  private void markMarketWaitClaim(MarketItemDeliveryTask task, String errorMessage) {
     databaseManager.withConnection(connection -> {
+      if (task.tradeId() != null) {
+        ClaimTokenRepository.ensureMarketTradeToken(connection, task.tradeId());
+      }
       String sql = """
           UPDATE market_item_deliveries
           SET status = 'WAIT_CLAIM',
@@ -544,7 +659,7 @@ class DeliveryService {
           """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setString(1, truncate(errorMessage, 255));
-        statement.setLong(2, deliveryId);
+        statement.setLong(2, task.id());
         statement.executeUpdate();
       }
       return null;
@@ -844,6 +959,21 @@ class DeliveryService {
       int quantity,
       String deliveryType,
       int retryCount) {
+  }
+
+  private record ClaimFilters(
+      UUID commandOwnerUuid,
+      String orderNoFilter,
+      boolean includeCommands,
+      UUID marketOwnerUuid,
+      Long tradeIdFilter,
+      boolean includeMarket) {
+  }
+
+  private record OrderClaimTarget(long orderId, String orderNo, UUID ownerUuid) {
+  }
+
+  private record MarketClaimTarget(long tradeId, UUID ownerUuid) {
   }
 
   enum DeliveryKind {

@@ -496,10 +496,7 @@
             <button id="userSearchBtn" type="button">查询账号</button>
           </div>
           <p class="meta" id="userLookupStatus">等待查询</p>
-          <div class="md-tip md-tip-info">
-            <strong>说明</strong>
-            <p>查询结果包含余额与绑定状态，仅对具备支持权限的管理员开放。</p>
-          </div>
+          <div class="admin-list" id="userInfoBox"></div>
         </article>
 
         <article class="md-card section-card">
@@ -539,7 +536,7 @@
           <p class="meta" id="userActionStatus">等待操作</p>
         </article>
       </div>
-
+      &nbsp;
       <article class="md-card section-card">
         <div class="section-head">
           <div>
@@ -556,13 +553,6 @@
         </div>
         <p class="meta" id="userListStatus">等待加载列表</p>
         <div class="admin-list" id="userList"></div>
-      </article>
-
-      <article class="md-card section-card">
-        <h2>账号详情</h2>
-        <p class="card-desc">当前查询到的账号信息。</p>
-        <p class="meta meta-info" id="userCurrencyHint">余额字段会根据配置货币名显示。</p>
-        <div class="admin-list" id="userInfoBox"></div>
       </article>
     </section>
 

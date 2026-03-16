@@ -454,7 +454,6 @@ function applyCurrencyMetaToUi() {
   applyText("exchangeGameToShopNameC", gameName);
   applyText("exchangeGameToShopNameD", shopName);
   applyText("vaultGameCoinName", gameName);
-  applyText("userCurrencyHint", `余额字段显示为：${shopName} / ${gameName}`);
 }
 
 function ensureAdmin() {

@@ -1494,7 +1494,7 @@ pre {
   background: var(--md-sys-color-surface-container-low);
   padding: 12px;
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .checkout-kicker {
@@ -1508,8 +1508,9 @@ pre {
 .checkout-row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  align-items: baseline;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .checkout-row strong {
@@ -1518,26 +1519,30 @@ pre {
 
 .checkout-value {
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 92px;
-  padding: 6px 10px;
-  border-radius: 12px;
-  background: var(--md-sys-color-surface-container-high);
-  border: 1px solid var(--md-sys-color-outline-variant);
+  justify-content: flex-end;
+  min-width: unset;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  font-weight: 600;
+  color: var(--md-sys-color-on-surface);
 }
 
-.checkout-row.emphasis strong {
+.checkout-row.emphasis .checkout-value {
   color: var(--app-price-fg);
-  font-size: 15px;
   background: var(--app-info-bg);
-  border-color: var(--app-info-border);
+  border: 1px solid var(--app-info-border);
+  border-radius: 12px;
+  padding: 4px 10px;
 }
 
-.checkout-row.negative strong {
+.checkout-row.negative .checkout-value {
   color: var(--md-sys-color-error);
   background: var(--app-error-bg);
-  border-color: var(--app-error-border);
+  border: 1px solid var(--app-error-border);
+  border-radius: 12px;
+  padding: 4px 10px;
 }
 
 .checkout-warning {
@@ -1551,8 +1556,43 @@ pre {
   font-weight: 700;
 }
 
-.balance-summary .checkout-value {
-  background: var(--app-card-raised-bg);
+.claim-command {
+  margin-top: 12px;
+  border: 1px dashed var(--md-sys-color-outline);
+  border-radius: var(--radius-small);
+  background: var(--md-sys-color-surface-container-lowest);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.claim-command__label {
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+  text-transform: none;
+}
+
+.claim-command__code {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--mono-font), monospace;
+  font-size: 14px;
+  color: var(--md-sys-color-on-surface);
+  word-break: break-all;
+  background: var(--md-sys-color-surface-container-high);
+  border-radius: var(--radius-small);
+  padding: 6px 8px;
+}
+
+.claim-command__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.claim-command button {
+  align-self: flex-start;
 }
 
 .dialog-actions {

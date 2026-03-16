@@ -487,6 +487,11 @@ class EmbeddedWebServer {
         } else {
           row.addProperty("groupBuyVoucherConsumedAt", order.groupBuyVoucherConsumedAt().toString());
         }
+        if (order.claimToken() == null) {
+          row.add("claimToken", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("claimToken", order.claimToken());
+        }
 
         boolean canRefund = canRefund(order, now);
         row.addProperty("canRefund", canRefund);
@@ -537,6 +542,7 @@ class EmbeddedWebServer {
       response.addProperty("refundUndeliveredEnabled", refundUndeliveredEnabled);
       response.addProperty("marketFeePercent", marketSettings.tradeFeePercent());
       response.addProperty("marketTaxPercent", marketSettings.tradeTaxPercent());
+      response.addProperty("sharedClaimAllowed", settingsSupplier.get().allowSharedClaimCommand());
       sendJson(exchange, 200, response);
     });
   }

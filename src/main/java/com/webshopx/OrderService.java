@@ -484,7 +484,7 @@ class OrderService {
         statement.executeUpdate();
         return code;
       } catch (SQLException exception) {
-        if (isDuplicateVoucherCode(exception)) {
+        if (isDuplicateKey(exception)) {
           continue;
         }
         throw exception;
@@ -521,6 +521,9 @@ class OrderService {
       statement.setString(9, status);
       statement.setTimestamp(10, Timestamp.valueOf(nextRetryAt));
       statement.executeUpdate();
+    }
+    if (deliveryMode == DeliveryMode.CLAIM) {
+      ClaimTokenRepository.ensureOrderToken(connection, orderId);
     }
   }
 
@@ -559,7 +562,7 @@ class OrderService {
     return builder.toString();
   }
 
-  private boolean isDuplicateVoucherCode(SQLException exception) {
+  private boolean isDuplicateKey(SQLException exception) {
     if (exception == null) {
       return false;
     }
@@ -681,6 +684,7 @@ class OrderService {
     String cursorSql = cursor == null ? "" : " AND o.id < ?";
     String sql = """
         SELECT o.id, o.order_no, o.user_id, o.mc_uuid, o.currency, o.total_amount, o.status,
+               o.claim_token,
                o.created_at, o.delivered_at, o.refund_deadline, o.refunded_at,
                oi.quantity, oi.unit_price,
                p.sku, p.title, p.remark, p.product_type, p.item_material, p.item_amount,
@@ -724,7 +728,7 @@ class OrderService {
     String sql = """
         SELECT mt.id AS trade_id, mt.listing_id, mt.currency, mt.unit_price, mt.quantity AS trade_quantity,
                mt.total_price, mt.buyer_total,
-               mt.status AS trade_status, mt.refund_deadline, mt.refunded_at, mt.created_at,
+               mt.status AS trade_status, mt.claim_token, mt.refund_deadline, mt.refunded_at, mt.created_at,
                ml.item_material, ml.remark, ml.buyer_uuid,
                md.status AS delivery_status, md.delivered_at
         FROM market_trades mt
@@ -832,6 +836,7 @@ class OrderService {
 
       String sql = """
           SELECT o.id, o.order_no, o.user_id, o.mc_uuid, o.currency, o.total_amount, o.status,
+                 o.claim_token,
                  o.created_at, o.delivered_at, o.refund_deadline, o.refunded_at,
                  u.username, u.bound_uuid,
                  oi.quantity, oi.unit_price,
@@ -973,7 +978,7 @@ class OrderService {
 
       String updateOrderSql = """
           UPDATE orders
-          SET status = 'REFUNDED', refunded_at = NOW()
+          SET status = 'REFUNDED', refunded_at = NOW(), claim_token = NULL
           WHERE id = ?
           """;
       try (PreparedStatement statement = connection.prepareStatement(updateOrderSql)) {
@@ -1131,7 +1136,7 @@ class OrderService {
 
       String updateTradeSql = """
           UPDATE market_trades
-          SET status = 'REFUNDED', refunded_at = NOW()
+          SET status = 'REFUNDED', refunded_at = NOW(), claim_token = NULL
           WHERE id = ? AND status IN ('PENDING', 'WAIT_CLAIM')
           """;
       try (PreparedStatement statement = connection.prepareStatement(updateTradeSql)) {
@@ -1262,6 +1267,7 @@ class OrderService {
     Timestamp refundDeadline = resultSet.getTimestamp("refund_deadline");
     Timestamp refundedAt = resultSet.getTimestamp("refunded_at");
     Timestamp groupBuyVoucherConsumedAt = resultSet.getTimestamp("group_buy_voucher_consumed_at");
+    String claimToken = resultSet.getString("claim_token");
     return new OrderView(
         resultSet.getLong("id"),
         resultSet.getString("order_no"),
@@ -1287,7 +1293,8 @@ class OrderService {
         resultSet.getLong("unit_price"),
         resultSet.getString("group_buy_voucher_code"),
         resultSet.getString("group_buy_voucher_status"),
-        groupBuyVoucherConsumedAt == null ? null : groupBuyVoucherConsumedAt.toLocalDateTime());
+        groupBuyVoucherConsumedAt == null ? null : groupBuyVoucherConsumedAt.toLocalDateTime(),
+        claimToken);
   }
 
   private OrderView readMarketOrderView(ResultSet resultSet, long userId) throws SQLException {
@@ -1307,6 +1314,7 @@ class OrderService {
     Timestamp deliveredAt = resultSet.getTimestamp("delivered_at");
     String tradeStatus = resultSet.getString("trade_status");
     String deliveryStatus = resultSet.getString("delivery_status");
+    String claimToken = resultSet.getString("claim_token");
     String status;
     if (tradeStatus == null || tradeStatus.isBlank()) {
       status = "DELIVERED".equalsIgnoreCase(deliveryStatus) || deliveredAt != null
@@ -1346,7 +1354,8 @@ class OrderService {
         unitPrice > 0 ? unitPrice : totalPrice,
         null,
         null,
-        null);
+        null,
+        claimToken);
   }
 
   private record ExistingOrder(
@@ -1444,7 +1453,8 @@ class OrderService {
       long unitPrice,
       String groupBuyVoucherCode,
       String groupBuyVoucherStatus,
-      LocalDateTime groupBuyVoucherConsumedAt) {
+      LocalDateTime groupBuyVoucherConsumedAt,
+      String claimToken) {
   }
 
   record AdminOrderView(

@@ -660,7 +660,11 @@ class MarketService {
         if (!keyResult.next()) {
           throw new IllegalStateException("Could not read generated market trade id");
         }
-        return keyResult.getLong(1);
+        long tradeId = keyResult.getLong(1);
+        if ("WAIT_CLAIM".equalsIgnoreCase(status)) {
+          ClaimTokenRepository.ensureMarketTradeToken(connection, tradeId);
+        }
+        return tradeId;
       }
     }
   }
