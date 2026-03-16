@@ -62,7 +62,7 @@ class MarketService {
     BoundUser boundUser = databaseManager.withConnection(connection ->
         readBoundUserByUuid(connection, player.getUniqueId(), false));
     if (boundUser == null) {
-      throw new ServiceException("not_bound", "Please bind your web account before listing items");
+      throw new ServiceException("not_bound", "Please set your web password in-game before listing items");
     }
 
     int listingLimit = resolveListingLimit(player);
@@ -216,7 +216,12 @@ class MarketService {
     return databaseManager.inTransaction(connection -> adminUnlistInTransaction(connection, listingId));
   }
 
-  TradeResult buyListing(long buyerUserId, long listingId, int buyQuantity, String idempotencyKey) {
+  TradeResult buyListing(
+      long buyerUserId,
+      long listingId,
+      int buyQuantity,
+      String idempotencyKey,
+      String deliveryModeRaw) {
     if (listingId <= 0L) {
       throw new ServiceException("invalid_listing", "Listing id must be positive");
     }
@@ -225,7 +230,13 @@ class MarketService {
     }
     String normalizedIdempotency = normalizeIdempotencyKey(idempotencyKey);
     return databaseManager.inTransaction(connection ->
-        buyListingInTransaction(connection, buyerUserId, listingId, buyQuantity, normalizedIdempotency));
+        buyListingInTransaction(
+            connection,
+            buyerUserId,
+            listingId,
+            buyQuantity,
+            normalizedIdempotency,
+            deliveryModeRaw));
   }
 
   UnlistResult unlist(long sellerUserId, long listingId) {
@@ -366,7 +377,8 @@ class MarketService {
       long buyerUserId,
       long listingId,
       int buyQuantity,
-      String idempotencyKey) throws SQLException {
+      String idempotencyKey,
+      String deliveryModeRaw) throws SQLException {
     int cooldownSeconds = normalizedOrderCooldownSeconds();
     ExistingTrade existingTrade = readExistingTrade(connection, buyerUserId, idempotencyKey);
     if (existingTrade != null) {
@@ -376,6 +388,7 @@ class MarketService {
       long sellerReceive = existingTrade.sellerReceive() > 0
           ? existingTrade.sellerReceive()
           : existingTrade.totalPrice();
+      int effectiveCooldown = existingTrade.refundDeadline() == null ? 0 : cooldownSeconds;
       return new TradeResult(
           TradeState.EXISTING,
           existingTrade.tradeId(),
@@ -390,7 +403,7 @@ class MarketService {
           existingTrade.taxAmount(),
           existingTrade.status(),
           existingTrade.refundDeadline(),
-          cooldownSeconds);
+          effectiveCooldown);
     }
 
     MarketListing listing = readListingForUpdate(connection, listingId);
@@ -412,10 +425,11 @@ class MarketService {
     long buyerTotal = Math.addExact(tradeSubtotal, tax);
     long sellerReceive = Math.max(0L, tradeSubtotal - fee);
     LocalDateTime now = LocalDateTime.now();
-    LocalDateTime refundDeadline = cooldownSeconds > 0
+    DeliveryMode deliveryMode = resolveDeliveryMode(deliveryModeRaw);
+    LocalDateTime refundDeadline = deliveryMode == DeliveryMode.IMMEDIATE && cooldownSeconds > 0
         ? now.plusSeconds(cooldownSeconds)
         : null;
-    String tradeStatus = "PENDING";
+    String tradeStatus = deliveryMode == DeliveryMode.CLAIM ? "WAIT_CLAIM" : "PENDING";
 
     String buyerDebitBizId = "mkt-buy:" + buyer.userId() + ":" + idempotencyKey;
 
@@ -455,6 +469,7 @@ class MarketService {
         listing.rawItemBlob(),
         buyQuantity,
         DeliveryType.SALE,
+        deliveryMode == DeliveryMode.CLAIM ? "WAIT_CLAIM" : "PENDING",
         deliveryAt);
     return new TradeResult(
         TradeState.CREATED,
@@ -470,7 +485,7 @@ class MarketService {
         tax,
         tradeStatus,
         refundDeadline,
-        cooldownSeconds);
+        deliveryMode == DeliveryMode.CLAIM ? 0 : cooldownSeconds);
   }
 
   private UnlistResult unlistInTransaction(Connection connection, long sellerUserId, long listingId)
@@ -503,6 +518,7 @@ class MarketService {
         listing.rawItemBlob(),
         listing.quantity(),
         DeliveryType.UNLIST,
+        "PENDING",
         LocalDateTime.now());
     return new UnlistResult(listing.id(), listing.currency(), listing.price(), listing.quantity());
   }
@@ -710,6 +726,7 @@ class MarketService {
         listing.rawItemBlob(),
         listing.quantity(),
         DeliveryType.UNLIST,
+        "PENDING",
         LocalDateTime.now());
     return new UnlistResult(listing.id(), listing.currency(), listing.price(), listing.quantity());
   }
@@ -723,12 +740,13 @@ class MarketService {
       byte[] itemBlob,
       int quantity,
       DeliveryType deliveryType,
+      String status,
       LocalDateTime nextRetryAt) throws SQLException {
     String sql = """
         INSERT INTO market_item_deliveries (
           listing_id, trade_id, target_user_id, target_uuid, item_blob, quantity, delivery_type, status, next_retry_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, listingId);
@@ -742,9 +760,22 @@ class MarketService {
       statement.setBytes(5, itemBlob);
       statement.setInt(6, quantity);
       statement.setString(7, deliveryType.name());
-      statement.setTimestamp(8, Timestamp.valueOf(nextRetryAt));
+      statement.setString(8, status);
+      statement.setTimestamp(9, Timestamp.valueOf(nextRetryAt));
       statement.executeUpdate();
     }
+  }
+
+  private DeliveryMode resolveDeliveryMode(String rawMode) {
+    if (rawMode == null || rawMode.isBlank()) {
+      return DeliveryMode.IMMEDIATE;
+    }
+    String normalized = rawMode.trim().toUpperCase(Locale.ROOT);
+    return switch (normalized) {
+      case "IMMEDIATE" -> DeliveryMode.IMMEDIATE;
+      case "CLAIM", "MANUAL", "MANUAL_CLAIM" -> DeliveryMode.CLAIM;
+      default -> throw new ServiceException("invalid_delivery_mode", "Delivery mode is invalid");
+    };
   }
 
   private MarketListing readListingForUpdate(Connection connection, long listingId) throws SQLException {
@@ -1031,6 +1062,11 @@ class MarketService {
   enum DeliveryType {
     SALE,
     UNLIST
+  }
+
+  enum DeliveryMode {
+    IMMEDIATE,
+    CLAIM
   }
 
   record ListingCreateResult(

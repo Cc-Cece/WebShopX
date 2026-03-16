@@ -9,7 +9,6 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.Base64;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -17,9 +16,6 @@ import java.util.function.Supplier;
 class AuthService {
   private static final String USERNAME_PATTERN = "^[A-Za-z0-9_]{3,32}$";
   private static final String STATE_ACTIVE = "ACTIVE";
-  private static final String STATE_PENDING_BIND = "PENDING_BIND";
-  private static final String STATE_PENDING_PASSWORD = "PENDING_PASSWORD";
-  private static final String CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
   private final DatabaseManager databaseManager;
   private final Supplier<PluginSettings> settingsSupplier;
@@ -33,121 +29,6 @@ class AuthService {
     this.secureRandom = new SecureRandom();
   }
 
-  AuthResult register(String username, String password) {
-    validateCredentials(username, password);
-    long userId = databaseManager.inTransaction(connection -> {
-      long createdUserId = createUser(
-          connection,
-          username,
-          password,
-          STATE_ACTIVE);
-      ensureWallet(connection, createdUserId);
-      return createdUserId;
-    });
-    return createSession(userId);
-  }
-
-  RegisterStartResult startRegistration() {
-    int expireMinutes = Math.max(1, settingsSupplier.get().bindRequestExpireMinutes());
-    LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(expireMinutes);
-
-    return databaseManager.inTransaction(connection -> {
-      long userId = createPendingUser(connection, generatePendingUsername(connection));
-      String bindCode = createBindCode(connection, userId, expiresAt);
-      return new RegisterStartResult(bindCode, expireMinutes);
-    });
-  }
-
-  RegisterStatusResult queryRegistrationStatus(String bindCode) {
-    if (bindCode == null || bindCode.isBlank()) {
-      return new RegisterStatusResult(RegistrationStatus.INVALID_CODE, null, null);
-    }
-
-    return databaseManager.withConnection(connection -> {
-      RegistrationRow row = readRegistrationRow(connection, bindCode);
-      if (row == null) {
-        return new RegisterStatusResult(RegistrationStatus.INVALID_CODE, null, null);
-      }
-
-      LocalDateTime now = LocalDateTime.now();
-      if (!row.used()) {
-        if (row.expiresAt().isBefore(now)) {
-          return new RegisterStatusResult(
-              RegistrationStatus.EXPIRED,
-              row.username(),
-              row.boundUuid());
-        }
-        return new RegisterStatusResult(
-            RegistrationStatus.WAITING_BIND,
-            row.username(),
-            row.boundUuid());
-      }
-
-      if (row.boundUuid() == null) {
-        return new RegisterStatusResult(
-            RegistrationStatus.WAITING_BIND,
-            row.username(),
-            null);
-      }
-
-      if (STATE_ACTIVE.equals(row.authState())) {
-        return new RegisterStatusResult(
-            RegistrationStatus.COMPLETED,
-            row.username(),
-            row.boundUuid());
-      }
-      if (STATE_PENDING_PASSWORD.equals(row.authState())) {
-        return new RegisterStatusResult(
-            RegistrationStatus.NEED_PASSWORD,
-            row.username(),
-            row.boundUuid());
-      }
-
-      return new RegisterStatusResult(
-          RegistrationStatus.WAITING_BIND,
-          row.username(),
-          row.boundUuid());
-    });
-  }
-
-  AuthResult finishRegistration(String bindCode, String password) {
-    validatePassword(password);
-    if (bindCode == null || bindCode.isBlank()) {
-      throw new ServiceException("invalid_code", "Bind code is required");
-    }
-
-    long userId = databaseManager.inTransaction(connection -> {
-      RegistrationRow row = readRegistrationRowForUpdate(connection, bindCode);
-      if (row == null) {
-        throw new ServiceException("invalid_code", "Bind code does not exist");
-      }
-      if (!row.used() || row.boundUuid() == null) {
-        throw new ServiceException("wait_bind", "Minecraft account is not bound yet");
-      }
-      if (!STATE_PENDING_PASSWORD.equals(row.authState())) {
-        if (STATE_ACTIVE.equals(row.authState())) {
-          throw new ServiceException("already_completed", "Registration has already completed");
-        }
-        throw new ServiceException("invalid_state", "Registration state is invalid");
-      }
-
-      String salt = passwordHasher.newSalt();
-      String hash = passwordHasher.hash(password, salt);
-      String sql = "UPDATE web_users SET password_hash = ?, password_salt = ?, auth_state = ? "
-          + "WHERE id = ?";
-      try (PreparedStatement statement = connection.prepareStatement(sql)) {
-        statement.setString(1, hash);
-        statement.setString(2, salt);
-        statement.setString(3, STATE_ACTIVE);
-        statement.setLong(4, row.userId());
-        statement.executeUpdate();
-      }
-      return row.userId();
-    });
-
-    return createSession(userId);
-  }
-
   AuthResult login(String identifier, String password) {
     validatePassword(password);
     if (identifier == null || identifier.isBlank()) {
@@ -156,6 +37,18 @@ class AuthService {
 
     long userId = databaseManager.withConnection(connection -> verifyUser(connection, identifier, password));
     return createSession(userId);
+  }
+
+  InGamePasswordResult setPasswordFromGame(UUID playerUuid, String playerName, String password) {
+    if (playerUuid == null) {
+      throw new ServiceException("bad_request", "Player UUID is required");
+    }
+    validateCredentials(playerName, password);
+
+    InGamePasswordResult result = databaseManager.inTransaction(connection ->
+        upsertPlayerAccount(connection, playerUuid, playerName.trim(), password));
+    logoutAllSessions(result.userId());
+    return result;
   }
 
   void logout(String token) {
@@ -193,8 +86,8 @@ class AuthService {
   long createUserForAdminBootstrap(Connection connection, String username, String password)
       throws SQLException {
     validateCredentials(username, password);
-    long userId = createUser(connection, username, password, STATE_ACTIVE);
-    ensureWallet(connection, userId);
+    long userId = createUser(connection, username.trim(), password, STATE_ACTIVE, null);
+    ensureWalletExists(connection, userId);
     return userId;
   }
 
@@ -219,6 +112,51 @@ class AuthService {
     });
   }
 
+  private InGamePasswordResult upsertPlayerAccount(
+      Connection connection,
+      UUID playerUuid,
+      String playerName,
+      String password) throws SQLException {
+    UserAccount existingByUuid = readUserByBoundUuidForUpdate(connection, playerUuid);
+    UserAccount existingByUsername = readUserByUsernameForUpdate(connection, playerName);
+
+    if (existingByUuid != null
+        && existingByUsername != null
+        && existingByUuid.userId() != existingByUsername.userId()) {
+      throw new ServiceException("username_exists", "Username already exists");
+    }
+    if (existingByUuid == null
+        && existingByUsername != null
+        && existingByUsername.boundUuid() != null
+        && !playerUuid.equals(existingByUsername.boundUuid())) {
+      throw new ServiceException("username_exists", "Username already exists");
+    }
+
+    String salt = passwordHasher.newSalt();
+    String hash = passwordHasher.hash(password, salt);
+    UserAccount target = existingByUuid != null ? existingByUuid : existingByUsername;
+
+    if (target == null) {
+      long userId = createUser(connection, playerName, password, STATE_ACTIVE, playerUuid);
+      ensureWalletExists(connection, userId);
+      return new InGamePasswordResult(userId, playerName, true);
+    }
+
+    String sql = "UPDATE web_users SET username = ?, password_hash = ?, password_salt = ?, "
+        + "bound_uuid = ?, auth_state = ? WHERE id = ?";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, playerName);
+      statement.setString(2, hash);
+      statement.setString(3, salt);
+      statement.setString(4, playerUuid.toString());
+      statement.setString(5, STATE_ACTIVE);
+      statement.setLong(6, target.userId());
+      statement.executeUpdate();
+    }
+    ensureWalletExists(connection, target.userId());
+    return new InGamePasswordResult(target.userId(), playerName, false);
+  }
+
   private void validateCredentials(String username, String password) {
     validateUsername(username);
     validatePassword(password);
@@ -240,49 +178,12 @@ class AuthService {
     }
   }
 
-  private long createPendingUser(Connection connection, String username) throws SQLException {
-    String tempPassword = randomToken(24);
-    String salt = passwordHasher.newSalt();
-    String hash = passwordHasher.hash(tempPassword, salt);
-
-    String insertUserSql = "INSERT INTO web_users "
-        + "(username, password_hash, password_salt, auth_state) "
-        + "VALUES (?, ?, ?, ?)";
-    long userId;
-    try (PreparedStatement statement =
-             connection.prepareStatement(insertUserSql, Statement.RETURN_GENERATED_KEYS)) {
-      statement.setString(1, username);
-      statement.setString(2, hash);
-      statement.setString(3, salt);
-      statement.setString(4, STATE_PENDING_BIND);
-      statement.executeUpdate();
-      try (ResultSet keyResult = statement.getGeneratedKeys()) {
-        if (!keyResult.next()) {
-          throw new IllegalStateException("Could not read generated user id");
-        }
-        userId = keyResult.getLong(1);
-      }
-    }
-
-    ensureWallet(connection, userId);
-    return userId;
-  }
-
-  private String generatePendingUsername(Connection connection) throws SQLException {
-    for (int attempt = 0; attempt < 6; attempt++) {
-      String candidate = "pending_" + randomBindCode(8);
-      if (!userExists(connection, candidate)) {
-        return candidate;
-      }
-    }
-    throw new IllegalStateException("Could not allocate unique pending username");
-  }
-
   private long createUser(
       Connection connection,
       String username,
       String password,
-      String state) throws SQLException {
+      String state,
+      UUID boundUuid) throws SQLException {
     if (userExists(connection, username)) {
       throw new ServiceException("username_exists", "Username already exists");
     }
@@ -290,8 +191,8 @@ class AuthService {
     String salt = passwordHasher.newSalt();
     String hash = passwordHasher.hash(password, salt);
     String insertUserSql = "INSERT INTO web_users "
-        + "(username, password_hash, password_salt, auth_state) "
-        + "VALUES (?, ?, ?, ?)";
+        + "(username, password_hash, password_salt, auth_state, bound_uuid) "
+        + "VALUES (?, ?, ?, ?, ?)";
 
     try (PreparedStatement statement =
              connection.prepareStatement(insertUserSql, Statement.RETURN_GENERATED_KEYS)) {
@@ -299,6 +200,7 @@ class AuthService {
       statement.setString(2, hash);
       statement.setString(3, salt);
       statement.setString(4, state);
+      statement.setString(5, boundUuid == null ? null : boundUuid.toString());
       statement.executeUpdate();
       try (ResultSet keyResult = statement.getGeneratedKeys()) {
         if (!keyResult.next()) {
@@ -309,38 +211,14 @@ class AuthService {
     }
   }
 
-  private void ensureWallet(Connection connection, long userId) throws SQLException {
-    String insertWalletSql = "INSERT INTO wallets (user_id) VALUES (?)";
+  private void ensureWalletExists(Connection connection, long userId) throws SQLException {
+    String insertWalletSql = """
+        INSERT INTO wallets (user_id) VALUES (?)
+        ON DUPLICATE KEY UPDATE user_id = user_id
+        """;
     try (PreparedStatement statement = connection.prepareStatement(insertWalletSql)) {
       statement.setLong(1, userId);
       statement.executeUpdate();
-    }
-  }
-
-  private String createBindCode(Connection connection, long userId, LocalDateTime expiresAt)
-      throws SQLException {
-    for (int attempt = 0; attempt < 5; attempt++) {
-      String bindCode = randomBindCode(8);
-      if (insertBindRequest(connection, bindCode, userId, expiresAt)) {
-        return bindCode;
-      }
-    }
-    throw new IllegalStateException("Could not allocate unique bind code");
-  }
-
-  private boolean insertBindRequest(
-      Connection connection,
-      String bindCode,
-      long userId,
-      LocalDateTime expiresAt) throws SQLException {
-    String sql = "INSERT INTO bind_requests (bind_code, user_id, expires_at, used) "
-        + "VALUES (?, ?, ?, FALSE) "
-        + "ON DUPLICATE KEY UPDATE bind_code = bind_code";
-    try (PreparedStatement statement = connection.prepareStatement(sql)) {
-      statement.setString(1, bindCode);
-      statement.setLong(2, userId);
-      statement.setTimestamp(3, Timestamp.valueOf(expiresAt));
-      return statement.executeUpdate() == 1;
     }
   }
 
@@ -352,6 +230,43 @@ class AuthService {
         return resultSet.next();
       }
     }
+  }
+
+  private UserAccount readUserByUsernameForUpdate(Connection connection, String username)
+      throws SQLException {
+    String sql = "SELECT id, username, bound_uuid FROM web_users WHERE username = ? FOR UPDATE";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, username);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return null;
+        }
+        return toUserAccount(resultSet);
+      }
+    }
+  }
+
+  private UserAccount readUserByBoundUuidForUpdate(Connection connection, UUID playerUuid)
+      throws SQLException {
+    String sql = "SELECT id, username, bound_uuid FROM web_users WHERE bound_uuid = ? FOR UPDATE";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, playerUuid.toString());
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return null;
+        }
+        return toUserAccount(resultSet);
+      }
+    }
+  }
+
+  private UserAccount toUserAccount(ResultSet resultSet) throws SQLException {
+    String boundUuidRaw = resultSet.getString("bound_uuid");
+    UUID boundUuid = boundUuidRaw == null ? null : UUID.fromString(boundUuidRaw);
+    return new UserAccount(
+        resultSet.getLong("id"),
+        resultSet.getString("username"),
+        boundUuid);
   }
 
   private long verifyUser(Connection connection, String identifier, String password)
@@ -423,15 +338,6 @@ class AuthService {
     return token;
   }
 
-  private String randomBindCode(int length) {
-    StringBuilder builder = new StringBuilder(length);
-    for (int index = 0; index < length; index++) {
-      int pointer = secureRandom.nextInt(CODE_ALPHABET.length());
-      builder.append(CODE_ALPHABET.charAt(pointer));
-    }
-    return builder.toString();
-  }
-
   private Optional<AuthUser> readUserBySession(Connection connection, String token) throws SQLException {
     String sql = "SELECT u.id, u.username, u.bound_uuid "
         + "FROM web_sessions s "
@@ -446,56 +352,12 @@ class AuthService {
         }
         String boundUuidRaw = resultSet.getString("bound_uuid");
         UUID boundUuid = boundUuidRaw == null ? null : UUID.fromString(boundUuidRaw);
-        return Optional.of(new AuthUser(resultSet.getLong("id"), resultSet.getString("username"),
+        return Optional.of(new AuthUser(
+            resultSet.getLong("id"),
+            resultSet.getString("username"),
             boundUuid));
       }
     }
-  }
-
-  private RegistrationRow readRegistrationRow(Connection connection, String bindCode)
-      throws SQLException {
-    String sql = "SELECT br.user_id, br.expires_at, br.used, u.username, u.bound_uuid, u.auth_state "
-        + "FROM bind_requests br "
-        + "JOIN web_users u ON u.id = br.user_id "
-        + "WHERE br.bind_code = ?";
-    try (PreparedStatement statement = connection.prepareStatement(sql)) {
-      statement.setString(1, bindCode.trim().toUpperCase(Locale.ROOT));
-      try (ResultSet resultSet = statement.executeQuery()) {
-        if (!resultSet.next()) {
-          return null;
-        }
-        return toRegistrationRow(resultSet);
-      }
-    }
-  }
-
-  private RegistrationRow readRegistrationRowForUpdate(Connection connection, String bindCode)
-      throws SQLException {
-    String sql = "SELECT br.user_id, br.expires_at, br.used, u.username, u.bound_uuid, u.auth_state "
-        + "FROM bind_requests br "
-        + "JOIN web_users u ON u.id = br.user_id "
-        + "WHERE br.bind_code = ? FOR UPDATE";
-    try (PreparedStatement statement = connection.prepareStatement(sql)) {
-      statement.setString(1, bindCode.trim().toUpperCase(Locale.ROOT));
-      try (ResultSet resultSet = statement.executeQuery()) {
-        if (!resultSet.next()) {
-          return null;
-        }
-        return toRegistrationRow(resultSet);
-      }
-    }
-  }
-
-  private RegistrationRow toRegistrationRow(ResultSet resultSet) throws SQLException {
-    String boundUuidRaw = resultSet.getString("bound_uuid");
-    UUID boundUuid = boundUuidRaw == null ? null : UUID.fromString(boundUuidRaw);
-    return new RegistrationRow(
-        resultSet.getLong("user_id"),
-        resultSet.getTimestamp("expires_at").toLocalDateTime(),
-        resultSet.getBoolean("used"),
-        resultSet.getString("username"),
-        boundUuid,
-        resultSet.getString("auth_state"));
   }
 
   record AuthUser(long id, String username, UUID boundUuid) {
@@ -504,26 +366,9 @@ class AuthService {
   record AuthResult(AuthUser user, String sessionToken, LocalDateTime expiresAt) {
   }
 
-  record RegisterStartResult(String bindCode, int expiresInMinutes) {
+  record InGamePasswordResult(long userId, String username, boolean created) {
   }
 
-  enum RegistrationStatus {
-    WAITING_BIND,
-    NEED_PASSWORD,
-    COMPLETED,
-    EXPIRED,
-    INVALID_CODE
-  }
-
-  record RegisterStatusResult(RegistrationStatus status, String username, UUID boundUuid) {
-  }
-
-  private record RegistrationRow(
-      long userId,
-      LocalDateTime expiresAt,
-      boolean used,
-      String username,
-      UUID boundUuid,
-      String authState) {
+  private record UserAccount(long userId, String username, UUID boundUuid) {
   }
 }

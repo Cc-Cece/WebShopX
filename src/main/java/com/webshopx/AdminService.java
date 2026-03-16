@@ -198,6 +198,46 @@ class AdminService {
     }
   }
 
+  java.util.List<UserListItem> listUsers(String keyword, int limit) {
+    int normalizedLimit = Math.max(1, Math.min(limit, 300));
+    String likeKeyword = keyword == null || keyword.isBlank() ? null : "%" + keyword.trim() + "%";
+    return databaseManager.withConnection(connection -> {
+      String sql = """
+          SELECT u.id, u.username, u.bound_uuid, u.auth_state, u.created_at,
+                 COALESCE(w.shop_coin, 0) AS shop_coin,
+                 COALESCE(w.game_coin, 0) AS game_coin
+          FROM web_users u
+          LEFT JOIN wallets w ON w.user_id = u.id
+          WHERE (? IS NULL OR u.username LIKE ? OR u.bound_uuid LIKE ? OR CAST(u.id AS CHAR) LIKE ?)
+          ORDER BY u.created_at DESC, u.id DESC
+          LIMIT ?
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, likeKeyword);
+        statement.setString(2, likeKeyword);
+        statement.setString(3, likeKeyword);
+        statement.setString(4, likeKeyword);
+        statement.setInt(5, normalizedLimit);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          java.util.List<UserListItem> rows = new java.util.ArrayList<>();
+          while (resultSet.next()) {
+            String boundUuidRaw = resultSet.getString("bound_uuid");
+            UUID boundUuid = boundUuidRaw == null ? null : UUID.fromString(boundUuidRaw);
+            rows.add(new UserListItem(
+                resultSet.getLong("id"),
+                resultSet.getString("username"),
+                boundUuid,
+                resultSet.getString("auth_state"),
+                resultSet.getTimestamp("created_at").toLocalDateTime(),
+                resultSet.getLong("shop_coin"),
+                resultSet.getLong("game_coin")));
+          }
+          return rows;
+        }
+      }
+    });
+  }
+
   private Long tryParseLong(String raw) {
     try {
       return Long.parseLong(raw);
@@ -224,6 +264,16 @@ class AdminService {
   }
 
   record UserSupportView(
+      long userId,
+      String username,
+      UUID boundUuid,
+      String authState,
+      LocalDateTime createdAt,
+      long shopCoin,
+      long gameCoin) {
+  }
+
+  record UserListItem(
       long userId,
       String username,
       UUID boundUuid,

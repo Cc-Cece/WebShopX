@@ -34,7 +34,6 @@ class EmbeddedWebServer {
   private final JavaPlugin plugin;
   private final Supplier<PluginSettings> settingsSupplier;
   private final AuthService authService;
-  private final BindingService bindingService;
   private final WalletService walletService;
   private final RedeemCodeService redeemCodeService;
   private final ProductService productService;
@@ -52,7 +51,6 @@ class EmbeddedWebServer {
       JavaPlugin plugin,
       Supplier<PluginSettings> settingsSupplier,
       AuthService authService,
-      BindingService bindingService,
       WalletService walletService,
       RedeemCodeService redeemCodeService,
       ProductService productService,
@@ -63,7 +61,6 @@ class EmbeddedWebServer {
     this.plugin = plugin;
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
-    this.bindingService = bindingService;
     this.walletService = walletService;
     this.redeemCodeService = redeemCodeService;
     this.productService = productService;
@@ -86,14 +83,9 @@ class EmbeddedWebServer {
     server.setExecutor(executorService);
 
     server.createContext("/health", this::handleHealth);
-    server.createContext("/api/auth/register", this::handleRegister);
-    server.createContext("/api/auth/register/start", this::handleRegisterStart);
-    server.createContext("/api/auth/register/status", this::handleRegisterStatus);
-    server.createContext("/api/auth/register/finish", this::handleRegisterFinish);
     server.createContext("/api/auth/login", this::handleLogin);
     server.createContext("/api/auth/me", this::handleAuthMe);
     server.createContext("/api/auth/logout", this::handleLogout);
-    server.createContext("/api/bind/request", this::handleBindRequest);
     server.createContext("/api/wallet", this::handleWallet);
     server.createContext("/api/wallet/exchange", this::handleExchange);
     server.createContext("/api/redeem/use", this::handleRedeemUse);
@@ -125,6 +117,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/market/listings", this::handleAdminMarketListings);
     server.createContext("/api/admin/market/unlist", this::handleAdminMarketUnlist);
     server.createContext("/api/admin/users/lookup", this::handleAdminUserLookup);
+    server.createContext("/api/admin/users/list", this::handleAdminUsersList);
     server.createContext("/api/admin/users/reset-password", this::handleAdminResetPassword);
     server.createContext("/api/admin/users/unbind", this::handleAdminUnbind);
     server.createContext("/api/admin/users/logout", this::handleAdminForceLogout);
@@ -163,84 +156,6 @@ class EmbeddedWebServer {
     response.addProperty("status", "ok");
     response.addProperty("time", LocalDateTime.now().toString());
     sendJson(exchange, 200, response);
-  }
-
-  private void handleRegister(HttpExchange exchange) throws IOException {
-    if (isPreflight(exchange)) {
-      return;
-    }
-    if (!ensureMethod(exchange, "POST")) {
-      return;
-    }
-    withServiceHandling(exchange, () -> {
-      JsonObject payload = readJson(exchange);
-      String username = getString(payload, "username");
-      String password = getString(payload, "password");
-      AuthService.AuthResult result = authService.register(username, password);
-      JsonObject response = sessionResponse(result);
-      sendJson(exchange, 200, response);
-    });
-  }
-
-  private void handleRegisterStart(HttpExchange exchange) throws IOException {
-    if (isPreflight(exchange)) {
-      return;
-    }
-    if (!ensureMethod(exchange, "POST")) {
-      return;
-    }
-    withServiceHandling(exchange, () -> {
-      readJson(exchange);
-      AuthService.RegisterStartResult result = authService.startRegistration();
-      JsonObject response = new JsonObject();
-      response.addProperty("bindCode", result.bindCode());
-      response.addProperty("expiresInMinutes", result.expiresInMinutes());
-      sendJson(exchange, 200, response);
-    });
-  }
-
-  private void handleRegisterStatus(HttpExchange exchange) throws IOException {
-    if (isPreflight(exchange)) {
-      return;
-    }
-    if (!ensureMethod(exchange, "GET")) {
-      return;
-    }
-    withServiceHandling(exchange, () -> {
-      Map<String, String> query = parseQuery(exchange);
-      String bindCode = query.get("bindCode");
-      AuthService.RegisterStatusResult result = authService.queryRegistrationStatus(bindCode);
-      JsonObject response = new JsonObject();
-      response.addProperty("status", result.status().name());
-      if (result.username() == null) {
-        response.add("username", JsonNull.INSTANCE);
-      } else {
-        response.addProperty("username", result.username());
-      }
-      if (result.boundUuid() == null) {
-        response.add("boundUuid", JsonNull.INSTANCE);
-      } else {
-        response.addProperty("boundUuid", result.boundUuid().toString());
-      }
-      sendJson(exchange, 200, response);
-    });
-  }
-
-  private void handleRegisterFinish(HttpExchange exchange) throws IOException {
-    if (isPreflight(exchange)) {
-      return;
-    }
-    if (!ensureMethod(exchange, "POST")) {
-      return;
-    }
-    withServiceHandling(exchange, () -> {
-      JsonObject payload = readJson(exchange);
-      String bindCode = getString(payload, "bindCode");
-      String password = getString(payload, "password");
-      AuthService.AuthResult result = authService.finishRegistration(bindCode, password);
-      JsonObject response = sessionResponse(result);
-      sendJson(exchange, 200, response);
-    });
   }
 
   private void handleLogin(HttpExchange exchange) throws IOException {
@@ -294,23 +209,6 @@ class EmbeddedWebServer {
       authService.logout(token);
       JsonObject response = new JsonObject();
       response.addProperty("status", "ok");
-      sendJson(exchange, 200, response);
-    });
-  }
-
-  private void handleBindRequest(HttpExchange exchange) throws IOException {
-    if (isPreflight(exchange)) {
-      return;
-    }
-    if (!ensureMethod(exchange, "POST")) {
-      return;
-    }
-    withServiceHandling(exchange, () -> {
-      AuthService.AuthUser user = requireAuth(exchange, null);
-      String bindCode = bindingService.createBindRequest(user.id());
-      JsonObject response = new JsonObject();
-      response.addProperty("bindCode", bindCode);
-      response.addProperty("expiresInMinutes", settingsSupplier.get().bindRequestExpireMinutes());
       sendJson(exchange, 200, response);
     });
   }
@@ -590,15 +488,14 @@ class EmbeddedWebServer {
           row.addProperty("groupBuyVoucherConsumedAt", order.groupBuyVoucherConsumedAt().toString());
         }
 
-        boolean canRefund = "PENDING".equalsIgnoreCase(order.status())
-            && order.refundDeadline() != null
-            && now.isBefore(order.refundDeadline());
+        boolean canRefund = canRefund(order, now);
         row.addProperty("canRefund", canRefund);
         array.add(row);
       }
       JsonObject response = new JsonObject();
       response.add("orders", array);
       response.addProperty("cooldownSeconds", settingsSupplier.get().orderCooldownSeconds());
+      response.addProperty("refundUndeliveredEnabled", settingsSupplier.get().refundUndeliveredEnabled());
       sendJson(exchange, 200, response);
     });
   }
@@ -632,9 +529,14 @@ class EmbeddedWebServer {
     }
     withServiceHandling(exchange, () -> {
       int cooldownSeconds = settingsSupplier.get().orderCooldownSeconds();
+      boolean refundUndeliveredEnabled = settingsSupplier.get().refundUndeliveredEnabled();
+      PluginSettings.MarketEconomySettings marketSettings = settingsSupplier.get().economySettings().marketSettings();
       JsonObject response = new JsonObject();
       response.addProperty("cooldownSeconds", Math.max(0, cooldownSeconds));
-      response.addProperty("refundEnabled", cooldownSeconds > 0);
+      response.addProperty("refundEnabled", refundUndeliveredEnabled || cooldownSeconds > 0);
+      response.addProperty("refundUndeliveredEnabled", refundUndeliveredEnabled);
+      response.addProperty("marketFeePercent", marketSettings.tradeFeePercent());
+      response.addProperty("marketTaxPercent", marketSettings.tradeTaxPercent());
       sendJson(exchange, 200, response);
     });
   }
@@ -766,10 +668,11 @@ class EmbeddedWebServer {
       AuthService.AuthUser user = requireAuth(exchange, payload);
       long listingId = getLong(payload, "listingId", -1L);
       int buyQuantity = (int) getLong(payload, "buyQuantity", 1L);
+      String deliveryMode = getOptionalString(payload, "deliveryMode").orElse(null);
       String idempotencyKey = getOptionalString(payload, "idempotencyKey")
           .orElse(UUID.randomUUID().toString());
       MarketService.TradeResult result =
-          marketService.buyListing(user.id(), listingId, buyQuantity, idempotencyKey);
+          marketService.buyListing(user.id(), listingId, buyQuantity, idempotencyKey, deliveryMode);
       JsonObject response = new JsonObject();
       response.addProperty("state", result.state().name());
       response.addProperty("tradeId", result.tradeId());
@@ -1571,6 +1474,41 @@ class EmbeddedWebServer {
     });
   }
 
+  private void handleAdminUsersList(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      requireAdmin(exchange, null, AdminPermission.USER_SUPPORT);
+      Map<String, String> query = parseQuery(exchange);
+      String keyword = query.get("keyword");
+      int limit = parseInt(query.get("limit"), 120);
+      List<AdminService.UserListItem> users = adminService.listUsers(keyword, limit);
+      JsonArray array = new JsonArray();
+      for (AdminService.UserListItem user : users) {
+        JsonObject row = new JsonObject();
+        row.addProperty("id", user.userId());
+        row.addProperty("username", user.username());
+        row.addProperty("authState", user.authState());
+        row.addProperty("createdAt", user.createdAt().toString());
+        row.addProperty("shopCoin", user.shopCoin());
+        row.addProperty("gameCoin", user.gameCoin());
+        if (user.boundUuid() == null) {
+          row.add("boundUuid", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("boundUuid", user.boundUuid().toString());
+        }
+        array.add(row);
+      }
+      JsonObject response = new JsonObject();
+      response.add("users", array);
+      sendJson(exchange, 200, response);
+    });
+  }
+
   private void handleAdminResetPassword(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
       return;
@@ -1749,6 +1687,29 @@ class EmbeddedWebServer {
     try (OutputStream outputStream = exchange.getResponseBody()) {
       outputStream.write(content);
     }
+  }
+
+  private boolean canRefund(OrderService.OrderView order, LocalDateTime now) {
+    if (order == null) {
+      return false;
+    }
+    String voucherStatus = order.groupBuyVoucherStatus();
+    if (voucherStatus != null) {
+      if ("REFUNDED".equalsIgnoreCase(voucherStatus) || "CONSUMED".equalsIgnoreCase(voucherStatus)) {
+        return false;
+      }
+      if (settingsSupplier.get().refundUndeliveredEnabled() && "ISSUED".equalsIgnoreCase(voucherStatus)) {
+        return true;
+      }
+    }
+
+    if (settingsSupplier.get().refundUndeliveredEnabled()) {
+      return "PENDING".equalsIgnoreCase(order.status())
+          || "WAIT_CLAIM".equalsIgnoreCase(order.status());
+    }
+    return "PENDING".equalsIgnoreCase(order.status())
+        && order.refundDeadline() != null
+        && now.isBefore(order.refundDeadline());
   }
 
   private AuthService.AuthUser requireAuth(HttpExchange exchange, JsonObject payload) {

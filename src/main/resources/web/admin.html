@@ -1,18 +1,35 @@
 ﻿<!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WebShop 管理后台</title>
-  <link rel="stylesheet" href="styles.css" />
+  <title>WebShopX 控制台</title>
+  <script>
+    (function() {
+      try {
+        var saved = window.localStorage.getItem("webshopx_theme");
+        var theme = saved === "dark" || saved === "light"
+          ? saved
+          : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.classList.remove("light", "dark");
+        document.documentElement.classList.add(theme);
+      } catch (error) {
+        document.documentElement.classList.remove("dark");
+        document.documentElement.classList.add("light");
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="css/light.css" />
+  <link rel="stylesheet" href="css/dark.css" />
+  <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
   <main class="app-shell">
     <header class="app-header md-card">
       <div>
-        <p class="app-kicker">WebShopX Admin</p>
-        <h1>商城管理控制台</h1>
-        <p class="app-subtitle">统一管理兑换码、官方商品、玩家市场与账号支持。</p>
+        <!-- <p class="app-kicker">WebShopX Admin</p> -->
+        <h1>WebShopX 控制台</h1>
+        <!-- <p class="app-subtitle">统一管理兑换码、官方商品、玩家市场与账号支持。</p> -->
       </div>
       <div class="header-controls">
         <button id="adminThemeToggleBtn" class="btn-tonal theme-toggle-btn" type="button">切换暗色</button>
@@ -22,12 +39,12 @@
 
     <nav class="top-tabs" role="tablist" aria-label="管理功能">
       <button class="top-tab active" data-tab-target="login" type="button">管理员登录</button>
-      <button class="top-tab" data-tab-target="redeem" type="button">兑换码</button>
       <button class="top-tab" data-tab-target="products" type="button">官方商品</button>
+      <button class="top-tab" data-tab-target="market" type="button">玩家市场</button>      
       <button class="top-tab" data-tab-target="orders" type="button">订单</button>
+      <button class="top-tab" data-tab-target="redeem" type="button">兑换码</button>
       <button class="top-tab" data-tab-target="economy" type="button">经济设置</button>
-      <button class="top-tab" data-tab-target="market" type="button">玩家市场</button>
-      <button class="top-tab" data-tab-target="users" type="button">账号支持</button>
+      <button class="top-tab" data-tab-target="users" type="button">账号管理</button>
       <button class="top-tab" data-tab-target="audit" type="button">审计日志</button>
     </nav>
 
@@ -35,7 +52,7 @@
       <div class="grid two-col">
         <article class="md-card section-card">
           <h2>管理员登录</h2>
-          <p class="card-desc">使用管理员账号进入后台。仅管理员账号可登录。</p>
+          <p class="card-desc">请使用管理员账号进入后台。</p>
           <div class="field-grid two-col">
             <label class="field">
               <span>账号</span>
@@ -53,7 +70,7 @@
           <p class="meta" id="adminLoginStatus">等待登录</p>
           <div class="md-tip md-tip-info">
             <strong>安全提醒</strong>
-            <p>后台账号支持角色授权。不要在公共环境暴露管理员凭据。</p>
+            <p>不要在公共环境暴露管理员凭据。</p>
           </div>
         </article>
 
@@ -97,7 +114,7 @@
           </label>
           <label class="field">
             <span>有效期（分钟，可空）</span>
-            <input id="redeemExpires" type="number" min="0" step="1" placeholder="留空=永久" />
+            <input id="redeemExpires" type="number" min="0" step="30" placeholder="留空=永久" />
           </label>
           <label class="field">
             <span>自定义兑换码（可空）</span>
@@ -122,128 +139,170 @@
         <div class="section-head">
           <div>
             <h2>官方商品管理</h2>
-            <p class="card-desc">支持指令、出售物品、药水效果、回收物品等类型。</p>
+            <p class="card-desc">通过子标签拆分商品编辑、商品列表与团购券核销。</p>
           </div>
           <button id="productRefreshBtn" type="button">刷新商品</button>
         </div>
-        <div class="field-grid three-col">
-          <label class="field">
-            <span>SKU</span>
-            <input id="productSku" placeholder="例如 vip_week" />
-          </label>
-          <label class="field">
-            <span>标题</span>
-            <input id="productTitle" placeholder="商品标题" />
-          </label>
-          <label class="field">
-            <span>币种</span>
-            <select id="productCurrency">
-              <option value="SHOP_COIN">ShopCoin</option>
-              <option value="GAME_COIN">GameCoin</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>价格</span>
-            <input id="productPrice" type="number" min="1" step="1" value="1" />
-          </label>
-          <label class="field">
-            <span>上架时间</span>
-            <input id="productPublishAt" type="datetime-local" />
-          </label>
-          <label class="field">
-            <span>下架时间</span>
-            <input id="productUnpublishAt" type="datetime-local" />
-          </label>
-          <label class="field">
-            <span>类型</span>
-            <select id="productType">
-              <option value="COMMAND">指令</option>
-              <option value="GIVE_ITEM">出售物品</option>
-              <option value="POTION_EFFECT">药水效果</option>
-              <option value="RECYCLE_ITEM">回收物品</option>
-              <option value="GROUP_BUY_VOUCHER">团购券（线下核销）</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>启用</span>
-            <select id="productActive">
-              <option value="true">启用</option>
-              <option value="false">停用</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>命令模板（指令类）</span>
-            <input id="productCommand" placeholder="例如 give %player% minecraft:diamond 32" />
-          </label>
-          <label class="field">
-            <span>物品材质（出售/回收）</span>
-            <input id="productItemMaterial" list="materialSuggestList" placeholder="例如 DIAMOND / 钻石" />
-          </label>
-          <label class="field">
-            <span>最大购买数量（上限/库存）</span>
-            <input id="productItemAmount" type="number" min="1" step="1" value="64" />
-          </label>
-          <label class="field">
-            <span>药水效果（POTION）</span>
-            <input id="productEffectType" placeholder="例如 speed" />
-          </label>
-          <label class="field">
-            <span>药水时长（秒）</span>
-            <input id="productEffectSeconds" type="number" min="1" step="1" value="30" />
-          </label>
-          <label class="field">
-            <span>药水等级（0=I）</span>
-            <input id="productEffectAmplifier" type="number" min="0" step="1" value="0" />
-          </label>
-          <label class="field product-remark-field">
-            <span>商品备注（玩家端展示）</span>
-            <textarea id="productRemark" rows="3" placeholder="可填写用途说明、注意事项、团购兑换说明等"></textarea>
-          </label>
+        <div class="sub-tabs product-sub-tabs" role="tablist" aria-label="官方商品管理子标签">
+          <button id="productEditorTabBtn" class="btn-segment active" type="button">新增/编辑商品</button>
+          <button id="productListTabBtn" class="btn-segment" type="button">商品列表</button>
+          <button id="productVoucherTabBtn" class="btn-segment" type="button">团购券核销</button>
         </div>
-        <div class="actions">
-          <button id="productSaveBtn" type="button">保存商品</button>
+
+        <div class="sub-panel active" data-product-panel="editor">
+          <div>
+            <h4>基础信息</h4>
+          </div>
+          <div class="field-grid three-col">
+            <label class="field">
+              <span>SKU（唯一标识）</span>
+              <input id="productSku" placeholder="例如 vip_week" />
+            </label>
+            <label class="field">
+              <span>标题（玩家端展示）</span>
+              <input id="productTitle" placeholder="商品标题" />
+            </label>
+            <label class="field">
+              <span>价格</span>
+              <input id="productPrice" type="number" min="1" step="1" value="1" />
+            </label>
+            <label class="field">
+              <span>交易币种</span>
+              <select id="productCurrency">
+                <option value="SHOP_COIN">ShopCoin</option>
+                <option value="GAME_COIN">GameCoin</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>上架时间</span>
+              <input id="productPublishAt" type="datetime-local" />
+            </label>
+            <label class="field">
+              <span>下架时间</span>
+              <input id="productUnpublishAt" type="datetime-local" />
+            </label>
+          </div>
+          <div>
+            <h4>商品信息</h4>
+          </div>
+          <div class="field-grid three-col">
+            <label class="field">
+              <span>类型</span>
+              <select id="productType">
+                <option value="COMMAND">指令</option>
+                <option value="GIVE_ITEM">出售物品</option>
+                <option value="POTION_EFFECT">药水效果</option>
+                <option value="RECYCLE_ITEM">回收物品</option>
+                <option value="GROUP_BUY_VOUCHER">团购券（线下核销）</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>启用</span>
+              <select id="productActive">
+                <option value="true">启用</option>
+                <option value="false">停用</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>命令模板（指令类）</span>
+              <input id="productCommand" placeholder="例如 give %player% minecraft:diamond 32" />
+            </label>
+            <label class="field">
+              <span>物品材质（出售/回收）</span>
+              <input id="productItemMaterial" list="materialSuggestList" placeholder="例如 DIAMOND / 钻石" />
+            </label>
+            <label class="field">
+              <span>最大购买数量（上限/库存）</span>
+              <input id="productItemAmount" type="number" min="1" step="1" value="64" />
+            </label>
+            <label class="field">
+              <span>药水效果（POTION）</span>
+              <input id="productEffectType" list="potionEffectSuggestList" placeholder="例如 speed" />
+            </label>
+            <label class="field">
+              <span>药水时长（秒）</span>
+              <input id="productEffectSeconds" type="number" min="1" step="1" value="30" />
+            </label>
+            <label class="field">
+              <span>药水等级（0=I）</span>
+              <input id="productEffectAmplifier" type="number" min="0" step="1" value="0" />
+            </label>
+            <label class="field product-remark-field">
+              <span>商品备注（玩家端展示）</span>
+              <textarea id="productRemark" rows="3" placeholder="可填写用途说明、注意事项、团购兑换说明等"></textarea>
+            </label>
+          </div>
+          <div class="field-grid two-col product-range-grid">
+            <label class="field">
+              <span>数量滑动条</span>
+              <input id="productItemAmountSlider" class="range-input" type="range" min="1" max="256" step="1" value="64" />
+            </label>
+            <div class="range-summary-card">
+              <p class="range-summary-kicker">数量预览</p>
+              <div class="range-summary-row">
+                <span>当前数量</span>
+                <strong id="productAmountPreview">x64</strong>
+              </div>
+              <div class="range-summary-row">
+                <span>总价预览</span>
+                <strong id="productTotalPreview">SC 64</strong>
+              </div>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="productSaveBtn" type="button">保存商品</button>
+            <p class="meta" id="productStatus">等待操作</p>
+          </div>
         </div>
-        <p class="meta" id="productStatus">等待操作</p>
-        <div class="field-grid three-col">
-          <label class="field">
-            <span>商品检索</span>
-            <input id="productSearchKeyword" placeholder="标题 / SKU / 材质 / 备注" />
-          </label>
-          <label class="field">
-            <span>类型筛选</span>
-            <select id="productSearchType">
-              <option value="">全部</option>
-              <option value="COMMAND">指令</option>
-              <option value="GIVE_ITEM">出售物品</option>
-              <option value="POTION_EFFECT">药水效果</option>
-              <option value="RECYCLE_ITEM">回收物品</option>
-              <option value="GROUP_BUY_VOUCHER">团购券</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>启用筛选</span>
-            <select id="productSearchActive">
-              <option value="">全部</option>
-              <option value="true">启用</option>
-              <option value="false">停用</option>
-            </select>
-          </label>
+
+        <div class="sub-panel" data-product-panel="list">
+          <div>
+            <h4>商品列表</h4>
+          </div>
+          <div class="field-grid three-col">
+            <label class="field">
+              <span>商品检索</span>
+              <input id="productSearchKeyword" placeholder="标题 / SKU / 材质 / 备注" />
+            </label>
+            <label class="field">
+              <span>类型筛选</span>
+              <select id="productSearchType">
+                <option value="">全部</option>
+                <option value="COMMAND">指令</option>
+                <option value="GIVE_ITEM">出售物品</option>
+                <option value="POTION_EFFECT">药水效果</option>
+                <option value="RECYCLE_ITEM">回收物品</option>
+                <option value="GROUP_BUY_VOUCHER">团购券</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>启用筛选</span>
+              <select id="productSearchActive">
+                <option value="">全部</option>
+                <option value="true">启用</option>
+                <option value="false">停用</option>
+              </select>
+            </label>
+          </div>
+          <p class="meta" id="productListStatus">等待加载商品列表</p>
+          <div class="admin-list" id="productList"></div>
         </div>
-        <div class="md-tip md-tip-info">
-          <strong>团购券核销入口</strong>
-          <p>玩家购买“团购券（线下核销）”后会获得兑换码。管理员可在此输入兑换码进行核销，核销后兑换码失效。</p>
+
+        <div class="sub-panel" data-product-panel="voucher">
+          <div>
+            <h4>团购券核销</h4>
+          </div>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>核销团购兑换码</span>
+              <input id="groupBuyConsumeCode" placeholder="例如 GB-XXXXXXXXXXXX" />
+            </label>
+            <div class="actions">
+              <button id="groupBuyConsumeBtn" type="button">核销团购兑换码</button>
+              <p class="meta" id="groupBuyConsumeStatus">等待核销</p>
+            </div>
+          </div>
         </div>
-        <div class="field-grid two-col">
-          <label class="field">
-            <span>团购兑换码</span>
-            <input id="groupBuyConsumeCode" placeholder="例如 GB-XXXXXXXXXXXX" />
-          </label>
-        </div>
-        <div class="actions">
-          <button id="groupBuyConsumeBtn" type="button">核销团购兑换码</button>
-        </div>
-        <p class="meta" id="groupBuyConsumeStatus">等待核销</p>
-        <div class="admin-list" id="productList"></div>
       </article>
     </section>
 
@@ -279,7 +338,7 @@
           </label>
           <label class="field">
             <span>用户名</span>
-            <input id="orderUsername" placeholder="用户昵称（模糊）" />
+            <input id="orderUsername" placeholder="用户昵称（模糊搜索）" />
           </label>
           <label class="field">
             <span>币种</span>
@@ -316,7 +375,7 @@
         <article class="md-card section-card">
           <h2>兑换方向与比例</h2>
           <p class="card-desc">配置 <span id="economyShopCoinName">ShopCoin</span> 与 <span id="economyGameCoinName">GameCoin</span> 的兑换方向与比例。</p>
-          <div class="field-grid">
+          <div class="field-grid two-col">
             <label class="field">
               <span><span id="exchangeShopToGameNameA">ShopCoin</span> -> <span id="exchangeShopToGameNameB">GameCoin</span> 开关</span>
               <select id="exchangeShopToGameEnabled">
@@ -349,7 +408,7 @@
         <article class="md-card section-card">
           <h2>交易手续费与税率</h2>
           <p class="card-desc">买家支付税率，卖家扣除手续费。</p>
-          <div class="field-grid">
+          <div class="field-grid two-col">
             <label class="field">
               <span>交易手续费（%）</span>
               <input id="marketFeePercent" type="number" min="0" max="100" step="0.01" value="0.0" />
@@ -382,7 +441,7 @@
           </div>
           <button id="marketRefreshBtn" type="button">刷新列表</button>
         </div>
-        <div class="field-grid two-col">
+        <div class="field-grid three-col">
           <label class="field">
             <span>状态筛选</span>
             <select id="marketStatus">
@@ -482,6 +541,24 @@
       </div>
 
       <article class="md-card section-card">
+        <div class="section-head">
+          <div>
+            <h2>已注册用户列表</h2>
+            <p class="card-desc">支持按关键词筛选，并可直接载入到操作区进行编辑。</p>
+          </div>
+          <button id="userListRefreshBtn" type="button">刷新列表</button>
+        </div>
+        <div class="field-grid two-col">
+          <label class="field">
+            <span>关键词</span>
+            <input id="userListKeyword" placeholder="用户名 / UUID / 用户ID" />
+          </label>
+        </div>
+        <p class="meta" id="userListStatus">等待加载列表</p>
+        <div class="admin-list" id="userList"></div>
+      </article>
+
+      <article class="md-card section-card">
         <h2>账号详情</h2>
         <p class="card-desc">当前查询到的账号信息。</p>
         <p class="meta meta-info" id="userCurrencyHint">余额字段会根据配置货币名显示。</p>
@@ -505,9 +582,8 @@
 
   <div id="snackbarHost" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
   <datalist id="materialSuggestList"></datalist>
+  <datalist id="potionEffectSuggestList"></datalist>
 
-  <script src="admin.js"></script>
+  <script src="js/admin.js"></script>
 </body>
 </html>
-
-

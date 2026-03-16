@@ -2,8 +2,10 @@
   token: null,
   admin: null,
   activeTab: "login",
+  productPanel: "editor",
   selectedUser: null,
   products: [],
+  userList: [],
   latestRedeemCode: null,
   theme: "light",
   materialMap: {},
@@ -23,6 +25,78 @@
     SHOP_COIN: { name: "ShopCoin", short: "SC" },
     GAME_COIN: { name: "GameCoin", short: "GC" },
   },
+};
+
+const POTION_EFFECT_OPTIONS = [
+  "speed",
+  "slowness",
+  "haste",
+  "mining_fatigue",
+  "strength",
+  "instant_health",
+  "instant_damage",
+  "jump_boost",
+  "nausea",
+  "regeneration",
+  "resistance",
+  "fire_resistance",
+  "water_breathing",
+  "invisibility",
+  "blindness",
+  "night_vision",
+  "hunger",
+  "weakness",
+  "poison",
+  "wither",
+  "health_boost",
+  "absorption",
+  "saturation",
+  "glowing",
+  "levitation",
+  "luck",
+  "unluck",
+  "slow_falling",
+  "conduit_power",
+  "dolphins_grace",
+  "bad_omen",
+  "hero_of_the_village",
+  "darkness",
+];
+
+const POTION_EFFECT_LABELS = {
+  speed: "速度",
+  slowness: "缓慢",
+  haste: "急迫",
+  mining_fatigue: "挖掘疲劳",
+  strength: "力量",
+  instant_health: "瞬间治疗",
+  instant_damage: "瞬间伤害",
+  jump_boost: "跳跃提升",
+  nausea: "反胃",
+  regeneration: "生命恢复",
+  resistance: "抗性提升",
+  fire_resistance: "抗火",
+  water_breathing: "水下呼吸",
+  invisibility: "隐身",
+  blindness: "失明",
+  night_vision: "夜视",
+  hunger: "饥饿",
+  weakness: "虚弱",
+  poison: "中毒",
+  wither: "凋零",
+  health_boost: "生命提升",
+  absorption: "伤害吸收",
+  saturation: "饱和",
+  glowing: "发光",
+  levitation: "漂浮",
+  luck: "幸运",
+  unluck: "霉运",
+  slow_falling: "缓降",
+  conduit_power: "潮涌能量",
+  dolphins_grace: "海豚的恩惠",
+  bad_omen: "不祥之兆",
+  hero_of_the_village: "村庄英雄",
+  darkness: "黑暗",
 };
 
 const elements = {
@@ -62,9 +136,16 @@ const elements = {
   productEffectAmplifier: document.getElementById("productEffectAmplifier"),
   productRemark: document.getElementById("productRemark"),
   productActive: document.getElementById("productActive"),
+  productItemAmountSlider: document.getElementById("productItemAmountSlider"),
+  productAmountPreview: document.getElementById("productAmountPreview"),
+  productTotalPreview: document.getElementById("productTotalPreview"),
   productSaveBtn: document.getElementById("productSaveBtn"),
   productRefreshBtn: document.getElementById("productRefreshBtn"),
+  productEditorTabBtn: document.getElementById("productEditorTabBtn"),
+  productListTabBtn: document.getElementById("productListTabBtn"),
+  productVoucherTabBtn: document.getElementById("productVoucherTabBtn"),
   productStatus: document.getElementById("productStatus"),
+  productListStatus: document.getElementById("productListStatus"),
   productSearchKeyword: document.getElementById("productSearchKeyword"),
   productSearchType: document.getElementById("productSearchType"),
   productSearchActive: document.getElementById("productSearchActive"),
@@ -107,10 +188,15 @@ const elements = {
   marketStatusView: document.getElementById("marketStatusView"),
   adminMarketList: document.getElementById("adminMarketList"),
   materialSuggestList: document.getElementById("materialSuggestList"),
+  potionEffectSuggestList: document.getElementById("potionEffectSuggestList"),
 
   userIdentifier: document.getElementById("userIdentifier"),
   userSearchBtn: document.getElementById("userSearchBtn"),
   userLookupStatus: document.getElementById("userLookupStatus"),
+  userListKeyword: document.getElementById("userListKeyword"),
+  userListRefreshBtn: document.getElementById("userListRefreshBtn"),
+  userListStatus: document.getElementById("userListStatus"),
+  userList: document.getElementById("userList"),
   userInfoBox: document.getElementById("userInfoBox"),
   userNewPassword: document.getElementById("userNewPassword"),
   userResetPasswordBtn: document.getElementById("userResetPasswordBtn"),
@@ -162,7 +248,8 @@ function getInitialTheme() {
 function applyTheme(theme) {
   const normalized = theme === "dark" ? "dark" : "light";
   state.theme = normalized;
-  document.body.dataset.theme = normalized;
+  document.documentElement.classList.remove("light", "dark");
+  document.documentElement.classList.add(normalized);
   window.localStorage.setItem(THEME_STORAGE_KEY, normalized);
   if (elements.adminThemeToggleBtn) {
     elements.adminThemeToggleBtn.textContent = normalized === "dark" ? "切换亮色" : "切换暗色";
@@ -211,11 +298,17 @@ function switchTab(tabName) {
   state.activeTab = tabName;
   tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tabTarget === tabName));
   panels.forEach((panel) => panel.classList.toggle("active", panel.dataset.tabPanel === tabName));
+  if (tabName === "products" && state.token) {
+    loadProducts();
+  }
   if (tabName === "orders" && state.token) {
     loadAdminOrders();
   }
   if (tabName === "economy" && state.token) {
     loadEconomySettings();
+  }
+  if (tabName === "users" && state.token) {
+    loadUserList();
   }
 }
 
@@ -233,10 +326,14 @@ async function runAutoSyncTick() {
       await loadMarket();
     } else if (state.activeTab === "redeem") {
       await loadRedeemList();
+    } else if (state.activeTab === "products") {
+      await loadProducts();
     } else if (state.activeTab === "audit") {
       await loadAuditLogs();
     } else if (state.activeTab === "economy") {
       await loadEconomySettings();
+    } else if (state.activeTab === "users") {
+      await loadUserList();
     }
   } catch (error) {
     // ignore transient auto-sync failures
@@ -475,6 +572,51 @@ function renderKeyValueCard(title, items, actions = []) {
     card.appendChild(row);
   });
   return card;
+}
+
+const productPanels = Array.from(document.querySelectorAll("[data-product-panel]"));
+
+function setProductPanel(panelName) {
+  const normalized = ["editor", "list", "voucher"].includes(panelName) ? panelName : "editor";
+  state.productPanel = normalized;
+  if (elements.productEditorTabBtn) {
+    elements.productEditorTabBtn.classList.toggle("active", normalized === "editor");
+  }
+  if (elements.productListTabBtn) {
+    elements.productListTabBtn.classList.toggle("active", normalized === "list");
+  }
+  if (elements.productVoucherTabBtn) {
+    elements.productVoucherTabBtn.classList.toggle("active", normalized === "voucher");
+  }
+  productPanels.forEach((panel) => {
+    panel.classList.toggle("active", panel.dataset.productPanel === normalized);
+  });
+}
+
+function syncProductAmountSlider(source = "input") {
+  const inputValue = Number(elements.productItemAmount?.value || 1);
+  const sliderValue = Number(elements.productItemAmountSlider?.value || 1);
+  const rawValue = source === "slider" ? sliderValue : inputValue;
+  const normalized = Math.max(1, Math.floor(Number.isFinite(rawValue) ? rawValue : 1));
+  const slider = elements.productItemAmountSlider;
+  if (slider && normalized > Number(slider.max || 256)) {
+    slider.max = String(normalized);
+  }
+  if (elements.productItemAmount) {
+    elements.productItemAmount.value = String(normalized);
+  }
+  if (slider) {
+    slider.value = String(normalized);
+  }
+  if (elements.productAmountPreview) {
+    elements.productAmountPreview.textContent = `x${normalized}`;
+  }
+  const currency = elements.productCurrency?.value || "SHOP_COIN";
+  const unitPrice = Number(elements.productPrice?.value || 0);
+  const total = Math.max(0, Math.floor(Number.isFinite(unitPrice) ? unitPrice : 0)) * normalized;
+  if (elements.productTotalPreview) {
+    elements.productTotalPreview.textContent = formatCurrency(total, currency);
+  }
 }
 
 function localizeOrderStatusOptions() {
@@ -725,10 +867,29 @@ function populateMaterialSuggest() {
     .sort((a, b) => String(a).localeCompare(String(b), "en"))
     .forEach((key) => {
       const zhName = state.materialMap[key] || state.materialMap[aliasMaterialKey(key)] || key;
+      const option = document.createElement("option");
+      const label = !zhName || zhName === key ? key : `${zhName} (${key})`;
+      option.value = key;
+      option.label = label;
+      option.textContent = label;
+      elements.materialSuggestList.appendChild(option);
+  });
+}
+
+function populatePotionEffectSuggest() {
+  if (!elements.potionEffectSuggestList) {
+    return;
+  }
+  elements.potionEffectSuggestList.innerHTML = "";
+  POTION_EFFECT_OPTIONS.forEach((effect) => {
     const option = document.createElement("option");
-    option.value = key;
-    option.label = `${zhName || key} (${key})`;
-    elements.materialSuggestList.appendChild(option);
+    option.value = effect;
+    const label = POTION_EFFECT_LABELS[effect]
+      ? `${POTION_EFFECT_LABELS[effect]} (${effect})`
+      : effect;
+    option.label = label;
+    option.textContent = label;
+    elements.potionEffectSuggestList.appendChild(option);
   });
 }
 
@@ -930,6 +1091,17 @@ async function consumeGroupBuyVoucher() {
   }
 }
 
+function resolveAdminErrorMessage(error) {
+  const code = String(error?.code || "").trim().toLowerCase();
+  if (code === "voucher_refunded") {
+    return "该团购券已退款失效，无法核销。";
+  }
+  if (code === "voucher_unavailable") {
+    return "该团购券已核销，无法重复核销。";
+  }
+  return error?.message || "操作失败";
+}
+
 function renderProducts() {
   const keyword = String(elements.productSearchKeyword?.value || "").trim().toLowerCase();
   const type = String(elements.productSearchType?.value || "").trim().toUpperCase();
@@ -981,6 +1153,8 @@ function renderProducts() {
       elements.productEffectAmplifier.value = product.effectAmplifier || 0;
       elements.productActive.value = product.active ? "true" : "false";
       updateProductTypeFieldsVisibility(product.productType);
+      syncProductAmountSlider("input");
+      setProductPanel("editor");
       setMetaText(elements.productStatus, `已加载 ${product.sku} 进入编辑`, "info");
     });
     const toggleBtn = document.createElement("button");
@@ -1010,6 +1184,7 @@ function renderProducts() {
     );
   });
   renderList(elements.productList, rows);
+  setMetaText(elements.productListStatus, `列表结果：${filtered.length} 个商品`, "info");
 }
 
 async function loadProducts() {
@@ -1020,6 +1195,7 @@ async function loadProducts() {
   });
   state.products = payload.products || [];
   renderProducts();
+  syncProductAmountSlider("input");
 }
 
 async function loadAdminOrders() {
@@ -1240,17 +1416,12 @@ async function loadMarket() {
   renderList(elements.adminMarketList, rows);
 }
 
-async function lookupUser() {
-  ensureAdmin();
-  const identifier = elements.userIdentifier.value.trim();
-  if (!identifier) {
-    throw new Error("请输入要查询的用户名或 UUID。");
+function renderSelectedUser() {
+  if (!state.selectedUser) {
+    renderList(elements.userInfoBox, []);
+    return;
   }
-  const payload = await apiAdmin(`/api/admin/users/lookup?identifier=${encodeURIComponent(identifier)}`, {
-    method: "GET",
-  });
-  state.selectedUser = payload;
-  setMetaText(elements.userLookupStatus, `已查询：${payload.username}`, "success");
+  const payload = state.selectedUser;
   const info = renderKeyValueCard(
     `${payload.username}`,
     [
@@ -1262,6 +1433,100 @@ async function lookupUser() {
     ]
   );
   renderList(elements.userInfoBox, [info]);
+}
+
+function applySelectedUser(payload, sourceLabel = "查询") {
+  state.selectedUser = payload;
+  setMetaText(elements.userLookupStatus, `${sourceLabel}：${payload.username}`, "success");
+  renderSelectedUser();
+}
+
+async function lookupUser() {
+  ensureAdmin();
+  const identifier = elements.userIdentifier.value.trim();
+  if (!identifier) {
+    throw new Error("请输入要查询的用户名或 UUID。");
+  }
+  const payload = await apiAdmin(`/api/admin/users/lookup?identifier=${encodeURIComponent(identifier)}`, {
+    method: "GET",
+  });
+  applySelectedUser(payload, "已查询");
+}
+
+async function loadUserList(options = {}) {
+  ensureAdmin();
+  const keyword = String(elements.userListKeyword?.value || "").trim();
+  const limit = options.limit || 120;
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (keyword) {
+    query.set("keyword", keyword);
+  }
+  const payload = await apiAdmin(`/api/admin/users/list?${query.toString()}`, { method: "GET" });
+  state.userList = payload.users || [];
+  const rows = state.userList.map((user) => {
+    const loadBtn = document.createElement("button");
+    loadBtn.className = "btn-tonal";
+    loadBtn.textContent = "载入编辑";
+    loadBtn.addEventListener("click", () => {
+      if (elements.userIdentifier) {
+        elements.userIdentifier.value = user.username;
+      }
+      applySelectedUser(user, "已载入");
+    });
+
+    const logoutBtn = document.createElement("button");
+    logoutBtn.textContent = "强制下线";
+    logoutBtn.addEventListener("click", async () => {
+      await apiAdmin("/api/admin/users/logout", {
+        method: "POST",
+        body: JSON.stringify({ userId: user.id }),
+      });
+      notify(`已强制下线：${user.username}`, "success");
+      setMetaText(elements.userActionStatus, `已强制下线：${user.username}`, "success");
+      await loadUserList({ limit });
+      if (state.selectedUser && Number(state.selectedUser.id) === Number(user.id)) {
+        await lookupUserByIdentifier(user.username);
+      }
+    });
+
+    const unbindBtn = document.createElement("button");
+    unbindBtn.className = "btn-tonal";
+    unbindBtn.textContent = "解绑";
+    unbindBtn.disabled = !user.boundUuid;
+    unbindBtn.addEventListener("click", async () => {
+      await apiAdmin("/api/admin/users/unbind", {
+        method: "POST",
+        body: JSON.stringify({ userId: user.id }),
+      });
+      notify(`已解绑：${user.username}`, "success");
+      await loadUserList({ limit });
+      if (state.selectedUser && Number(state.selectedUser.id) === Number(user.id)) {
+        await lookupUserByIdentifier(user.username);
+      }
+    });
+
+    return renderKeyValueCard(
+      `${user.username} (#${user.id})`,
+      [
+        { label: "UUID", value: user.boundUuid || "未绑定" },
+        { label: "状态", value: user.authState },
+        { label: currencyName("SHOP_COIN"), value: formatCurrency(user.shopCoin, "SHOP_COIN") },
+        { label: currencyName("GAME_COIN"), value: formatCurrency(user.gameCoin, "GAME_COIN") },
+        { label: "注册时间", value: user.createdAt },
+      ],
+      [loadBtn, logoutBtn, unbindBtn]
+    );
+  });
+  renderList(elements.userList, rows);
+  setMetaText(elements.userListStatus, `已加载 ${state.userList.length} 个用户`, "info");
+}
+
+async function lookupUserByIdentifier(identifier) {
+  const payload = await apiAdmin(`/api/admin/users/lookup?identifier=${encodeURIComponent(identifier)}`, {
+    method: "GET",
+  });
+  applySelectedUser(payload, "已载入");
+  return payload;
 }
 
 function requireSelectedUser() {
@@ -1407,13 +1672,36 @@ elements.productSaveBtn.addEventListener("click", async () => {
   }
 });
 
+if (elements.productEditorTabBtn) {
+  elements.productEditorTabBtn.addEventListener("click", () => setProductPanel("editor"));
+}
+if (elements.productListTabBtn) {
+  elements.productListTabBtn.addEventListener("click", () => setProductPanel("list"));
+}
+if (elements.productVoucherTabBtn) {
+  elements.productVoucherTabBtn.addEventListener("click", () => setProductPanel("voucher"));
+}
+if (elements.productItemAmount) {
+  elements.productItemAmount.addEventListener("input", () => syncProductAmountSlider("input"));
+}
+if (elements.productItemAmountSlider) {
+  elements.productItemAmountSlider.addEventListener("input", () => syncProductAmountSlider("slider"));
+}
+if (elements.productPrice) {
+  elements.productPrice.addEventListener("input", () => syncProductAmountSlider("input"));
+}
+if (elements.productCurrency) {
+  elements.productCurrency.addEventListener("change", () => syncProductAmountSlider("input"));
+}
+
 if (elements.groupBuyConsumeBtn) {
   elements.groupBuyConsumeBtn.addEventListener("click", async () => {
     try {
       await consumeGroupBuyVoucher();
     } catch (error) {
-      setMetaText(elements.groupBuyConsumeStatus, `核销失败：${error.message}`, "error");
-      notify(`核销失败：${error.message}`, "error");
+      const message = resolveAdminErrorMessage(error);
+      setMetaText(elements.groupBuyConsumeStatus, `核销失败：${message}`, "error");
+      notify(`核销失败：${message}`, "error");
     }
   });
 }
@@ -1536,9 +1824,30 @@ elements.userSearchBtn.addEventListener("click", async () => {
   }
 });
 
+if (elements.userListRefreshBtn) {
+  elements.userListRefreshBtn.addEventListener("click", async () => {
+    try {
+      await loadUserList();
+      notify("用户列表已刷新", "success");
+    } catch (error) {
+      setMetaText(elements.userListStatus, `加载失败：${error.message}`, "error");
+      notify(`加载失败：${error.message}`, "error");
+    }
+  });
+}
+if (elements.userListKeyword) {
+  elements.userListKeyword.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter" || !state.token) {
+      return;
+    }
+    await loadUserList();
+  });
+}
+
 elements.userResetPasswordBtn.addEventListener("click", async () => {
   try {
     await resetPassword();
+    await loadUserList();
   } catch (error) {
     setMetaText(elements.userActionStatus, `重置失败：${error.message}`, "error");
     notify(`重置失败：${error.message}`, "error");
@@ -1548,6 +1857,7 @@ elements.userResetPasswordBtn.addEventListener("click", async () => {
 elements.userUnbindBtn.addEventListener("click", async () => {
   try {
     await unbindUser();
+    await loadUserList();
   } catch (error) {
     setMetaText(elements.userActionStatus, `解绑失败：${error.message}`, "error");
     notify(`解绑失败：${error.message}`, "error");
@@ -1557,6 +1867,7 @@ elements.userUnbindBtn.addEventListener("click", async () => {
 elements.userForceLogoutBtn.addEventListener("click", async () => {
   try {
     await forceLogoutUser();
+    await loadUserList();
   } catch (error) {
     setMetaText(elements.userActionStatus, `强制下线失败：${error.message}`, "error");
     notify(`强制下线失败：${error.message}`, "error");
@@ -1566,6 +1877,7 @@ elements.userForceLogoutBtn.addEventListener("click", async () => {
 elements.walletAdjustBtn.addEventListener("click", async () => {
   try {
     await adjustWallet();
+    await loadUserList();
   } catch (error) {
     setMetaText(elements.userActionStatus, `调整失败：${error.message}`, "error");
     notify(`调整失败：${error.message}`, "error");
@@ -1619,13 +1931,22 @@ if (elements.marketMaterial) {
   });
 }
 updateProductTypeFieldsVisibility(elements.productType ? elements.productType.value : "COMMAND");
+setProductPanel("editor");
+syncProductAmountSlider("input");
 
 applyCurrencyMetaToUi();
 loadCurrencyMeta();
 ensureMaterialMap();
+populatePotionEffectSuggest();
 setMetaText(elements.adminLoginStatus, "等待登录", "info");
+if (elements.productListStatus) {
+  setMetaText(elements.productListStatus, "等待加载商品列表", "info");
+}
 if (elements.groupBuyConsumeStatus) {
   setMetaText(elements.groupBuyConsumeStatus, "等待核销", "info");
+}
+if (elements.userListStatus) {
+  setMetaText(elements.userListStatus, "等待加载列表", "info");
 }
 renderAdminProfile();
 

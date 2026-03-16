@@ -15,7 +15,6 @@ public class WebShopPlugin extends JavaPlugin {
   private DatabaseManager databaseManager;
   private AuthService authService;
   private WalletService walletService;
-  private BindingService bindingService;
   private RedeemCodeService redeemCodeService;
   private ProductService productService;
   private OrderService orderService;
@@ -49,7 +48,6 @@ public class WebShopPlugin extends JavaPlugin {
 
       authService = new AuthService(databaseManager, this::settings);
       walletService = new WalletService(this, databaseManager, this::settings);
-      bindingService = new BindingService(databaseManager, this::settings);
       redeemCodeService = new RedeemCodeService(databaseManager, walletService);
       productService = new ProductService(databaseManager);
       orderService = new OrderService(this, databaseManager, this::settings, productService, walletService);
@@ -62,7 +60,6 @@ public class WebShopPlugin extends JavaPlugin {
           this,
           this::settings,
           authService,
-          bindingService,
           walletService,
           redeemCodeService,
           productService,
@@ -133,7 +130,7 @@ public class WebShopPlugin extends JavaPlugin {
   private void registerCommands() {
     ShopCommand shopCommandHandler = new ShopCommand(
         this,
-        bindingService,
+        authService,
         redeemCodeService,
         marketService,
         deliveryService);

@@ -1,29 +1,76 @@
 ﻿:root {
-  --md-sys-color-primary: #005ac2;
-  --md-sys-color-on-primary: #ffffff;
-  --md-sys-color-primary-container: #d9e7ff;
-  --md-sys-color-on-primary-container: #001a43;
-  --md-sys-color-secondary: #4b5f80;
-  --md-sys-color-surface: #f8f9fd;
-  --md-sys-color-surface-container: #ffffff;
-  --md-sys-color-surface-container-low: #f2f4fb;
-  --md-sys-color-surface-container-high: #eceef4;
-  --md-sys-color-surface-container-highest: #e5e7ec;
-  --md-sys-color-outline: #c3c8d4;
-  --md-sys-color-outline-variant: #d7dbe5;
-  --md-sys-color-on-surface: #182130;
-  --md-sys-color-on-surface-variant: #5a667a;
-  --md-sys-color-error: #b3261e;
-  --md-elevation-1: 0 1px 2px rgba(25, 31, 44, 0.08), 0 2px 8px rgba(25, 31, 44, 0.06);
-  --md-elevation-2: 0 1px 3px rgba(25, 31, 44, 0.11), 0 6px 18px rgba(25, 31, 44, 0.08);
   --radius-large: 22px;
   --radius-medium: 16px;
   --radius-small: 12px;
   --control-height: 44px;
+}
+
+.light,
+.dark {
+  --md-elevation-1:
+    0 1px 2px color-mix(in srgb, var(--md-sys-color-shadow) 12%, transparent),
+    0 2px 8px color-mix(in srgb, var(--md-sys-color-shadow) 8%, transparent);
+  --md-elevation-2:
+    0 1px 3px color-mix(in srgb, var(--md-sys-color-shadow) 16%, transparent),
+    0 6px 18px color-mix(in srgb, var(--md-sys-color-shadow) 12%, transparent);
   --app-bg:
-    radial-gradient(circle at 88% -12%, rgba(122, 166, 255, 0.35), transparent 38%),
-    radial-gradient(circle at -8% 22%, rgba(159, 228, 255, 0.25), transparent 32%),
-    linear-gradient(150deg, #eef3ff 0%, #f8f9fd 42%, #eff6ff 100%);
+    radial-gradient(circle at 88% -12%, color-mix(in srgb, var(--md-sys-color-primary) 24%, transparent), transparent 38%),
+    radial-gradient(circle at -8% 22%, color-mix(in srgb, var(--md-sys-color-tertiary) 16%, transparent), transparent 32%),
+    linear-gradient(
+      150deg,
+      var(--md-sys-color-background) 0%,
+      var(--md-sys-color-surface) 42%,
+      var(--md-sys-color-surface-container-low) 100%
+    );
+  --app-header-bg:
+    linear-gradient(
+      120deg,
+      color-mix(in srgb, var(--md-sys-color-surface-container-lowest) 82%, var(--md-sys-color-primary-container)) 0%,
+      color-mix(in srgb, var(--md-sys-color-surface-container) 82%, var(--md-sys-color-secondary-container)) 100%
+    );
+  --app-card-raised-bg:
+    color-mix(in srgb, var(--md-sys-color-surface-container) 74%, var(--md-sys-color-surface-container-lowest));
+  --app-card-quiet-bg: var(--md-sys-color-surface-container-low);
+  --app-card-soft-bg:
+    color-mix(in srgb, var(--md-sys-color-surface-container-low) 84%, var(--md-sys-color-surface-container-lowest));
+  --app-tab-hover-bg: var(--md-sys-color-surface-container-high);
+  --app-tab-hover-color: var(--md-sys-color-on-surface);
+  --app-field-focus-ring: color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
+  --app-primary-hover: color-mix(in srgb, var(--md-sys-color-primary) 88%, var(--md-sys-color-shadow));
+  --app-tonal-hover: color-mix(in srgb, var(--md-sys-color-primary-container) 88%, var(--md-sys-color-primary));
+  --app-segment-bg: var(--md-sys-color-surface-container-high);
+  --app-segment-hover: var(--md-sys-color-surface-container-highest);
+  --app-neutral-bg: var(--md-sys-color-surface-container-high);
+  --app-neutral-border: var(--md-sys-color-outline-variant);
+  --app-neutral-fg: var(--md-sys-color-on-surface-variant);
+  --app-info-bg: var(--md-sys-color-primary-container);
+  --app-info-border:
+    color-mix(in srgb, var(--md-sys-color-primary) 28%, var(--md-sys-color-outline-variant));
+  --app-info-fg: var(--md-sys-color-on-primary-container);
+  --app-success-bg: var(--md-sys-color-secondary-container);
+  --app-success-border:
+    color-mix(in srgb, var(--md-sys-color-secondary) 28%, var(--md-sys-color-outline-variant));
+  --app-success-fg: var(--md-sys-color-on-secondary-container);
+  --app-warn-bg: var(--md-sys-color-tertiary-container);
+  --app-warn-border:
+    color-mix(in srgb, var(--md-sys-color-tertiary) 28%, var(--md-sys-color-outline-variant));
+  --app-warn-fg: var(--md-sys-color-on-tertiary-container);
+  --app-error-bg: var(--md-sys-color-error-container);
+  --app-error-border:
+    color-mix(in srgb, var(--md-sys-color-error) 28%, var(--md-sys-color-outline-variant));
+  --app-error-fg: var(--md-sys-color-on-error-container);
+  --app-accent-bg: var(--md-sys-color-secondary-container);
+  --app-accent-border:
+    color-mix(in srgb, var(--md-sys-color-secondary) 24%, var(--md-sys-color-outline-variant));
+  --app-accent-fg: var(--md-sys-color-on-secondary-container);
+  --app-price-fg: var(--md-sys-color-tertiary);
+  --app-danger-bg: var(--md-sys-color-error);
+  --app-danger-hover: color-mix(in srgb, var(--md-sys-color-error) 88%, var(--md-sys-color-shadow));
+  --app-log-bg: var(--md-sys-color-inverse-surface);
+  --app-log-border:
+    color-mix(in srgb, var(--md-sys-color-inverse-surface) 72%, var(--md-sys-color-outline));
+  --app-log-fg: var(--md-sys-color-inverse-on-surface);
+  --app-dialog-scrim: color-mix(in srgb, var(--md-sys-color-scrim) 40%, transparent);
 }
 
 * {
@@ -37,7 +84,7 @@ body {
 }
 
 body {
-  color: var(--md-sys-color-on-surface);
+  color: var(--md-sys-color-on-background);
   font-family: "Google Sans", "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
   background: var(--app-bg);
 }
@@ -50,7 +97,7 @@ body {
 }
 
 .md-card {
-  background: var(--md-sys-color-surface-container);
+  background: var(--app-card-raised-bg);
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--radius-large);
   box-shadow: var(--md-elevation-1);
@@ -62,8 +109,7 @@ body {
   justify-content: space-between;
   align-items: center;
   gap: 14px;
-  background:
-    linear-gradient(120deg, rgba(255, 255, 255, 0.96) 0%, rgba(240, 246, 255, 0.98) 100%);
+  background: var(--app-header-bg);
 }
 
 .app-kicker {
@@ -106,27 +152,27 @@ body {
   font-size: 13px;
   font-weight: 700;
   white-space: nowrap;
-  background: #f0f4fb;
-  color: #4f5c73;
+  background: var(--app-neutral-bg);
+  color: var(--app-neutral-fg);
 }
 
 .status-chip[data-state="online"] {
-  background: #e4f4eb;
-  border-color: #b6d8c1;
-  color: #1f6a36;
+  background: var(--app-success-bg);
+  border-color: var(--app-success-border);
+  color: var(--app-success-fg);
 }
 
 .status-chip[data-state="offline"] {
-  background: #f7f1f1;
-  border-color: #e2cbcb;
-  color: #8c3d3d;
+  background: var(--app-error-bg);
+  border-color: var(--app-error-border);
+  color: var(--app-error-fg);
 }
 
 .top-tabs {
   padding: 8px;
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.85);
+  background: color-mix(in srgb, var(--app-card-raised-bg) 92%, transparent);
   display: flex;
   gap: 8px;
   overflow-x: auto;
@@ -148,8 +194,8 @@ body {
 }
 
 .top-tab:hover {
-  background: #ebf2ff;
-  color: #194388;
+  background: var(--app-tab-hover-bg);
+  color: var(--app-tab-hover-color);
 }
 
 .top-tab.active {
@@ -233,6 +279,12 @@ body {
   max-width: 760px;
 }
 
+.range-input {
+  width: 100%;
+  accent-color: var(--md-sys-color-primary);
+  padding: 0;
+}
+
 .field {
   display: grid;
   gap: 6px;
@@ -267,8 +319,8 @@ input:focus,
 select:focus,
 textarea:focus {
   outline: none;
-  border-color: #4f8cff;
-  box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.16);
+  border-color: var(--md-sys-color-primary);
+  box-shadow: 0 0 0 3px var(--app-field-focus-ring);
 }
 
 textarea {
@@ -296,7 +348,7 @@ button {
 }
 
 button:hover {
-  background: #004ea9;
+  background: var(--app-primary-hover);
 }
 
 button:active {
@@ -311,29 +363,45 @@ button:disabled {
 .btn-tonal {
   background: var(--md-sys-color-primary-container);
   color: var(--md-sys-color-on-primary-container);
-  border-color: #bed2fa;
+  border-color: var(--app-info-border);
 }
 
 .btn-tonal:hover {
-  background: #ccdcff;
+  background: var(--app-tonal-hover);
 }
 
 .btn-segment {
-  background: #edf2fb;
-  color: #33465f;
-  border-color: #ced7e8;
+  background: var(--app-segment-bg);
+  color: var(--md-sys-color-on-surface-variant);
+  border-color: var(--md-sys-color-outline-variant);
   min-height: 40px;
   padding-inline: 14px;
 }
 
 .btn-segment:hover {
-  background: #e1ebff;
+  background: var(--app-segment-hover);
 }
 
 .btn-segment.active {
   background: var(--md-sys-color-primary);
   color: var(--md-sys-color-on-primary);
   border-color: var(--md-sys-color-primary);
+}
+
+.sub-tabs {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sub-panel {
+  display: none;
+  margin-top: 14px;
+}
+
+.sub-panel.active {
+  display: block;
 }
 
 .actions {
@@ -347,8 +415,8 @@ button:disabled {
 .md-tip {
   margin-top: 12px;
   border-radius: 14px;
-  border: 1px solid #d7dfea;
-  background: #f7f9fd;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--app-card-soft-bg);
   padding: 10px 12px;
 }
 
@@ -361,35 +429,35 @@ button:disabled {
 .md-tip p {
   margin: 0;
   font-size: 13px;
-  color: #556278;
+  color: var(--md-sys-color-on-surface-variant);
   line-height: 1.45;
 }
 
 .md-tip-info {
-  border-color: #cfe0fb;
-  background: #f2f7ff;
+  border-color: var(--app-info-border);
+  background: var(--app-info-bg);
 }
 
 .md-tip-info strong {
-  color: #194a92;
+  color: var(--app-info-fg);
 }
 
 .md-tip-success {
-  border-color: #c9e4d3;
-  background: #edf8f1;
+  border-color: var(--app-success-border);
+  background: var(--app-success-bg);
 }
 
 .md-tip-success strong {
-  color: #1e6a37;
+  color: var(--app-success-fg);
 }
 
 .md-tip-warn {
-  border-color: #ecd9b4;
-  background: #fff7e8;
+  border-color: var(--app-warn-border);
+  background: var(--app-warn-bg);
 }
 
 .md-tip-warn strong {
-  color: #8c5a00;
+  color: var(--app-warn-fg);
 }
 
 .snackbar-host {
@@ -405,9 +473,9 @@ button:disabled {
 
 .snackbar {
   border-radius: 14px;
-  border: 1px solid #cad4e6;
-  background: #f7f9fd;
-  color: #26334b;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--app-card-soft-bg);
+  color: var(--md-sys-color-on-surface);
   box-shadow: var(--md-elevation-2);
   padding: 10px 12px;
   font-size: 13px;
@@ -424,41 +492,31 @@ button:disabled {
 }
 
 .snackbar-info {
-  border-color: #cfe0fb;
-  background: #f2f7ff;
-  color: #174383;
+  border-color: var(--app-info-border);
+  background: var(--app-info-bg);
+  color: var(--app-info-fg);
 }
 
 .snackbar-success {
-  border-color: #c9e4d3;
-  background: #edf8f1;
-  color: #1f6638;
+  border-color: var(--app-success-border);
+  background: var(--app-success-bg);
+  color: var(--app-success-fg);
 }
 
 .snackbar-warn {
-  border-color: #ecd9b4;
-  background: #fff7e8;
-  color: #835300;
+  border-color: var(--app-warn-border);
+  background: var(--app-warn-bg);
+  color: var(--app-warn-fg);
 }
 
 .snackbar-error {
-  border-color: #f0c8c5;
-  background: #fff1f0;
-  color: #9d211a;
+  border-color: var(--app-error-border);
+  background: var(--app-error-bg);
+  color: var(--app-error-fg);
 }
 
 .hidden {
   display: none !important;
-}
-
-.auth-mode-switch {
-  margin-top: 12px;
-  display: inline-flex;
-  gap: 8px;
-  padding: 4px;
-  border-radius: 999px;
-  border: 1px solid #cfdaec;
-  background: #f4f8ff;
 }
 
 .auth-pane {
@@ -468,12 +526,6 @@ button:disabled {
 
 .auth-pane.active {
   display: block;
-}
-
-.register-password-stage {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #dde5f1;
 }
 
 .profile-card {
@@ -492,8 +544,8 @@ button:disabled {
   width: 84px;
   height: 84px;
   border-radius: 18px;
-  border: 1px solid #ccd8ee;
-  background: #f4f7fe;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--app-card-soft-bg);
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
@@ -511,7 +563,7 @@ button:disabled {
 
 .profile-line span {
   font-size: 12px;
-  color: #62738d;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .profile-line strong {
@@ -526,43 +578,22 @@ button:disabled {
 }
 
 .meta-info {
-  color: #5b6780;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .meta-success {
-  color: #1f6a36;
+  color: var(--app-success-fg);
   font-weight: 600;
 }
 
 .meta-warn {
-  color: #8c5a00;
+  color: var(--app-warn-fg);
   font-weight: 600;
 }
 
 .meta-error {
-  color: #b3261e;
+  color: var(--md-sys-color-error);
   font-weight: 600;
-}
-
-.bind-code {
-  margin: 14px 0 0;
-  padding: 10px 12px;
-  border-radius: var(--radius-small);
-  background: #eef4ff;
-  border: 1px solid #cbdbf8;
-  color: #25497e;
-  font-weight: 700;
-}
-
-.bind-code-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.bind-code-row .bind-code {
-  flex: 1 1 220px;
 }
 
 .inline-action {
@@ -579,8 +610,8 @@ button:disabled {
 
 code {
   border-radius: 8px;
-  background: #edf3ff;
-  color: #214782;
+  background: var(--app-accent-bg);
+  color: var(--app-accent-fg);
   padding: 2px 6px;
 }
 
@@ -592,17 +623,17 @@ code {
 }
 
 .wallet-pill {
-  border: 1px solid #d2daea;
+  border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--radius-medium);
   padding: 12px;
-  background: #f4f7fd;
+  background: var(--app-card-soft-bg);
   display: grid;
   gap: 4px;
 }
 
 .wallet-pill span {
   font-size: 12px;
-  color: #596987;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .wallet-pill strong {
@@ -635,14 +666,14 @@ code {
 .market-card {
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--radius-medium);
-  background: #ffffff;
+  background: var(--app-card-raised-bg);
   box-shadow: var(--md-elevation-1);
 }
 
 .order-card {
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--radius-medium);
-  background: #ffffff;
+  background: var(--app-card-raised-bg);
   padding: 12px;
   display: grid;
   gap: 8px;
@@ -669,7 +700,7 @@ code {
 .order-sub {
   margin: 4px 0 0;
   font-size: 12px;
-  color: #5f6d84;
+  color: var(--md-sys-color-on-surface-variant);
   line-height: 1.4;
   word-break: break-word;
 }
@@ -679,9 +710,9 @@ code {
   padding: 4px 8px;
   font-size: 11px;
   font-weight: 700;
-  border: 1px solid #d2d8e6;
-  background: #eef2f7;
-  color: #5a667a;
+  border: 1px solid var(--app-neutral-border);
+  background: var(--app-neutral-bg);
+  color: var(--app-neutral-fg);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -691,40 +722,40 @@ code {
 }
 
 .order-status.pending {
-  background: #fff7e8;
-  border-color: #ecd9b4;
-  color: #8c5a00;
+  background: var(--app-warn-bg);
+  border-color: var(--app-warn-border);
+  color: var(--app-warn-fg);
 }
 
 .order-status.delivered {
-  background: #e2f4e7;
-  border-color: #b8dcc3;
-  color: #1f6a36;
+  background: var(--app-success-bg);
+  border-color: var(--app-success-border);
+  color: var(--app-success-fg);
 }
 
 .order-status.refunded {
-  background: #ffecee;
-  border-color: #f3c5cd;
-  color: #a12637;
+  background: var(--app-error-bg);
+  border-color: var(--app-error-border);
+  color: var(--app-error-fg);
 }
 
 .order-status.failed {
-  background: #f7f1f1;
-  border-color: #e2cbcb;
-  color: #8c3d3d;
+  background: var(--app-error-bg);
+  border-color: var(--app-error-border);
+  color: var(--app-error-fg);
 }
 
 .order-meta {
   display: grid;
   gap: 4px;
   font-size: 12px;
-  color: #5f6d84;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .order-price {
   font-size: 18px;
   font-weight: 800;
-  color: #a63b00;
+  color: var(--app-price-fg);
 }
 
 .order-actions {
@@ -755,26 +786,26 @@ code {
 
 .product-sku {
   margin: 6px 0 0;
-  color: #637089;
+  color: var(--md-sys-color-on-surface-variant);
   font-size: 12px;
 }
 
 .product-remark {
   margin: 0;
   border-radius: 12px;
-  border: 1px solid #d7dfea;
-  background: #f7f9fd;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--app-card-soft-bg);
   padding: 8px 10px;
   font-size: 12px;
-  color: #546279;
+  color: var(--md-sys-color-on-surface-variant);
   line-height: 1.45;
 }
 
 .currency-chip {
   border-radius: 999px;
-  background: #eff4ff;
-  border: 1px solid #c8d8f6;
-  color: #24508d;
+  background: var(--app-accent-bg);
+  border: 1px solid var(--app-accent-border);
+  color: var(--app-accent-fg);
   padding: 4px 8px;
   font-size: 11px;
   font-weight: 700;
@@ -784,7 +815,7 @@ code {
   margin: 0;
   font-size: 24px;
   font-weight: 800;
-  color: #a63b00;
+  color: var(--app-price-fg);
 }
 
 .product-actions {
@@ -795,9 +826,88 @@ code {
   margin-top: auto;
 }
 
+.product-range-grid {
+  align-items: stretch;
+}
+
+.range-summary-card {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--radius-medium);
+  background: var(--app-card-soft-bg);
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.range-summary-kicker {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.range-summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.range-summary-row strong {
+  color: var(--md-sys-color-on-surface);
+  font-size: 16px;
+}
+
 .product-qty {
   width: 100%;
   height: 48px;
+}
+
+.quantity-selector {
+  display: grid;
+  gap: 8px;
+}
+
+.quantity-inputs {
+  display: grid;
+  grid-template-columns: minmax(84px, 110px) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.quantity-total,
+.market-total {
+  margin: 0;
+  font-size: 12px;
+  color: var(--app-price-fg);
+  font-weight: 700;
+}
+
+.progress-info {
+  display: grid;
+  gap: 6px;
+}
+
+.progress-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--md-sys-color-surface-container-high);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--md-sys-color-primary), var(--md-sys-color-tertiary));
+}
+
+.progress-text {
+  margin: 0;
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .product-buy-btn {
@@ -810,11 +920,11 @@ code {
 }
 
 .empty-state {
-  border: 1px dashed #c8d3e6;
+  border: 1px dashed var(--md-sys-color-outline-variant);
   border-radius: var(--radius-medium);
   padding: 14px;
-  color: #64718a;
-  background: #f7f9fe;
+  color: var(--md-sys-color-on-surface-variant);
+  background: var(--app-card-soft-bg);
 }
 
 .admin-list {
@@ -832,7 +942,7 @@ code {
 .admin-card {
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--radius-medium);
-  background: #ffffff;
+  background: var(--app-card-raised-bg);
   padding: 12px;
   display: grid;
   gap: 6px;
@@ -850,17 +960,18 @@ code {
 .admin-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .admin-key {
   font-size: 12px;
-  color: #66748c;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .admin-value {
   font-size: 13px;
   font-weight: 600;
-  color: #1f2b3d;
+  color: var(--md-sys-color-on-surface);
   word-break: break-all;
 }
 
@@ -885,20 +996,26 @@ code {
 }
 
 .market-chip.sale {
-  background: #e2f4e7;
-  color: #1f6a36;
-  border: 1px solid #b8dcc3;
+  background: var(--app-success-bg);
+  color: var(--app-success-fg);
+  border: 1px solid var(--app-success-border);
+}
+
+.market-chip.official {
+  background: var(--app-info-bg);
+  color: var(--app-info-fg);
+  border: 1px solid var(--app-info-border);
 }
 
 .market-chip.inactive {
-  background: #eef1f5;
-  color: #59667d;
-  border: 1px solid #d4d9e2;
+  background: var(--app-neutral-bg);
+  color: var(--app-neutral-fg);
+  border: 1px solid var(--app-neutral-border);
 }
 
 .market-time {
   font-size: 12px;
-  color: #6a768d;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .market-main {
@@ -912,8 +1029,13 @@ code {
   width: 58px;
   height: 58px;
   border-radius: 12px;
-  border: 1px solid #d6dce8;
-  background: linear-gradient(180deg, #f6f9ff 0%, #edf2fb 100%);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background:
+    linear-gradient(
+      180deg,
+      var(--md-sys-color-surface-container-lowest) 0%,
+      var(--md-sys-color-surface-container-high) 100%
+    );
   display: flex;
   align-items: center;
   justify-content: center;
@@ -938,23 +1060,23 @@ code {
 .market-sub {
   margin: 3px 0 0;
   font-size: 12px;
-  color: #60708a;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .market-remark {
   margin: 4px 0 0;
   border-radius: 10px;
-  border: 1px solid #d7dfea;
-  background: #f7f9fd;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--app-card-soft-bg);
   padding: 6px 8px;
   font-size: 12px;
-  color: #556278;
+  color: var(--md-sys-color-on-surface-variant);
   line-height: 1.45;
 }
 
 .market-price-row {
-  border-top: 1px solid #e0e5ef;
-  border-bottom: 1px solid #e0e5ef;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
   padding: 9px 0;
   display: flex;
   align-items: baseline;
@@ -965,12 +1087,12 @@ code {
 .market-price-label {
   margin: 0;
   font-size: 12px;
-  color: #5f6d84;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .market-price {
   margin: 0;
-  color: #b54308;
+  color: var(--app-price-fg);
   font-size: 22px;
   font-weight: 800;
 }
@@ -982,9 +1104,9 @@ code {
 }
 
 .market-enchant {
-  border: 1px solid #dccff0;
-  background: #f6f1fd;
-  color: #644690;
+  border: 1px solid var(--app-warn-border);
+  background: var(--app-warn-bg);
+  color: var(--app-warn-fg);
   border-radius: 999px;
   padding: 3px 8px;
   font-size: 11px;
@@ -1001,11 +1123,84 @@ code {
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 
+.market-buy-wrap {
+  display: grid;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+
+.market-buy-wrap .market-action-btn {
+  width: 100%;
+}
+
+.store-card,
+.store-detail-card {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--radius-medium);
+  background: var(--app-card-raised-bg);
+  box-shadow: var(--md-elevation-1);
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.store-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.store-head-text {
+  min-width: 0;
+}
+
+.store-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--app-card-soft-bg);
+  image-rendering: pixelated;
+}
+
+.store-title {
+  margin: 0;
+  font-size: 18px;
+}
+
+.store-subtitle {
+  margin: 4px 0 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+}
+
+.store-stats {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.store-stat {
+  border-radius: 999px;
+  border: 1px solid var(--app-accent-border);
+  background: var(--app-accent-bg);
+  color: var(--app-accent-fg);
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.store-listings {
+  margin-top: 12px;
+  display: grid;
+  gap: 12px;
+}
+
 .advanced-filter {
   margin-top: 12px;
   border-radius: var(--radius-medium);
-  border: 1px solid #d7dfea;
-  background: #f7f9fd;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--app-card-soft-bg);
   padding: 8px 12px 12px;
 }
 
@@ -1016,7 +1211,7 @@ code {
 .advanced-filter summary {
   cursor: pointer;
   font-weight: 700;
-  color: #2d3c55;
+  color: var(--md-sys-color-on-surface);
   list-style: none;
 }
 
@@ -1027,7 +1222,7 @@ code {
 .advanced-filter summary::after {
   content: "▾";
   float: right;
-  color: #6b778d;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .advanced-filter[open] summary::after {
@@ -1036,7 +1231,7 @@ code {
 
 .market-seller {
   font-size: 12px;
-  color: #5d6a82;
+  color: var(--md-sys-color-on-surface-variant);
   display: flex;
   justify-content: space-between;
   gap: 8px;
@@ -1048,11 +1243,11 @@ code {
 }
 
 .market-action-btn.unlist {
-  background: #bb2c2c;
+  background: var(--app-danger-bg);
 }
 
 .market-action-btn.unlist:hover {
-  background: #9f2424;
+  background: var(--app-danger-hover);
 }
 
 .market-actions {
@@ -1069,9 +1264,9 @@ pre {
   max-height: 440px;
   overflow: auto;
   border-radius: var(--radius-medium);
-  border: 1px solid #2a3855;
-  background: #101726;
-  color: #d8e4fa;
+  border: 1px solid var(--app-log-border);
+  background: var(--app-log-bg);
+  color: var(--app-log-fg);
   padding: 12px;
   font-size: 12px;
   line-height: 1.45;
@@ -1112,6 +1307,10 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .quantity-inputs {
+    grid-template-columns: 1fr;
+  }
+
   .inline-action {
     grid-template-columns: 1fr;
   }
@@ -1136,7 +1335,7 @@ pre {
 .dialog-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(17, 24, 39, 0.4);
+  background: var(--app-dialog-scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1166,13 +1365,18 @@ pre {
 
 .dialog-card p {
   margin: 0;
-  color: #5b6780;
+  color: var(--md-sys-color-on-surface-variant);
   font-size: 14px;
 }
 
 .price-dialog-card {
-  border: 1px solid #d7dfea;
-  background: linear-gradient(160deg, #ffffff 0%, #f4f8ff 100%);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background:
+    linear-gradient(
+      160deg,
+      var(--app-card-raised-bg) 0%,
+      var(--app-card-soft-bg) 100%
+    );
 }
 
 .price-dialog-header {
@@ -1187,7 +1391,7 @@ pre {
   font-size: 12px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #6a768d;
+  color: var(--md-sys-color-on-surface-variant);
   font-weight: 700;
 }
 
@@ -1195,9 +1399,9 @@ pre {
   min-width: 54px;
   padding: 6px 10px;
   border-radius: 999px;
-  background: #e8f1ff;
-  border: 1px solid #c9dbf8;
-  color: #1f4b8a;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-info-border);
+  color: var(--app-info-fg);
   font-size: 12px;
   font-weight: 700;
   text-align: center;
@@ -1205,7 +1409,7 @@ pre {
 
 .price-dialog-hint {
   margin-top: 4px;
-  color: #5a667a;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .price-dialog-summary {
@@ -1215,9 +1419,9 @@ pre {
 }
 
 .price-summary-item {
-  border: 1px solid #d9e1f0;
+  border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--radius-small);
-  background: #f7faff;
+  background: var(--app-card-soft-bg);
   padding: 10px 12px;
   display: grid;
   gap: 4px;
@@ -1225,12 +1429,12 @@ pre {
 
 .price-summary-item span {
   font-size: 12px;
-  color: #64718a;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .price-summary-item strong {
   font-size: 16px;
-  color: #1f2b3d;
+  color: var(--md-sys-color-on-surface);
 }
 
 .price-dialog-field .price-input-wrap {
@@ -1247,8 +1451,8 @@ pre {
 .price-input-prefix {
   font-size: 12px;
   font-weight: 700;
-  color: #1f4b8a;
-  background: #e8f1ff;
+  color: var(--app-info-fg);
+  background: var(--app-info-bg);
   border-radius: 999px;
   padding: 4px 8px;
 }
@@ -1268,376 +1472,89 @@ pre {
 
 .dialog-details {
   border-radius: var(--radius-small);
-  border: 1px solid #d7dfea;
-  background: #f7f9fd;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--app-card-soft-bg);
   padding: 10px 12px;
   display: grid;
   gap: 6px;
   font-size: 13px;
-  color: #4b5a72;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.dialog-select-field textarea,
+.dialog-select-field input,
+.dialog-select-field select {
+  margin-top: 6px;
+}
+
+.checkout-summary {
+  margin-top: 8px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--radius-small);
+  background: var(--md-sys-color-surface-container-low);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.checkout-kicker {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--md-sys-color-on-surface-variant);
+  letter-spacing: 0.04em;
+}
+
+.checkout-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.checkout-row strong {
+  color: var(--md-sys-color-on-surface);
+}
+
+.checkout-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 92px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container-high);
+  border: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.checkout-row.emphasis strong {
+  color: var(--app-price-fg);
+  font-size: 15px;
+  background: var(--app-info-bg);
+  border-color: var(--app-info-border);
+}
+
+.checkout-row.negative strong {
+  color: var(--md-sys-color-error);
+  background: var(--app-error-bg);
+  border-color: var(--app-error-border);
+}
+
+.checkout-warning {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.checkout-warning.negative {
+  color: var(--md-sys-color-error);
+  font-weight: 700;
+}
+
+.balance-summary .checkout-value {
+  background: var(--app-card-raised-bg);
 }
 
 .dialog-actions {
   justify-content: flex-end;
-}
-
-body[data-theme="dark"] {
-  --md-sys-color-primary: #98b6d9;
-  --md-sys-color-on-primary: #10263f;
-  --md-sys-color-primary-container: #2d3f59;
-  --md-sys-color-on-primary-container: #dde8f7;
-  --md-sys-color-secondary: #aebace;
-  --md-sys-color-surface: #111721;
-  --md-sys-color-surface-container-low: #18202b;
-  --md-sys-color-surface-container: #1f2937;
-  --md-sys-color-surface-container-high: #273346;
-  --md-sys-color-surface-container-highest: #324157;
-  --md-sys-color-outline: #6d7f99;
-  --md-sys-color-outline-variant: #35485f;
-  --md-sys-color-on-surface: #e4ebf5;
-  --md-sys-color-on-surface-variant: #b7c3d5;
-  --md-sys-color-error: #ffb4ab;
-  --md-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --md-elevation-2: 0 3px 8px rgba(0, 0, 0, 0.45);
-  --app-bg:
-    radial-gradient(circle at 88% -12%, rgba(124, 163, 211, 0.18), transparent 40%),
-    radial-gradient(circle at -8% 20%, rgba(86, 124, 170, 0.16), transparent 34%),
-    linear-gradient(145deg, #101721 0%, #121b27 46%, #172232 100%);
-}
-
-body[data-theme="dark"] .md-card,
-body[data-theme="dark"] .product-card,
-body[data-theme="dark"] .market-card,
-body[data-theme="dark"] .order-card,
-body[data-theme="dark"] .admin-card {
-  background: var(--md-sys-color-surface-container);
-  border-color: var(--md-sys-color-outline-variant);
-  box-shadow: var(--md-elevation-1);
-}
-
-body[data-theme="dark"] .app-header {
-  background: linear-gradient(
-    120deg,
-    rgba(39, 51, 70, 0.94) 0%,
-    rgba(30, 41, 57, 0.96) 100%
-  );
-}
-
-body[data-theme="dark"] .top-tabs {
-  background: var(--md-sys-color-surface-container-low);
-  border-color: var(--md-sys-color-outline-variant);
-}
-
-body[data-theme="dark"] .top-tab {
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-body[data-theme="dark"] .top-tab:hover {
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface);
-}
-
-body[data-theme="dark"] .top-tab.active {
-  background: var(--md-sys-color-primary-container);
-  color: var(--md-sys-color-on-primary-container);
-}
-
-body[data-theme="dark"] input,
-body[data-theme="dark"] select,
-body[data-theme="dark"] textarea {
-  background: var(--md-sys-color-surface-container-low);
-  border-color: var(--md-sys-color-outline-variant);
-  color: var(--md-sys-color-on-surface);
-}
-
-body[data-theme="dark"] input:focus,
-body[data-theme="dark"] select:focus,
-body[data-theme="dark"] textarea:focus {
-  border-color: #7a90ba;
-  box-shadow: 0 0 0 3px rgba(173, 198, 255, 0.18);
-}
-
-body[data-theme="dark"] button {
-  background: var(--md-sys-color-primary);
-  color: var(--md-sys-color-on-primary);
-}
-
-body[data-theme="dark"] button:hover {
-  background: #a8c2e1;
-}
-
-body[data-theme="dark"] .btn-tonal {
-  background: var(--md-sys-color-primary-container);
-  border-color: #5d6d86;
-  color: var(--md-sys-color-on-primary-container);
-}
-
-body[data-theme="dark"] .btn-tonal:hover {
-  background: #375178;
-}
-
-body[data-theme="dark"] .btn-segment {
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface-variant);
-  border-color: var(--md-sys-color-outline-variant);
-}
-
-body[data-theme="dark"] .btn-segment:hover {
-  background: var(--md-sys-color-surface-container-highest);
-}
-
-body[data-theme="dark"] .btn-segment.active {
-  background: var(--md-sys-color-primary);
-  color: var(--md-sys-color-on-primary);
-  border-color: #8ea9da;
-}
-
-body[data-theme="dark"] .status-chip {
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface-variant);
-  border-color: var(--md-sys-color-outline-variant);
-}
-
-body[data-theme="dark"] .status-chip[data-state="online"] {
-  background: #304637;
-  border-color: #5f8a68;
-  color: #d4f1dc;
-}
-
-body[data-theme="dark"] .status-chip[data-state="offline"] {
-  background: #33282b;
-  border-color: #5e474f;
-  color: #e0c3ca;
-}
-
-body[data-theme="dark"] .md-tip {
-  border-color: var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface-container-high);
-}
-
-body[data-theme="dark"] .md-tip p {
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-body[data-theme="dark"] .md-tip-info {
-  border-color: #49576c;
-  background: #232a34;
-}
-
-body[data-theme="dark"] .md-tip-info strong {
-  color: #cdd9ee;
-}
-
-body[data-theme="dark"] .md-tip-success {
-  border-color: #5a7861;
-  background: #2a3a2f;
-}
-
-body[data-theme="dark"] .md-tip-success strong {
-  color: #d2f0da;
-}
-
-body[data-theme="dark"] .md-tip-warn {
-  border-color: #8a6f3f;
-  background: #3a3122;
-}
-
-body[data-theme="dark"] .md-tip-warn strong {
-  color: #ffe2a6;
-}
-
-body[data-theme="dark"] .snackbar {
-  border-color: var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface);
-}
-
-body[data-theme="dark"] .snackbar-info {
-  background: #232a34;
-  color: #d2ddf0;
-}
-
-body[data-theme="dark"] .snackbar-success {
-  background: #2a3a2f;
-  color: #d6f0de;
-}
-
-body[data-theme="dark"] .snackbar-warn {
-  background: #3a3122;
-  color: #ffe2a6;
-}
-
-body[data-theme="dark"] .snackbar-error {
-  background: #332427;
-  color: #f0cdcf;
-}
-
-body[data-theme="dark"] .auth-mode-switch {
-  border-color: var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface-container-high);
-}
-
-body[data-theme="dark"] .register-password-stage {
-  border-top-color: var(--md-sys-color-outline-variant);
-}
-
-body[data-theme="dark"] .profile-avatar {
-  border-color: var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface-container-high);
-}
-
-body[data-theme="dark"] .bind-code {
-  background: var(--md-sys-color-surface-container-high);
-  border-color: #596072;
-  color: #d2dbef;
-}
-
-body[data-theme="dark"] code {
-  background: var(--md-sys-color-surface-container-highest);
-  color: #d7dded;
-}
-
-body[data-theme="dark"] .wallet-pill {
-  border-color: var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface-container-high);
-}
-
-body[data-theme="dark"] .empty-state {
-  border-color: var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface-container-low);
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-body[data-theme="dark"] .currency-chip {
-  background: var(--md-sys-color-surface-container-highest);
-  border-color: #596072;
-  color: #d5dced;
-}
-
-body[data-theme="dark"] .product-price,
-body[data-theme="dark"] .market-price,
-body[data-theme="dark"] .order-price {
-  color: #f0c8a1;
-}
-
-body[data-theme="dark"] .product-remark,
-body[data-theme="dark"] .market-remark {
-  border-color: var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-body[data-theme="dark"] .advanced-filter {
-  border-color: var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface-container-low);
-}
-
-body[data-theme="dark"] .advanced-filter summary {
-  color: var(--md-sys-color-on-surface);
-}
-
-body[data-theme="dark"] .market-chip.sale {
-  background: #34533f;
-  border-color: #629173;
-  color: #d7f4e0;
-}
-
-body[data-theme="dark"] .market-chip.inactive {
-  background: var(--md-sys-color-surface-container-high);
-  border-color: var(--md-sys-color-outline-variant);
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-body[data-theme="dark"] .market-enchant {
-  border-color: #5b5568;
-  background: #2c2933;
-  color: #d2ccdf;
-}
-
-body[data-theme="dark"] .market-icon {
-  border-color: var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface-container-high);
-}
-
-body[data-theme="dark"] .order-status {
-  background: var(--md-sys-color-surface-container-high);
-  border-color: var(--md-sys-color-outline-variant);
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-body[data-theme="dark"] .order-status.pending {
-  background: #4a3c23;
-  border-color: #94723f;
-  color: #ffdf9a;
-}
-
-body[data-theme="dark"] .order-status.delivered {
-  background: #31503b;
-  border-color: #5f906f;
-  color: #d4f2de;
-}
-
-body[data-theme="dark"] .order-status.refunded {
-  background: #35282d;
-  border-color: #674b56;
-  color: #e5c4cd;
-}
-
-body[data-theme="dark"] .order-status.failed {
-  background: #352527;
-  border-color: #63474c;
-  color: #e2c4c8;
-}
-
-body[data-theme="dark"] pre {
-  border-color: var(--md-sys-color-outline-variant);
-  background: #101014;
-  color: #d6d4db;
-}
-
-body[data-theme="dark"] .dialog-backdrop {
-  background: rgba(12, 12, 14, 0.66);
-}
-
-body[data-theme="dark"] .dialog-card {
-  background: var(--md-sys-color-surface-container-high);
-  border-color: var(--md-sys-color-outline-variant);
-}
-
-body[data-theme="dark"] .dialog-card p {
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-body[data-theme="dark"] .dialog-details {
-  border-color: var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface-container-low);
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-body[data-theme="dark"] .price-dialog-card {
-  background: var(--md-sys-color-surface-container-high);
-  border-color: var(--md-sys-color-outline-variant);
-}
-
-body[data-theme="dark"] .price-summary-item {
-  border-color: var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface-container-low);
-}
-
-body[data-theme="dark"] .price-summary-item span {
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-body[data-theme="dark"] .price-summary-item strong {
-  color: var(--md-sys-color-on-surface);
-}
-
-body[data-theme="dark"] .price-dialog-field .price-input-wrap {
-  background: var(--md-sys-color-surface-container-low);
-  border-color: var(--md-sys-color-outline-variant);
-}
-
-body[data-theme="dark"] .price-input-prefix {
-  background: var(--md-sys-color-primary-container);
-  color: var(--md-sys-color-on-primary-container);
 }

@@ -25,6 +25,8 @@ webshop:
   delivery-retry-seconds: 30
   # 订单冷静期（秒，0 表示关闭）
   order-cooldown-seconds: 15
+  # 是否允许所有未发放内容退款（PENDING / WAIT_CLAIM / 未核销团购券）
+  refund-undelivered-enabled: true
 
   market:
     # 玩家市场默认最大上架数

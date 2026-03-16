@@ -98,15 +98,20 @@ class OrderService {
           existingOrder.groupBuyVoucherConsumedAt());
     }
 
+    DeliveryMode deliveryMode = resolveDeliveryMode(deliveryModeRaw, product.productType());
     UUID playerUuid = readBoundUuidForUpdate(connection, userId);
     long totalAmount = Math.multiplyExact(product.price(), quantity);
     String orderNo = newOrderNo();
     boolean isGroupBuyVoucher = product.productType() == ProductService.ProductType.GROUP_BUY_VOUCHER;
     LocalDateTime now = LocalDateTime.now();
-    LocalDateTime refundDeadline = !isGroupBuyVoucher && cooldownSeconds > 0
+    LocalDateTime refundDeadline = !isGroupBuyVoucher
+        && deliveryMode == DeliveryMode.IMMEDIATE
+        && cooldownSeconds > 0
         ? now.plusSeconds(cooldownSeconds)
         : null;
-    String orderStatus = isGroupBuyVoucher ? "DELIVERED" : "PENDING";
+    String orderStatus = isGroupBuyVoucher
+        ? "DELIVERED"
+        : deliveryMode == DeliveryMode.CLAIM ? "WAIT_CLAIM" : "PENDING";
 
     walletService.applyDelta(
         connection,
@@ -136,7 +141,6 @@ class OrderService {
       groupBuyVoucherStatus = "ISSUED";
     } else {
       DeliveryTaskSpec taskSpec = buildDeliveryTaskSpec(product, quantity);
-      DeliveryMode deliveryMode = resolveDeliveryMode(deliveryModeRaw, product.productType());
       LocalDateTime deliveryAt = refundDeadline == null ? now : refundDeadline;
       insertDelivery(
           connection,
@@ -155,7 +159,7 @@ class OrderService {
         totalAmount,
         orderStatus,
         refundDeadline,
-        isGroupBuyVoucher ? 0 : cooldownSeconds,
+        isGroupBuyVoucher || deliveryMode == DeliveryMode.CLAIM ? 0 : cooldownSeconds,
         groupBuyVoucherCode,
         groupBuyVoucherStatus,
         groupBuyVoucherConsumedAt);
@@ -901,6 +905,9 @@ class OrderService {
         throw new ServiceException("voucher_missing", "Group-buy voucher not found");
       }
       if (!"ISSUED".equalsIgnoreCase(row.status())) {
+        if ("REFUNDED".equalsIgnoreCase(row.status())) {
+          throw new ServiceException("voucher_refunded", "Group-buy voucher has been refunded");
+        }
         throw new ServiceException("voucher_unavailable", "Group-buy voucher is already consumed");
       }
 
@@ -953,15 +960,7 @@ class OrderService {
       if ("REFUNDED".equalsIgnoreCase(row.status())) {
         throw new ServiceException("already_refunded", "Order has already been refunded");
       }
-      if (!"PENDING".equalsIgnoreCase(row.status())) {
-        throw new ServiceException("refund_not_allowed", "Order is not refundable");
-      }
-      if (row.refundDeadline() == null) {
-        throw new ServiceException("refund_disabled", "Refund is disabled for this order");
-      }
-      if (LocalDateTime.now().isAfter(row.refundDeadline())) {
-        throw new ServiceException("refund_expired", "Refund window has expired");
-      }
+      validateOfficialRefund(row);
 
       walletService.applyDelta(
           connection,
@@ -980,6 +979,19 @@ class OrderService {
       try (PreparedStatement statement = connection.prepareStatement(updateOrderSql)) {
         statement.setLong(1, row.id());
         statement.executeUpdate();
+      }
+
+      if (row.groupBuyVoucherCode() != null) {
+        String updateVoucherSql = """
+            UPDATE group_buy_vouchers
+            SET status = 'REFUNDED'
+            WHERE code = ?
+              AND status = 'ISSUED'
+            """;
+        try (PreparedStatement statement = connection.prepareStatement(updateVoucherSql)) {
+          statement.setString(1, row.groupBuyVoucherCode());
+          statement.executeUpdate();
+        }
       }
 
       String cancelDeliverySql = """
@@ -1033,6 +1045,57 @@ class OrderService {
     }
   }
 
+  private void validateOfficialRefund(OrderRow row) {
+    if (row.groupBuyVoucherCode() != null) {
+      String voucherStatus = String.valueOf(row.groupBuyVoucherStatus()).toUpperCase(Locale.ROOT);
+      if ("CONSUMED".equals(voucherStatus)) {
+        throw new ServiceException("voucher_consumed", "Group-buy voucher has already been consumed");
+      }
+      if ("REFUNDED".equals(voucherStatus)) {
+        throw new ServiceException("already_refunded", "Order has already been refunded");
+      }
+      if (settingsSupplier.get().refundUndeliveredEnabled() && "ISSUED".equals(voucherStatus)) {
+        return;
+      }
+    }
+
+    if (settingsSupplier.get().refundUndeliveredEnabled()) {
+      if ("PENDING".equalsIgnoreCase(row.status()) || "WAIT_CLAIM".equalsIgnoreCase(row.status())) {
+        return;
+      }
+      throw new ServiceException("refund_not_allowed", "Order is not refundable");
+    }
+
+    if (!"PENDING".equalsIgnoreCase(row.status())) {
+      throw new ServiceException("refund_not_allowed", "Order is not refundable");
+    }
+    if (row.refundDeadline() == null) {
+      throw new ServiceException("refund_disabled", "Refund is disabled for this order");
+    }
+    if (LocalDateTime.now().isAfter(row.refundDeadline())) {
+      throw new ServiceException("refund_expired", "Refund window has expired");
+    }
+  }
+
+  private void validateMarketRefund(MarketOrderRow row) {
+    if (settingsSupplier.get().refundUndeliveredEnabled()) {
+      if ("PENDING".equalsIgnoreCase(row.status()) || "WAIT_CLAIM".equalsIgnoreCase(row.status())) {
+        return;
+      }
+      throw new ServiceException("refund_not_allowed", "Order is not refundable");
+    }
+
+    if (!"PENDING".equalsIgnoreCase(row.status())) {
+      throw new ServiceException("refund_not_allowed", "Order is not refundable");
+    }
+    if (row.refundDeadline() == null) {
+      throw new ServiceException("refund_disabled", "Refund is disabled for this order");
+    }
+    if (LocalDateTime.now().isAfter(row.refundDeadline())) {
+      throw new ServiceException("refund_expired", "Refund window has expired");
+    }
+  }
+
   private String normalizeGroupBuyVoucherCode(String rawCode) {
     if (rawCode == null || rawCode.isBlank()) {
       throw new ServiceException("invalid_voucher", "Group-buy voucher code is required");
@@ -1054,15 +1117,7 @@ class OrderService {
       if ("REFUNDED".equalsIgnoreCase(row.status())) {
         throw new ServiceException("already_refunded", "Order has already been refunded");
       }
-      if (!"PENDING".equalsIgnoreCase(row.status())) {
-        throw new ServiceException("refund_not_allowed", "Order is not refundable");
-      }
-      if (row.refundDeadline() == null) {
-        throw new ServiceException("refund_disabled", "Refund is disabled for this order");
-      }
-      if (LocalDateTime.now().isAfter(row.refundDeadline())) {
-        throw new ServiceException("refund_expired", "Refund window has expired");
-      }
+      validateMarketRefund(row);
 
       long refundAmount = row.buyerTotal() > 0 ? row.buyerTotal() : row.totalPrice();
       walletService.applyDelta(
@@ -1077,7 +1132,7 @@ class OrderService {
       String updateTradeSql = """
           UPDATE market_trades
           SET status = 'REFUNDED', refunded_at = NOW()
-          WHERE id = ? AND status = 'PENDING'
+          WHERE id = ? AND status IN ('PENDING', 'WAIT_CLAIM')
           """;
       try (PreparedStatement statement = connection.prepareStatement(updateTradeSql)) {
         statement.setLong(1, row.tradeId());
@@ -1144,9 +1199,11 @@ class OrderService {
   private OrderRow readOrderForRefund(Connection connection, long userId, String orderNo)
       throws SQLException {
     String sql = """
-        SELECT id, order_no, currency, total_amount, status, refund_deadline
-        FROM orders
-        WHERE user_id = ? AND order_no = ?
+        SELECT o.id, o.order_no, o.currency, o.total_amount, o.status, o.refund_deadline,
+               gv.code AS group_buy_voucher_code, gv.status AS group_buy_voucher_status
+        FROM orders o
+        LEFT JOIN group_buy_vouchers gv ON gv.order_id = o.id
+        WHERE o.user_id = ? AND o.order_no = ?
         FOR UPDATE
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -1163,7 +1220,9 @@ class OrderService {
             resultSet.getString("currency"),
             resultSet.getLong("total_amount"),
             resultSet.getString("status"),
-            refundDeadline == null ? null : refundDeadline.toLocalDateTime());
+            refundDeadline == null ? null : refundDeadline.toLocalDateTime(),
+            resultSet.getString("group_buy_voucher_code"),
+            resultSet.getString("group_buy_voucher_status"));
       }
     }
   }
@@ -1307,7 +1366,9 @@ class OrderService {
       String currency,
       long totalAmount,
       String status,
-      LocalDateTime refundDeadline) {
+      LocalDateTime refundDeadline,
+      String groupBuyVoucherCode,
+      String groupBuyVoucherStatus) {
   }
 
   private record MarketOrderRow(

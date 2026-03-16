@@ -1,18 +1,35 @@
 ﻿<!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>WebShopX - MC网页商店系统</title>
-  <link rel="stylesheet" href="styles.css" />
+  <script>
+    (function() {
+      try {
+        var saved = window.localStorage.getItem("webshopx_theme");
+        var theme = saved === "dark" || saved === "light"
+          ? saved
+          : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.classList.remove("light", "dark");
+        document.documentElement.classList.add(theme);
+      } catch (error) {
+        document.documentElement.classList.remove("dark");
+        document.documentElement.classList.add("light");
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="css/light.css" />
+  <link rel="stylesheet" href="css/dark.css" />
+  <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
   <main class="app-shell">
     <header class="app-header md-card">
       <div>
-        <p class="app-kicker">WebShopX Dashboard</p>
+        <!-- <p class="app-kicker">WebShopX Dashboard</p> -->
         <h1>WebShopX 仪表盘</h1>
-        <p class="app-subtitle">致力于实现更完善的官方商城和玩家市场。</p>
+        <!-- <p class="app-subtitle">致力于实现更完善的官方商城和玩家市场。</p> -->
       </div>
       <div class="header-controls">
         <button id="themeToggleBtn" class="btn-tonal theme-toggle-btn" type="button">切换暗色</button>
@@ -33,72 +50,29 @@
     <section class="tab-panel active" data-tab-panel="auth">
       <div class="grid two-col">
         <article class="md-card section-card" id="authEntryCard">
-          <h2>账号流程</h2>
+          <h2>账号登录</h2>
           <div class="md-tip md-tip-info">
-            <strong>提示</strong>
-            <p>新玩家请先按流程进行“注册”。已注册玩家可直接登录。</p>
+            <strong>登录前准备</strong>
+            <p>请先在游戏内执行 <code>/webshopx password &lt;新密码&gt;</code>（或 <code>/ws password &lt;新密码&gt;</code>）设置网页登录密码。</p>
+            <p>设置完成后，直接使用你的 Minecraft 用户名和该密码登录网页即可。</p>
           </div>
-
-          <div class="auth-mode-switch" role="tablist" aria-label="认证模式">
-            <button id="authModeLoginBtn" class="btn-segment active" type="button">登录</button>
-            <button id="authModeRegisterBtn" class="btn-segment" type="button">注册</button>
-          </div>
-
           <div id="authLoginPanel" class="auth-pane active">
             <div class="field-grid two-col">
               <label class="field">
-                <span>登录标识</span>
-                <input id="loginIdentifier" placeholder="输入 UUID 或用户名" autocomplete="username" />
+                <span>用户名</span>
+                <input id="loginIdentifier" placeholder="输入 Minecraft 用户名" autocomplete="username" />
               </label>
               <label class="field">
                 <span>密码</span>
-                <input id="loginPassword" type="password" placeholder="输入密码" autocomplete="current-password" />
+                <input id="loginPassword" type="password" placeholder="输入游戏内设置的密码" autocomplete="current-password" />
               </label>
             </div>
             <div class="actions">
               <button id="loginBtn" type="button">立即登录</button>
             </div>
-            <div class="md-tip md-tip-info">
-            <strong>提示</strong>
-            <p>已注册玩家可直接使用 UUID 或用户名（一般是 Minecraft 用户名） + 密码登录。</p>
-            </div>
-          </div>
-
-          <div id="authRegisterPanel" class="auth-pane">
-            <div class="actions">
-              <button id="registerStartBtn" type="button">获取绑定码</button>
-            </div>
-
-            <div class="bind-code-row">
-              <p class="bind-code" id="registerBindCodeView">绑定码：- </p>
-              <button id="registerBindCopyBtn" class="btn-tonal" type="button">复制绑定码</button>
-            </div>
-            <p class="meta" id="registerStatusView">状态：等待开始注册</p>
-            <div class="md-tip md-tip-info" id="registerFlowTip">
-              <strong>注册步骤</strong>
-              <p>1、点击“获取绑定码”</p>
-              <p>2、进入游戏执行指令绑定账号（<code>/webshopx bind &lt;code&gt;</code> 或 <code>/ws bind &lt;code&gt;</code>）</p>
-              <p>3、绑定成功后设置登录密码完成注册</p>
-            </div>
-
-            <div id="registerPasswordStage" class="register-password-stage hidden">
-              <div class="field-grid two-col">
-                <label class="field">
-                  <span>设置密码</span>
-                  <input id="registerPassword" type="password" placeholder="8-64 位" autocomplete="new-password" />
-                </label>
-                <label class="field">
-                  <span>确认密码</span>
-                  <input id="registerPasswordConfirm" type="password" placeholder="再次输入密码" autocomplete="new-password" />
-                </label>
-              </div>
-              <div class="actions">
-                <button id="registerFinishBtn" type="button">设置密码并完成注册</button>
-              </div>
-              <div class="md-tip md-tip-warn">
-                <strong>密码提示</strong>
-                <p>密码长度需为 8-64 位，请勿与其他站点重复使用同一密码。</p>
-              </div>
+            <div class="md-tip md-tip-warn">
+              <strong>密码说明</strong>
+              <p>若你还没有设置网页登录密码，请先回到游戏内执行 <code>/webshopx password &lt;新密码&gt;</code>。</p>
             </div>
           </div>
         </article>
@@ -108,7 +82,7 @@
           <p class="card-desc">已完成身份认证，可直接访问钱包、商城和玩家市场。</p>
           <div class="md-tip md-tip-success">
             <strong>登录成功</strong>
-            <p>若昵称或 UUID 与游戏内不一致，可先退出登录后重新登录刷新会话信息。</p>
+            <p>欢迎回来，<span id="profileNameDisplay">-</span>！</p>
           </div>
 
           <div class="profile-main">
@@ -233,13 +207,13 @@
         <div class="section-head">
           <div>
             <h2>玩家市场（C2C）</h2>
-            <p class="card-desc">上架需在游戏内执行 <code>/webshopx market sell &lt;price&gt; [amount] [currency]</code>（可简写 <code>/ws market sell ...</code>）。</p>
+            <p class="card-desc">上架需在游戏内执行 <code>/webshopx market sell &lt;price&gt; [amount] [currency]</code>。</p>
           </div>
         </div>
-        <div class="md-tip md-tip-info">
+        <!-- <div class="md-tip md-tip-info">
           <strong>交易提示</strong>
           <p>“我的上架”仅显示当前登录账号发布的商品；下架后物品会回到你的待投递队列。</p>
-        </div>
+        </div> -->
 
         <div class="field-grid two-col">
           <label class="field">
@@ -295,6 +269,7 @@
 
         <div class="actions market-actions">
           <button id="marketListBtn" class="btn-segment active" type="button">市场在售</button>
+          <button id="marketStoreBtn" class="btn-segment" type="button">玩家店铺</button>
           <button id="marketMineBtn" class="btn-segment" type="button">我的上架</button>
           <button id="marketRefreshBtn" class="btn-tonal" type="button">刷新</button>
         </div>
@@ -309,9 +284,9 @@
         <h2>使用教程</h2>
         <p class="card-desc">以下是常用流程的简版说明，后续可继续补充为完整文档。</p>
         <div class="md-tip md-tip-info">
-          <strong>注册与登录</strong>
-          <p>新玩家：先点“获取绑定码”，回游戏执行 <code>/webshopx bind &lt;code&gt;</code>（或 <code>/ws bind &lt;code&gt;</code>），再回网页设置密码完成注册。</p>
-          <p>老玩家：直接使用 UUID 或 MC 名 + 密码登录。</p>
+          <strong>密码设置与登录</strong>
+          <p>第一步：在游戏内执行 <code>/webshopx password &lt;新密码&gt;</code>（或 <code>/ws password &lt;新密码&gt;</code>）设置网页登录密码。</p>
+          <p>第二步：回到网页，使用你的 Minecraft 用户名和该密码登录。</p>
         </div>
         <div class="md-tip md-tip-info">
           <strong>购买与退款</strong>
@@ -347,10 +322,9 @@
     <section class="tab-panel" data-tab-panel="logs">
       <article class="md-card section-card">
         <h2>操作日志</h2>
-        <p class="card-desc">用于快速排查接口调用与会话状态，最新日志始终在顶部。</p>
         <div class="md-tip md-tip-info">
           <strong>排障建议</strong>
-          <p>若遇到异常，请优先查看最近三条日志并与服务器控制台时间对照，定位会更快。</p>
+          <p>若遇到异常，请查看日志，必要时可带上日志向管理员或开发者求助。</p>
         </div>
         <pre id="logBox"></pre>
       </article>
@@ -406,6 +380,6 @@
 
   <div id="snackbarHost" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="app.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>

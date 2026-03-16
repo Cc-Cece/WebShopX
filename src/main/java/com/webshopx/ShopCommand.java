@@ -12,19 +12,19 @@ import org.bukkit.entity.Player;
 
 class ShopCommand implements CommandExecutor, TabCompleter {
   private final WebShopPlugin plugin;
-  private final BindingService bindingService;
+  private final AuthService authService;
   private final RedeemCodeService redeemCodeService;
   private final MarketService marketService;
   private final DeliveryService deliveryService;
 
   ShopCommand(
       WebShopPlugin plugin,
-      BindingService bindingService,
+      AuthService authService,
       RedeemCodeService redeemCodeService,
       MarketService marketService,
       DeliveryService deliveryService) {
     this.plugin = plugin;
-    this.bindingService = bindingService;
+    this.authService = authService;
     this.redeemCodeService = redeemCodeService;
     this.marketService = marketService;
     this.deliveryService = deliveryService;
@@ -43,13 +43,13 @@ class ShopCommand implements CommandExecutor, TabCompleter {
         sendHelp(sender);
         yield true;
       }
-      case "bind" -> handleBind(sender, args);
+      case "password" -> handlePassword(sender, args);
       case "market" -> handleMarket(sender, args);
       case "claim" -> handleClaim(sender, args);
       case "reload" -> handleReload(sender);
       case "redeem" -> handleRedeem(sender, args);
       default -> {
-        sender.sendMessage("§c未知子命令，请使用 /webshopx help。");
+        sender.sendMessage("§c未知子命令，请使用 /webshopx help 查看帮助。");
         yield true;
       }
     };
@@ -64,7 +64,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     if (args.length == 1) {
       List<String> options = new ArrayList<>();
       options.add("help");
-      options.add("bind");
+      options.add("password");
       options.add("market");
       options.add("claim");
       if (sender.hasPermission("webshop.admin")) {
@@ -105,33 +105,42 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     return List.of();
   }
 
-  private boolean handleBind(CommandSender sender, String[] args) {
+  private boolean handlePassword(CommandSender sender, String[] args) {
     if (!(sender instanceof Player player)) {
-      sender.sendMessage("§c该命令仅可在游戏内执行：/webshopx bind <code>");
+      sender.sendMessage("§c该命令仅可在游戏内执行：/webshopx password <新密码>");
       return true;
     }
     if (args.length < 2) {
-      player.sendMessage("§e用法：/webshopx bind <code>");
+      player.sendMessage("§e用法：/webshopx password <新密码>");
       return true;
     }
 
-    BindingService.BindResult result = bindingService.bindPlayer(
-        player.getUniqueId(),
-        player.getName(),
-        args[1]);
-
-    switch (result.status()) {
-      case SUCCESS -> player.sendMessage("§a绑定成功，网页账号：§f" + result.username());
-      case INVALID_CODE -> player.sendMessage("§c绑定码无效。");
-      case INVALID_USERNAME -> player.sendMessage("§c当前角色名不合法。");
-      case EXPIRED -> player.sendMessage("§c绑定码已过期。");
-      case ALREADY_USED -> player.sendMessage("§c绑定码已被使用。");
-      case USER_ALREADY_BOUND -> player.sendMessage("§c该网页账号已绑定其他角色。");
-      case PLAYER_ALREADY_BOUND -> player.sendMessage("§c该角色已绑定其他网页账号。");
-      case USERNAME_ALREADY_USED -> player.sendMessage("§c该 Minecraft 名称已被占用。");
-      default -> player.sendMessage("§c绑定失败，请稍后重试。");
+    try {
+      AuthService.InGamePasswordResult result = authService.setPasswordFromGame(
+          player.getUniqueId(),
+          player.getName(),
+          args[1]);
+      if (result.created()) {
+        player.sendMessage("§a网页账号已创建并绑定成功。");
+      } else {
+        player.sendMessage("§a网页账号密码已更新并重新绑定成功。");
+      }
+      player.sendMessage("§7登录用户名：§f" + result.username());
+      player.sendMessage("§7现在可以前往网页使用该用户名和密码登录。");
+    } catch (ServiceException exception) {
+      player.sendMessage("§c设置密码失败：" + humanizePasswordError(exception));
     }
     return true;
+  }
+
+  private String humanizePasswordError(ServiceException exception) {
+    return switch (exception.code()) {
+      case "invalid_username" -> "当前游戏用户名不合法，请检查名称格式。";
+      case "invalid_password" -> "密码长度需为 8-64 位。";
+      case "username_exists" -> "当前游戏用户名已被其他网页账号占用，请联系管理员处理。";
+      case "user_missing" -> "账号数据不存在，请联系管理员处理。";
+      default -> exception.getMessage();
+    };
   }
 
   private boolean handleClaim(CommandSender sender, String[] args) {
@@ -258,7 +267,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
 
   private void sendHelp(CommandSender sender) {
     sender.sendMessage("§e/webshopx help §7- 查看帮助");
-    sender.sendMessage("§e/webshopx bind <code> §7- 绑定网页账号");
+    sender.sendMessage("§e/webshopx password <新密码> §7- 在游戏内创建或重置网页登录密码");
     sender.sendMessage("§e/webshopx market sell <price> [amount] [currency] §7- 上架手持物品");
     sender.sendMessage("§e/webshopx claim [all|ODR-...|MKT-...] §7- 领取待发货内容");
     if (sender.hasPermission("webshop.admin")) {

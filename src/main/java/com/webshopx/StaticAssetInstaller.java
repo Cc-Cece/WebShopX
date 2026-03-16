@@ -13,10 +13,12 @@ class StaticAssetInstaller {
   private static final List<String> ASSETS = List.of(
       "web/index.html",
       "web/admin.html",
-      "web/app.js",
-      "web/admin.js",
-      "web/styles.css",
-      "web/material_zh.json");
+      "web/material_zh.json",
+      "web/css/light.css",
+      "web/css/dark.css",
+      "web/css/styles.css",
+      "web/js/app.js",
+      "web/js/admin.js");
 
   private final JavaPlugin plugin;
 

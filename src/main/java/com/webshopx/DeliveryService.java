@@ -347,7 +347,7 @@ class DeliveryService {
           UPDATE orders
           SET status = 'DELIVERED', delivered_at = NOW()
           WHERE id = ?
-            AND status = 'PENDING'
+            AND status IN ('PENDING', 'WAIT_CLAIM')
             AND NOT EXISTS (
               SELECT 1
               FROM delivery_queue dq
@@ -396,7 +396,7 @@ class DeliveryService {
     if (trade == null) {
       return;
     }
-    if (!"PENDING".equalsIgnoreCase(trade.status())) {
+    if (!"PENDING".equalsIgnoreCase(trade.status()) && !"WAIT_CLAIM".equalsIgnoreCase(trade.status())) {
       return;
     }
     CurrencyType currency = CurrencyType.valueOf(trade.currency());
@@ -420,7 +420,7 @@ class DeliveryService {
     String settleSql = """
         UPDATE market_trades
         SET status = 'DELIVERED', settled_at = NOW()
-        WHERE id = ? AND status = 'PENDING'
+        WHERE id = ? AND status IN ('PENDING', 'WAIT_CLAIM')
         """;
     try (PreparedStatement statement = connection.prepareStatement(settleSql)) {
       statement.setLong(1, trade.tradeId());
