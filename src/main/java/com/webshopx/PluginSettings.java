@@ -18,6 +18,7 @@ record PluginSettings(
     boolean allowSharedClaimCommand,
     boolean refundUndeliveredEnabled,
     int marketMaxActiveListings,
+    MarketSupplySettings marketSupplySettings,
     CurrencyDisplaySettings currencyDisplaySettings,
     MaintenanceSettings maintenanceSettings,
     LoggingSettings loggingSettings,
@@ -74,6 +75,12 @@ record PluginSettings(
     MarketEconomySettings marketEconomySettings = new MarketEconomySettings(
         config.getDouble("economy.market.trade-fee-percent", 0.0),
         config.getDouble("economy.market.trade-tax-percent", 0.0));
+    MarketSupplySettings marketSupplySettings = new MarketSupplySettings(
+        config.getInt("webshop.market.supply.auto-refresh-threshold", 8),
+        config.getInt("webshop.market.supply.default-transfer-batch-size", 64),
+        config.getInt("webshop.market.supply.max-transfer-batch-size", 256),
+        config.getInt("webshop.market.supply.default-transit-stock", 256),
+        config.getInt("webshop.market.supply.max-transit-stock", 1024));
     InflationSettings inflationSettings = new InflationSettings(
         InflationMode.fromRaw(config.getString("economy.inflation-control.mode", "burn")),
         config.getLong("economy.inflation-control.treasury-user-id", 0L));
@@ -104,6 +111,7 @@ record PluginSettings(
         config.getBoolean("webshop.allow-shared-claim-command", false),
         config.getBoolean("webshop.refund-undelivered-enabled", true),
         config.getInt("webshop.market.max-active-listings", 10),
+        marketSupplySettings,
         currencyDisplaySettings,
         maintenanceSettings,
         loggingSettings,
@@ -271,6 +279,14 @@ record PluginSettings(
   }
 
   record MarketEconomySettings(double tradeFeePercent, double tradeTaxPercent) {
+  }
+
+  record MarketSupplySettings(
+      int autoRefreshThreshold,
+      int defaultTransferBatchSize,
+      int maxTransferBatchSize,
+      int defaultTransitStock,
+      int maxTransitStock) {
   }
 
   record InflationSettings(InflationMode mode, long treasuryUserId) {

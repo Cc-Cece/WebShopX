@@ -19,6 +19,7 @@ public class WebShopPlugin extends JavaPlugin {
   private ProductService productService;
   private OrderService orderService;
   private MarketService marketService;
+  private MarketGuiService marketGuiService;
   private DeliveryService deliveryService;
   private AdminService adminService;
   private AdminAuditService adminAuditService;
@@ -51,7 +52,8 @@ public class WebShopPlugin extends JavaPlugin {
       redeemCodeService = new RedeemCodeService(databaseManager, walletService);
       productService = new ProductService(databaseManager);
       orderService = new OrderService(this, databaseManager, this::settings, productService, walletService);
-      marketService = new MarketService(databaseManager, walletService, this::settings);
+      marketService = new MarketService(this, databaseManager, walletService, this::settings);
+      marketGuiService = new MarketGuiService(marketService, this::settings);
       deliveryService = new DeliveryService(this, databaseManager, walletService, this::settings);
       adminService = new AdminService(databaseManager, authService, walletService);
       adminAuditService = new AdminAuditService(databaseManager);
@@ -78,6 +80,7 @@ public class WebShopPlugin extends JavaPlugin {
       getServer().getPluginManager().registerEvents(
           new PlayerJoinListener(this, deliveryService),
           this);
+      getServer().getPluginManager().registerEvents(new MarketGuiListener(marketGuiService, marketService), this);
       startDeliveryLoop();
       startMaintenanceLoop();
       restartWebRuntime();
@@ -133,6 +136,7 @@ public class WebShopPlugin extends JavaPlugin {
         authService,
         redeemCodeService,
         marketService,
+        marketGuiService,
         deliveryService);
     PluginCommand rootCommand = getCommand("webshopx");
     if (rootCommand == null) {

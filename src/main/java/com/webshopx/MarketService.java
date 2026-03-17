@@ -12,28 +12,44 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
-import org.bukkit.permissions.PermissionAttachmentInfo;
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.World;
+import org.bukkit.block.Block;
+import org.bukkit.block.BlockState;
+import org.bukkit.block.Container;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.permissions.PermissionAttachmentInfo;
+import org.bukkit.plugin.java.JavaPlugin;
 
 class MarketService {
   private static final int DEFAULT_LIMIT = 100;
 
+  private final JavaPlugin plugin;
   private final DatabaseManager databaseManager;
   private final WalletService walletService;
   private final Supplier<PluginSettings> settingsSupplier;
   private final ItemSnapshotCodec itemSnapshotCodec;
 
   MarketService(
+      JavaPlugin plugin,
       DatabaseManager databaseManager,
       WalletService walletService,
       Supplier<PluginSettings> settingsSupplier) {
+    this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.walletService = walletService;
     this.settingsSupplier = settingsSupplier;
     this.itemSnapshotCodec = new ItemSnapshotCodec();
+  }
+
+  JavaPlugin plugin() {
+    return plugin;
   }
 
   ListingCreateResult createListingFromPlayer(
@@ -58,7 +74,9 @@ class MarketService {
 
     ItemStack listingItem = handItem.clone();
     listingItem.setAmount(amount);
-    ItemSnapshotCodec.Snapshot snapshot = itemSnapshotCodec.serialize(listingItem);
+    ItemStack templateItem = listingItem.clone();
+    templateItem.setAmount(1);
+    ItemSnapshotCodec.Snapshot snapshot = itemSnapshotCodec.serialize(templateItem);
     BoundUser boundUser = databaseManager.withConnection(connection ->
         readBoundUserByUuid(connection, player.getUniqueId(), false));
     if (boundUser == null) {
@@ -76,12 +94,234 @@ class MarketService {
           price,
           listingItem,
           snapshot,
-          listingLimit));
+          listingLimit,
+          SupplyConfig.manual()));
       return new ListingCreateResult(listingId, listingItem.getType().name(), amount, currency, price);
     } catch (Exception exception) {
       restoreItem(player, listingItem);
       throw exception;
     }
+  }
+
+  ListingCreateResult createListingFromStack(
+      Player player,
+      ItemStack listingItem,
+      long price,
+      CurrencyType currency) {
+    if (price <= 0L) {
+      throw new ServiceException("invalid_price", "Price must be positive");
+    }
+    if (listingItem == null || listingItem.getType() == Material.AIR || listingItem.getAmount() <= 0) {
+      throw new ServiceException("invalid_item", "Listing item is empty");
+    }
+    ItemStack storedItem = listingItem.clone();
+    ItemSnapshotCodec.Snapshot snapshot = itemSnapshotCodec.serialize(storedItem.clone());
+    BoundUser boundUser = databaseManager.withConnection(connection ->
+        readBoundUserByUuid(connection, player.getUniqueId(), false));
+    if (boundUser == null) {
+      throw new ServiceException("not_bound", "Please set your web password in-game before listing items");
+    }
+    int listingLimit = resolveListingLimit(player);
+    long listingId = databaseManager.inTransaction(connection -> createListingInTransaction(
+        connection,
+        boundUser,
+        currency,
+        price,
+        storedItem,
+        snapshot,
+        listingLimit,
+        SupplyConfig.manual()));
+    return new ListingCreateResult(listingId, storedItem.getType().name(), storedItem.getAmount(), currency, price);
+  }
+
+  ListingCreateResult createSupplyListingFromPlayer(
+      Player player,
+      long price,
+      CurrencyType currency,
+      int transferBatchSize,
+      int transitMaxStock) {
+    if (price <= 0L) {
+      throw new ServiceException("invalid_price", "Price must be positive");
+    }
+    SupplyConfig normalizedSupply = normalizeSupplyConfig(transferBatchSize, transitMaxStock);
+    ItemStack handItem = player.getInventory().getItemInMainHand();
+    if (handItem.getType() == Material.AIR) {
+      throw new ServiceException("empty_hand", "Main hand item is empty");
+    }
+    ItemStack templateItem = handItem.clone();
+    templateItem.setAmount(1);
+
+    Block targetBlock = player.getTargetBlockExact(6);
+    SupplySource source = resolveSupplySource(targetBlock);
+    BoundUser seller = databaseManager.withConnection(connection ->
+        readBoundUserByUuid(connection, player.getUniqueId(), false));
+    if (seller == null) {
+      throw new ServiceException("not_bound", "Please set your web password in-game before listing items");
+    }
+
+    int listingLimit = resolveListingLimit(player);
+    SupplyTransfer transfer = withdrawSupplyStock(
+        new SupplySource(source.worldName(), source.x(), source.y(), source.z()),
+        templateItem,
+        normalizedSupply.transferBatchSize());
+    if (transfer.loadedAmount() <= 0) {
+      throw new ServiceException("supply_empty", "供货箱里没有匹配的货物可上架");
+    }
+    try {
+      long listingId = databaseManager.inTransaction(connection -> createListingInTransaction(
+          connection,
+          seller,
+          currency,
+          price,
+          transfer.loadedItem(),
+          transfer.snapshot(),
+          listingLimit,
+          new SupplyConfig(
+              SupplyMode.SUPPLY,
+              normalizedSupply.transferBatchSize(),
+              normalizedSupply.transitMaxStock(),
+              new SupplySource(source.worldName(), source.x(), source.y(), source.z()),
+              transfer.loadedAmount())));
+      return new ListingCreateResult(
+          listingId,
+          transfer.loadedItem().getType().name(),
+          transfer.loadedAmount(),
+          currency,
+          price);
+    } catch (Exception exception) {
+      restoreSupplyStock(
+          new SupplySource(source.worldName(), source.x(), source.y(), source.z()),
+          transfer.loadedItem(),
+          transfer.loadedAmount());
+      throw exception;
+    }
+  }
+
+  ListingCreateResult createSupplyListingFromTemplate(
+      Player player,
+      SupplySourceDescriptor sourceDescriptor,
+      ItemStack templateItem,
+      long price,
+      CurrencyType currency) {
+    if (sourceDescriptor == null) {
+      throw new ServiceException("supply_missing", "Supply container is unavailable");
+    }
+    if (templateItem == null || templateItem.getType() == Material.AIR) {
+      throw new ServiceException("invalid_item", "模板物品不能为空");
+    }
+    SupplyConfig normalizedSupply = normalizeSupplyConfig(0, 0);
+    ItemStack template = templateItem.clone();
+    template.setAmount(1);
+    BoundUser seller = databaseManager.withConnection(connection ->
+        readBoundUserByUuid(connection, player.getUniqueId(), false));
+    if (seller == null) {
+      throw new ServiceException("not_bound", "Please set your web password in-game before listing items");
+    }
+    int listingLimit = resolveListingLimit(player);
+    SupplySource source = new SupplySource(
+        sourceDescriptor.worldName(),
+        sourceDescriptor.x(),
+        sourceDescriptor.y(),
+        sourceDescriptor.z());
+    SupplyTransfer transfer = withdrawSupplyStock(source, template, normalizedSupply.transferBatchSize());
+    try {
+      ItemStack storedItem = transfer.loadedAmount() > 0 ? transfer.loadedItem() : template;
+      ItemSnapshotCodec.Snapshot snapshot = transfer.loadedAmount() > 0
+          ? transfer.snapshot()
+          : itemSnapshotCodec.serialize(template);
+      long listingId = databaseManager.inTransaction(connection -> createListingInTransaction(
+          connection,
+          seller,
+          currency,
+          price,
+          storedItem,
+          snapshot,
+          listingLimit,
+          new SupplyConfig(
+              SupplyMode.SUPPLY,
+              normalizedSupply.transferBatchSize(),
+              normalizedSupply.transitMaxStock(),
+              source,
+              transfer.loadedAmount())));
+      return new ListingCreateResult(
+          listingId,
+          storedItem.getType().name(),
+          transfer.loadedAmount(),
+          currency,
+          price);
+    } catch (Exception exception) {
+      if (transfer.loadedAmount() > 0) {
+        restoreSupplyStock(source, transfer.loadedItem(), transfer.loadedAmount());
+      }
+      throw exception;
+    }
+  }
+
+  List<ListingView> listListingsForPlayer(UUID playerUuid, int limit) {
+    BoundUser seller = databaseManager.withConnection(connection ->
+        readBoundUserByUuid(connection, playerUuid, false));
+    if (seller == null) {
+      throw new ServiceException("not_bound", "Please set your web password in-game before using the market");
+    }
+    return listListings(
+        new ListingQuery(
+            seller.userId(),
+            false,
+            "created",
+            false,
+            null,
+            null,
+            null,
+            null,
+            null,
+        limit));
+  }
+
+  List<SellerTradeLog> listRecentSellerTradeLogs(UUID playerUuid, int limit) {
+    BoundUser seller = databaseManager.withConnection(connection ->
+        readBoundUserByUuid(connection, playerUuid, false));
+    if (seller == null) {
+      throw new ServiceException("not_bound", "Please set your web password in-game before using the market");
+    }
+    int normalizedLimit = Math.max(1, Math.min(limit, 20));
+    return databaseManager.withConnection(connection -> {
+      String sql = """
+          SELECT mt.id, mt.listing_id, mt.currency, mt.unit_price, mt.quantity, mt.total_price, mt.status,
+                 mt.created_at, buyer.username AS buyer_name, ml.item_material
+          FROM market_trades mt
+          JOIN market_listings ml ON ml.id = mt.listing_id
+          JOIN web_users buyer ON buyer.id = mt.buyer_user_id
+          WHERE mt.seller_user_id = ?
+          ORDER BY mt.id DESC
+          LIMIT ?
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, seller.userId());
+        statement.setInt(2, normalizedLimit);
+        List<SellerTradeLog> logs = new ArrayList<>();
+        try (ResultSet resultSet = statement.executeQuery()) {
+          while (resultSet.next()) {
+            logs.add(new SellerTradeLog(
+                resultSet.getLong("id"),
+                resultSet.getLong("listing_id"),
+                resultSet.getString("buyer_name"),
+                resultSet.getString("item_material"),
+                CurrencyType.valueOf(resultSet.getString("currency")),
+                resultSet.getLong("unit_price"),
+                resultSet.getInt("quantity"),
+                resultSet.getLong("total_price"),
+                resultSet.getString("status"),
+                resultSet.getTimestamp("created_at").toLocalDateTime()));
+          }
+        }
+        return logs;
+      }
+    });
+  }
+
+  SupplySourceDescriptor describeSupplySource(Block targetBlock) {
+    SupplySource source = resolveSupplySource(targetBlock);
+    return new SupplySourceDescriptor(source.worldName(), source.x(), source.y(), source.z());
   }
 
   List<ListingView> listListings(ListingQuery query) {
@@ -93,7 +333,9 @@ class MarketService {
       StringBuilder sql = new StringBuilder("""
           SELECT ml.id, ml.seller_user_id, u.username AS seller_name, ml.seller_uuid, ml.currency, ml.price,
                  ml.quantity, ml.quantity_total, ml.item_material, ml.item_meta_json,
-                 ml.remark, ml.status, ml.created_at
+                 ml.remark, ml.status, ml.created_at, ml.source_mode, ml.supply_batch_size,
+                 ml.supply_max_stock, ml.supply_loaded_total, ml.supply_sold_total,
+                 ml.supply_last_loaded_amount, ml.supply_last_loaded_at
           FROM market_listings ml
           JOIN web_users u ON u.id = ml.seller_user_id
           WHERE 1=1
@@ -101,7 +343,8 @@ class MarketService {
       List<Object> params = new ArrayList<>();
 
       if (query.activeOnly()) {
-        sql.append(" AND ml.status = 'ACTIVE'");
+        sql.append(" AND ((ml.status = 'ACTIVE' AND (ml.quantity > 0 OR ml.source_mode = 'SUPPLY'))"
+            + " OR (ml.source_mode = 'SUPPLY' AND ml.status = 'PAUSED' AND ml.quantity = 0))");
       }
       if (query.sellerUserId() != null) {
         sql.append(" AND ml.seller_user_id = ?");
@@ -192,7 +435,9 @@ class MarketService {
           SELECT ml.id, ml.seller_user_id, us.username AS seller_name, ml.seller_uuid,
                  ml.buyer_user_id, ub.username AS buyer_name, ml.buyer_uuid,
                  ml.currency, ml.price, ml.quantity, ml.quantity_total, ml.item_material, ml.item_meta_json,
-                 ml.remark, ml.status, ml.created_at, ml.sold_at, ml.unlisted_at
+                 ml.remark, ml.status, ml.created_at, ml.sold_at, ml.unlisted_at,
+                 ml.source_mode, ml.supply_batch_size, ml.supply_max_stock, ml.supply_loaded_total,
+                 ml.supply_sold_total, ml.supply_last_loaded_amount, ml.supply_last_loaded_at
           FROM market_listings ml
           JOIN web_users us ON us.id = ml.seller_user_id
           LEFT JOIN web_users ub ON ub.id = ml.buyer_user_id
@@ -289,6 +534,49 @@ class MarketService {
         normalizedRemark));
   }
 
+  ListingSettingsUpdateResult updateListingSettings(
+      long sellerUserId,
+      long listingId,
+      long price,
+      CurrencyType currency,
+      String remark,
+      Integer supplyBatchSize,
+      Integer supplyMaxStock) {
+    if (listingId <= 0L) {
+      throw new ServiceException("invalid_listing", "Listing id must be positive");
+    }
+    if (price <= 0L) {
+      throw new ServiceException("invalid_price", "Price must be positive");
+    }
+    String normalizedRemark = normalizeRemark(remark);
+    return databaseManager.inTransaction(connection ->
+        updateListingSettingsInTransaction(
+            connection,
+            sellerUserId,
+            listingId,
+            price,
+            currency,
+            normalizedRemark,
+            supplyBatchSize,
+            supplyMaxStock));
+  }
+
+  SupplyRefreshResult refreshSupplyListing(long sellerUserId, long listingId) {
+    if (listingId <= 0L) {
+      throw new ServiceException("invalid_listing", "Listing id must be positive");
+    }
+    return databaseManager.inTransaction(connection ->
+        refreshSupplyListingInTransaction(connection, sellerUserId, listingId, true));
+  }
+
+  SupplyRefreshResult refreshSupplyListing(long listingId) {
+    if (listingId <= 0L) {
+      throw new ServiceException("invalid_listing", "Listing id must be positive");
+    }
+    return databaseManager.inTransaction(connection ->
+        refreshSupplyListingInTransaction(connection, null, listingId, false));
+  }
+
   @SuppressFBWarnings(
       value = "SQL_INJECTION_JDBC",
       justification = "Lock clause is selected from a fixed boolean branch")
@@ -350,7 +638,8 @@ class MarketService {
       long price,
       ItemStack listingItem,
       ItemSnapshotCodec.Snapshot snapshot,
-      int listingLimit) throws SQLException {
+      int listingLimit,
+      SupplyConfig supplyConfig) throws SQLException {
     int activeListings = countActiveListings(connection, seller.userId());
     if (activeListings >= listingLimit) {
       throw new ServiceException(
@@ -358,12 +647,24 @@ class MarketService {
           "当前上架数量已达上限 (" + listingLimit + ")");
     }
 
+    int initialQuantity = supplyConfig.mode() == SupplyMode.SUPPLY
+        ? Math.max(0, supplyConfig.initialLoadedAmount())
+        : listingItem.getAmount();
+    int quantityTotal = supplyConfig.mode() == SupplyMode.SUPPLY
+        ? supplyConfig.transitMaxStock()
+        : listingItem.getAmount();
+    String initialStatus = supplyConfig.mode() == SupplyMode.SUPPLY && initialQuantity <= 0
+        ? "PAUSED"
+        : "ACTIVE";
+
     String sql = """
         INSERT INTO market_listings (
           seller_user_id, seller_uuid, currency, price, quantity, quantity_total, item_material, raw_item_blob,
-          item_meta_json, remark, item_hash, status
+          item_meta_json, remark, item_hash, source_mode,
+          supply_world, supply_x, supply_y, supply_z, supply_batch_size, supply_max_stock,
+          supply_loaded_total, supply_sold_total, supply_last_loaded_amount, supply_last_loaded_at, status
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement =
              connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -371,13 +672,41 @@ class MarketService {
       statement.setString(2, seller.boundUuid().toString());
       statement.setString(3, currency.name());
       statement.setLong(4, price);
-      statement.setInt(5, listingItem.getAmount());
-      statement.setInt(6, listingItem.getAmount());
+      statement.setInt(5, initialQuantity);
+      statement.setInt(6, quantityTotal);
       statement.setString(7, listingItem.getType().name());
       statement.setBytes(8, snapshot.rawItemBlob());
       statement.setString(9, snapshot.itemMetaJson());
       statement.setString(10, null);
       statement.setString(11, snapshot.itemHash());
+      statement.setString(12, supplyConfig.mode().name());
+      if (supplyConfig.source() == null) {
+        statement.setString(13, null);
+        statement.setObject(14, null);
+        statement.setObject(15, null);
+        statement.setObject(16, null);
+      } else {
+        statement.setString(13, supplyConfig.source().worldName());
+        statement.setInt(14, supplyConfig.source().x());
+        statement.setInt(15, supplyConfig.source().y());
+        statement.setInt(16, supplyConfig.source().z());
+      }
+      if (supplyConfig.mode() == SupplyMode.SUPPLY) {
+        statement.setInt(17, supplyConfig.transferBatchSize());
+        statement.setInt(18, supplyConfig.transitMaxStock());
+        statement.setLong(19, supplyConfig.initialLoadedAmount());
+        statement.setLong(20, 0L);
+        statement.setInt(21, supplyConfig.initialLoadedAmount());
+        statement.setTimestamp(22, Timestamp.valueOf(LocalDateTime.now()));
+      } else {
+        statement.setObject(17, null);
+        statement.setObject(18, null);
+        statement.setLong(19, 0L);
+        statement.setLong(20, 0L);
+        statement.setObject(21, null);
+        statement.setTimestamp(22, null);
+      }
+      statement.setString(23, initialStatus);
       statement.executeUpdate();
       try (ResultSet keyResult = statement.getGeneratedKeys()) {
         if (!keyResult.next()) {
@@ -423,8 +752,15 @@ class MarketService {
     }
 
     MarketListing listing = readListingForUpdate(connection, listingId);
+    if (listing.isSupply() && listing.quantity() <= 0) {
+      try {
+        listing = replenishSupplyIfEmpty(connection, listing, false);
+      } catch (ServiceException exception) {
+        listing = readListingForUpdate(connection, listingId);
+      }
+    }
     if (!listing.status().equals("ACTIVE")) {
-      throw new ServiceException("listing_unavailable", "Listing is no longer active");
+      throw new ServiceException("listing_unavailable", "Supply mode is not enabled for this listing");
     }
     if (listing.sellerUserId() == buyerUserId) {
       throw new ServiceException("invalid_trade", "You cannot buy your own listing");
@@ -474,7 +810,14 @@ class MarketService {
         idempotencyKey,
         tradeStatus,
         refundDeadline);
-    updateListingAfterPurchase(connection, listing, buyer, buyQuantity);
+    listing = updateListingAfterPurchase(connection, listing, buyer, buyQuantity);
+    if (listing.isSupply() && listing.quantity() <= 0) {
+      try {
+        listing = replenishSupplyIfEmpty(connection, listing, false);
+      } catch (ServiceException exception) {
+        listing = readListingForUpdate(connection, listing.id());
+      }
+    }
     LocalDateTime deliveryAt = refundDeadline == null ? now : refundDeadline;
     enqueueMarketItemDelivery(
         connection,
@@ -508,7 +851,7 @@ class MarketService {
       throws SQLException {
     MarketListing listing = readListingForUpdate(connection, listingId);
     if (!"ACTIVE".equalsIgnoreCase(listing.status()) && !"PAUSED".equalsIgnoreCase(listing.status())) {
-      throw new ServiceException("listing_unavailable", "Listing is no longer active");
+      throw new ServiceException("listing_unavailable", "Supply mode is not enabled for this listing");
     }
     if (listing.sellerUserId() != sellerUserId) {
       throw new ServiceException("forbidden", "Only the owner can unlist this listing");
@@ -543,7 +886,7 @@ class MarketService {
       throws SQLException {
     MarketListing listing = readListingForUpdate(connection, listingId);
     if (!"ACTIVE".equalsIgnoreCase(listing.status())) {
-      throw new ServiceException("listing_unavailable", "Only active listings can be paused");
+      throw new ServiceException("listing_unavailable", "Supply mode is not enabled for this listing");
     }
     if (listing.sellerUserId() != sellerUserId) {
       throw new ServiceException("forbidden", "Only the owner can pause this listing");
@@ -564,10 +907,13 @@ class MarketService {
       throws SQLException {
     MarketListing listing = readListingForUpdate(connection, listingId);
     if (!"PAUSED".equalsIgnoreCase(listing.status())) {
-      throw new ServiceException("listing_unavailable", "Listing is not paused");
+      throw new ServiceException("listing_unavailable", "Supply mode is not enabled for this listing");
     }
     if (listing.sellerUserId() != sellerUserId) {
       throw new ServiceException("forbidden", "Only the owner can resume this listing");
+    }
+    if (listing.quantity() <= 0 && listing.isSupply()) {
+      listing = replenishSupplyIfEmpty(connection, listing, true);
     }
     if (listing.quantity() <= 0) {
       throw new ServiceException("listing_empty", "Listing has no remaining stock to resume");
@@ -591,7 +937,7 @@ class MarketService {
       long newPrice) throws SQLException {
     MarketListing listing = readListingForUpdate(connection, listingId);
     if (!"ACTIVE".equalsIgnoreCase(listing.status()) && !"PAUSED".equalsIgnoreCase(listing.status())) {
-      throw new ServiceException("listing_unavailable", "Listing is no longer editable");
+      throw new ServiceException("listing_unavailable", "Supply mode is not enabled for this listing");
     }
     if (listing.sellerUserId() != sellerUserId) {
       throw new ServiceException("forbidden", "Only the owner can update listing price");
@@ -617,7 +963,7 @@ class MarketService {
       String remark) throws SQLException {
     MarketListing listing = readListingForUpdate(connection, listingId);
     if (!"ACTIVE".equalsIgnoreCase(listing.status()) && !"PAUSED".equalsIgnoreCase(listing.status())) {
-      throw new ServiceException("listing_unavailable", "Listing is no longer editable");
+      throw new ServiceException("listing_unavailable", "Supply mode is not enabled for this listing");
     }
     if (listing.sellerUserId() != sellerUserId) {
       throw new ServiceException("forbidden", "Only the owner can update listing remark");
@@ -634,6 +980,431 @@ class MarketService {
       statement.executeUpdate();
     }
     return new ListingRemarkUpdateResult(listingId, remark);
+  }
+
+  private ListingSettingsUpdateResult updateListingSettingsInTransaction(
+      Connection connection,
+      long sellerUserId,
+      long listingId,
+      long price,
+      CurrencyType currency,
+      String remark,
+      Integer supplyBatchSize,
+      Integer supplyMaxStock) throws SQLException {
+    MarketListing listing = readListingForUpdate(connection, listingId);
+    if (!"ACTIVE".equalsIgnoreCase(listing.status()) && !"PAUSED".equalsIgnoreCase(listing.status())) {
+      throw new ServiceException("listing_unavailable", "Supply mode is not enabled for this listing");
+    }
+    if (listing.sellerUserId() != sellerUserId) {
+      throw new ServiceException("forbidden", "Only the owner can update listing settings");
+    }
+    Integer batch = listing.supplyBatchSize();
+    Integer maxStock = listing.supplyMaxStock();
+    int quantityTotal = listing.quantityTotal();
+    if (listing.isSupply()) {
+      SupplyConfig normalized = normalizeSupplyConfig(
+          supplyBatchSize == null ? effectiveSupplyBatchSize(listing) : supplyBatchSize,
+          supplyMaxStock == null ? effectiveSupplyMaxStock(listing) : supplyMaxStock);
+      batch = normalized.transferBatchSize();
+      maxStock = normalized.transitMaxStock();
+      quantityTotal = Math.max(Math.max(0, listing.quantity()), maxStock);
+    }
+
+    String sql = """
+        UPDATE market_listings
+        SET price = ?, currency = ?, remark = ?, supply_batch_size = ?, supply_max_stock = ?, quantity_total = ?
+        WHERE id = ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, price);
+      statement.setString(2, currency.name());
+      statement.setString(3, remark);
+      if (batch == null) {
+        statement.setObject(4, null);
+      } else {
+        statement.setInt(4, batch);
+      }
+      if (maxStock == null) {
+        statement.setObject(5, null);
+      } else {
+        statement.setInt(5, maxStock);
+      }
+      statement.setInt(6, quantityTotal);
+      statement.setLong(7, listingId);
+      statement.executeUpdate();
+    }
+    MarketListing refreshed = readListingForUpdate(connection, listingId);
+    return new ListingSettingsUpdateResult(
+        refreshed.id(),
+        refreshed.currency(),
+        refreshed.price(),
+        refreshed.remark(),
+        refreshed.sourceMode(),
+        refreshed.supplyBatchSize(),
+        refreshed.supplyMaxStock(),
+        refreshed.quantityTotal());
+  }
+
+  private SupplyRefreshResult refreshSupplyListingInTransaction(
+      Connection connection,
+      Long sellerUserId,
+      long listingId,
+      boolean manual) throws SQLException {
+    MarketListing listing = readListingForUpdate(connection, listingId);
+    if (!listing.isSupply()) {
+      throw new ServiceException("listing_unavailable", "Supply mode is not enabled for this listing");
+    }
+    if (sellerUserId != null && listing.sellerUserId() != sellerUserId) {
+      throw new ServiceException("forbidden", "Only the owner can refresh this listing");
+    }
+    if (!"ACTIVE".equalsIgnoreCase(listing.status()) && !"PAUSED".equalsIgnoreCase(listing.status())) {
+      throw new ServiceException("listing_unavailable", "Supply mode is not enabled for this listing");
+    }
+    return refreshSupplyListingLocked(connection, listing, manual).result();
+  }
+
+  private MarketListing replenishSupplyIfEmpty(
+      Connection connection,
+      MarketListing listing,
+      boolean manual) throws SQLException {
+    if (!listing.isSupply() || listing.quantity() > 0) {
+      return listing;
+    }
+    return refreshSupplyListingLocked(connection, listing, manual).listing();
+  }
+
+  private SupplyRefreshState refreshSupplyListingLocked(
+      Connection connection,
+      MarketListing listing,
+      boolean manual) throws SQLException {
+    int currentStock = Math.max(0, listing.quantity());
+    int maxStock = effectiveSupplyMaxStock(listing);
+    int batchSize = effectiveSupplyBatchSize(listing);
+    int space = Math.max(0, maxStock - currentStock);
+    if (space <= 0) {
+      return new SupplyRefreshState(
+          new SupplyRefreshResult(
+              listing.id(),
+              0,
+              currentStock,
+              maxStock,
+              listing.supplyLoadedTotal(),
+              listing.supplySoldTotal(),
+              listing.status()),
+          listing);
+    }
+    SupplySource source = listing.supplySource();
+    if (source == null) {
+      pauseSupplyListing(connection, listing.id());
+      notifySupplyPausedIfOnline(listing, "Supply container broken, listing #" + listing.id() + " has been paused.");
+      throw new ServiceException("supply_missing", "Supply container is unavailable");
+    }
+    int requestAmount = Math.min(batchSize, space);
+    ItemStack template = itemSnapshotCodec.deserialize(listing.rawItemBlob());
+    template.setAmount(1);
+    SupplyTransfer transfer;
+    try {
+      transfer = withdrawSupplyStock(source, template, requestAmount);
+    } catch (ServiceException exception) {
+      if ("supply_missing".equalsIgnoreCase(exception.code())) {
+        pauseSupplyListing(connection, listing.id());
+        notifySupplyPausedIfOnline(listing, "Supply container broken, listing #" + listing.id() + " has been paused.");
+        throw new ServiceException("supply_missing", "Supply container is unavailable");
+      }
+      throw exception;
+    }
+    if (transfer.loadedAmount() <= 0) {
+      String emptySql = """
+          UPDATE market_listings
+          SET supply_last_loaded_amount = 0
+          WHERE id = ?
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(emptySql)) {
+        statement.setLong(1, listing.id());
+        statement.executeUpdate();
+      }
+      MarketListing refreshed = readListingForUpdate(connection, listing.id());
+      return new SupplyRefreshState(
+          new SupplyRefreshResult(
+              listing.id(),
+              0,
+              refreshed.quantity(),
+              effectiveSupplyMaxStock(refreshed),
+              refreshed.supplyLoadedTotal(),
+              refreshed.supplySoldTotal(),
+              refreshed.status()),
+          refreshed);
+    }
+
+    try {
+      String sql = """
+          UPDATE market_listings
+          SET quantity = quantity + ?,
+              quantity_total = ?,
+              status = 'ACTIVE',
+              supply_max_stock = ?,
+              supply_last_loaded_amount = ?,
+              supply_last_loaded_at = NOW(),
+              supply_loaded_total = supply_loaded_total + ?
+          WHERE id = ?
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setInt(1, transfer.loadedAmount());
+        statement.setInt(2, maxStock);
+        statement.setInt(3, maxStock);
+        statement.setInt(4, transfer.loadedAmount());
+        statement.setInt(5, transfer.loadedAmount());
+        statement.setLong(6, listing.id());
+        statement.executeUpdate();
+      }
+      MarketListing refreshed = readListingForUpdate(connection, listing.id());
+      return new SupplyRefreshState(
+          new SupplyRefreshResult(
+              refreshed.id(),
+              transfer.loadedAmount(),
+              refreshed.quantity(),
+              effectiveSupplyMaxStock(refreshed),
+              refreshed.supplyLoadedTotal(),
+              refreshed.supplySoldTotal(),
+              refreshed.status()),
+          refreshed);
+    } catch (Exception exception) {
+      restoreSupplyStock(source, transfer.loadedItem(), transfer.loadedAmount());
+      throw exception;
+    }
+  }
+
+  private int effectiveSupplyBatchSize(MarketListing listing) {
+    PluginSettings.MarketSupplySettings settings = settingsSupplier.get().marketSupplySettings();
+    int configured = listing.supplyBatchSize() == null ? settings.defaultTransferBatchSize() : listing.supplyBatchSize();
+    int normalized = Math.max(1, configured);
+    return Math.min(normalized, Math.max(1, settings.maxTransferBatchSize()));
+  }
+
+  private int effectiveSupplyMaxStock(MarketListing listing) {
+    PluginSettings.MarketSupplySettings settings = settingsSupplier.get().marketSupplySettings();
+    int configured = listing.supplyMaxStock() == null ? settings.defaultTransitStock() : listing.supplyMaxStock();
+    int normalized = Math.max(1, configured);
+    return Math.min(normalized, Math.max(1, settings.maxTransitStock()));
+  }
+
+  private SupplyConfig normalizeSupplyConfig(int transferBatchSize, int transitMaxStock) {
+    PluginSettings.MarketSupplySettings settings = settingsSupplier.get().marketSupplySettings();
+    int batch = transferBatchSize > 0 ? transferBatchSize : settings.defaultTransferBatchSize();
+    int maxStock = transitMaxStock > 0 ? transitMaxStock : settings.defaultTransitStock();
+    batch = Math.max(1, Math.min(batch, Math.max(1, settings.maxTransferBatchSize())));
+    maxStock = Math.max(1, Math.min(maxStock, Math.max(1, settings.maxTransitStock())));
+    if (batch > maxStock) {
+      batch = maxStock;
+    }
+    return new SupplyConfig(SupplyMode.SUPPLY, batch, maxStock, null, 0);
+  }
+
+  private SupplySource resolveSupplySource(Block targetBlock) {
+    if (targetBlock == null) {
+      throw new ServiceException("supply_missing", "Supply container is unavailable");
+    }
+    BlockState state = targetBlock.getState();
+    if (!(state instanceof Container)) {
+      throw new ServiceException("supply_missing", "Supply container is unavailable");
+    }
+    return new SupplySource(
+        targetBlock.getWorld().getName(),
+        targetBlock.getX(),
+        targetBlock.getY(),
+        targetBlock.getZ());
+  }
+
+  private SupplyTransfer withdrawSupplyStock(
+      SupplySource source,
+      ItemStack template,
+      int requestedAmount) {
+    return runSync(() -> withdrawSupplyStockSync(source, template, requestedAmount));
+  }
+
+  private SupplyTransfer withdrawSupplyStockSync(
+      SupplySource source,
+      ItemStack template,
+      int requestedAmount) {
+    if (requestedAmount <= 0) {
+      return new SupplyTransfer(0, template, itemSnapshotCodec.serialize(template));
+    }
+    Container container = resolveContainer(source);
+    int remaining = requestedAmount;
+    ItemStack loadedItem = template.clone();
+    loadedItem.setAmount(1);
+    for (int slot = 0; slot < container.getInventory().getSize(); slot++) {
+      ItemStack stack = container.getInventory().getItem(slot);
+      if (!isSameSupplyItem(stack, template)) {
+        continue;
+      }
+      int taken = Math.min(remaining, stack.getAmount());
+      ItemStack updated = stack.clone();
+      updated.setAmount(stack.getAmount() - taken);
+      container.getInventory().setItem(slot, updated.getAmount() <= 0 ? null : updated);
+      remaining -= taken;
+      if (remaining <= 0) {
+        break;
+      }
+    }
+    int loadedAmount = requestedAmount - remaining;
+    if (loadedAmount <= 0) {
+      return new SupplyTransfer(0, loadedItem, itemSnapshotCodec.serialize(loadedItem));
+    }
+    return new SupplyTransfer(loadedAmount, loadedItem, itemSnapshotCodec.serialize(loadedItem));
+  }
+
+  private void restoreSupplyStock(SupplySource source, ItemStack template, int amount) {
+    if (amount <= 0) {
+      return;
+    }
+    runSync(() -> {
+      Container container = resolveContainer(source);
+      int remaining = amount;
+      while (remaining > 0) {
+        ItemStack chunk = template.clone();
+        chunk.setAmount(Math.min(chunk.getMaxStackSize(), remaining));
+        remaining -= chunk.getAmount();
+        container.getInventory().addItem(chunk);
+      }
+      return null;
+    });
+  }
+
+  private Container resolveContainer(SupplySource source) {
+    World world = Bukkit.getWorld(source.worldName());
+    if (world == null) {
+      throw new ServiceException("supply_missing", "Supply container is unavailable");
+    }
+    BlockState state = world.getBlockAt(source.x(), source.y(), source.z()).getState();
+    if (!(state instanceof Container container)) {
+      throw new ServiceException("supply_missing", "Supply container is unavailable");
+    }
+    return container;
+  }
+
+  private void pauseSupplyListing(Connection connection, long listingId) throws SQLException {
+    String sql = """
+        UPDATE market_listings
+        SET status = 'PAUSED'
+        WHERE id = ?
+          AND status IN ('ACTIVE', 'PAUSED')
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, listingId);
+      statement.executeUpdate();
+    }
+  }
+
+  private void notifySupplyPausedIfOnline(MarketListing listing, String message) {
+    Player player = Bukkit.getPlayer(listing.sellerUuid());
+    if (player != null && player.isOnline()) {
+      player.sendMessage(message);
+    }
+  }
+
+  boolean isProtectedSupplyBlock(Block block) {
+    if (block == null) {
+      return false;
+    }
+    return findProtectedSupplyInfo(block) != null;
+  }
+
+  ProtectedSupplyInfo findProtectedSupplyInfo(Block block) {
+    if (block == null) {
+      return null;
+    }
+    return databaseManager.withConnection(connection -> {
+      String sql = """
+          SELECT ml.id, ml.item_material, ml.status, ml.supply_world, ml.supply_x, ml.supply_y, ml.supply_z,
+                 u.username AS seller_name
+          FROM market_listings ml
+          JOIN web_users u ON u.id = ml.seller_user_id
+          WHERE ml.source_mode = 'SUPPLY'
+            AND ml.status IN ('ACTIVE', 'PAUSED')
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql);
+           ResultSet resultSet = statement.executeQuery()) {
+        while (resultSet.next()) {
+          String world = resultSet.getString("supply_world");
+          Integer x = (Integer) resultSet.getObject("supply_x");
+          Integer y = (Integer) resultSet.getObject("supply_y");
+          Integer z = (Integer) resultSet.getObject("supply_z");
+          if (world == null || x == null || y == null || z == null) {
+            continue;
+          }
+          if (matchesProtectedBlock(block, new SupplySource(world, x, y, z))) {
+            return new ProtectedSupplyInfo(
+                resultSet.getLong("id"),
+                resultSet.getString("seller_name"),
+                resultSet.getString("item_material"),
+                resultSet.getString("status"));
+          }
+        }
+        return null;
+      }
+    });
+  }
+
+  private boolean matchesProtectedBlock(Block block, SupplySource source) {
+    if (!block.getWorld().getName().equals(source.worldName())) {
+      return false;
+    }
+    if (block.getX() == source.x() && block.getY() == source.y() && block.getZ() == source.z()) {
+      return true;
+    }
+    Block sourceBlock = block.getWorld().getBlockAt(source.x(), source.y(), source.z());
+    Material sourceType = sourceBlock.getType();
+    if (sourceType != Material.CHEST && sourceType != Material.TRAPPED_CHEST) {
+      return false;
+    }
+    if (block.getType() != sourceType || block.getY() != source.y()) {
+      return false;
+    }
+    int dx = Math.abs(block.getX() - source.x());
+    int dz = Math.abs(block.getZ() - source.z());
+    return (dx == 1 && dz == 0) || (dx == 0 && dz == 1);
+  }
+
+  private boolean isSameSupplyItem(ItemStack stack, ItemStack template) {
+    if (stack == null || stack.getType() == Material.AIR) {
+      return false;
+    }
+    if (stack.getType() != template.getType()) {
+      return false;
+    }
+    ItemStack stackUnit = stack.clone();
+    stackUnit.setAmount(1);
+    ItemStack templateUnit = template.clone();
+    templateUnit.setAmount(1);
+    return itemSnapshotCodec.serialize(stackUnit).itemHash()
+        .equals(itemSnapshotCodec.serialize(templateUnit).itemHash());
+  }
+
+  private <T> T runSync(java.util.concurrent.Callable<T> task) {
+    if (Bukkit.isPrimaryThread()) {
+      try {
+        return task.call();
+      } catch (ServiceException exception) {
+        throw exception;
+      } catch (Exception exception) {
+        throw new IllegalStateException("Supply operation failed", exception);
+      }
+    }
+    try {
+      return Bukkit.getScheduler().callSyncMethod(plugin, task).get(10, TimeUnit.SECONDS);
+    } catch (InterruptedException exception) {
+      Thread.currentThread().interrupt();
+      throw new ServiceException("sync_interrupted", "Supply operation interrupted; please try again later");
+    } catch (TimeoutException exception) {
+      throw new ServiceException("sync_timeout", "供货操作超时，请稍后重试");
+    } catch (ExecutionException exception) {
+      Throwable cause = exception.getCause();
+      if (cause instanceof ServiceException serviceException) {
+        throw serviceException;
+      }
+      throw new IllegalStateException("Supply operation failed", cause);
+    }
   }
 
   private ExistingTrade readExistingTrade(Connection connection, long buyerUserId, String idempotencyKey)
@@ -730,7 +1501,7 @@ class MarketService {
     }
   }
 
-  private void updateListingAfterPurchase(
+  private MarketListing updateListingAfterPurchase(
       Connection connection,
       MarketListing listing,
       BoundUser buyer,
@@ -740,20 +1511,36 @@ class MarketService {
       throw new ServiceException("insufficient_quantity", "Listing does not have enough remaining quantity");
     }
     boolean soldOut = remain == 0;
-    String sql = soldOut
-        ? """
-            UPDATE market_listings
-            SET quantity = 0, status = 'SOLD', buyer_user_id = ?, buyer_uuid = ?, sold_at = NOW()
-            WHERE id = ?
-            """
-        : """
-            UPDATE market_listings
-            SET quantity = ?, status = 'ACTIVE',
-                buyer_user_id = NULL, buyer_uuid = NULL, sold_at = NULL
-            WHERE id = ?
-            """;
+    String sql;
+    if (listing.isSupply()) {
+      sql = """
+          UPDATE market_listings
+          SET quantity = ?, status = 'ACTIVE',
+              buyer_user_id = NULL, buyer_uuid = NULL, sold_at = CASE WHEN ? THEN NOW() ELSE sold_at END,
+              supply_sold_total = supply_sold_total + ?
+          WHERE id = ?
+          """;
+    } else if (soldOut) {
+      sql = """
+          UPDATE market_listings
+          SET quantity = 0, status = 'SOLD', buyer_user_id = ?, buyer_uuid = ?, sold_at = NOW()
+          WHERE id = ?
+          """;
+    } else {
+      sql = """
+          UPDATE market_listings
+          SET quantity = ?, status = 'ACTIVE',
+              buyer_user_id = NULL, buyer_uuid = NULL, sold_at = NULL
+          WHERE id = ?
+          """;
+    }
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
-      if (soldOut) {
+      if (listing.isSupply()) {
+        statement.setInt(1, remain);
+        statement.setBoolean(2, soldOut);
+        statement.setInt(3, buyQuantity);
+        statement.setLong(4, listing.id());
+      } else if (soldOut) {
         statement.setLong(1, buyer.userId());
         statement.setString(2, buyer.boundUuid().toString());
         statement.setLong(3, listing.id());
@@ -763,13 +1550,14 @@ class MarketService {
       }
       statement.executeUpdate();
     }
+    return readListingForUpdate(connection, listing.id());
   }
 
   private UnlistResult adminUnlistInTransaction(Connection connection, long listingId)
       throws SQLException {
     MarketListing listing = readListingForUpdate(connection, listingId);
     if (!"ACTIVE".equalsIgnoreCase(listing.status()) && !"PAUSED".equalsIgnoreCase(listing.status())) {
-      throw new ServiceException("listing_unavailable", "Listing is no longer active");
+      throw new ServiceException("listing_unavailable", "Supply mode is not enabled for this listing");
     }
 
     String updateSql = """
@@ -847,7 +1635,9 @@ class MarketService {
     String sql = """
         SELECT id, seller_user_id, seller_uuid, currency, price, quantity, quantity_total,
                item_material, raw_item_blob,
-               item_meta_json, remark, item_hash, status
+               item_meta_json, remark, item_hash, status, source_mode,
+               supply_world, supply_x, supply_y, supply_z, supply_batch_size, supply_max_stock,
+               supply_loaded_total, supply_sold_total, supply_last_loaded_amount, supply_last_loaded_at
         FROM market_listings
         WHERE id = ?
         FOR UPDATE
@@ -871,7 +1661,20 @@ class MarketService {
             resultSet.getString("item_meta_json"),
             resultSet.getString("remark"),
             resultSet.getString("item_hash"),
-            resultSet.getString("status"));
+            resultSet.getString("status"),
+            SupplyMode.fromRaw(resultSet.getString("source_mode")),
+            resultSet.getString("supply_world"),
+            (Integer) resultSet.getObject("supply_x"),
+            (Integer) resultSet.getObject("supply_y"),
+            (Integer) resultSet.getObject("supply_z"),
+            (Integer) resultSet.getObject("supply_batch_size"),
+            (Integer) resultSet.getObject("supply_max_stock"),
+            resultSet.getLong("supply_loaded_total"),
+            resultSet.getLong("supply_sold_total"),
+            (Integer) resultSet.getObject("supply_last_loaded_amount"),
+            resultSet.getTimestamp("supply_last_loaded_at") == null
+                ? null
+                : resultSet.getTimestamp("supply_last_loaded_at").toLocalDateTime());
       }
     }
   }
@@ -892,7 +1695,16 @@ class MarketService {
           resultSet.getString("item_meta_json"),
           resultSet.getString("remark"),
           resultSet.getString("status"),
-          resultSet.getTimestamp("created_at").toLocalDateTime()));
+          resultSet.getTimestamp("created_at").toLocalDateTime(),
+          SupplyMode.fromRaw(resultSet.getString("source_mode")),
+          (Integer) resultSet.getObject("supply_batch_size"),
+          (Integer) resultSet.getObject("supply_max_stock"),
+          resultSet.getLong("supply_loaded_total"),
+          resultSet.getLong("supply_sold_total"),
+          (Integer) resultSet.getObject("supply_last_loaded_amount"),
+          resultSet.getTimestamp("supply_last_loaded_at") == null
+              ? null
+              : resultSet.getTimestamp("supply_last_loaded_at").toLocalDateTime()));
     }
     return listings;
   }
@@ -924,7 +1736,16 @@ class MarketService {
               : resultSet.getTimestamp("sold_at").toLocalDateTime(),
           resultSet.getTimestamp("unlisted_at") == null
               ? null
-              : resultSet.getTimestamp("unlisted_at").toLocalDateTime()));
+              : resultSet.getTimestamp("unlisted_at").toLocalDateTime(),
+          SupplyMode.fromRaw(resultSet.getString("source_mode")),
+          (Integer) resultSet.getObject("supply_batch_size"),
+          (Integer) resultSet.getObject("supply_max_stock"),
+          resultSet.getLong("supply_loaded_total"),
+          resultSet.getLong("supply_sold_total"),
+          (Integer) resultSet.getObject("supply_last_loaded_amount"),
+          resultSet.getTimestamp("supply_last_loaded_at") == null
+              ? null
+              : resultSet.getTimestamp("supply_last_loaded_at").toLocalDateTime()));
     }
     return listings;
   }
@@ -1116,7 +1937,45 @@ class MarketService {
       String itemMetaJson,
       String remark,
       String itemHash,
-      String status) {
+      String status,
+      SupplyMode sourceMode,
+      String supplyWorld,
+      Integer supplyX,
+      Integer supplyY,
+      Integer supplyZ,
+      Integer supplyBatchSize,
+      Integer supplyMaxStock,
+      long supplyLoadedTotal,
+      long supplySoldTotal,
+      Integer supplyLastLoadedAmount,
+      LocalDateTime supplyLastLoadedAt) {
+
+    boolean isSupply() {
+      return sourceMode == SupplyMode.SUPPLY;
+    }
+
+    SupplySource supplySource() {
+      if (!isSupply() || supplyWorld == null || supplyX == null || supplyY == null || supplyZ == null) {
+        return null;
+      }
+      return new SupplySource(supplyWorld, supplyX, supplyY, supplyZ);
+    }
+  }
+
+  enum SupplyMode {
+    MANUAL,
+    SUPPLY;
+
+    static SupplyMode fromRaw(String raw) {
+      if (raw == null || raw.isBlank()) {
+        return MANUAL;
+      }
+      try {
+        return SupplyMode.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+      } catch (IllegalArgumentException exception) {
+        return MANUAL;
+      }
+    }
   }
 
   enum TradeState {
@@ -1168,7 +2027,14 @@ class MarketService {
       String itemMetaJson,
       String remark,
       String status,
-      LocalDateTime createdAt) {
+      LocalDateTime createdAt,
+      SupplyMode sourceMode,
+      Integer supplyBatchSize,
+      Integer supplyMaxStock,
+      long supplyLoadedTotal,
+      long supplySoldTotal,
+      Integer supplyLastLoadedAmount,
+      LocalDateTime supplyLastLoadedAt) {
   }
 
   record AdminListingView(
@@ -1189,7 +2055,14 @@ class MarketService {
       String status,
       LocalDateTime createdAt,
       LocalDateTime soldAt,
-      LocalDateTime unlistedAt) {
+      LocalDateTime unlistedAt,
+      SupplyMode sourceMode,
+      Integer supplyBatchSize,
+      Integer supplyMaxStock,
+      long supplyLoadedTotal,
+      long supplySoldTotal,
+      Integer supplyLastLoadedAmount,
+      LocalDateTime supplyLastLoadedAt) {
   }
 
   record TradeResult(
@@ -1220,4 +2093,75 @@ class MarketService {
 
   record ListingStatusResult(long listingId, String status) {
   }
+
+  record SellerTradeLog(
+      long tradeId,
+      long listingId,
+      String buyerName,
+      String itemMaterial,
+      CurrencyType currency,
+      long unitPrice,
+      int quantity,
+      long totalPrice,
+      String status,
+      LocalDateTime createdAt) {
+  }
+
+  record ListingSettingsUpdateResult(
+      long listingId,
+      CurrencyType currency,
+      long price,
+      String remark,
+      SupplyMode sourceMode,
+      Integer supplyBatchSize,
+      Integer supplyMaxStock,
+      int quantityTotal) {
+  }
+
+  record SupplyRefreshResult(
+      long listingId,
+      int loadedAmount,
+      int currentStock,
+      int maxStock,
+      long loadedTotal,
+      long soldTotal,
+      String status) {
+  }
+
+  record ProtectedSupplyInfo(
+      long listingId,
+      String ownerName,
+      String itemMaterial,
+      String status) {
+  }
+
+  record SupplySourceDescriptor(String worldName, int x, int y, int z) {
+  }
+
+  private record SupplyRefreshState(SupplyRefreshResult result, MarketListing listing) {
+  }
+
+  private record SupplySource(String worldName, int x, int y, int z) {
+  }
+
+  private record SupplyTransfer(
+      int loadedAmount,
+      ItemStack loadedItem,
+      ItemSnapshotCodec.Snapshot snapshot) {
+  }
+
+  private record SupplyConfig(
+      SupplyMode mode,
+      int transferBatchSize,
+      int transitMaxStock,
+      SupplySource source,
+      int initialLoadedAmount) {
+
+    static SupplyConfig manual() {
+      return new SupplyConfig(SupplyMode.MANUAL, 0, 0, null, 0);
+    }
+  }
 }
+
+
+

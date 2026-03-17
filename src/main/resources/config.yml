@@ -33,6 +33,17 @@ webshop:
   market:
     # 玩家市场默认最大上架数
     max-active-listings: 10
+    supply:
+      # 当供货上架库存低于该数量时，网页购买前会自动尝试补货一次
+      auto-refresh-threshold: 8
+      # 供货箱模式默认单次提取量
+      default-transfer-batch-size: 64
+      # 玩家可设置的单次提取量上限
+      max-transfer-batch-size: 256
+      # 供货箱模式默认中转库存上限
+      default-transit-stock: 256
+      # 玩家可设置的中转库存上限
+      max-transit-stock: 1024
 
   maintenance:
     # 清理任务执行间隔（分钟）

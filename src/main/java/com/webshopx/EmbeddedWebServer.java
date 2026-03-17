@@ -103,6 +103,8 @@ class EmbeddedWebServer {
     server.createContext("/api/market/resume", this::handleMarketResume);
     server.createContext("/api/market/price", this::handleMarketPrice);
     server.createContext("/api/market/remark", this::handleMarketRemark);
+    server.createContext("/api/market/settings", this::handleMarketSettings);
+    server.createContext("/api/market/supply/refresh", this::handleMarketSupplyRefresh);
     server.createContext("/api/admin/auth/login", this::handleAdminLogin);
     server.createContext("/api/admin/auth/me", this::handleAdminMe);
     server.createContext("/api/admin/auth/logout", this::handleAdminLogout);
@@ -550,6 +552,9 @@ class EmbeddedWebServer {
       response.addProperty("refundUndeliveredEnabled", refundUndeliveredEnabled);
       response.addProperty("marketFeePercent", marketSettings.tradeFeePercent());
       response.addProperty("marketTaxPercent", marketSettings.tradeTaxPercent());
+      response.addProperty(
+          "marketSupplyAutoRefreshThreshold",
+          Math.max(0, settingsSupplier.get().marketSupplySettings().autoRefreshThreshold()));
       response.addProperty("sharedClaimAllowed", settingsSupplier.get().allowSharedClaimCommand());
       sendJson(exchange, 200, response);
     });
@@ -662,6 +667,29 @@ class EmbeddedWebServer {
         }
         row.addProperty("status", listing.status());
         row.addProperty("createdAt", listing.createdAt().toString());
+        row.addProperty("sourceMode", listing.sourceMode().name());
+        if (listing.supplyBatchSize() == null) {
+          row.add("supplyBatchSize", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("supplyBatchSize", listing.supplyBatchSize());
+        }
+        if (listing.supplyMaxStock() == null) {
+          row.add("supplyMaxStock", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("supplyMaxStock", listing.supplyMaxStock());
+        }
+        row.addProperty("supplyLoadedTotal", listing.supplyLoadedTotal());
+        row.addProperty("supplySoldTotal", listing.supplySoldTotal());
+        if (listing.supplyLastLoadedAmount() == null) {
+          row.add("supplyLastLoadedAmount", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("supplyLastLoadedAmount", listing.supplyLastLoadedAmount());
+        }
+        if (listing.supplyLastLoadedAt() == null) {
+          row.add("supplyLastLoadedAt", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("supplyLastLoadedAt", listing.supplyLastLoadedAt().toString());
+        }
         rows.add(row);
       }
       JsonObject response = new JsonObject();
@@ -812,6 +840,83 @@ class EmbeddedWebServer {
       } else {
         response.addProperty("remark", result.remark());
       }
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleMarketSettings(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      long listingId = getLong(payload, "listingId", -1L);
+      long price = getLong(payload, "price", 0L);
+      CurrencyType currency = CurrencyType.fromConfig(getString(payload, "currency"));
+      String remark = getOptionalString(payload, "remark").orElse(null);
+      Integer supplyBatchSize = payload.has("supplyBatchSize") && !payload.get("supplyBatchSize").isJsonNull()
+          ? (int) getLong(payload, "supplyBatchSize", 0L)
+          : null;
+      Integer supplyMaxStock = payload.has("supplyMaxStock") && !payload.get("supplyMaxStock").isJsonNull()
+          ? (int) getLong(payload, "supplyMaxStock", 0L)
+          : null;
+      MarketService.ListingSettingsUpdateResult result = marketService.updateListingSettings(
+          user.id(),
+          listingId,
+          price,
+          currency,
+          remark,
+          supplyBatchSize,
+          supplyMaxStock);
+      JsonObject response = new JsonObject();
+      response.addProperty("listingId", result.listingId());
+      response.addProperty("currency", result.currency().name());
+      response.addProperty("price", result.price());
+      response.addProperty("sourceMode", result.sourceMode().name());
+      response.addProperty("quantityTotal", result.quantityTotal());
+      if (result.remark() == null) {
+        response.add("remark", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("remark", result.remark());
+      }
+      if (result.supplyBatchSize() == null) {
+        response.add("supplyBatchSize", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("supplyBatchSize", result.supplyBatchSize());
+      }
+      if (result.supplyMaxStock() == null) {
+        response.add("supplyMaxStock", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("supplyMaxStock", result.supplyMaxStock());
+      }
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleMarketSupplyRefresh(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      requireAuth(exchange, payload);
+      long listingId = getLong(payload, "listingId", -1L);
+      MarketService.SupplyRefreshResult result = marketService.refreshSupplyListing(listingId);
+      JsonObject response = new JsonObject();
+      response.addProperty("listingId", result.listingId());
+      response.addProperty("loadedAmount", result.loadedAmount());
+      response.addProperty("currentStock", result.currentStock());
+      response.addProperty("maxStock", result.maxStock());
+      response.addProperty("loadedTotal", result.loadedTotal());
+      response.addProperty("soldTotal", result.soldTotal());
+      response.addProperty("status", result.status());
       sendJson(exchange, 200, response);
     });
   }

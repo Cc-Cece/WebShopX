@@ -1,8 +1,10 @@
 package com.webshopx;
 
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.logging.Level;
 import java.util.stream.Collectors;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -11,10 +13,13 @@ import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
 class ShopCommand implements CommandExecutor, TabCompleter {
+  private static final DateTimeFormatter LOG_TIME_FORMATTER = DateTimeFormatter.ofPattern("MM-dd HH:mm");
+
   private final WebShopPlugin plugin;
   private final AuthService authService;
   private final RedeemCodeService redeemCodeService;
   private final MarketService marketService;
+  private final MarketGuiService marketGuiService;
   private final DeliveryService deliveryService;
 
   ShopCommand(
@@ -22,11 +27,13 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       AuthService authService,
       RedeemCodeService redeemCodeService,
       MarketService marketService,
+      MarketGuiService marketGuiService,
       DeliveryService deliveryService) {
     this.plugin = plugin;
     this.authService = authService;
     this.redeemCodeService = redeemCodeService;
     this.marketService = marketService;
+    this.marketGuiService = marketGuiService;
     this.deliveryService = deliveryService;
   }
 
@@ -77,7 +84,10 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     String top = args[0].toLowerCase(Locale.ROOT);
     if (top.equals("market")) {
       if (args.length == 2) {
-        return filterByPrefix(List.of("sell"), args[1]);
+        return filterByPrefix(List.of("gui", "sell", "logs"), args[1]);
+      }
+      if (args.length == 3 && args[1].equalsIgnoreCase("logs")) {
+        return filterByPrefix(List.of("5", "10", "20"), args[2]);
       }
       if (args.length == 4) {
         return filterByPrefix(List.of("1", "16", "64"), args[3]);
@@ -120,13 +130,9 @@ class ShopCommand implements CommandExecutor, TabCompleter {
           player.getUniqueId(),
           player.getName(),
           args[1]);
-      if (result.created()) {
-        player.sendMessage("§a网页账号已创建并绑定成功。");
-      } else {
-        player.sendMessage("§a网页账号密码已更新并重新绑定成功。");
-      }
+      player.sendMessage(result.created() ? "§a网页账号已创建并绑定成功。" : "§a网页登录密码已更新并完成绑定。");
       player.sendMessage("§7登录用户名：§f" + result.username());
-      player.sendMessage("§7现在可以前往网页使用该用户名和密码登录。");
+      player.sendMessage("§7现在可以前往网页使用该用户名与密码登录。");
     } catch (ServiceException exception) {
       player.sendMessage("§c设置密码失败：" + humanizePasswordError(exception));
     }
@@ -137,7 +143,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     return switch (exception.code()) {
       case "invalid_username" -> "当前游戏用户名不合法，请检查名称格式。";
       case "invalid_password" -> "密码长度需为 8-64 位。";
-      case "username_exists" -> "当前游戏用户名已被其他网页账号占用，请联系管理员处理。";
+      case "username_exists" -> "当前用户名已被其他网页账号占用，请联系管理员处理。";
       case "user_missing" -> "账号数据不存在，请联系管理员处理。";
       default -> exception.getMessage();
     };
@@ -145,7 +151,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
 
   private boolean handleClaim(CommandSender sender, String[] args) {
     if (!(sender instanceof Player player)) {
-      sender.sendMessage("§c仅玩家可领取待发货物品。");
+      sender.sendMessage("§c仅玩家可领取待发货内容。");
       return true;
     }
 
@@ -153,7 +159,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     try {
       DeliveryService.ClaimSummary summary = deliveryService.claimPending(player, token);
       if (summary.success() == 0 && summary.failed() == 0) {
-        player.sendMessage("§e当前没有可领取内容。");
+        player.sendMessage("§e当前没有可领取的内容。");
       } else if (summary.failed() > 0) {
         player.sendMessage(
             "§6领取完成：成功 §a" + summary.success() + " §6条，失败 §c" + summary.failed()
@@ -172,8 +178,16 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       sender.sendMessage("§c仅玩家可使用市场命令。");
       return true;
     }
+    if (args.length == 1 || (args.length >= 2 && args[1].equalsIgnoreCase("gui"))) {
+      marketGuiService.openMainMenu(player);
+      return true;
+    }
+    if (args.length >= 2 && args[1].equalsIgnoreCase("logs")) {
+      return handleMarketLogs(player, args);
+    }
     if (args.length < 2 || !args[1].equalsIgnoreCase("sell")) {
-      player.sendMessage("§e用法：/webshopx market sell <price> [amount] [currency]");
+      player.sendMessage("§e用法：/webshopx market [gui]");
+      player.sendMessage("§e兼容旧命令：/webshopx market sell <price> [amount] [currency]");
       return true;
     }
     if (args.length < 3) {
@@ -186,7 +200,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       int amount = args.length >= 4 ? Integer.parseInt(args[3]) : 1;
       CurrencyType currency = args.length >= 5
           ? CurrencyType.fromConfig(args[4])
-          : CurrencyType.SHOP_COIN;
+          : CurrencyType.GAME_COIN;
       MarketService.ListingCreateResult result = marketService.createListingFromPlayer(
           player,
           price,
@@ -207,6 +221,38 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     }
   }
 
+  private boolean handleMarketLogs(Player player, String[] args) {
+    int limit = 5;
+    if (args.length >= 3) {
+      try {
+        limit = Integer.parseInt(args[2]);
+      } catch (NumberFormatException exception) {
+        player.sendMessage("§c数量必须为数字。");
+        return true;
+      }
+    }
+    try {
+      List<MarketService.SellerTradeLog> logs = marketService.listRecentSellerTradeLogs(player.getUniqueId(), limit);
+      if (logs.isEmpty()) {
+        player.sendMessage("§e最近没有店铺成交记录。");
+        return true;
+      }
+      player.sendMessage("§6最近店铺成交记录：");
+      for (MarketService.SellerTradeLog log : logs) {
+        player.sendMessage(
+            "§7[#" + log.tradeId() + "] §f" + log.itemMaterial()
+                + " x" + log.quantity()
+                + " §7| 买家 §f" + log.buyerName()
+                + " §7| 成交额 §f" + log.totalPrice() + " " + log.currency().name()
+                + " §7| 状态 §f" + log.status()
+                + " §7| 时间 §f" + LOG_TIME_FORMATTER.format(log.createdAt()));
+      }
+    } catch (ServiceException exception) {
+      player.sendMessage("§c读取店铺成交记录失败：" + exception.getMessage());
+    }
+    return true;
+  }
+
   private boolean handleReload(CommandSender sender) {
     if (!sender.hasPermission("webshop.admin")) {
       sender.sendMessage("§c你没有权限。");
@@ -216,8 +262,8 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       plugin.reloadRuntimeConfig();
       sender.sendMessage("§aWebShopX 配置已重载。");
     } catch (Exception exception) {
-      sender.sendMessage("§c重载失败，请查看服务端日志。");
-      plugin.getLogger().log(java.util.logging.Level.SEVERE, "Reload failed", exception);
+      sender.sendMessage("§c重载失败，请查看控制台日志。");
+      plugin.getLogger().log(Level.SEVERE, "Reload failed", exception);
     }
     return true;
   }
@@ -229,14 +275,12 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     }
     if (args.length < 2 || !args[1].equalsIgnoreCase("create")) {
       sender.sendMessage(
-          "§e用法：/webshopx redeem create <shopCoin> <gameCoin>"
-              + " [maxUses] [perUserMaxUses] [minutes] [code]");
+          "§e用法：/webshopx redeem create <shopCoin> <gameCoin> [maxUses] [perUserMaxUses] [minutes] [code]");
       return true;
     }
     if (args.length < 4) {
       sender.sendMessage(
-          "§e用法：/webshopx redeem create <shopCoin> <gameCoin>"
-              + " [maxUses] [perUserMaxUses] [minutes] [code]");
+          "§e用法：/webshopx redeem create <shopCoin> <gameCoin> [maxUses] [perUserMaxUses] [minutes] [code]");
       return true;
     }
 
@@ -268,7 +312,9 @@ class ShopCommand implements CommandExecutor, TabCompleter {
   private void sendHelp(CommandSender sender) {
     sender.sendMessage("§e/webshopx help §7- 查看帮助");
     sender.sendMessage("§e/webshopx password <新密码> §7- 在游戏内创建或重置网页登录密码");
-    sender.sendMessage("§e/webshopx market sell <price> [amount] [currency] §7- 上架手持物品");
+    sender.sendMessage("§e/webshopx market [gui] §7- 打开市场 GUI（创建上架与管理）");
+    sender.sendMessage("§e/webshopx market sell <price> [amount] [currency] §7- 兼容旧式上架命令");
+    sender.sendMessage("§e/webshopx market logs [count] §7- 查看自己店铺最近成交记录");
     sender.sendMessage("§e/webshopx claim [all|ODR-...|MKT-...|CLM-...|MCL-...] §7- 领取待发货内容");
     if (sender.hasPermission("webshop.admin")) {
       sender.sendMessage("§e/webshopx reload §7- 重载配置与内置网页");

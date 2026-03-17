@@ -207,7 +207,7 @@
         <div class="section-head">
           <div>
             <h2>玩家市场（C2C）</h2>
-            <p class="card-desc">上架需在游戏内执行 <code>/webshopx market sell &lt;price&gt; [amount] [currency]</code>。</p>
+            <p class="card-desc">可在游戏内执行 <code>/webshopx market</code> 打开 GUI；价格与备注继续在网页端管理。</p>
           </div>
         </div>
         <!-- <div class="md-tip md-tip-info">
@@ -271,6 +271,10 @@
           <button id="marketListBtn" class="btn-segment active" type="button">市场在售</button>
           <button id="marketStoreBtn" class="btn-segment" type="button">玩家店铺</button>
           <button id="marketMineBtn" class="btn-segment" type="button">我的上架</button>
+          <label class="market-toggle">
+            <input id="marketHideOwnToggle" type="checkbox" checked />
+            <span>隐藏本人商品</span>
+          </label>
           <button id="marketRefreshBtn" class="btn-tonal" type="button">刷新</button>
         </div>
 
@@ -294,7 +298,7 @@
         </div>
         <div class="md-tip md-tip-info">
           <strong>玩家市场</strong>
-          <p>上架在游戏内执行命令，价格与备注在网页内管理。购买玩家也走订单流程，可在订单页查看状态。</p>
+          <p>上架可在游戏内使用 GUI 完成；价格与备注在网页内管理。供货箱模式支持手动刷新与售罄后自动补货。</p>
         </div>
         <div class="md-tip md-tip-info">
           <strong>资产说明</strong>

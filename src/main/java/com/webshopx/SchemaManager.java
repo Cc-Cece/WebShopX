@@ -546,6 +546,82 @@ class SchemaManager {
           "ALTER TABLE market_listings "
               + "ADD COLUMN paused_at DATETIME NULL AFTER unlisted_at");
     }
+    if (!columnExists(connection, "market_listings", "source_mode")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN source_mode VARCHAR(16) NOT NULL DEFAULT 'MANUAL' AFTER item_hash");
+    }
+    if (!columnExists(connection, "market_listings", "supply_world")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN supply_world VARCHAR(64) NULL AFTER source_mode");
+    }
+    if (!columnExists(connection, "market_listings", "supply_x")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN supply_x INT NULL AFTER supply_world");
+    }
+    if (!columnExists(connection, "market_listings", "supply_y")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN supply_y INT NULL AFTER supply_x");
+    }
+    if (!columnExists(connection, "market_listings", "supply_z")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN supply_z INT NULL AFTER supply_y");
+    }
+    if (!columnExists(connection, "market_listings", "supply_batch_size")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN supply_batch_size INT NULL AFTER supply_z");
+    }
+    if (!columnExists(connection, "market_listings", "supply_max_stock")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN supply_max_stock INT NULL AFTER supply_batch_size");
+    }
+    if (!columnExists(connection, "market_listings", "supply_loaded_total")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN supply_loaded_total BIGINT NOT NULL DEFAULT 0 AFTER supply_max_stock");
+    }
+    if (!columnExists(connection, "market_listings", "supply_sold_total")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN supply_sold_total BIGINT NOT NULL DEFAULT 0 AFTER supply_loaded_total");
+    }
+    if (!columnExists(connection, "market_listings", "supply_last_loaded_amount")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN supply_last_loaded_amount INT NULL AFTER supply_sold_total");
+    }
+    if (!columnExists(connection, "market_listings", "supply_last_loaded_at")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN supply_last_loaded_at DATETIME NULL AFTER supply_last_loaded_amount");
+    }
+    execute(
+        connection,
+        "UPDATE market_listings SET source_mode = 'MANUAL' "
+            + "WHERE source_mode IS NULL OR source_mode = ''");
+    execute(
+        connection,
+        "UPDATE market_listings SET supply_loaded_total = 0 WHERE supply_loaded_total IS NULL");
+    execute(
+        connection,
+        "UPDATE market_listings SET supply_sold_total = 0 WHERE supply_sold_total IS NULL");
   }
 
   private void createMarketTrades(Connection connection) throws SQLException {

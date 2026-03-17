@@ -18,6 +18,7 @@
     refundUndeliveredEnabled: false,
     marketFeePercent: 0,
     marketTaxPercent: 0,
+    marketSupplyAutoRefreshThreshold: 8,
     sharedClaimAllowed: false,
   },
   orderPolicyReady: false,
@@ -28,6 +29,7 @@
   hasLoadedMarket: false,
   hasLoadedOrders: false,
   theme: "light",
+  hideOwnMarketListings: true,
   realtime: {
     timer: null,
     busy: false,
@@ -187,6 +189,14 @@ const ERROR_TIPS_BY_SCENE = {
     forbidden: "仅上架者本人可以编辑备注。",
     invalid_remark: "备注长度超出限制。",
   },
+  market_supply: {
+    invalid_listing: "上架 ID 无效，请刷新列表后重试。",
+    listing_missing: "该上架不存在，可能已被移除。",
+    listing_unavailable: "该上架当前不可刷新。",
+    forbidden: "仅上架者本人可以刷新供货。",
+    supply_missing: "当前未找到有效供货箱，请回到游戏内检查绑定。",
+    supply_empty: "供货箱中没有匹配的库存。",
+  },
   wallet_refresh: {
     bad_request: "请求参数异常，请重新登录后再试。",
   },
@@ -265,6 +275,7 @@ const elements = {
   marketApplyBtn: document.getElementById("marketApplyBtn"),
   marketClearBtn: document.getElementById("marketClearBtn"),
   marketStoreBtn: document.getElementById("marketStoreBtn"),
+  marketHideOwnToggle: document.getElementById("marketHideOwnToggle"),
   snackbarHost: document.getElementById("snackbarHost"),
   confirmDialog: document.getElementById("confirmDialog"),
   confirmTitle: document.getElementById("confirmTitle"),
@@ -327,6 +338,7 @@ function notify(message, tone = "info", durationMs = 3200) {
 
 const THEME_STORAGE_KEY = "webshopx_theme";
 const SESSION_STORAGE_KEY = "webshopx_session";
+const MARKET_HIDE_OWN_STORAGE_KEY = "webshopx_market_hide_own";
 
 function getInitialTheme() {
   const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -531,19 +543,47 @@ function closeConfirmDialog(result) {
   }
 }
 
-function openListingEditDialog({ listingId, currentPrice, currency, currentRemark }) {
+function openListingEditDialog({
+  listingId,
+  currentPrice,
+  currency,
+  currentRemark,
+  sourceMode,
+  currentSupplyBatchSize,
+  currentSupplyMaxStock,
+}) {
   if (!elements.confirmDialog) {
     const rawPrice = window.prompt("请输入新的价格", String(currentPrice));
     if (rawPrice === null) {
+      return Promise.resolve(null);
+    }
+    const rawCurrency = window.prompt("请输入币种（SHOP_COIN / GAME_COIN）", String(currency || "GAME_COIN"));
+    if (rawCurrency === null) {
       return Promise.resolve(null);
     }
     const rawRemark = window.prompt("请输入备注（留空清空）", currentRemark || "");
     if (rawRemark === null) {
       return Promise.resolve(null);
     }
+    const isSupplyFallback = String(sourceMode || "").toUpperCase() === "SUPPLY";
+    const rawBatch = isSupplyFallback
+      ? window.prompt("请输入单次提取量", String(currentSupplyBatchSize || 1))
+      : null;
+    if (isSupplyFallback && rawBatch === null) {
+      return Promise.resolve(null);
+    }
+    const rawMax = isSupplyFallback
+      ? window.prompt("请输入中转上限", String(currentSupplyMaxStock || 1))
+      : null;
+    if (isSupplyFallback && rawMax === null) {
+      return Promise.resolve(null);
+    }
     return Promise.resolve({
       price: Math.floor(Number(rawPrice)),
+      currency: String(rawCurrency || "GAME_COIN").trim().toUpperCase(),
       remark: rawRemark.trim() || null,
+      supplyBatchSize: isSupplyFallback ? Math.floor(Number(rawBatch)) : null,
+      supplyMaxStock: isSupplyFallback ? Math.floor(Number(rawMax)) : null,
     });
   }
   if (confirmResolver) {
@@ -565,6 +605,19 @@ function openListingEditDialog({ listingId, currentPrice, currency, currentRemar
   priceField.appendChild(priceInput);
   elements.confirmDetails.appendChild(priceField);
 
+  const currencyField = createEl("label", "field dialog-select-field");
+  currencyField.appendChild(createEl("span", "", "币种"));
+  const currencySelect = document.createElement("select");
+  ["SHOP_COIN", "GAME_COIN"].forEach((value) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = (CURRENCY_META[value] || { label: value }).label;
+    currencySelect.appendChild(option);
+  });
+  currencySelect.value = currency || "GAME_COIN";
+  currencyField.appendChild(currencySelect);
+  elements.confirmDetails.appendChild(currencyField);
+
   const remarkField = createEl("label", "field dialog-select-field");
   remarkField.appendChild(createEl("span", "", "备注"));
   const remarkInput = document.createElement("textarea");
@@ -573,15 +626,53 @@ function openListingEditDialog({ listingId, currentPrice, currency, currentRemar
   remarkField.appendChild(remarkInput);
   elements.confirmDetails.appendChild(remarkField);
 
+  const isSupply = String(sourceMode || "").toUpperCase() === "SUPPLY";
+  let supplyBatchInput = null;
+  let supplyMaxInput = null;
+  if (isSupply) {
+    const batchField = createEl("label", "field dialog-select-field");
+    batchField.appendChild(createEl("span", "", "单次提取量"));
+    supplyBatchInput = document.createElement("input");
+    supplyBatchInput.type = "number";
+    supplyBatchInput.min = "1";
+    supplyBatchInput.step = "1";
+    supplyBatchInput.value = String(currentSupplyBatchSize || "");
+    batchField.appendChild(supplyBatchInput);
+    elements.confirmDetails.appendChild(batchField);
+
+    const maxField = createEl("label", "field dialog-select-field");
+    maxField.appendChild(createEl("span", "", "中转上限"));
+    supplyMaxInput = document.createElement("input");
+    supplyMaxInput.type = "number";
+    supplyMaxInput.min = "1";
+    supplyMaxInput.step = "1";
+    supplyMaxInput.value = String(currentSupplyMaxStock || "");
+    maxField.appendChild(supplyMaxInput);
+    elements.confirmDetails.appendChild(maxField);
+  }
+
   confirmSubmitHandler = () => {
     const price = Number(priceInput.value.trim());
     if (!Number.isFinite(price) || price <= 0) {
       priceInput.focus();
       return;
     }
+    const batchSize = supplyBatchInput ? Number(supplyBatchInput.value.trim()) : null;
+    const maxStock = supplyMaxInput ? Number(supplyMaxInput.value.trim()) : null;
+    if (supplyBatchInput && (!Number.isFinite(batchSize) || batchSize <= 0)) {
+      supplyBatchInput.focus();
+      return;
+    }
+    if (supplyMaxInput && (!Number.isFinite(maxStock) || maxStock <= 0)) {
+      supplyMaxInput.focus();
+      return;
+    }
     closeConfirmDialog({
       price: Math.floor(price),
+      currency: currencySelect.value,
       remark: remarkInput.value.trim() || null,
+      supplyBatchSize: supplyBatchInput ? Math.floor(batchSize) : null,
+      supplyMaxStock: supplyMaxInput ? Math.floor(maxStock) : null,
     });
   };
   elements.confirmOkBtn.disabled = false;
@@ -766,6 +857,14 @@ function defaultDeliveryModeForProduct(product) {
     return "CLAIM";
   }
   return "IMMEDIATE";
+}
+
+function getInitialHideOwnMarketListings() {
+  const saved = window.localStorage.getItem(MARKET_HIDE_OWN_STORAGE_KEY);
+  if (saved === "0") {
+    return false;
+  }
+  return true;
 }
 
 function resolveOfficialProductStock(product) {
@@ -1170,6 +1269,8 @@ function formatListingStatus(status) {
   switch (normalized) {
     case "ACTIVE":
       return "在售";
+    case "SUPPLY_EMPTY":
+      return "待补货";
     case "PAUSED":
       return "已停用";
     case "UNLISTED":
@@ -1187,6 +1288,13 @@ function formatDateTime(isoText) {
     return "未知时间";
   }
   return new Date(timestamp).toLocaleString("zh-CN", { hour12: false });
+}
+
+function formatSupplyLoadedAt(isoText) {
+  if (!isoText) {
+    return "未补货";
+  }
+  return formatDateTime(isoText);
 }
 
 function formatCountdown(deadlineIso) {
@@ -1336,6 +1444,9 @@ function setMarketButtons(mode) {
     elements.marketStoreBtn.classList.toggle("active", mode === "stores");
   }
   document.getElementById("marketMineBtn").classList.toggle("active", mode === "mine");
+  if (elements.marketHideOwnToggle) {
+    elements.marketHideOwnToggle.closest(".market-toggle")?.classList.toggle("hidden", mode !== "public");
+  }
 }
 
 function resolveErrorMessage(error, scene) {
@@ -1724,18 +1835,28 @@ function renderProducts(products) {
 
 function renderListings(listings, container = elements.marketList) {
   container.innerHTML = "";
+  const visibleListings = container === elements.marketList
+    && state.marketMode === "public"
+    && state.hideOwnMarketListings
+    && state.username
+    ? (listings || []).filter((listing) => listing.sellerName !== state.username)
+    : (listings || []);
 
-  if (!listings || listings.length === 0) {
+  if (!visibleListings || visibleListings.length === 0) {
     const empty = createEl("div", "empty-state", "当前没有可显示的市场上架。 ");
     container.appendChild(empty);
     return;
   }
 
-  for (const listing of listings) {
+  for (const listing of visibleListings) {
     const meta = parseMeta(listing.itemMetaJson);
     const isOwner = !!state.username && listing.sellerName === state.username;
     const normalizedStatus = String(listing.status || "").toUpperCase();
-    const isActive = normalizedStatus === "ACTIVE";
+    const isSupply = String(listing.sourceMode || "").toUpperCase() === "SUPPLY";
+    const displayStatus = isSupply && Number(listing.quantity || 0) <= 0 && normalizedStatus === "ACTIVE"
+      ? "SUPPLY_EMPTY"
+      : normalizedStatus;
+    const isActive = normalizedStatus === "ACTIVE" && Number(listing.quantity || 0) > 0;
     const isPaused = normalizedStatus === "PAUSED";
 
     const displayName = stripColorCodes(meta.displayName || "");
@@ -1744,12 +1865,15 @@ function renderListings(listings, container = elements.marketList) {
     const card = createEl("article", "market-card");
 
     const top = createEl("div", "market-top");
-    const statusClass = isActive ? "sale" : isPaused ? "paused" : "inactive";
+    const statusClass = displayStatus === "ACTIVE" ? "sale" : displayStatus === "SUPPLY_EMPTY" || isPaused ? "paused" : "inactive";
     top.appendChild(createEl(
       "span",
       `market-chip ${statusClass}`,
-      formatListingStatus(normalizedStatus)
+      formatListingStatus(displayStatus)
     ));
+    if (isSupply) {
+      top.appendChild(createEl("span", "market-chip official", "自动补货"));
+    }
     top.appendChild(createEl("span", "market-time", formatAge(listing.createdAt)));
     card.appendChild(top);
 
@@ -1764,6 +1888,39 @@ function renderListings(listings, container = elements.marketList) {
     const quantityTotal = Number(listing.quantityTotal || listing.quantity || 0);
     if (listing.remark) {
       detail.appendChild(createEl("p", "market-remark", listing.remark));
+    }
+    if (isSupply) {
+      if (isOwner) {
+        detail.appendChild(
+          createEl(
+            "p",
+            "market-sub",
+            `供货模式：单次提取 x${Number(listing.supplyBatchSize || 0)} / 中转上限 x${Number(listing.supplyMaxStock || quantityTotal || 0)}`
+          )
+        );
+        detail.appendChild(
+          createEl(
+            "p",
+            "market-sub",
+            `累计提取 x${Number(listing.supplyLoadedTotal || 0)} / 累计售出 x${Number(listing.supplySoldTotal || 0)}`
+          )
+        );
+        detail.appendChild(
+          createEl(
+            "p",
+            "market-sub",
+            `最近补货：${formatSupplyLoadedAt(listing.supplyLastLoadedAt)}`
+          )
+        );
+      } else {
+        detail.appendChild(
+          createEl(
+            "p",
+            "market-sub",
+            `供货模式：累计售出 x${Number(listing.supplySoldTotal || 0)}`
+          )
+        );
+      }
     }
     main.appendChild(detail);
     card.appendChild(main);
@@ -1803,6 +1960,9 @@ function renderListings(listings, container = elements.marketList) {
       editBtn.dataset.currentPrice = String(listing.price);
       editBtn.dataset.currency = listing.currency;
       editBtn.dataset.currentRemark = listing.remark || "";
+      editBtn.dataset.sourceMode = listing.sourceMode || "MANUAL";
+      editBtn.dataset.currentSupplyBatchSize = String(listing.supplyBatchSize || "");
+      editBtn.dataset.currentSupplyMaxStock = String(listing.supplyMaxStock || "");
       actions.appendChild(editBtn);
 
       if (isActive) {
@@ -1857,9 +2017,16 @@ function renderListings(listings, container = elements.marketList) {
       buyWrap.appendChild(buyBtn);
       actions.appendChild(buyWrap);
     } else {
-      const disabledBtn = createEl("button", "market-action-btn", "暂不可买");
+      const disabledBtn = createEl("button", "market-action-btn", "不可购买");
       disabledBtn.disabled = true;
       actions.appendChild(disabledBtn);
+    }
+    if (isSupply && state.token && Number(listing.quantity || 0) <= 0 && normalizedStatus !== "UNLISTED" && normalizedStatus !== "SOLD") {
+      const refreshBtn = createEl("button", "market-action-btn sale", "刷新补货");
+      refreshBtn.type = "button";
+      refreshBtn.dataset.action = "refreshSupply";
+      refreshBtn.dataset.listingId = String(listing.id);
+      actions.appendChild(refreshBtn);
     }
     footer.appendChild(actions);
 
@@ -2063,7 +2230,10 @@ async function loadMarket(mode, options = {}) {
     } else {
       renderListings(state.listings);
       const label = normalizedMode === "mine" ? "我的上架" : "市场在售";
-      setMetaText(elements.marketView, `${label}：${state.listings.length} 条`, "info");
+      const visibleCount = normalizedMode === "public" && state.hideOwnMarketListings && state.username
+        ? state.listings.filter((listing) => listing.sellerName !== state.username).length
+        : state.listings.length;
+      setMetaText(elements.marketView, `${label}：${visibleCount} 条`, "info");
     }
 
     const label = normalizedMode === "mine"
@@ -2097,6 +2267,7 @@ async function loadOrderPolicy() {
     state.orderPolicy.refundUndeliveredEnabled = !!payload.refundUndeliveredEnabled;
     state.orderPolicy.marketFeePercent = Number(payload.marketFeePercent || 0);
     state.orderPolicy.marketTaxPercent = Number(payload.marketTaxPercent || 0);
+    state.orderPolicy.marketSupplyAutoRefreshThreshold = Number(payload.marketSupplyAutoRefreshThreshold || 8);
     state.orderPolicy.sharedClaimAllowed = !!payload.sharedClaimAllowed;
     state.orderPolicyReady = true;
   } catch (error) {
@@ -2105,6 +2276,7 @@ async function loadOrderPolicy() {
     state.orderPolicy.refundUndeliveredEnabled = false;
     state.orderPolicy.marketFeePercent = 0;
     state.orderPolicy.marketTaxPercent = 0;
+    state.orderPolicy.marketSupplyAutoRefreshThreshold = 8;
     state.orderPolicy.sharedClaimAllowed = false;
     state.orderPolicyReady = true;
   }
@@ -2510,6 +2682,34 @@ async function unlistListing(listingId) {
   await loadMarket(state.marketMode);
 }
 
+async function refreshSupplyListing(listingId, options = {}) {
+  ensureToken();
+  const payload = await api("/api/market/supply/refresh", {
+    method: "POST",
+    body: JSON.stringify({ listingId }),
+  });
+  if (!options.silent) {
+    if (Number(payload.loadedAmount || 0) > 0) {
+      notify(
+        `补货完成：本次提取 x${payload.loadedAmount}，当前中转 x${payload.currentStock} / x${payload.maxStock}，累计提取 x${payload.loadedTotal}。`,
+        "success"
+      );
+      log(`供货刷新成功：listingId=${payload.listingId} loaded=${payload.loadedAmount}`, "SUCCESS");
+    } else {
+      const isFull = Number(payload.currentStock || 0) >= Number(payload.maxStock || 0);
+      notify(
+        isFull
+          ? `中转库存已满：当前中转 x${payload.currentStock} / x${payload.maxStock}，累计提取 x${payload.loadedTotal}。`
+          : `未检测到可补货库存：当前中转 x${payload.currentStock} / x${payload.maxStock}，累计提取 x${payload.loadedTotal}。`,
+        isFull ? "info" : "warn"
+      );
+      log(`供货刷新未补货：listingId=${payload.listingId} current=${payload.currentStock}`, "WARN");
+    }
+  }
+  await loadMarket(state.marketMode);
+  return payload;
+}
+
 async function pauseListing(listingId) {
   ensureToken();
   const payload = await api("/api/market/pause", {
@@ -2555,18 +2755,21 @@ async function updateListingRemark(listingId, remark) {
   await loadMarket(state.marketMode);
 }
 
-async function updateListing(listingId, price, remark) {
+async function updateListing(listingId, price, currency, remark, supplyBatchSize, supplyMaxStock) {
   ensureToken();
-  const pricePayload = await api("/api/market/price", {
+  const payload = await api("/api/market/settings", {
     method: "POST",
-    body: JSON.stringify({ listingId, price }),
+    body: JSON.stringify({
+      listingId,
+      price,
+      currency,
+      remark,
+      supplyBatchSize,
+      supplyMaxStock,
+    }),
   });
-  await api("/api/market/remark", {
-    method: "POST",
-    body: JSON.stringify({ listingId, remark }),
-  });
-  log(`修改成功：listingId=${listingId} price=${pricePayload.price}`, "SUCCESS");
-  notify("修改成功：价格与备注已更新。", "success");
+  log(`修改成功：listingId=${listingId} price=${payload.price} currency=${payload.currency}`, "SUCCESS");
+  notify("修改成功：价格、币种与补充设置已更新。", "success");
   await loadMarket(state.marketMode);
 }
 
@@ -2909,7 +3112,7 @@ elements.marketList.addEventListener("click", async (event) => {
   button.textContent = "处理中...";
   try {
     if (button.dataset.action === "buy") {
-      const listing = state.listings.find((item) => Number(item.id) === listingId);
+      let listing = state.listings.find((item) => Number(item.id) === listingId);
       const card = button.closest(".market-card");
       const qtyInput = card ? card.querySelector(".product-qty") : null;
       const rawQty = qtyInput ? qtyInput.value : "1";
@@ -2919,6 +3122,13 @@ elements.marketList.addEventListener("click", async (event) => {
         throw new Error(`购买数量需在 1-${Math.max(1, maxQty)} 之间。`);
       }
       ensureToken();
+      const isSupply = String(listing?.sourceMode || "").toUpperCase() === "SUPPLY";
+      const currentQty = Number(listing?.quantity || 0);
+      const threshold = Math.max(0, Number(state.orderPolicy.marketSupplyAutoRefreshThreshold || 0));
+      if (isSupply && currentQty > 0 && currentQty < threshold) {
+        await refreshSupplyListing(listingId, { silent: true });
+        listing = state.listings.find((item) => Number(item.id) === listingId) || listing;
+      }
       const confirmed = listing ? await confirmMarketBuy(listing, buyQty) : await openConfirmDialog({
         title: "确认购买",
         message: "确认后将立即扣除余额。",
@@ -2935,6 +3145,10 @@ elements.marketList.addEventListener("click", async (event) => {
     }
     if (button.dataset.action === "unlist") {
       await unlistListing(listingId);
+      return;
+    }
+    if (button.dataset.action === "refreshSupply") {
+      await refreshSupplyListing(listingId);
       return;
     }
     if (button.dataset.action === "pause") {
@@ -2954,16 +3168,28 @@ elements.marketList.addEventListener("click", async (event) => {
         currentPrice,
         currency,
         currentRemark,
+        sourceMode: button.dataset.sourceMode || "MANUAL",
+        currentSupplyBatchSize: Number(button.dataset.currentSupplyBatchSize || 0) || null,
+        currentSupplyMaxStock: Number(button.dataset.currentSupplyMaxStock || 0) || null,
       });
       if (!result) {
         notify("已取消修改。", "info");
         return;
       }
-      await updateListing(listingId, result.price, result.remark);
+      await updateListing(
+        listingId,
+        result.price,
+        result.currency,
+        result.remark,
+        result.supplyBatchSize,
+        result.supplyMaxStock
+      );
     }
   } catch (error) {
     const scene = button.dataset.action === "unlist"
       ? "market_unlist"
+      : button.dataset.action === "refreshSupply"
+        ? "market_supply"
       : button.dataset.action === "edit"
         ? "market_price"
         : "market_buy";
@@ -3023,6 +3249,21 @@ if (elements.themeToggleBtn) {
 }
 
 applyTheme(getInitialTheme());
+state.hideOwnMarketListings = getInitialHideOwnMarketListings();
+if (elements.marketHideOwnToggle) {
+  elements.marketHideOwnToggle.checked = state.hideOwnMarketListings;
+  elements.marketHideOwnToggle.addEventListener("change", () => {
+    state.hideOwnMarketListings = !!elements.marketHideOwnToggle.checked;
+    window.localStorage.setItem(MARKET_HIDE_OWN_STORAGE_KEY, state.hideOwnMarketListings ? "1" : "0");
+    if (state.marketMode === "public") {
+      renderListings(state.listings);
+      const visibleCount = state.hideOwnMarketListings && state.username
+        ? state.listings.filter((listing) => listing.sellerName !== state.username).length
+        : state.listings.length;
+      setMetaText(elements.marketView, `市场在售：${visibleCount} 条`, "info");
+    }
+  });
+}
 setAuthMode("login");
 updateAuthLayout();
 setMetaText(elements.walletView, "等待刷新余额", "info");
