@@ -1320,6 +1320,13 @@ code {
   grid-column: 1 / -1;
 }
 
+.field-hint {
+  margin-top: 6px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 pre {
   margin: 12px 0 0;
   min-height: 240px;

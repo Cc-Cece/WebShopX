@@ -408,10 +408,20 @@ class DeliveryService {
       DeliveryKind kind = DeliveryKind.fromRaw(task.deliveryKind());
       switch (kind) {
         case COMMAND -> {
-          String command = renderCommand(task.commandText(), player.getName(), task.quantity(), task.orderNo());
-          boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
-          if (!success) {
-            throw new IllegalStateException("Command execution returned false");
+          if (usesQuantityPlaceholder(task.commandText())) {
+            String command = renderCommand(task.commandText(), player.getName(), task.quantity(), task.orderNo());
+            boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
+            if (!success) {
+              throw new IllegalStateException("Command execution returned false");
+            }
+          } else {
+            for (int count = 0; count < Math.max(1, task.quantity()); count++) {
+              String command = renderCommand(task.commandText(), player.getName(), 1, task.orderNo());
+              boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
+              if (!success) {
+                throw new IllegalStateException("Command execution returned false");
+              }
+            }
           }
         }
         case GIVE_ITEM -> executeGiveItem(task, player);
@@ -741,6 +751,17 @@ class DeliveryService {
       rendered = rendered.substring(1);
     }
     return rendered.trim();
+  }
+
+  private boolean usesQuantityPlaceholder(String template) {
+    if (template == null || template.isBlank()) {
+      return false;
+    }
+    String normalized = template.toLowerCase(java.util.Locale.ROOT);
+    return normalized.contains("%amount%")
+        || normalized.contains("{amount}")
+        || normalized.contains("%quantity%")
+        || normalized.contains("{quantity}");
   }
 
   private void executeGiveItem(CommandDeliveryTask task, Player player) {
