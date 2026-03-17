@@ -46,7 +46,7 @@ class ProductService {
               + "AND (unpublish_at IS NULL OR unpublish_at > NOW())";
       String sql = """
           SELECT id, sku, title, remark, currency, price, product_type, command_template,
-                 item_material, item_amount, effect_type, effect_seconds, effect_amplifier,
+                 item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
                  publish_at, unpublish_at, active
           FROM products
           """ + activeFilter + " ORDER BY id ASC LIMIT ?";
@@ -79,66 +79,105 @@ class ProductService {
           productType);
       validateSchedule(input.publishAt(), input.unpublishAt());
 
-      String sql = """
-          INSERT INTO products (
-            sku, title, remark, currency, price, product_type, command_template,
-            item_material, item_amount, effect_type, effect_seconds, effect_amplifier,
-            publish_at, unpublish_at, active
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE
-            title = VALUES(title),
-            remark = VALUES(remark),
-            currency = VALUES(currency),
-            price = VALUES(price),
-            product_type = VALUES(product_type),
-            command_template = VALUES(command_template),
-            item_material = VALUES(item_material),
-            item_amount = VALUES(item_amount),
-            effect_type = VALUES(effect_type),
-            effect_seconds = VALUES(effect_seconds),
-            effect_amplifier = VALUES(effect_amplifier),
-            publish_at = VALUES(publish_at),
-            unpublish_at = VALUES(unpublish_at),
-            active = VALUES(active)
-          """;
-      try (PreparedStatement statement = connection.prepareStatement(sql)) {
-        statement.setString(1, normalizedSku);
-        statement.setString(2, input.title().trim());
-        statement.setString(3, normalizedRemark);
-        statement.setString(4, input.currency().name());
-        statement.setLong(5, input.price());
-        statement.setString(6, productType.name());
-        statement.setString(7, normalizedCommand);
-        statement.setString(8, normalizedItemMaterial);
-        if (normalizedItemAmount == null) {
-          statement.setObject(9, null);
-        } else {
-          statement.setInt(9, normalizedItemAmount);
+      ProductView existing = findProductBySku(connection, normalizedSku, true);
+      Integer adjustedStockRemaining = resolveStockRemaining(normalizedItemAmount, existing);
+      if (existing == null) {
+        String insertSql = """
+            INSERT INTO products (
+              sku, title, remark, currency, price, product_type, command_template,
+              item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
+              publish_at, unpublish_at, active
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """;
+        try (PreparedStatement statement = connection.prepareStatement(insertSql)) {
+          statement.setString(1, normalizedSku);
+          statement.setString(2, input.title().trim());
+          statement.setString(3, normalizedRemark);
+          statement.setString(4, input.currency().name());
+          statement.setLong(5, input.price());
+          statement.setString(6, productType.name());
+          statement.setString(7, normalizedCommand);
+          statement.setString(8, normalizedItemMaterial);
+          if (normalizedItemAmount == null) {
+            statement.setObject(9, null);
+            statement.setObject(10, null);
+          } else {
+            statement.setInt(9, normalizedItemAmount);
+            statement.setInt(10, adjustedStockRemaining == null ? normalizedItemAmount : adjustedStockRemaining);
+          }
+          statement.setString(11, normalizedEffectType);
+          if (normalizedEffectSeconds == null) {
+            statement.setObject(12, null);
+          } else {
+            statement.setInt(12, normalizedEffectSeconds);
+          }
+          if (normalizedEffectAmplifier == null) {
+            statement.setObject(13, null);
+          } else {
+            statement.setInt(13, normalizedEffectAmplifier);
+          }
+          if (input.publishAt() == null) {
+            statement.setObject(14, null);
+          } else {
+            statement.setTimestamp(14, java.sql.Timestamp.valueOf(input.publishAt()));
+          }
+          if (input.unpublishAt() == null) {
+            statement.setObject(15, null);
+          } else {
+            statement.setTimestamp(15, java.sql.Timestamp.valueOf(input.unpublishAt()));
+          }
+          statement.setBoolean(16, input.active());
+          statement.executeUpdate();
         }
-        statement.setString(10, normalizedEffectType);
-        if (normalizedEffectSeconds == null) {
-          statement.setObject(11, null);
-        } else {
-          statement.setInt(11, normalizedEffectSeconds);
+      } else {
+        String updateSql = """
+            UPDATE products
+            SET title = ?, remark = ?, currency = ?, price = ?, product_type = ?, command_template = ?,
+                item_material = ?, item_amount = ?, stock_remaining = ?, effect_type = ?, effect_seconds = ?,
+                effect_amplifier = ?, publish_at = ?, unpublish_at = ?, active = ?
+            WHERE id = ?
+            """;
+        try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
+          statement.setString(1, input.title().trim());
+          statement.setString(2, normalizedRemark);
+          statement.setString(3, input.currency().name());
+          statement.setLong(4, input.price());
+          statement.setString(5, productType.name());
+          statement.setString(6, normalizedCommand);
+          statement.setString(7, normalizedItemMaterial);
+          if (normalizedItemAmount == null) {
+            statement.setObject(8, null);
+            statement.setObject(9, null);
+          } else {
+            statement.setInt(8, normalizedItemAmount);
+            statement.setInt(9, adjustedStockRemaining == null ? normalizedItemAmount : adjustedStockRemaining);
+          }
+          statement.setString(10, normalizedEffectType);
+          if (normalizedEffectSeconds == null) {
+            statement.setObject(11, null);
+          } else {
+            statement.setInt(11, normalizedEffectSeconds);
+          }
+          if (normalizedEffectAmplifier == null) {
+            statement.setObject(12, null);
+          } else {
+            statement.setInt(12, normalizedEffectAmplifier);
+          }
+          if (input.publishAt() == null) {
+            statement.setObject(13, null);
+          } else {
+            statement.setTimestamp(13, java.sql.Timestamp.valueOf(input.publishAt()));
+          }
+          if (input.unpublishAt() == null) {
+            statement.setObject(14, null);
+          } else {
+            statement.setTimestamp(14, java.sql.Timestamp.valueOf(input.unpublishAt()));
+          }
+          statement.setBoolean(15, input.active());
+          statement.setLong(16, existing.id());
+          statement.executeUpdate();
         }
-        if (normalizedEffectAmplifier == null) {
-          statement.setObject(12, null);
-        } else {
-          statement.setInt(12, normalizedEffectAmplifier);
-        }
-        if (input.publishAt() == null) {
-          statement.setObject(13, null);
-        } else {
-          statement.setTimestamp(13, java.sql.Timestamp.valueOf(input.publishAt()));
-        }
-        if (input.unpublishAt() == null) {
-          statement.setObject(14, null);
-        } else {
-          statement.setTimestamp(14, java.sql.Timestamp.valueOf(input.unpublishAt()));
-        }
-        statement.setBoolean(15, input.active());
-        statement.executeUpdate();
       }
       return readProductBySku(connection, normalizedSku);
     });
@@ -170,7 +209,7 @@ class ProductService {
     String lockClause = forUpdate ? " FOR UPDATE" : "";
     String sql = """
         SELECT id, sku, title, remark, currency, price, product_type, command_template,
-               item_material, item_amount, effect_type, effect_seconds, effect_amplifier,
+               item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
                publish_at, unpublish_at, active
         FROM products
         WHERE id = ? AND active = TRUE
@@ -191,7 +230,7 @@ class ProductService {
   private ProductView readProductById(Connection connection, long productId) throws SQLException {
     String sql = """
         SELECT id, sku, title, remark, currency, price, product_type, command_template,
-               item_material, item_amount, effect_type, effect_seconds, effect_amplifier,
+               item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
                publish_at, unpublish_at, active
         FROM products
         WHERE id = ?
@@ -208,18 +247,28 @@ class ProductService {
   }
 
   private ProductView readProductBySku(Connection connection, String sku) throws SQLException {
+    ProductView view = findProductBySku(connection, sku, false);
+    if (view == null) {
+      throw new ServiceException("product_missing", "Product is not available");
+    }
+    return view;
+  }
+
+  private ProductView findProductBySku(Connection connection, String sku, boolean forUpdate)
+      throws SQLException {
+    String lockClause = forUpdate ? " FOR UPDATE" : "";
     String sql = """
         SELECT id, sku, title, remark, currency, price, product_type, command_template,
-               item_material, item_amount, effect_type, effect_seconds, effect_amplifier,
+               item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
                publish_at, unpublish_at, active
         FROM products
         WHERE sku = ?
-        """;
+        """ + lockClause;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, sku);
       try (ResultSet resultSet = statement.executeQuery()) {
         if (!resultSet.next()) {
-          throw new ServiceException("product_missing", "Product is not available");
+          return null;
         }
         return readProduct(resultSet);
       }
@@ -256,6 +305,8 @@ class ProductService {
     String itemMaterial = resultSet.getString("item_material");
     int itemAmountValue = resultSet.getInt("item_amount");
     Integer itemAmount = resultSet.wasNull() ? null : itemAmountValue;
+    int stockRemainingValue = resultSet.getInt("stock_remaining");
+    Integer stockRemaining = resultSet.wasNull() ? null : stockRemainingValue;
     String effectType = resultSet.getString("effect_type");
     int effectSecondsValue = resultSet.getInt("effect_seconds");
     Integer effectSeconds = resultSet.wasNull() ? null : effectSecondsValue;
@@ -275,6 +326,7 @@ class ProductService {
         resultSet.getString("command_template"),
         itemMaterial,
         itemAmount,
+        stockRemaining,
         effectType,
         effectSeconds,
         effectAmplifier,
@@ -367,7 +419,7 @@ class ProductService {
     }
     int normalized = itemAmount;
     if (normalized <= 0 || normalized > 100_000) {
-      throw new ServiceException("invalid_product", "Max quantity must be between 1 and 100000");
+      throw new ServiceException("invalid_product", "Stock must be between 1 and 100000");
     }
     return normalized;
   }
@@ -408,6 +460,18 @@ class ProductService {
       throw new ServiceException("invalid_product", "Potion effect seconds must be between 1 and 86400");
     }
     return normalized;
+  }
+
+  private Integer resolveStockRemaining(Integer newLimit, ProductView existing) {
+    if (newLimit == null) {
+      return null;
+    }
+    int sold = 0;
+    if (existing != null && existing.itemAmount() != null && existing.stockRemaining() != null) {
+      sold = Math.max(0, existing.itemAmount() - existing.stockRemaining());
+    }
+    int remaining = Math.max(0, newLimit - sold);
+    return remaining;
   }
 
   private Integer normalizeEffectAmplifier(Integer effectAmplifier, ProductType productType) {
@@ -484,6 +548,7 @@ class ProductService {
       String commandTemplate,
       String itemMaterial,
       Integer itemAmount,
+      Integer stockRemaining,
       String effectType,
       Integer effectSeconds,
       Integer effectAmplifier,

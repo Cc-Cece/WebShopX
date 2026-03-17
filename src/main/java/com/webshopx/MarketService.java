@@ -247,6 +247,22 @@ class MarketService {
         unlistInTransaction(connection, sellerUserId, listingId));
   }
 
+  ListingStatusResult pause(long sellerUserId, long listingId) {
+    if (listingId <= 0L) {
+      throw new ServiceException("invalid_listing", "Listing id must be positive");
+    }
+    return databaseManager.inTransaction(connection ->
+        pauseInTransaction(connection, sellerUserId, listingId));
+  }
+
+  ListingStatusResult resume(long sellerUserId, long listingId) {
+    if (listingId <= 0L) {
+      throw new ServiceException("invalid_listing", "Listing id must be positive");
+    }
+    return databaseManager.inTransaction(connection ->
+        resumeInTransaction(connection, sellerUserId, listingId));
+  }
+
   ListingPriceUpdateResult updateListingPrice(long sellerUserId, long listingId, long newPrice) {
     if (listingId <= 0L) {
       throw new ServiceException("invalid_listing", "Listing id must be positive");
@@ -491,7 +507,7 @@ class MarketService {
   private UnlistResult unlistInTransaction(Connection connection, long sellerUserId, long listingId)
       throws SQLException {
     MarketListing listing = readListingForUpdate(connection, listingId);
-    if (!listing.status().equals("ACTIVE")) {
+    if (!"ACTIVE".equalsIgnoreCase(listing.status()) && !"PAUSED".equalsIgnoreCase(listing.status())) {
       throw new ServiceException("listing_unavailable", "Listing is no longer active");
     }
     if (listing.sellerUserId() != sellerUserId) {
@@ -501,7 +517,7 @@ class MarketService {
 
     String updateSql = """
         UPDATE market_listings
-        SET status = 'UNLISTED', unlisted_at = NOW()
+        SET status = 'UNLISTED', unlisted_at = NOW(), paused_at = NULL
         WHERE id = ?
         """;
     try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
@@ -523,14 +539,59 @@ class MarketService {
     return new UnlistResult(listing.id(), listing.currency(), listing.price(), listing.quantity());
   }
 
+  private ListingStatusResult pauseInTransaction(Connection connection, long sellerUserId, long listingId)
+      throws SQLException {
+    MarketListing listing = readListingForUpdate(connection, listingId);
+    if (!"ACTIVE".equalsIgnoreCase(listing.status())) {
+      throw new ServiceException("listing_unavailable", "Only active listings can be paused");
+    }
+    if (listing.sellerUserId() != sellerUserId) {
+      throw new ServiceException("forbidden", "Only the owner can pause this listing");
+    }
+    String sql = """
+        UPDATE market_listings
+        SET status = 'PAUSED', paused_at = NOW()
+        WHERE id = ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, listing.id());
+      statement.executeUpdate();
+    }
+    return new ListingStatusResult(listing.id(), "PAUSED");
+  }
+
+  private ListingStatusResult resumeInTransaction(Connection connection, long sellerUserId, long listingId)
+      throws SQLException {
+    MarketListing listing = readListingForUpdate(connection, listingId);
+    if (!"PAUSED".equalsIgnoreCase(listing.status())) {
+      throw new ServiceException("listing_unavailable", "Listing is not paused");
+    }
+    if (listing.sellerUserId() != sellerUserId) {
+      throw new ServiceException("forbidden", "Only the owner can resume this listing");
+    }
+    if (listing.quantity() <= 0) {
+      throw new ServiceException("listing_empty", "Listing has no remaining stock to resume");
+    }
+    String sql = """
+        UPDATE market_listings
+        SET status = 'ACTIVE', paused_at = NULL
+        WHERE id = ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, listing.id());
+      statement.executeUpdate();
+    }
+    return new ListingStatusResult(listing.id(), "ACTIVE");
+  }
+
   private ListingPriceUpdateResult updateListingPriceInTransaction(
       Connection connection,
       long sellerUserId,
       long listingId,
       long newPrice) throws SQLException {
     MarketListing listing = readListingForUpdate(connection, listingId);
-    if (!listing.status().equals("ACTIVE")) {
-      throw new ServiceException("listing_unavailable", "Listing is no longer active");
+    if (!"ACTIVE".equalsIgnoreCase(listing.status()) && !"PAUSED".equalsIgnoreCase(listing.status())) {
+      throw new ServiceException("listing_unavailable", "Listing is no longer editable");
     }
     if (listing.sellerUserId() != sellerUserId) {
       throw new ServiceException("forbidden", "Only the owner can update listing price");
@@ -555,8 +616,8 @@ class MarketService {
       long listingId,
       String remark) throws SQLException {
     MarketListing listing = readListingForUpdate(connection, listingId);
-    if (!listing.status().equals("ACTIVE")) {
-      throw new ServiceException("listing_unavailable", "Listing is no longer active");
+    if (!"ACTIVE".equalsIgnoreCase(listing.status()) && !"PAUSED".equalsIgnoreCase(listing.status())) {
+      throw new ServiceException("listing_unavailable", "Listing is no longer editable");
     }
     if (listing.sellerUserId() != sellerUserId) {
       throw new ServiceException("forbidden", "Only the owner can update listing remark");
@@ -707,13 +768,13 @@ class MarketService {
   private UnlistResult adminUnlistInTransaction(Connection connection, long listingId)
       throws SQLException {
     MarketListing listing = readListingForUpdate(connection, listingId);
-    if (!listing.status().equals("ACTIVE")) {
+    if (!"ACTIVE".equalsIgnoreCase(listing.status()) && !"PAUSED".equalsIgnoreCase(listing.status())) {
       throw new ServiceException("listing_unavailable", "Listing is no longer active");
     }
 
     String updateSql = """
         UPDATE market_listings
-        SET status = 'UNLISTED', unlisted_at = NOW()
+        SET status = 'UNLISTED', unlisted_at = NOW(), paused_at = NULL
         WHERE id = ?
         """;
     try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
@@ -1155,5 +1216,8 @@ class MarketService {
   }
 
   record ListingRemarkUpdateResult(long listingId, String remark) {
+  }
+
+  record ListingStatusResult(long listingId, String status) {
   }
 }

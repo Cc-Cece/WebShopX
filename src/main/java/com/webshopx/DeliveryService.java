@@ -62,6 +62,17 @@ class DeliveryService {
     }
   }
 
+  void processPlayerJoin(Player player) {
+    UUID playerUuid = player.getUniqueId();
+    try {
+      promoteOfflineRetries(playerUuid);
+      processDueDeliveries(playerUuid);
+      notifyClaimHint(player);
+    } catch (Exception exception) {
+      databaseManager.logFailure("Failed to process player join deliveries", exception);
+    }
+  }
+
   ClaimSummary claimPending(Player player, String token) {
     ClaimFilters filters = resolveClaimFilters(player, token);
     int success = 0;
@@ -238,6 +249,39 @@ class DeliveryService {
     for (MarketItemDeliveryTask task : tasks) {
       handleMarketTask(task, false, null);
     }
+  }
+
+  private void promoteOfflineRetries(UUID playerUuid) {
+    databaseManager.withConnection(connection -> {
+      String commandSql = """
+          UPDATE delivery_queue dq
+          JOIN orders o ON o.id = dq.order_id
+          SET dq.next_retry_at = NOW()
+          WHERE dq.mc_uuid = ?
+            AND dq.status = 'PENDING'
+            AND o.status = 'PENDING'
+            AND dq.last_error = '玩家离线'
+            AND dq.next_retry_at > NOW()
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(commandSql)) {
+        statement.setString(1, playerUuid.toString());
+        statement.executeUpdate();
+      }
+
+      String marketSql = """
+          UPDATE market_item_deliveries
+          SET next_retry_at = NOW()
+          WHERE target_uuid = ?
+            AND status = 'PENDING'
+            AND last_error = '玩家离线'
+            AND next_retry_at > NOW()
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(marketSql)) {
+        statement.setString(1, playerUuid.toString());
+        statement.executeUpdate();
+      }
+      return null;
+    });
   }
 
   @SuppressFBWarnings(
@@ -617,6 +661,16 @@ class DeliveryService {
         statement.setLong(2, deliveryId);
         statement.executeUpdate();
       }
+      String updateOrderSql = """
+          UPDATE orders
+          SET status = 'WAIT_CLAIM'
+          WHERE id = ?
+            AND status IN ('PENDING', 'WAIT_CLAIM')
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(updateOrderSql)) {
+        statement.setLong(1, orderId);
+        statement.executeUpdate();
+      }
       return null;
     });
   }
@@ -648,6 +702,16 @@ class DeliveryService {
     databaseManager.withConnection(connection -> {
       if (task.tradeId() != null) {
         ClaimTokenRepository.ensureMarketTradeToken(connection, task.tradeId());
+        String updateTradeSql = """
+            UPDATE market_trades
+            SET status = 'WAIT_CLAIM'
+            WHERE id = ?
+              AND status IN ('PENDING', 'WAIT_CLAIM')
+            """;
+        try (PreparedStatement statement = connection.prepareStatement(updateTradeSql)) {
+          statement.setLong(1, task.tradeId());
+          statement.executeUpdate();
+        }
       }
       String sql = """
           UPDATE market_item_deliveries

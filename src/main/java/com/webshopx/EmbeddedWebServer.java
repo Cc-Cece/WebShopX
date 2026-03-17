@@ -99,6 +99,8 @@ class EmbeddedWebServer {
     server.createContext("/api/market/listings", this::handleMarketListings);
     server.createContext("/api/market/buy", this::handleMarketBuy);
     server.createContext("/api/market/unlist", this::handleMarketUnlist);
+    server.createContext("/api/market/pause", this::handleMarketPause);
+    server.createContext("/api/market/resume", this::handleMarketResume);
     server.createContext("/api/market/price", this::handleMarketPrice);
     server.createContext("/api/market/remark", this::handleMarketRemark);
     server.createContext("/api/admin/auth/login", this::handleAdminLogin);
@@ -319,6 +321,11 @@ class EmbeddedWebServer {
         } else {
           item.addProperty("itemAmount", product.itemAmount());
         }
+        if (product.stockRemaining() == null) {
+          item.add("stockRemaining", JsonNull.INSTANCE);
+        } else {
+          item.addProperty("stockRemaining", product.stockRemaining());
+        }
         if (product.effectType() == null) {
           item.add("effectType", JsonNull.INSTANCE);
         } else {
@@ -501,6 +508,7 @@ class EmbeddedWebServer {
       response.add("orders", array);
       response.addProperty("cooldownSeconds", settingsSupplier.get().orderCooldownSeconds());
       response.addProperty("refundUndeliveredEnabled", settingsSupplier.get().refundUndeliveredEnabled());
+      response.addProperty("sharedClaimAllowed", settingsSupplier.get().allowSharedClaimCommand());
       sendJson(exchange, 200, response);
     });
   }
@@ -719,6 +727,44 @@ class EmbeddedWebServer {
       response.addProperty("currency", result.currency().name());
       response.addProperty("price", result.price());
       response.addProperty("quantity", result.quantity());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleMarketPause(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      long listingId = getLong(payload, "listingId", -1L);
+      MarketService.ListingStatusResult result = marketService.pause(user.id(), listingId);
+      JsonObject response = new JsonObject();
+      response.addProperty("listingId", result.listingId());
+      response.addProperty("status", result.status());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleMarketResume(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      long listingId = getLong(payload, "listingId", -1L);
+      MarketService.ListingStatusResult result = marketService.resume(user.id(), listingId);
+      JsonObject response = new JsonObject();
+      response.addProperty("listingId", result.listingId());
+      response.addProperty("status", result.status());
       sendJson(exchange, 200, response);
     });
   }
@@ -984,6 +1030,11 @@ class EmbeddedWebServer {
         } else {
           row.addProperty("itemAmount", product.itemAmount());
         }
+        if (product.stockRemaining() == null) {
+          row.add("stockRemaining", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("stockRemaining", product.stockRemaining());
+        }
         if (product.effectType() == null) {
           row.add("effectType", JsonNull.INSTANCE);
         } else {
@@ -1054,6 +1105,16 @@ class EmbeddedWebServer {
       response.addProperty("price", product.price());
       response.addProperty("productType", product.productType().name());
       response.addProperty("active", product.active());
+      if (product.itemAmount() == null) {
+        response.add("itemAmount", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("itemAmount", product.itemAmount());
+      }
+      if (product.stockRemaining() == null) {
+        response.add("stockRemaining", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("stockRemaining", product.stockRemaining());
+      }
       sendJson(exchange, 200, response);
 
       JsonObject detail = new JsonObject();

@@ -22,8 +22,8 @@
     marketDigest: {},
   },
   currencyMeta: {
-    SHOP_COIN: { name: "ShopCoin", short: "SC" },
-    GAME_COIN: { name: "GameCoin", short: "GC" },
+    SHOP_COIN: { name: "网页币", short: "SC" },
+    GAME_COIN: { name: "游戏币", short: "GC" },
   },
 };
 
@@ -130,6 +130,7 @@ const elements = {
   productType: document.getElementById("productType"),
   productCommand: document.getElementById("productCommand"),
   productItemMaterial: document.getElementById("productItemMaterial"),
+  productStockMode: document.getElementById("productStockMode"),
   productItemAmount: document.getElementById("productItemAmount"),
   productEffectType: document.getElementById("productEffectType"),
   productEffectSeconds: document.getElementById("productEffectSeconds"),
@@ -593,16 +594,42 @@ function setProductPanel(panelName) {
 }
 
 function syncProductAmountSlider(source = "input") {
-  const inputValue = Number(elements.productItemAmount?.value || 1);
-  const sliderValue = Number(elements.productItemAmountSlider?.value || 1);
+  const isUnlimited = elements.productStockMode?.value === "UNLIMITED";
+  const slider = elements.productItemAmountSlider;
+  const input = elements.productItemAmount;
+  if (input) {
+    input.disabled = isUnlimited;
+    input.placeholder = isUnlimited ? "无限库存" : "";
+  }
+  if (slider) {
+    slider.disabled = isUnlimited;
+  }
+  if (isUnlimited) {
+    if (input && String(input.value || "").trim()) {
+      input.dataset.lastFiniteValue = input.value;
+      input.value = "";
+    }
+    if (elements.productAmountPreview) {
+      elements.productAmountPreview.textContent = "无限";
+    }
+    if (elements.productTotalPreview) {
+      elements.productTotalPreview.textContent = "不限";
+    }
+    return;
+  }
+  if (input && !String(input.value || "").trim()) {
+    input.value = input.dataset.lastFiniteValue || (slider ? slider.value : "64") || "64";
+  }
+  const inputValue = Number(input?.value || 1);
+  const sliderValue = Number(slider?.value || 1);
   const rawValue = source === "slider" ? sliderValue : inputValue;
   const normalized = Math.max(1, Math.floor(Number.isFinite(rawValue) ? rawValue : 1));
-  const slider = elements.productItemAmountSlider;
   if (slider && normalized > Number(slider.max || 256)) {
     slider.max = String(normalized);
   }
-  if (elements.productItemAmount) {
-    elements.productItemAmount.value = String(normalized);
+  if (input) {
+    input.value = String(normalized);
+    input.dataset.lastFiniteValue = String(normalized);
   }
   if (slider) {
     slider.value = String(normalized);
@@ -1032,6 +1059,7 @@ async function loadRedeemList() {
 }
 
 function getProductInput() {
+  const isUnlimited = elements.productStockMode?.value === "UNLIMITED";
   const rawItemAmount = String(elements.productItemAmount.value || "").trim();
   const parsedItemAmount = rawItemAmount ? Number(rawItemAmount) : null;
   return {
@@ -1045,7 +1073,9 @@ function getProductInput() {
     productType: elements.productType.value.trim(),
     commandTemplate: elements.productCommand.value.trim(),
     itemMaterial: resolveMaterialInput(elements.productItemMaterial.value),
-    itemAmount:
+    itemAmount: isUnlimited
+      ? null
+      :
       parsedItemAmount && Number.isFinite(parsedItemAmount) && parsedItemAmount > 0
         ? Math.floor(parsedItemAmount)
         : null,
@@ -1146,6 +1176,9 @@ function renderProducts() {
       elements.productType.value = product.productType;
       elements.productCommand.value = product.commandTemplate || "";
       elements.productItemMaterial.value = product.itemMaterial || "";
+      if (elements.productStockMode) {
+        elements.productStockMode.value = product.itemAmount == null ? "UNLIMITED" : "FINITE";
+      }
       elements.productItemAmount.value = product.itemAmount || 64;
       elements.productEffectType.value = product.effectType || "";
       elements.productEffectSeconds.value = product.effectSeconds || 30;
@@ -1172,7 +1205,8 @@ function renderProducts() {
         { label: "ID", value: product.id },
         { label: "类型", value: product.productType },
         { label: "材质", value: product.itemMaterial ? `${product.itemMaterial} (${getLocalizedMaterialName(product.itemMaterial)})` : "-" },
-        { label: "上限", value: product.itemAmount ? `x${product.itemAmount}` : "x64(默认)" },
+        { label: "总库存", value: product.itemAmount ? `x${product.itemAmount}` : "长期供应" },
+        { label: "剩余库存", value: product.stockRemaining != null ? `x${product.stockRemaining}` : "长期供应" },
         { label: "币种/价格", value: `${currencyName(product.currency)} / ${formatCurrency(product.price, product.currency)}` },
         { label: "备注", value: product.remark || "-" },
         { label: "上架时间", value: product.publishAt || "立即" },
@@ -1683,6 +1717,9 @@ if (elements.productVoucherTabBtn) {
 if (elements.productItemAmount) {
   elements.productItemAmount.addEventListener("input", () => syncProductAmountSlider("input"));
 }
+if (elements.productStockMode) {
+  elements.productStockMode.addEventListener("change", () => syncProductAmountSlider("input"));
+}
 if (elements.productItemAmountSlider) {
   elements.productItemAmountSlider.addEventListener("input", () => syncProductAmountSlider("slider"));
 }
@@ -1948,7 +1985,3 @@ if (elements.userListStatus) {
   setMetaText(elements.userListStatus, "等待加载列表", "info");
 }
 renderAdminProfile();
-
-
-
-

@@ -97,11 +97,11 @@
         </div>
         <div class="field-grid three-col">
           <label class="field">
-            <span id="adminRedeemShopCoinLabel">ShopCoin</span>
+            <span id="adminRedeemShopCoinLabel">网页币</span>
             <input id="redeemShopCoin" type="number" min="0" step="1" value="0" />
           </label>
           <label class="field">
-            <span id="adminRedeemGameCoinLabel">GameCoin</span>
+            <span id="adminRedeemGameCoinLabel">游戏币</span>
             <input id="redeemGameCoin" type="number" min="0" step="1" value="0" />
           </label>
           <label class="field">
@@ -169,8 +169,8 @@
             <label class="field">
               <span>交易币种</span>
               <select id="productCurrency">
-                <option value="SHOP_COIN">ShopCoin</option>
-                <option value="GAME_COIN">GameCoin</option>
+                <option value="SHOP_COIN">网页币</option>
+                <option value="GAME_COIN">游戏币</option>
               </select>
             </label>
             <label class="field">
@@ -212,10 +212,6 @@
               <input id="productItemMaterial" list="materialSuggestList" placeholder="例如 DIAMOND / 钻石" />
             </label>
             <label class="field">
-              <span>最大购买数量（上限/库存）</span>
-              <input id="productItemAmount" type="number" min="1" step="1" value="64" />
-            </label>
-            <label class="field">
               <span>药水效果（POTION）</span>
               <input id="productEffectType" list="potionEffectSuggestList" placeholder="例如 speed" />
             </label>
@@ -232,20 +228,28 @@
               <textarea id="productRemark" rows="3" placeholder="可填写用途说明、注意事项、团购兑换说明等"></textarea>
             </label>
           </div>
-          <div class="field-grid two-col product-range-grid">
+          <div class="field-grid three-col product-range-grid">
             <label class="field">
-              <span>数量滑动条</span>
-              <input id="productItemAmountSlider" class="range-input" type="range" min="1" max="256" step="1" value="64" />
+              <span>库存模式</span>
+              <select id="productStockMode">
+                <option value="FINITE">有限库存</option>
+                <option value="UNLIMITED">无限库存</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>总库存</span>
+              <input id="productItemAmount" type="number" min="1" step="1" value="64" />
             </label>
             <div class="range-summary-card">
-              <p class="range-summary-kicker">数量预览</p>
+              <p class="range-summary-kicker">库存预览</p>
+              <input id="productItemAmountSlider" class="range-input" type="range" min="1" max="256" step="1" value="64" />
               <div class="range-summary-row">
-                <span>当前数量</span>
+                <span>当前状态</span>
                 <strong id="productAmountPreview">x64</strong>
               </div>
               <div class="range-summary-row">
-                <span>总价预览</span>
-                <strong id="productTotalPreview">SC 64</strong>
+                <span>库存货值预览</span>
+                <strong id="productTotalPreview">待计算</strong>
               </div>
             </div>
           </div>
@@ -344,8 +348,8 @@
             <span>币种</span>
             <select id="orderCurrency">
               <option value="">全部</option>
-              <option value="SHOP_COIN">ShopCoin</option>
-              <option value="GAME_COIN">GameCoin</option>
+              <option value="SHOP_COIN">网页币</option>
+              <option value="GAME_COIN">游戏币</option>
             </select>
           </label>
           <label class="field">
@@ -374,28 +378,28 @@
       <div class="grid two-col">
         <article class="md-card section-card">
           <h2>兑换方向与比例</h2>
-          <p class="card-desc">配置 <span id="economyShopCoinName">ShopCoin</span> 与 <span id="economyGameCoinName">GameCoin</span> 的兑换方向与比例。</p>
+          <p class="card-desc">配置 <span id="economyShopCoinName">网页币</span> 与 <span id="economyGameCoinName">游戏币</span> 的兑换方向与比例。</p>
           <div class="field-grid two-col">
             <label class="field">
-              <span><span id="exchangeShopToGameNameA">ShopCoin</span> -> <span id="exchangeShopToGameNameB">GameCoin</span> 开关</span>
+              <span><span id="exchangeShopToGameNameA">网页币</span> -> <span id="exchangeShopToGameNameB">游戏币</span> 开关</span>
               <select id="exchangeShopToGameEnabled">
                 <option value="true">启用</option>
                 <option value="false">禁用</option>
               </select>
             </label>
             <label class="field">
-              <span><span id="exchangeShopToGameNameC">ShopCoin</span> -> <span id="exchangeShopToGameNameD">GameCoin</span> 比例</span>
+              <span><span id="exchangeShopToGameNameC">网页币</span> -> <span id="exchangeShopToGameNameD">游戏币</span> 比例</span>
               <input id="exchangeShopToGameRatio" type="number" min="0" step="0.01" value="1.0" />
             </label>
             <label class="field">
-              <span><span id="exchangeGameToShopNameA">GameCoin</span> -> <span id="exchangeGameToShopNameB">ShopCoin</span> 开关</span>
+              <span><span id="exchangeGameToShopNameA">游戏币</span> -> <span id="exchangeGameToShopNameB">网页币</span> 开关</span>
               <select id="exchangeGameToShopEnabled">
                 <option value="true">启用</option>
                 <option value="false">禁用</option>
               </select>
             </label>
             <label class="field">
-              <span><span id="exchangeGameToShopNameC">GameCoin</span> -> <span id="exchangeGameToShopNameD">ShopCoin</span> 比例</span>
+              <span><span id="exchangeGameToShopNameC">游戏币</span> -> <span id="exchangeGameToShopNameD">网页币</span> 比例</span>
               <input id="exchangeGameToShopRatio" type="number" min="0" step="0.01" value="1.0" />
             </label>
           </div>
@@ -426,7 +430,7 @@
 
         <article class="md-card section-card">
           <h2>Vault 对接状态</h2>
-          <p class="card-desc"><span id="vaultGameCoinName">GameCoin</span> 与 Vault 经济系统的连接状态。</p>
+          <p class="card-desc"><span id="vaultGameCoinName">游戏币</span> 与 Vault 经济系统的连接状态。</p>
           <p class="meta" id="vaultStatusView">等待加载</p>
         </article>
       </div>
@@ -467,8 +471,8 @@
             <span>币种</span>
             <select id="marketCurrency">
               <option value="">全部</option>
-              <option value="SHOP_COIN">ShopCoin</option>
-              <option value="GAME_COIN">GameCoin</option>
+              <option value="SHOP_COIN">网页币</option>
+              <option value="GAME_COIN">游戏币</option>
             </select>
           </label>
           <label class="field">
@@ -517,8 +521,8 @@
             <label class="field">
               <span>调整币种</span>
               <select id="walletCurrency">
-                <option value="SHOP_COIN">ShopCoin</option>
-                <option value="GAME_COIN">GameCoin</option>
+                <option value="SHOP_COIN">网页币</option>
+                <option value="GAME_COIN">游戏币</option>
               </select>
             </label>
             <label class="field">

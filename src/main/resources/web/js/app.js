@@ -44,11 +44,11 @@
 
 const CURRENCY_META = {
   SHOP_COIN: {
-    label: "ShopCoin",
+    label: "网页币",
     short: "SC",
   },
   GAME_COIN: {
-    label: "GameCoin",
+    label: "游戏币",
     short: "GC",
   },
 };
@@ -449,24 +449,44 @@ function openDeliveryConfirmDialog({
   if (summary) {
     const summaryCard = createEl("div", "checkout-summary");
     summaryCard.appendChild(createEl("p", "checkout-kicker", "结算摘要"));
-    const rows = [
-      ["小计", formatCurrency(summary.subtotal, summary.currency)],
-      [summary.taxLabel || "税额（买家承担）", formatCurrency(summary.taxAmount, summary.currency)],
-      // [summary.feeLabel || "手续费（卖家承担）", formatCurrency(summary.feeAmount, summary.currency)],
-      ["最终扣款", formatCurrency(summary.finalAmount, summary.currency)],
-      // ["当前余额", formatCurrency(summary.currentBalance, summary.currency)],
-      ["结算后余额", formatCurrency(summary.remainingBalance, summary.currency)],
-    ];
-    rows.forEach(([label, value]) => {
+    const rows = [];
+    rows.push(["小计", formatCurrency(summary.subtotal, summary.currency)]);
+    if (Number(summary.taxAmount || 0) > 0) {
+      rows.push([summary.taxLabel || "税额（买家承担）", formatCurrency(summary.taxAmount, summary.currency)]);
+    }
+    rows.push(["最终扣款", formatCurrency(summary.finalAmount, summary.currency), "negative"]);
+    const hasCurrentBalance = Number.isFinite(summary.currentBalance);
+    const hasRemainingBalance = Number.isFinite(summary.remainingBalance);
+    const isInsufficient = hasRemainingBalance && summary.remainingBalance < 0;
+    if (hasCurrentBalance && hasRemainingBalance) {
+      rows.push([
+        "余额变化",
+        `${formatCurrency(summary.currentBalance, summary.currency)} → ${formatCurrency(summary.remainingBalance, summary.currency)}`,
+        isInsufficient ? "balance-negative" : "balance-positive",
+      ]);
+    } else if (hasRemainingBalance) {
+      rows.push([
+        isInsufficient ? "余额不足" : "结算后余额",
+        formatCurrency(summary.remainingBalance, summary.currency),
+        isInsufficient ? "balance-negative" : "balance-positive",
+      ]);
+    }
+    rows.forEach(([label, value, tone]) => {
       const row = createEl("div", "checkout-row");
       row.appendChild(createEl("span", "", label));
       const valueNode = createEl("strong", "checkout-value", value);
       row.appendChild(valueNode);
-      if (label === "最终扣款" || label === "结算后余额") {
+      if (tone === "emphasis") {
         row.classList.add("emphasis");
       }
-      if (label === "结算后余额" && summary.remainingBalance < 0) {
+      if (tone === "negative") {
         row.classList.add("negative");
+      }
+      if (tone === "balance-positive") {
+        valueNode.classList.add("checkout-pill", "checkout-pill-positive");
+      }
+      if (tone === "balance-negative") {
+        valueNode.classList.add("checkout-pill", "checkout-pill-negative");
       }
       summaryCard.appendChild(row);
     });
@@ -474,13 +494,13 @@ function openDeliveryConfirmDialog({
 
     const note = createEl(
       "p",
-      summary.remainingBalance < 0 ? "checkout-warning negative" : "checkout-warning",
-      summary.remainingBalance < 0
+      isInsufficient ? "checkout-warning negative" : "checkout-warning",
+      isInsufficient
         ? `余额不足，还差 ${formatCurrency(Math.abs(summary.remainingBalance), summary.currency)}。`
-        : "确认后将按以上金额进行结算。"
+        : "确认后将按照以上金额结算。"
     );
     elements.confirmDetails.appendChild(note);
-    elements.confirmOkBtn.disabled = summary.remainingBalance < 0;
+    elements.confirmOkBtn.disabled = isInsufficient;
   } else {
     elements.confirmOkBtn.disabled = false;
   }
@@ -748,6 +768,20 @@ function defaultDeliveryModeForProduct(product) {
   return "IMMEDIATE";
 }
 
+function resolveOfficialProductStock(product) {
+  const totalStock = Number(product?.itemAmount);
+  const remainingStock = Number(product?.stockRemaining);
+  const hasTrackedStock = Number.isFinite(totalStock) && Number.isFinite(remainingStock);
+  return {
+    totalStock,
+    remainingStock,
+    hasTrackedStock,
+    maxQuantity: hasTrackedStock
+      ? Math.max(0, Math.floor(remainingStock))
+      : Math.max(1, Math.floor(Number(product?.itemAmount || 64))),
+  };
+}
+
 function deliveryModeLabel(mode) {
   const key = String(mode || "").toUpperCase();
   if (key === "CLAIM") {
@@ -937,6 +971,22 @@ function formatWalletInline(shopCoin, gameCoin) {
   return `${formatCurrency(shopCoin, "SHOP_COIN")} | ${formatCurrency(gameCoin, "GAME_COIN")}`;
 }
 
+function summarizeWalletDelta(nextWallet, previousWallet) {
+  if (!nextWallet || !previousWallet) {
+    return "";
+  }
+  const parts = [];
+  const deltaShop = Number(nextWallet.shopCoin || 0) - Number(previousWallet.shopCoin || 0);
+  const deltaGame = Number(nextWallet.gameCoin || 0) - Number(previousWallet.gameCoin || 0);
+  if (deltaShop !== 0) {
+    parts.push(formatCurrency(deltaShop, "SHOP_COIN"));
+  }
+  if (deltaGame !== 0) {
+    parts.push(formatCurrency(deltaGame, "GAME_COIN"));
+  }
+  return parts.join(" / ");
+}
+
 function parseMeta(raw) {
   if (!raw) {
     return {};
@@ -1113,6 +1163,22 @@ function formatAge(isoText) {
 
   const days = Math.floor(hours / 24);
   return `${days} 天前`;
+}
+
+function formatListingStatus(status) {
+  const normalized = String(status || "").toUpperCase();
+  switch (normalized) {
+    case "ACTIVE":
+      return "在售";
+    case "PAUSED":
+      return "已停用";
+    case "UNLISTED":
+      return "已退回";
+    case "SOLD":
+      return "已售";
+    default:
+      return normalized || "--";
+  }
 }
 
 function formatDateTime(isoText) {
@@ -1467,10 +1533,10 @@ async function pollRealtimeSync() {
         if (deltaShop !== 0 || deltaGame !== 0) {
           const parts = [];
           if (deltaShop !== 0) {
-            parts.push(`SC ${deltaShop > 0 ? "+" : ""}${formatAmount(deltaShop)}`);
+            parts.push(formatCurrency(deltaShop, "SHOP_COIN"));
           }
           if (deltaGame !== 0) {
-            parts.push(`GC ${deltaGame > 0 ? "+" : ""}${formatAmount(deltaGame)}`);
+            parts.push(formatCurrency(deltaGame, "GAME_COIN"));
           }
           notify(`余额变动：${parts.join(" / ")}`, deltaShop + deltaGame >= 0 ? "success" : "warn");
         }
@@ -1582,7 +1648,8 @@ function renderProducts(products) {
   for (const product of products) {
     const card = createEl("article", "product-card market-card official-card");
     const isGroupBuyVoucher = String(product.productType || "").toUpperCase() === "GROUP_BUY_VOUCHER";
-    const maxQuantity = Math.max(1, Number(product.itemAmount || 64));
+    const stock = resolveOfficialProductStock(product);
+    const isSoldOut = stock.hasTrackedStock && stock.maxQuantity <= 0;
     const top = createEl("div", "market-top");
     top.appendChild(createEl("span", "market-chip official", productTypeLabel(product.productType)));
     top.appendChild(createEl("span", "market-time", product.unpublishAt ? `下架：${formatDateTime(product.unpublishAt)}` : "长期供应"));
@@ -1605,12 +1672,14 @@ function renderProducts(products) {
     main.appendChild(detail);
     card.appendChild(main);
 
-    const selectionProgress = createProgressIndicator(
-      1,
-      maxQuantity,
-      (current, total) => `已选 x${current} / 上限 x${total}`
-    );
-    card.appendChild(selectionProgress.wrap);
+    const stockProgress = stock.hasTrackedStock
+      ? createProgressIndicator(
+          stock.remainingStock,
+          stock.totalStock,
+          (current, total) => `剩余 x${current} / 总量 x${total}`
+        )
+      : createProgressIndicator(1, 1, () => "库存：长期供应");
+    card.appendChild(stockProgress.wrap);
 
     const priceRow = createEl("div", "market-price-row");
     priceRow.appendChild(createEl("p", "market-price-label", "单价"));
@@ -1623,27 +1692,29 @@ function renderProducts(products) {
     }
 
     const actions = createEl("div", "market-actions-row");
-    const quantitySelector = createQuantitySelector({
-      max: product.itemAmount || 64,
-      unitPrice: Number(product.price || 0),
-      currency: product.currency,
-      totalClassName: "quantity-total",
-    });
-    quantitySelector.numberInput.addEventListener("input", () => {
-      selectionProgress.update(Number(quantitySelector.numberInput.value || 1), maxQuantity);
-    });
-    quantitySelector.rangeInput.addEventListener("input", () => {
-      selectionProgress.update(Number(quantitySelector.rangeInput.value || 1), maxQuantity);
-    });
-    const buyWrap = createEl("div", "market-buy-wrap");
-    buyWrap.appendChild(quantitySelector.wrap);
+    if (isSoldOut) {
+      const soldOutBtn = createEl("button", "market-action-btn", "已售罄");
+      soldOutBtn.type = "button";
+      soldOutBtn.disabled = true;
+      actions.appendChild(soldOutBtn);
+    } else {
+      const quantitySelector = createQuantitySelector({
+        max: stock.maxQuantity,
+        unitPrice: Number(product.price || 0),
+        currency: product.currency,
+        totalClassName: "market-total",
+      });
 
-    const button = createEl("button", "product-buy-btn market-action-btn", isGroupBuyVoucher ? "购买兑换码" : "立即下单");
-    button.type = "button";
-    button.dataset.productId = String(product.id);
-    button.dataset.productSku = product.sku || "";
-    buyWrap.appendChild(button);
-    actions.appendChild(buyWrap);
+      const buyBtn = createEl("button", "market-action-btn product-buy-btn", "立即购买");
+      buyBtn.type = "button";
+      buyBtn.dataset.action = "buy-product";
+      buyBtn.dataset.productId = String(product.id);
+      buyBtn.dataset.maxQuantity = String(stock.maxQuantity);
+      const buyWrap = createEl("div", "market-buy-wrap");
+      buyWrap.appendChild(quantitySelector.wrap);
+      buyWrap.appendChild(buyBtn);
+      actions.appendChild(buyWrap);
+    }
     footer.appendChild(actions);
 
     card.appendChild(footer);
@@ -1663,7 +1734,9 @@ function renderListings(listings, container = elements.marketList) {
   for (const listing of listings) {
     const meta = parseMeta(listing.itemMetaJson);
     const isOwner = !!state.username && listing.sellerName === state.username;
-    const isActive = listing.status === "ACTIVE";
+    const normalizedStatus = String(listing.status || "").toUpperCase();
+    const isActive = normalizedStatus === "ACTIVE";
+    const isPaused = normalizedStatus === "PAUSED";
 
     const displayName = stripColorCodes(meta.displayName || "");
     const localizedName = displayName || getLocalizedMaterialName(listing.itemMaterial);
@@ -1671,10 +1744,11 @@ function renderListings(listings, container = elements.marketList) {
     const card = createEl("article", "market-card");
 
     const top = createEl("div", "market-top");
+    const statusClass = isActive ? "sale" : isPaused ? "paused" : "inactive";
     top.appendChild(createEl(
       "span",
-      `market-chip ${isActive ? "sale" : "inactive"}`,
-      isActive ? "在售" : listing.status
+      `market-chip ${statusClass}`,
+      formatListingStatus(normalizedStatus)
     ));
     top.appendChild(createEl("span", "market-time", formatAge(listing.createdAt)));
     card.appendChild(top);
@@ -1721,49 +1795,74 @@ function renderListings(listings, container = elements.marketList) {
     footer.appendChild(seller);
 
     const actions = createEl("div", "market-actions-row");
-    if (isActive) {
-      if (isOwner) {
-        const editBtn = createEl("button", "market-action-btn btn-tonal", "修改");
-        editBtn.type = "button";
-        editBtn.dataset.action = "edit";
-        editBtn.dataset.listingId = String(listing.id);
-        editBtn.dataset.currentPrice = String(listing.price);
-        editBtn.dataset.currency = listing.currency;
-        editBtn.dataset.currentRemark = listing.remark || "";
+    if (isOwner) {
+      const editBtn = createEl("button", "market-action-btn btn-tonal", "编辑");
+      editBtn.type = "button";
+      editBtn.dataset.action = "edit";
+      editBtn.dataset.listingId = String(listing.id);
+      editBtn.dataset.currentPrice = String(listing.price);
+      editBtn.dataset.currency = listing.currency;
+      editBtn.dataset.currentRemark = listing.remark || "";
+      actions.appendChild(editBtn);
 
-        const unlistBtn = createEl("button", "market-action-btn unlist", "下架并退回");
+      if (isActive) {
+        const pauseBtn = createEl("button", "market-action-btn", "临时下架");
+        pauseBtn.type = "button";
+        pauseBtn.dataset.action = "pause";
+        pauseBtn.dataset.listingId = String(listing.id);
+
+        const unlistBtn = createEl("button", "market-action-btn unlist", "下架退回");
         unlistBtn.type = "button";
         unlistBtn.dataset.action = "unlist";
         unlistBtn.dataset.listingId = String(listing.id);
-        actions.appendChild(editBtn);
+
+        actions.appendChild(pauseBtn);
+        actions.appendChild(unlistBtn);
+      } else if (isPaused) {
+        const resumeBtn = createEl("button", "market-action-btn sale", "恢复上架");
+        resumeBtn.type = "button";
+        resumeBtn.dataset.action = "resume";
+        resumeBtn.dataset.listingId = String(listing.id);
+
+        const unlistBtn = createEl("button", "market-action-btn unlist", "下架退回");
+        unlistBtn.type = "button";
+        unlistBtn.dataset.action = "unlist";
+        unlistBtn.dataset.listingId = String(listing.id);
+
+        actions.appendChild(resumeBtn);
         actions.appendChild(unlistBtn);
       } else {
-        const quantitySelector = createQuantitySelector({
-          max: listing.quantity || 1,
-          unitPrice: Number(listing.price || 0),
-          currency: listing.currency,
-          totalClassName: "market-total",
-        });
-
-        const buyBtn = createEl("button", "market-action-btn", "立即购买");
-        buyBtn.type = "button";
-        buyBtn.dataset.action = "buy";
-        buyBtn.dataset.listingId = String(listing.id);
-        buyBtn.dataset.currency = listing.currency;
-        buyBtn.dataset.unitPrice = String(listing.price);
-        buyBtn.dataset.maxQuantity = String(Math.max(1, Number(listing.quantity || 1)));
-        const buyWrap = createEl("div", "market-buy-wrap");
-        buyWrap.appendChild(quantitySelector.wrap);
-        buyWrap.appendChild(buyBtn);
-        actions.appendChild(buyWrap);
+        const disabledBtn = createEl("button", "market-action-btn", "不可操作");
+        disabledBtn.type = "button";
+        disabledBtn.disabled = true;
+        actions.appendChild(disabledBtn);
       }
+    } else if (isActive) {
+      const quantitySelector = createQuantitySelector({
+        max: listing.quantity || 1,
+        unitPrice: Number(listing.price || 0),
+        currency: listing.currency,
+        totalClassName: "market-total",
+      });
+
+      const buyBtn = createEl("button", "market-action-btn", "立即购买");
+      buyBtn.type = "button";
+      buyBtn.dataset.action = "buy";
+      buyBtn.dataset.listingId = String(listing.id);
+      buyBtn.dataset.currency = listing.currency;
+      buyBtn.dataset.unitPrice = String(listing.price);
+      buyBtn.dataset.maxQuantity = String(Math.max(1, Number(listing.quantity || 1)));
+      const buyWrap = createEl("div", "market-buy-wrap");
+      buyWrap.appendChild(quantitySelector.wrap);
+      buyWrap.appendChild(buyBtn);
+      actions.appendChild(buyWrap);
     } else {
-      const disabledBtn = createEl("button", "market-action-btn", "不可操作");
+      const disabledBtn = createEl("button", "market-action-btn", "暂不可买");
       disabledBtn.disabled = true;
       actions.appendChild(disabledBtn);
     }
-
     footer.appendChild(actions);
+
     card.appendChild(footer);
     container.appendChild(card);
   }
@@ -2009,6 +2108,9 @@ async function loadOrderPolicy() {
     state.orderPolicy.sharedClaimAllowed = false;
     state.orderPolicyReady = true;
   }
+  if (state.hasLoadedOrders) {
+    renderOrders(state.orders);
+  }
 }
 
 function renderOrders(orders) {
@@ -2091,9 +2193,9 @@ function renderOrders(orders) {
     if (isWaitClaim && order.claimToken) {
       const claimBox = createEl("div", "claim-command");
       const command = `/ws claim ${order.claimToken}`;
-      const label = createEl("div", "claim-command__label", "????");
+      const label = createEl("div", "claim-command__label", "领取命令");
       const commandNode = createEl("code", "claim-command__code", command);
-      const copyBtn = createEl("button", "btn-tonal", "??");
+      const copyBtn = createEl("button", "btn-tonal", "复制命令");
       copyBtn.type = "button";
       copyBtn.dataset.action = "copyClaim";
       copyBtn.dataset.command = command;
@@ -2101,8 +2203,8 @@ function renderOrders(orders) {
       claimBox.appendChild(label);
       claimBox.appendChild(copyBtn);
       const hintText = state.orderPolicy.sharedClaimAllowed
-        ? "???????????????"
-        : "??????????????";
+        ? "已允许非本人在游戏内输入该命令代领，请谨慎分享。"
+        : "命令仅限订单本人输入生效，分享给他人也无法领取。";
       claimBox.appendChild(createEl("p", "claim-command__hint", hintText));
       card.appendChild(claimBox);
     }
@@ -2155,6 +2257,9 @@ async function loadOrders(options = {}) {
       state.orderPolicy.refundUndeliveredEnabled = !!payload.refundUndeliveredEnabled;
       state.orderPolicy.refundEnabled =
         state.orderPolicy.refundUndeliveredEnabled || cooldownSeconds > 0;
+      if (Object.prototype.hasOwnProperty.call(payload, "sharedClaimAllowed")) {
+        state.orderPolicy.sharedClaimAllowed = !!payload.sharedClaimAllowed;
+      }
     }
     log(`订单记录已加载：${state.orders.length} 条。`);
     if (announce) {
@@ -2276,7 +2381,7 @@ async function refundOrder(orderNo) {
   await loadOrders();
 }
 
-async function createOrder(productId, quantity, deliveryMode) {
+async function createOrder(productId, quantity, deliveryMode, productTitle) {
   ensureToken();
 
   const pid = Number(productId);
@@ -2301,11 +2406,12 @@ async function createOrder(productId, quantity, deliveryMode) {
   const isExisting = String(payload.state || "").toUpperCase() === "EXISTING";
   const orderStatus = payload.orderStatus || payload.state;
   const groupBuyVoucherCode = payload.groupBuyVoucherCode || null;
-  const summary = `订单 ${payload.orderNo} | 总额 ${formatCurrency(payload.totalAmount, payload.currency)} | ${orderStatus}`;
+  const itemText = productTitle ? `${productTitle} x${qty}` : `数量 x${qty}`;
+  const summary = `订单 ${payload.orderNo} | ${itemText} | 总额 ${formatCurrency(payload.totalAmount, payload.currency)} | ${orderStatus}`;
   setMetaText(elements.orderView, summary, isExisting ? "warn" : "success");
   if (isExisting) {
     log(`下单请求去重，返回历史订单：${summary}`, "WARN");
-    notify(`订单已存在，已返回历史订单 ${payload.orderNo}。`, "warn");
+    notify(`订单已存在：${payload.orderNo}，${itemText}，总额 ${formatCurrency(payload.totalAmount, payload.currency)}。`, "warn");
   } else {
     log(`下单成功：${summary}`, "SUCCESS");
     const claimTip = orderStatus === "WAIT_CLAIM" ? "，请在游戏内使用 /ws claim 领取。" : "";
@@ -2401,6 +2507,28 @@ async function unlistListing(listingId) {
   });
   log(`下架成功：listingId=${payload.listingId}`, "SUCCESS");
   notify(`下架成功：上架 ${payload.listingId} 已加入退回队列。`, "success");
+  await loadMarket(state.marketMode);
+}
+
+async function pauseListing(listingId) {
+  ensureToken();
+  const payload = await api("/api/market/pause", {
+    method: "POST",
+    body: JSON.stringify({ listingId }),
+  });
+  log(`暂停上架：listingId=${payload.listingId}`, "INFO");
+  notify("已暂时停用该上架，物品保留在市场后台，可随时重新上架。", "info");
+  await loadMarket(state.marketMode);
+}
+
+async function resumeListing(listingId) {
+  ensureToken();
+  const payload = await api("/api/market/resume", {
+    method: "POST",
+    body: JSON.stringify({ listingId }),
+  });
+  log(`重新上架：listingId=${payload.listingId}`, "SUCCESS");
+  notify("上架已恢复，其他玩家可以再次购买。", "success");
   await loadMarket(state.marketMode);
 }
 
@@ -2509,6 +2637,10 @@ document.getElementById("redeemBtn").addEventListener("click", async () => {
     if (!code) {
       throw new Error("请输入兑换码后再提交。");
     }
+    const previousWallet = {
+      shopCoin: state.walletBalance.shopCoin,
+      gameCoin: state.walletBalance.gameCoin,
+    };
     const payload = await api("/api/redeem/use", {
       method: "POST",
       body: JSON.stringify({ code }),
@@ -2516,9 +2648,14 @@ document.getElementById("redeemBtn").addEventListener("click", async () => {
 
     updateWalletView(payload);
     const tip = redeemStatusTip(payload.status);
-    setMetaText(elements.redeemView, tip.text, tip.tone);
-    log(`兑换结果：${tip.text}`, tip.tone === "success" ? "SUCCESS" : "WARN");
-    notify(tip.text, tip.tone);
+    const deltaText = summarizeWalletDelta(payload, previousWallet);
+    const balanceText = formatWalletInline(payload.shopCoin, payload.gameCoin);
+    const detailText = tip.tone === "success"
+      ? `${tip.text}${deltaText ? ` 本次入账：${deltaText}。` : " "}当前余额：${balanceText}。`
+      : tip.text;
+    setMetaText(elements.redeemView, detailText, tip.tone);
+    log(`兑换结果：${detailText}`, tip.tone === "success" ? "SUCCESS" : "WARN");
+    notify(detailText, tip.tone);
   } catch (error) {
     const message = resolveErrorMessage(error, "redeem");
     setMetaText(elements.redeemView, `兑换失败：${message}`, "error");
@@ -2542,6 +2679,10 @@ document.getElementById("exchangeBtn").addEventListener("click", async () => {
       throw new Error("兑换方向不能相同。");
     }
 
+    const previousWallet = {
+      shopCoin: state.walletBalance.shopCoin,
+      gameCoin: state.walletBalance.gameCoin,
+    };
     const payload = await api("/api/wallet/exchange", {
       method: "POST",
       body: JSON.stringify({
@@ -2554,13 +2695,16 @@ document.getElementById("exchangeBtn").addEventListener("click", async () => {
 
     updateWalletView(payload);
     const toMeta = CURRENCY_META[toCurrency] || { label: toCurrency };
+    const deltaText = summarizeWalletDelta(payload, previousWallet);
+    const balanceText = formatWalletInline(payload.shopCoin, payload.gameCoin);
+    const successText = `兑换成功：${formatCurrency(amount, fromCurrency)} -> ${toMeta.label}${deltaText ? `，余额变动 ${deltaText}` : ""}。当前余额：${balanceText}。`;
     setMetaText(
       elements.exchangeView,
-      `兑换成功：${formatCurrency(amount, fromCurrency)} -> ${toMeta.label}`,
+      successText,
       "success"
     );
-    log(`货币兑换成功：${formatCurrency(amount, fromCurrency)} -> ${toMeta.label}`, "SUCCESS");
-    notify(`兑换成功：${formatCurrency(amount, fromCurrency)} -> ${toMeta.label}`, "success");
+    log(successText, "SUCCESS");
+    notify(successText, "success");
   } catch (error) {
     const message = resolveErrorMessage(error, "exchange");
     setMetaText(elements.exchangeView, `兑换失败：${message}`, "error");
@@ -2654,7 +2798,12 @@ elements.productList.addEventListener("click", async (event) => {
     notify("商品信息异常，请刷新商品列表。", "warn");
     return;
   }
-  const maxQuantity = Math.max(1, Number(product.itemAmount || 64));
+  const stock = resolveOfficialProductStock(product);
+  const maxQuantity = stock.maxQuantity;
+  if (maxQuantity <= 0) {
+    notify("该商品已售罄，请刷新后查看。", "warn");
+    return;
+  }
   const qtyValue = Number(quantity || 1);
   if (!Number.isFinite(qtyValue) || qtyValue < 1 || qtyValue > maxQuantity) {
     notify(`购买数量需在 1-${maxQuantity} 之间。`, "warn");
@@ -2672,7 +2821,7 @@ elements.productList.addEventListener("click", async (event) => {
   button.disabled = true;
   button.textContent = "下单中...";
   try {
-    await createOrder(productId, qtyValue, deliveryMode);
+    await createOrder(productId, qtyValue, deliveryMode, product.title);
   } catch (error) {
     const message = resolveErrorMessage(error, "order_create");
     setMetaText(elements.orderView, `下单失败：${message}`, "error");
@@ -2786,6 +2935,14 @@ elements.marketList.addEventListener("click", async (event) => {
     }
     if (button.dataset.action === "unlist") {
       await unlistListing(listingId);
+      return;
+    }
+    if (button.dataset.action === "pause") {
+      await pauseListing(listingId);
+      return;
+    }
+    if (button.dataset.action === "resume") {
+      await resumeListing(listingId);
       return;
     }
     if (button.dataset.action === "edit") {

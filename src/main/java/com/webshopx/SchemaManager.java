@@ -255,6 +255,7 @@ class SchemaManager {
           command_template TEXT NOT NULL,
           item_material VARCHAR(64) NULL,
           item_amount INT NULL,
+          stock_remaining INT NULL,
           effect_type VARCHAR(64) NULL,
           effect_seconds INT NULL,
           effect_amplifier INT NULL,
@@ -295,6 +296,15 @@ class SchemaManager {
           connection,
           "ALTER TABLE products "
               + "ADD COLUMN item_amount INT NULL AFTER item_material");
+    }
+    if (!columnExists(connection, "products", "stock_remaining")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN stock_remaining INT NULL AFTER item_amount");
+      execute(
+          connection,
+          "UPDATE products SET stock_remaining = item_amount WHERE item_amount IS NOT NULL");
     }
     if (!columnExists(connection, "products", "effect_type")) {
       execute(
@@ -465,6 +475,15 @@ class SchemaManager {
           "ALTER TABLE delivery_queue "
               + "ADD INDEX idx_delivery_claim (mc_uuid, status, created_at)");
     }
+    execute(
+        connection,
+        "UPDATE orders o "
+            + "SET status = 'WAIT_CLAIM' "
+            + "WHERE o.status = 'PENDING' "
+            + "AND EXISTS ("
+            + "  SELECT 1 FROM delivery_queue dq "
+            + "  WHERE dq.order_id = o.id AND dq.status = 'WAIT_CLAIM'"
+            + ")");
   }
 
   private void createMarketListings(Connection connection) throws SQLException {
@@ -488,6 +507,7 @@ class SchemaManager {
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           sold_at DATETIME NULL,
           unlisted_at DATETIME NULL,
+          paused_at DATETIME NULL,
           PRIMARY KEY (id),
           KEY idx_market_listing_status (status, created_at),
           KEY idx_market_listing_seller (seller_user_id, status),
@@ -520,6 +540,12 @@ class SchemaManager {
     execute(
         connection,
         "UPDATE market_listings SET quantity = 0 WHERE quantity < 0");
+    if (!columnExists(connection, "market_listings", "paused_at")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN paused_at DATETIME NULL AFTER unlisted_at");
+    }
   }
 
   private void createMarketTrades(Connection connection) throws SQLException {
@@ -755,6 +781,15 @@ class SchemaManager {
             + "JOIN market_trades mt ON mt.listing_id = md.listing_id "
             + "SET md.trade_id = mt.id "
             + "WHERE md.delivery_type = 'SALE' AND md.trade_id IS NULL");
+    execute(
+        connection,
+        "UPDATE market_trades mt "
+            + "SET status = 'WAIT_CLAIM' "
+            + "WHERE mt.status = 'PENDING' "
+            + "AND EXISTS ("
+            + "  SELECT 1 FROM market_item_deliveries md "
+            + "  WHERE md.trade_id = mt.id AND md.status = 'WAIT_CLAIM'"
+            + ")");
   }
 
   private void createGroupBuyVouchers(Connection connection) throws SQLException {

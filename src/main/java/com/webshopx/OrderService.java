@@ -53,25 +53,25 @@ class OrderService {
       String deliveryModeRaw) {
     ProductService.ProductView product = databaseManager.withConnection(
         connection -> productService.readActiveProduct(connection, productId, false));
-    int maxQuantity = resolveProductMaxQuantity(product);
-    if (quantity < 1 || quantity > maxQuantity) {
-      throw new ServiceException("invalid_quantity", "Quantity must be between 1 and " + maxQuantity);
-    }
     if (product.productType() == ProductService.ProductType.RECYCLE_ITEM) {
+      int maxQuantity = resolveProductMaxQuantity(product);
+      validatePurchaseQuantity(quantity, maxQuantity);
       return runSync(() -> placeRecycleOrder(userId, product, quantity, maxQuantity, idempotencyKey));
     }
 
     int cooldownSeconds = normalizedOrderCooldownSeconds();
     String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
-    return databaseManager.inTransaction(connection ->
-        placePurchaseOrderInTransaction(
-            connection,
-            userId,
-            product,
-            quantity,
-            normalizedKey,
-            cooldownSeconds,
-            deliveryModeRaw));
+    return databaseManager.inTransaction(connection -> {
+      ProductService.ProductView lockedProduct = productService.readActiveProduct(connection, productId, true);
+      return placePurchaseOrderInTransaction(
+          connection,
+          userId,
+          lockedProduct,
+          quantity,
+          normalizedKey,
+          cooldownSeconds,
+          deliveryModeRaw);
+    });
   }
 
   private OrderPlacementResult placePurchaseOrderInTransaction(
@@ -98,6 +98,8 @@ class OrderService {
           existingOrder.groupBuyVoucherConsumedAt());
     }
 
+    int maxQuantity = resolveProductMaxQuantity(product);
+    validatePurchaseQuantity(quantity, maxQuantity);
     DeliveryMode deliveryMode = resolveDeliveryMode(deliveryModeRaw, product.productType());
     UUID playerUuid = readBoundUuidForUpdate(connection, userId);
     long totalAmount = Math.multiplyExact(product.price(), quantity);
@@ -113,6 +115,7 @@ class OrderService {
         ? "DELIVERED"
         : deliveryMode == DeliveryMode.CLAIM ? "WAIT_CLAIM" : "PENDING";
 
+    reserveProductStock(connection, product.id(), quantity);
     walletService.applyDelta(
         connection,
         userId,
@@ -312,12 +315,82 @@ class OrderService {
   }
 
   private int resolveProductMaxQuantity(ProductService.ProductView product) {
+    Integer trackedStock = product.stockRemaining();
+    if (trackedStock != null) {
+      return Math.max(0, trackedStock);
+    }
     int fallback = 64;
     Integer configured = product.itemAmount();
     if (configured == null || configured <= 0) {
       return fallback;
     }
     return Math.max(1, configured);
+  }
+
+  private void validatePurchaseQuantity(int quantity, int maxQuantity) {
+    if (maxQuantity <= 0) {
+      throw new ServiceException("out_of_stock", "商品已售罄。");
+    }
+    if (quantity < 1 || quantity > maxQuantity) {
+      throw new ServiceException("invalid_quantity", "Quantity must be between 1 and " + maxQuantity);
+    }
+  }
+
+  private void reserveProductStock(Connection connection, long productId, int quantity) throws SQLException {
+    if (quantity <= 0) {
+      return;
+    }
+    String sql = """
+        UPDATE products
+        SET stock_remaining = stock_remaining - ?
+        WHERE id = ?
+          AND stock_remaining IS NOT NULL
+          AND stock_remaining >= ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setInt(1, quantity);
+      statement.setLong(2, productId);
+      statement.setInt(3, quantity);
+      int updated = statement.executeUpdate();
+      if (updated > 0) {
+        return;
+      }
+    }
+
+    String checkSql = "SELECT stock_remaining FROM products WHERE id = ? FOR UPDATE";
+    try (PreparedStatement statement = connection.prepareStatement(checkSql)) {
+      statement.setLong(1, productId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          throw new ServiceException("product_missing", "Product not found");
+        }
+        Integer stockRemaining = (Integer) resultSet.getObject("stock_remaining");
+        if (stockRemaining == null) {
+          return;
+        }
+      }
+    }
+    throw new ServiceException("out_of_stock", "商品库存不足。");
+  }
+
+  private void restoreProductStock(Connection connection, long productId, int quantity) throws SQLException {
+    if (productId <= 0 || quantity <= 0) {
+      return;
+    }
+    String sql = """
+        UPDATE products
+        SET stock_remaining = CASE
+            WHEN item_amount IS NULL THEN stock_remaining
+            ELSE LEAST(item_amount, stock_remaining + ?)
+          END
+        WHERE id = ?
+          AND stock_remaining IS NOT NULL
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setInt(1, quantity);
+      statement.setLong(2, productId);
+      statement.executeUpdate();
+    }
   }
 
   private DeliveryMode resolveDeliveryMode(String rawMode, ProductService.ProductType productType) {
@@ -712,7 +785,11 @@ class OrderService {
       List<OrderView> results = new ArrayList<>();
       try (ResultSet resultSet = statement.executeQuery()) {
         while (resultSet.next()) {
-          results.add(readOrderView(resultSet));
+          String status = resultSet.getString("status");
+          String claimToken = resultSet.getString("claim_token");
+          long orderId = resultSet.getLong("id");
+          String ensuredToken = ensureOrderClaimToken(connection, orderId, status, claimToken);
+          results.add(readOrderView(resultSet, ensuredToken));
         }
       }
       return results;
@@ -751,7 +828,11 @@ class OrderService {
       List<OrderView> results = new ArrayList<>();
       try (ResultSet resultSet = statement.executeQuery()) {
         while (resultSet.next()) {
-          results.add(readMarketOrderView(resultSet, userId));
+          String tradeStatus = resultSet.getString("trade_status");
+          String claimToken = resultSet.getString("claim_token");
+          long tradeId = resultSet.getLong("trade_id");
+          String ensuredToken = ensureMarketClaimToken(connection, tradeId, tradeStatus, claimToken);
+          results.add(readMarketOrderView(resultSet, userId, ensuredToken));
         }
       }
       return results;
@@ -888,7 +969,12 @@ class OrderService {
         List<AdminOrderView> results = new ArrayList<>();
         try (ResultSet resultSet = statement.executeQuery()) {
           while (resultSet.next()) {
-            OrderView view = readOrderView(resultSet);
+            String statusValue = resultSet.getString("status");
+            String claimToken = resultSet.getString("claim_token");
+            long orderId = resultSet.getLong("id");
+            OrderView view = readOrderView(
+                resultSet,
+                ensureOrderClaimToken(connection, orderId, statusValue, claimToken));
             String boundUuidRaw = resultSet.getString("bound_uuid");
             UUID boundUuid = boundUuidRaw == null ? null : UUID.fromString(boundUuidRaw);
             results.add(new AdminOrderView(
@@ -985,6 +1071,7 @@ class OrderService {
         statement.setLong(1, row.id());
         statement.executeUpdate();
       }
+      restoreProductStock(connection, row.productId(), row.quantity());
 
       if (row.groupBuyVoucherCode() != null) {
         String updateVoucherSql = """
@@ -1205,8 +1292,10 @@ class OrderService {
       throws SQLException {
     String sql = """
         SELECT o.id, o.order_no, o.currency, o.total_amount, o.status, o.refund_deadline,
+               oi.product_id, oi.quantity,
                gv.code AS group_buy_voucher_code, gv.status AS group_buy_voucher_status
         FROM orders o
+        JOIN order_items oi ON oi.order_id = o.id
         LEFT JOIN group_buy_vouchers gv ON gv.order_id = o.id
         WHERE o.user_id = ? AND o.order_no = ?
         FOR UPDATE
@@ -1226,6 +1315,8 @@ class OrderService {
             resultSet.getLong("total_amount"),
             resultSet.getString("status"),
             refundDeadline == null ? null : refundDeadline.toLocalDateTime(),
+            resultSet.getLong("product_id"),
+            resultSet.getInt("quantity"),
             resultSet.getString("group_buy_voucher_code"),
             resultSet.getString("group_buy_voucher_status"));
       }
@@ -1263,11 +1354,15 @@ class OrderService {
   }
 
   private OrderView readOrderView(ResultSet resultSet) throws SQLException {
+    return readOrderView(resultSet, null);
+  }
+
+  private OrderView readOrderView(ResultSet resultSet, String claimTokenOverride) throws SQLException {
     Timestamp deliveredAt = resultSet.getTimestamp("delivered_at");
     Timestamp refundDeadline = resultSet.getTimestamp("refund_deadline");
     Timestamp refundedAt = resultSet.getTimestamp("refunded_at");
     Timestamp groupBuyVoucherConsumedAt = resultSet.getTimestamp("group_buy_voucher_consumed_at");
-    String claimToken = resultSet.getString("claim_token");
+    String claimToken = claimTokenOverride != null ? claimTokenOverride : resultSet.getString("claim_token");
     return new OrderView(
         resultSet.getLong("id"),
         resultSet.getString("order_no"),
@@ -1298,6 +1393,11 @@ class OrderService {
   }
 
   private OrderView readMarketOrderView(ResultSet resultSet, long userId) throws SQLException {
+    return readMarketOrderView(resultSet, userId, null);
+  }
+
+  private OrderView readMarketOrderView(ResultSet resultSet, long userId, String claimTokenOverride)
+      throws SQLException {
     long tradeId = resultSet.getLong("trade_id");
     long listingId = resultSet.getLong("listing_id");
     String currencyRaw = resultSet.getString("currency");
@@ -1314,7 +1414,7 @@ class OrderService {
     Timestamp deliveredAt = resultSet.getTimestamp("delivered_at");
     String tradeStatus = resultSet.getString("trade_status");
     String deliveryStatus = resultSet.getString("delivery_status");
-    String claimToken = resultSet.getString("claim_token");
+    String claimToken = claimTokenOverride != null ? claimTokenOverride : resultSet.getString("claim_token");
     String status;
     if (tradeStatus == null || tradeStatus.isBlank()) {
       status = "DELIVERED".equalsIgnoreCase(deliveryStatus) || deliveredAt != null
@@ -1322,6 +1422,9 @@ class OrderService {
           : "PENDING";
     } else {
       status = tradeStatus.toUpperCase(Locale.ROOT);
+    }
+    if ("WAIT_CLAIM".equalsIgnoreCase(deliveryStatus)) {
+      status = "WAIT_CLAIM";
     }
 
     long totalAmount = buyerTotal > 0 ? buyerTotal : totalPrice;
@@ -1358,6 +1461,28 @@ class OrderService {
         claimToken);
   }
 
+  private String ensureOrderClaimToken(Connection connection, long orderId, String status, String claimToken)
+      throws SQLException {
+    if (!"WAIT_CLAIM".equalsIgnoreCase(status)) {
+      return claimToken;
+    }
+    if (claimToken != null && !claimToken.isBlank()) {
+      return claimToken;
+    }
+    return ClaimTokenRepository.ensureOrderToken(connection, orderId);
+  }
+
+  private String ensureMarketClaimToken(Connection connection, long tradeId, String status, String claimToken)
+      throws SQLException {
+    if (!"WAIT_CLAIM".equalsIgnoreCase(status)) {
+      return claimToken;
+    }
+    if (claimToken != null && !claimToken.isBlank()) {
+      return claimToken;
+    }
+    return ClaimTokenRepository.ensureMarketTradeToken(connection, tradeId);
+  }
+
   private record ExistingOrder(
       String orderNo,
       String currency,
@@ -1376,6 +1501,8 @@ class OrderService {
       long totalAmount,
       String status,
       LocalDateTime refundDeadline,
+      long productId,
+      int quantity,
       String groupBuyVoucherCode,
       String groupBuyVoucherStatus) {
   }

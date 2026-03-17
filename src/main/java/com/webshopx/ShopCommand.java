@@ -90,7 +90,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
 
     if (top.equals("claim")) {
       if (args.length == 2) {
-        return filterByPrefix(List.of("all", "ODR-", "MKT-"), args[1]);
+        return filterByPrefix(List.of("all", "ODR-", "MKT-", "CLM-", "MCL-"), args[1]);
       }
       return List.of();
     }
@@ -269,7 +269,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     sender.sendMessage("§e/webshopx help §7- 查看帮助");
     sender.sendMessage("§e/webshopx password <新密码> §7- 在游戏内创建或重置网页登录密码");
     sender.sendMessage("§e/webshopx market sell <price> [amount] [currency] §7- 上架手持物品");
-    sender.sendMessage("§e/webshopx claim [all|ODR-...|MKT-...] §7- 领取待发货内容");
+    sender.sendMessage("§e/webshopx claim [all|ODR-...|MKT-...|CLM-...|MCL-...] §7- 领取待发货内容");
     if (sender.hasPermission("webshop.admin")) {
       sender.sendMessage("§e/webshopx reload §7- 重载配置与内置网页");
       sender.sendMessage(
