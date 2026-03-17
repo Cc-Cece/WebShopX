@@ -69,9 +69,11 @@ const MATERIAL_TEXTURE_OVERRIDES = {
 
 const PRODUCT_TYPE_TEXTURE_MAP = {
   COMMAND: "COMMAND_BLOCK",
-  POTION_EFFECT: "POTION",
+  POTION_EFFECT: "SPLASH_POTION",
   GROUP_BUY_VOUCHER: "PAPER",
 };
+
+const DEFAULT_TEXTURE_FALLBACK_MATERIAL = "BUNDLE";
 
 function readThemeColor(tokenName, fallback) {
   const rootStyles = window.getComputedStyle(document.documentElement);
@@ -1258,7 +1260,7 @@ function buildTextureAliases(material) {
 function getTextureCandidates(material) {
   const names = buildTextureAliases(material);
   if (names.length === 0) {
-    return [getFallbackTexture()];
+    return getFallbackTextureCandidates();
   }
 
   const candidates = [];
@@ -1274,6 +1276,28 @@ function getTextureCandidates(material) {
     }
   }
 
+  const fallbackCandidates = getFallbackTextureCandidates();
+  fallbackCandidates.forEach((candidate) => {
+    if (!candidates.includes(candidate)) {
+      candidates.push(candidate);
+    }
+  });
+  return candidates;
+}
+
+function getFallbackTextureCandidates() {
+  const names = buildTextureAliases(DEFAULT_TEXTURE_FALLBACK_MATERIAL);
+  const candidates = [];
+  for (const textureName of names) {
+    candidates.push(`${LOCAL_TEXTURE_BASE}/item/${textureName}.png`);
+    candidates.push(`${LOCAL_TEXTURE_BASE}/block/${textureName}.png`);
+  }
+  for (const base of REMOTE_TEXTURE_BASES) {
+    for (const textureName of names) {
+      candidates.push(`${base}/item/${textureName}.png`);
+      candidates.push(`${base}/block/${textureName}.png`);
+    }
+  }
   candidates.push(getFallbackTexture());
   return candidates;
 }
