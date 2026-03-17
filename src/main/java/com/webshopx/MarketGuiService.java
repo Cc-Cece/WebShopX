@@ -138,6 +138,7 @@ class MarketGuiService {
                 + " §7| 单价 §f" + result.price() + " GAME_COIN");
       } else {
         ItemStack template = extractSupplyTemplate(creation.inventory());
+        returnItems(player, creation.inventory());
         MarketService.ListingCreateResult result = marketService.createSupplyListingFromTemplate(
             player,
             session.source(),
