@@ -293,39 +293,38 @@
     <section class="tab-panel" data-tab-panel="guide">
       <article class="md-card section-card">
         <h2>使用教程</h2>
-        <p class="card-desc">以下是常用流程的简版说明，后续可继续补充为完整文档。</p>
+        <p class="card-desc">按顺序完成下面几个步骤即可开始使用。</p>
         <div class="md-tip md-tip-info">
-          <strong>密码设置与登录</strong>
-          <p>第一步：在游戏内执行 <code>/webshopx password &lt;新密码&gt;</code>（或 <code>/ws password &lt;新密码&gt;</code>）设置网页登录密码。</p>
-          <p>第二步：回到网页，使用你的 Minecraft 用户名和该密码登录。</p>
+          <strong>1. 注册与登录</strong>
+          <p>先在游戏内执行 <code>/webshopx password &lt;新密码&gt;</code>（或 <code>/ws password &lt;新密码&gt;</code>）设置网页登录密码，再回到网页使用 Minecraft 用户名登录。</p>
         </div>
         <div class="md-tip md-tip-info">
-          <strong>购买与退款</strong>
-          <p>下单前会二次确认；若服务器开启冷静期，订单会延迟发放并可在冷静期内退款。</p>
+          <strong>2. 钱包与兑换</strong>
+          <p>登录后先查看“钱包资产”。兑换码、货币互换、商城购买、市场交易都会在这里反映余额变化；“最近变动”只记录网页系统相关流水。</p>
         </div>
         <div class="md-tip md-tip-info">
-          <strong>玩家市场</strong>
-          <p>上架可在游戏内使用 GUI 完成；价格与备注在网页内管理。供货箱模式支持手动刷新与售罄后自动补货。</p>
+          <strong>3. 官方商城购买</strong>
+          <p>在“官方商城”选择商品后确认下单。若服务器开启冷静期，订单会延迟发放，并在冷静期内支持退款。</p>
         </div>
         <div class="md-tip md-tip-info">
-          <strong>资产说明</strong>
-          <p>建议下单或交易前先点击“刷新余额”，确保显示与数据库当前余额一致。</p>
+          <strong>4. 普通市场上架</strong>
+          <p>在游戏内执行 <code>/webshopx market</code>（或 <code>/ws market</code>）打开市场 GUI，选择普通上架，把要卖的物品放入箱子界面，点击下一步后在聊天栏输入单价即可创建。币种默认使用 <code>GAME_COIN</code>，后续可在网页修改。</p>
         </div>
         <div class="md-tip md-tip-info">
-          <strong>兑换说明</strong>
-          <p>若提示方向不可兑换，说明管理员在当前服务器配置中关闭了该兑换方向。</p>
+          <strong>5. 供货箱上架</strong>
+          <p>在市场 GUI 选择供货箱上架，先右键绑定供货箱（支持大箱子、箱子、木桶、潜影盒），再放入 1 个模板物品，点击下一步后在聊天栏输入单价即可创建。单次提取量、中转上限、备注等补充设置请到网页修改。</p>
         </div>
         <div class="md-tip md-tip-info">
-          <strong>下单提示</strong>
-          <p>订单创建后会进入发货队列。若角色离线，物品会在下次上线时自动投递。</p>
+          <strong>6. 市场管理</strong>
+          <p>“我的上架”可查看并管理自己的商品。普通上架和供货箱上架都支持暂停、恢复、下架；供货箱商品还支持手动刷新补货。价格、币种、备注与供货参数统一在网页端调整。</p>
         </div>
         <div class="md-tip md-tip-warn">
-          <strong>冷静期说明</strong>
-          <p>若服务器开启冷静期，下单后会延迟发放，并允许在冷静期内退款。</p>
+          <strong>7. 订单与发货</strong>
+          <p>所有购买都会进入订单记录。若角色离线，物品会在下次上线时自动投递；若订单处于待领取状态，可在游戏内使用 <code>/ws claim</code> 领取。</p>
         </div>
         <div class="md-tip md-tip-warn">
-          <strong>团购券商品</strong>
-          <p>购买后会生成团购兑换码，请通过你自己的渠道提供给管理员核销。核销后该兑换码失效。</p>
+          <strong>8. 注意事项</strong>
+          <p>供货箱在上架期间会被市场保护，破坏前请先停止上架或解除绑定；若供货箱损坏或失效，系统会自动暂停对应供货商品。团购券商品购买后会生成兑换码，需由管理员核销。</p>
         </div>
       </article>
     </section>

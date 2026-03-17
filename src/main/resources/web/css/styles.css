@@ -1326,9 +1326,9 @@ pre {
   max-height: 440px;
   overflow: auto;
   border-radius: var(--radius-medium);
-  border: 1px solid var(--app-log-border);
-  background: var(--app-log-bg);
-  color: var(--app-log-fg);
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 58%, var(--md-sys-color-scrim));
+  background: color-mix(in srgb, var(--md-sys-color-scrim) 82%, var(--md-sys-color-primary));
+  color: var(--md-sys-color-primary-fixed);
   padding: 12px;
   font-size: 12px;
   line-height: 1.45;
