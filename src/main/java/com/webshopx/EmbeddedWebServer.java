@@ -87,6 +87,7 @@ class EmbeddedWebServer {
     server.createContext("/api/auth/me", this::handleAuthMe);
     server.createContext("/api/auth/logout", this::handleLogout);
     server.createContext("/api/wallet", this::handleWallet);
+    server.createContext("/api/wallet/ledger", this::handleWalletLedger);
     server.createContext("/api/wallet/exchange", this::handleExchange);
     server.createContext("/api/redeem/use", this::handleRedeemUse);
     server.createContext("/api/products", this::handleProducts);
@@ -232,6 +233,34 @@ class EmbeddedWebServer {
       response.addProperty("shopCoin", balance.shopCoin());
       response.addProperty("gameCoin", balance.gameCoin());
       response.addProperty("boundUuid", user.boundUuid() == null ? null : user.boundUuid().toString());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleWalletLedger(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, null);
+      Map<String, String> query = parseQuery(exchange);
+      int limit = parseInt(query.get("limit"), 20);
+      List<WalletService.LedgerEntry> entries = walletService.listRecentLedger(user.id(), limit);
+      JsonArray rows = new JsonArray();
+      for (WalletService.LedgerEntry entry : entries) {
+        JsonObject row = new JsonObject();
+        row.addProperty("currency", entry.currency().name());
+        row.addProperty("delta", entry.delta());
+        row.addProperty("bizType", entry.bizType());
+        row.addProperty("bizId", entry.bizId());
+        row.addProperty("createdAt", entry.createdAt().toString());
+        rows.add(row);
+      }
+      JsonObject response = new JsonObject();
+      response.add("entries", rows);
       sendJson(exchange, 200, response);
     });
   }

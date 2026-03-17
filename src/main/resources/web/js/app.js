@@ -254,6 +254,8 @@ const elements = {
   logoutBtn: document.getElementById("logoutBtn"),
 
   walletView: document.getElementById("walletView"),
+  walletLedgerView: document.getElementById("walletLedgerView"),
+  walletLedgerList: document.getElementById("walletLedgerList"),
   redeemView: document.getElementById("redeemView"),
   exchangeView: document.getElementById("exchangeView"),
   orderView: document.getElementById("orderView"),
@@ -785,7 +787,7 @@ function switchTab(tabName) {
 
   if (tabName === "wallet") {
     if (state.token) {
-      refreshWallet().catch((error) => {
+      refreshWallet().then(() => loadWalletLedger()).catch((error) => {
         const message = resolveErrorMessage(error, "wallet_refresh");
         setMetaText(elements.walletView, `刷新钱包失败：${message}`, "error");
       });
@@ -1068,6 +1070,63 @@ async function loadCurrencyMeta() {
 
 function formatWalletInline(shopCoin, gameCoin) {
   return `${formatCurrency(shopCoin, "SHOP_COIN")} | ${formatCurrency(gameCoin, "GAME_COIN")}`;
+}
+
+function humanizeLedgerType(bizType, bizId) {
+  const normalized = String(bizType || "").toUpperCase();
+  if (normalized === "ORDER_DEBIT") return `购买商品 ${bizId || ""}`.trim();
+  if (normalized === "ORDER_REFUND") return `订单退款 ${bizId || ""}`.trim();
+  if (normalized === "RECYCLE_CREDIT") return `回收入账 ${bizId || ""}`.trim();
+  if (normalized === "EXCHANGE_OUT") return "货币兑换转出";
+  if (normalized === "EXCHANGE_IN") return "货币兑换转入";
+  if (normalized === "MARKET_BUY") return "市场购买";
+  if (normalized === "MARKET_SELL") return "市场售出";
+  if (normalized === "REDEEM") return "兑换码入账";
+  if (normalized === "ADMIN_ADJUST") return "管理员调整";
+  return normalized || "未知变动";
+}
+
+function renderWalletLedger(entries) {
+  if (!elements.walletLedgerList) {
+    return;
+  }
+  elements.walletLedgerList.innerHTML = "";
+  if (!entries || entries.length === 0) {
+    elements.walletLedgerList.appendChild(createEl("div", "empty-state", "暂无最近变动记录。"));
+    return;
+  }
+  for (const entry of entries) {
+    const item = createEl("article", "wallet-ledger-item");
+    const top = createEl("div", "wallet-ledger-top");
+    const currencyLabel = (CURRENCY_META[entry.currency] || { label: entry.currency }).label;
+    top.appendChild(createEl("strong", "", humanizeLedgerType(entry.bizType, entry.bizId)));
+    const amount = createEl(
+      "span",
+      `wallet-ledger-amount ${Number(entry.delta || 0) >= 0 ? "positive" : "negative"}`,
+      formatCurrency(entry.delta, entry.currency)
+    );
+    top.appendChild(amount);
+    item.appendChild(top);
+    item.appendChild(
+      createEl(
+        "p",
+        "wallet-ledger-meta",
+        `${formatDateTime(entry.createdAt)} | ${currencyLabel} | ${entry.bizId || "-"}`
+      )
+    );
+    elements.walletLedgerList.appendChild(item);
+  }
+}
+
+async function loadWalletLedger(options = {}) {
+  const announce = !!options.announce;
+  ensureToken();
+  const payload = await api("/api/wallet/ledger?limit=20", { method: "GET" });
+  renderWalletLedger(payload.entries || []);
+  setMetaText(elements.walletLedgerView, `最近变动：${(payload.entries || []).length} 条`, "info");
+  if (announce) {
+    notify(`最近变动已刷新：${(payload.entries || []).length} 条。`, "info");
+  }
 }
 
 function summarizeWalletDelta(nextWallet, previousWallet) {
@@ -1589,6 +1648,7 @@ function clearSession() {
   // 移除本地存储的会话
   window.localStorage.removeItem(SESSION_STORAGE_KEY);
   renderOrders(state.orders);
+  renderWalletLedger([]);
   updateAuthLayout();
   stopRealtimeSync();
 }
@@ -2791,6 +2851,7 @@ if (elements.loginBtn) {
 
     setSession(payload);
     await refreshWallet();
+    await loadWalletLedger();
     await loadOrders();
     switchTab("wallet");
     log("登录成功。", "SUCCESS");
@@ -2824,6 +2885,7 @@ elements.logoutBtn.addEventListener("click", async () => {
 document.getElementById("walletBtn").addEventListener("click", async () => {
   try {
     await refreshWallet();
+    await loadWalletLedger();
     log("钱包余额已刷新。", "SUCCESS");
     notify("钱包余额已刷新。", "success");
   } catch (error) {
@@ -2850,6 +2912,7 @@ document.getElementById("redeemBtn").addEventListener("click", async () => {
     });
 
     updateWalletView(payload);
+    await loadWalletLedger();
     const tip = redeemStatusTip(payload.status);
     const deltaText = summarizeWalletDelta(payload, previousWallet);
     const balanceText = formatWalletInline(payload.shopCoin, payload.gameCoin);
@@ -2897,6 +2960,7 @@ document.getElementById("exchangeBtn").addEventListener("click", async () => {
     });
 
     updateWalletView(payload);
+    await loadWalletLedger();
     const toMeta = CURRENCY_META[toCurrency] || { label: toCurrency };
     const deltaText = summarizeWalletDelta(payload, previousWallet);
     const balanceText = formatWalletInline(payload.shopCoin, payload.gameCoin);
@@ -3267,6 +3331,7 @@ if (elements.marketHideOwnToggle) {
 setAuthMode("login");
 updateAuthLayout();
 setMetaText(elements.walletView, "等待刷新余额", "info");
+setMetaText(elements.walletLedgerView, "等待加载记录", "info");
 setMetaText(elements.redeemView, "等待兑换操作", "info");
 setMetaText(elements.exchangeView, "等待兑换操作", "info");
 setMetaText(elements.orderView, "暂无订单", "info");

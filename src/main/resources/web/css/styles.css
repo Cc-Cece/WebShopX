@@ -839,6 +839,45 @@ code {
   margin-top: auto;
 }
 
+.wallet-ledger-list {
+  display: grid;
+  gap: 10px;
+}
+
+.wallet-ledger-item {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--radius-medium);
+  background: var(--app-card-soft-bg);
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.wallet-ledger-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.wallet-ledger-amount {
+  font-weight: 800;
+}
+
+.wallet-ledger-amount.positive {
+  color: var(--app-success-fg);
+}
+
+.wallet-ledger-amount.negative {
+  color: var(--md-sys-color-error);
+}
+
+.wallet-ledger-meta {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+}
+
 .product-range-grid {
   align-items: stretch;
 }

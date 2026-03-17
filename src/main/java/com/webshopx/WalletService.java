@@ -5,6 +5,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Supplier;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
@@ -74,6 +76,37 @@ class WalletService {
         updateGameCoinMirror(connection, raw.walletId(), gameCoin);
       }
       return new WalletBalance(raw.shopCoin(), gameCoin);
+    });
+  }
+
+  List<LedgerEntry> listRecentLedger(long userId, int limit) {
+    int normalizedLimit = Math.max(1, Math.min(limit, 50));
+    return databaseManager.withConnection(connection -> {
+      ensureWallet(connection, userId);
+      long walletId = readWalletId(connection, userId, false);
+      String sql = """
+          SELECT currency, delta, biz_type, biz_id, created_at
+          FROM wallet_ledger
+          WHERE wallet_id = ?
+          ORDER BY id DESC
+          LIMIT ?
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, walletId);
+        statement.setInt(2, normalizedLimit);
+        List<LedgerEntry> entries = new ArrayList<>();
+        try (ResultSet resultSet = statement.executeQuery()) {
+          while (resultSet.next()) {
+            entries.add(new LedgerEntry(
+                CurrencyType.valueOf(resultSet.getString("currency")),
+                resultSet.getLong("delta"),
+                resultSet.getString("biz_type"),
+                resultSet.getString("biz_id"),
+                resultSet.getTimestamp("created_at").toLocalDateTime()));
+          }
+        }
+        return entries;
+      }
     });
   }
 
@@ -382,5 +415,13 @@ class WalletService {
   }
 
   private record RawWalletBalance(long walletId, long shopCoin, long gameCoin) {
+  }
+
+  record LedgerEntry(
+      CurrencyType currency,
+      long delta,
+      String bizType,
+      String bizId,
+      java.time.LocalDateTime createdAt) {
   }
 }
