@@ -45,6 +45,7 @@
       <button class="top-tab" data-tab-target="redeem" type="button">兑换码</button>
       <button class="top-tab" data-tab-target="economy" type="button">经济设置</button>
       <button class="top-tab" data-tab-target="users" type="button">账号管理</button>
+      <button class="top-tab" data-tab-target="admins" type="button">管理员</button>
       <button class="top-tab" data-tab-target="audit" type="button">审计日志</button>
     </nav>
 
@@ -558,6 +559,60 @@
         <p class="meta" id="userListStatus">等待加载列表</p>
         <div class="admin-list" id="userList"></div>
       </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="admins">
+      <div class="grid two-col">
+        <article class="md-card section-card">
+          <div class="section-head">
+            <div>
+              <h2>管理员编辑</h2>
+              <p class="card-desc">超级管理员可创建子级管理员，并精确分配权限。</p>
+            </div>
+            <button id="adminManagerClearBtn" class="btn-tonal" type="button">清空表单</button>
+          </div>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>用户标识</span>
+              <input id="adminManagerIdentifier" placeholder="用户名 / UUID / 用户ID" />
+            </label>
+            <label class="field">
+              <span>模板</span>
+              <select id="adminManagerTemplate">
+                <option value="">自定义</option>
+              </select>
+            </label>
+          </div>
+          <div class="md-tip md-tip-info">
+            <strong>快速模板</strong>
+            <p id="adminManagerTemplateHint">先选择一个模板，再按需要微调权限。</p>
+          </div>
+          <label class="field admin-manager-super">
+            <span>管理员类型</span>
+            <select id="adminManagerType">
+              <option value="custom">子级管理员</option>
+              <option value="super">超级管理员</option>
+            </select>
+          </label>
+          <div id="adminPermissionGroups" class="admin-permission-groups"></div>
+          <div class="actions">
+            <button id="adminManagerSaveBtn" type="button">保存管理员</button>
+            <p class="meta" id="adminManagerStatus">等待操作</p>
+          </div>
+        </article>
+
+        <article class="md-card section-card">
+          <div class="section-head">
+            <div>
+              <h2>管理员列表</h2>
+              <p class="card-desc">支持载入编辑、启用和禁用管理员。</p>
+            </div>
+            <button id="adminManagerRefreshBtn" type="button">刷新列表</button>
+          </div>
+          <p class="meta" id="adminManagerListStatus">等待加载管理员列表</p>
+          <div class="admin-list" id="adminManagerList"></div>
+        </article>
+      </div>
     </section>
 
     <section class="tab-panel" data-tab-panel="audit">

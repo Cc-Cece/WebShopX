@@ -55,7 +55,7 @@ class AdminAuditService {
       String sourceIp) throws SQLException {
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, admin.userId());
-      statement.setString(2, admin.role().name());
+      statement.setString(2, admin.roleLabel());
       statement.setString(3, action);
       statement.setString(4, targetType);
       statement.setString(5, targetId);

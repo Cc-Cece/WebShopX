@@ -6,6 +6,9 @@
   selectedUser: null,
   products: [],
   userList: [],
+  adminManagers: [],
+  adminMeta: null,
+  selectedAdminManager: null,
   latestRedeemCode: null,
   theme: "light",
   materialMap: {},
@@ -209,6 +212,18 @@ const elements = {
   walletAdjustBtn: document.getElementById("walletAdjustBtn"),
   userActionStatus: document.getElementById("userActionStatus"),
 
+  adminManagerIdentifier: document.getElementById("adminManagerIdentifier"),
+  adminManagerTemplate: document.getElementById("adminManagerTemplate"),
+  adminManagerTemplateHint: document.getElementById("adminManagerTemplateHint"),
+  adminManagerType: document.getElementById("adminManagerType"),
+  adminPermissionGroups: document.getElementById("adminPermissionGroups"),
+  adminManagerSaveBtn: document.getElementById("adminManagerSaveBtn"),
+  adminManagerClearBtn: document.getElementById("adminManagerClearBtn"),
+  adminManagerRefreshBtn: document.getElementById("adminManagerRefreshBtn"),
+  adminManagerStatus: document.getElementById("adminManagerStatus"),
+  adminManagerListStatus: document.getElementById("adminManagerListStatus"),
+  adminManagerList: document.getElementById("adminManagerList"),
+
   auditRefreshBtn: document.getElementById("auditRefreshBtn"),
   auditList: document.getElementById("auditList"),
 
@@ -311,6 +326,9 @@ function switchTab(tabName) {
   if (tabName === "users" && state.token) {
     loadUserList();
   }
+  if (tabName === "admins" && state.token) {
+    loadAdminManagerData();
+  }
 }
 
 tabs.forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tabTarget)));
@@ -335,6 +353,8 @@ async function runAutoSyncTick() {
       await loadEconomySettings();
     } else if (state.activeTab === "users") {
       await loadUserList();
+    } else if (state.activeTab === "admins") {
+      await loadAdminManagerList();
     }
   } catch (error) {
     // ignore transient auto-sync failures
@@ -482,12 +502,20 @@ function renderAdminProfile() {
     elements.adminProfileView.textContent = "未登录";
     return;
   }
-  elements.adminProfileView.textContent = `账号：${state.admin.username} | 角色：${state.admin.role}`;
+  const roleLabel = state.admin.isSuperAdmin ? "SUPER_ADMIN" : (state.admin.role || "CUSTOM");
+  const permissionCount = Array.isArray(state.admin.permissions) ? state.admin.permissions.length : 0;
+  const suffix = state.admin.isSuperAdmin
+    ? "拥有全部权限"
+    : `权限数：${permissionCount}${state.admin.canManageAdmins ? " | 可管理管理员" : ""}`;
+  elements.adminProfileView.textContent = `账号：${state.admin.username} | 身份：${roleLabel} | ${suffix}`;
 }
 
 function setLoggedOut() {
   state.token = null;
   state.admin = null;
+  state.adminManagers = [];
+  state.adminMeta = null;
+  state.selectedAdminManager = null;
   state.realtime.orderDigest = {};
   state.realtime.marketDigest = {};
   sessionStorage.removeItem("webshop_admin_token");
@@ -513,6 +541,9 @@ async function loginAdmin() {
   setStatus(`已登录：${state.admin.username}`, "online");
   renderAdminProfile();
   setMetaText(elements.adminLoginStatus, "登录成功", "success");
+  if (state.activeTab === "admins") {
+    await loadAdminManagerData();
+  }
   startAdminAutoSync();
 }
 
@@ -525,6 +556,9 @@ async function loadAdminProfile() {
     state.admin = payload;
     setStatus(`已登录：${state.admin.username}`, "online");
     renderAdminProfile();
+    if (state.activeTab === "admins") {
+      await loadAdminManagerData();
+    }
     startAdminAutoSync();
   } catch (error) {
     setLoggedOut();
@@ -1629,6 +1663,274 @@ async function adjustWallet() {
   await lookupUser();
 }
 
+function selectedAdminPermissions() {
+  if (!elements.adminPermissionGroups) {
+    return [];
+  }
+  return Array.from(
+    elements.adminPermissionGroups.querySelectorAll('input[type="checkbox"][data-permission-code]:checked')
+  ).map((node) => node.dataset.permissionCode);
+}
+
+function updateAdminPermissionUi() {
+  const isSuper = elements.adminManagerType && elements.adminManagerType.value === "super";
+  const checkboxes = elements.adminPermissionGroups
+    ? elements.adminPermissionGroups.querySelectorAll('input[type="checkbox"][data-permission-code]')
+    : [];
+  checkboxes.forEach((node) => {
+    node.disabled = isSuper;
+  });
+  if (elements.adminManagerTemplate) {
+    elements.adminManagerTemplate.disabled = isSuper;
+  }
+  if (elements.adminManagerTemplateHint) {
+    elements.adminManagerTemplateHint.textContent = isSuper
+      ? "超级管理员自动拥有全部权限，不需要单独勾选。"
+      : "先选择一个模板，再按需要微调权限。";
+  }
+}
+
+function renderAdminPermissionGroups() {
+  if (!elements.adminPermissionGroups) {
+    return;
+  }
+  elements.adminPermissionGroups.innerHTML = "";
+  const groups = state.adminMeta?.groups || [];
+  groups.forEach((group) => {
+    const card = document.createElement("section");
+    card.className = "admin-permission-group";
+
+    const header = document.createElement("div");
+    header.className = "admin-permission-head";
+    const titleWrap = document.createElement("div");
+    const title = document.createElement("h3");
+    title.textContent = group.label;
+    const desc = document.createElement("p");
+    desc.textContent = "按分类勾选权限，可使用模板后再微调。";
+    titleWrap.appendChild(title);
+    titleWrap.appendChild(desc);
+
+    const actions = document.createElement("div");
+    actions.className = "admin-permission-actions";
+    const selectAllBtn = document.createElement("button");
+    selectAllBtn.className = "btn-tonal";
+    selectAllBtn.type = "button";
+    selectAllBtn.textContent = "全选";
+    selectAllBtn.addEventListener("click", () => {
+      card.querySelectorAll('input[type="checkbox"][data-permission-code]').forEach((node) => {
+        node.checked = true;
+      });
+    });
+    const clearBtn = document.createElement("button");
+    clearBtn.className = "btn-tonal";
+    clearBtn.type = "button";
+    clearBtn.textContent = "清空";
+    clearBtn.addEventListener("click", () => {
+      card.querySelectorAll('input[type="checkbox"][data-permission-code]').forEach((node) => {
+        node.checked = false;
+      });
+    });
+    actions.appendChild(selectAllBtn);
+    actions.appendChild(clearBtn);
+    header.appendChild(titleWrap);
+    header.appendChild(actions);
+    card.appendChild(header);
+
+    const list = document.createElement("div");
+    list.className = "admin-permission-list";
+    (group.permissions || []).forEach((permission) => {
+      const item = document.createElement("label");
+      item.className = "admin-permission-item";
+      const top = document.createElement("div");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.dataset.permissionCode = permission.code;
+      top.appendChild(checkbox);
+      const strong = document.createElement("strong");
+      strong.textContent = permission.label;
+      top.appendChild(strong);
+      const description = document.createElement("span");
+      description.textContent = permission.description || permission.code;
+      item.appendChild(top);
+      item.appendChild(description);
+      list.appendChild(item);
+    });
+    card.appendChild(list);
+    elements.adminPermissionGroups.appendChild(card);
+  });
+  updateAdminPermissionUi();
+}
+
+function populateAdminTemplates() {
+  if (!elements.adminManagerTemplate) {
+    return;
+  }
+  const current = elements.adminManagerTemplate.value;
+  elements.adminManagerTemplate.innerHTML = "";
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = "自定义";
+  elements.adminManagerTemplate.appendChild(empty);
+  (state.adminMeta?.templates || []).forEach((template) => {
+    const option = document.createElement("option");
+    option.value = template.key;
+    option.textContent = template.label;
+    elements.adminManagerTemplate.appendChild(option);
+  });
+  elements.adminManagerTemplate.value = current || "";
+}
+
+function setAdminPermissions(permissionCodes = []) {
+  const selected = new Set(permissionCodes || []);
+  if (!elements.adminPermissionGroups) {
+    return;
+  }
+  elements.adminPermissionGroups.querySelectorAll('input[type="checkbox"][data-permission-code]').forEach((node) => {
+    node.checked = selected.has(node.dataset.permissionCode);
+  });
+}
+
+function applyAdminTemplate(templateKey) {
+  const template = (state.adminMeta?.templates || []).find((item) => item.key === templateKey);
+  if (!template) {
+    setAdminPermissions([]);
+    if (elements.adminManagerType) {
+      elements.adminManagerType.value = "custom";
+    }
+    updateAdminPermissionUi();
+    return;
+  }
+  if (elements.adminManagerType) {
+    elements.adminManagerType.value = template.superAdmin ? "super" : "custom";
+  }
+  setAdminPermissions(template.permissions || []);
+  updateAdminPermissionUi();
+}
+
+function populateAdminForm(admin = null) {
+  state.selectedAdminManager = admin;
+  if (elements.adminManagerIdentifier) {
+    elements.adminManagerIdentifier.value = admin ? admin.username : "";
+  }
+  if (elements.adminManagerTemplate) {
+    elements.adminManagerTemplate.value = admin?.templateKey || "";
+  }
+  if (elements.adminManagerType) {
+    elements.adminManagerType.value = admin?.isSuperAdmin ? "super" : "custom";
+  }
+  setAdminPermissions(admin?.permissions || []);
+  if (!admin && elements.adminManagerTemplate) {
+    elements.adminManagerTemplate.value = "";
+  }
+  updateAdminPermissionUi();
+  setMetaText(
+    elements.adminManagerStatus,
+    admin ? `已载入管理员：${admin.username}` : "等待操作",
+    admin ? "info" : "info"
+  );
+}
+
+function renderAdminManagerList() {
+  const rows = (state.adminManagers || []).map((admin) => {
+    const editBtn = document.createElement("button");
+    editBtn.className = "btn-tonal";
+    editBtn.textContent = "载入编辑";
+    editBtn.addEventListener("click", () => populateAdminForm(admin));
+
+    const toggleBtn = document.createElement("button");
+    toggleBtn.textContent = admin.active ? "禁用" : "启用";
+    toggleBtn.addEventListener("click", async () => {
+      await apiAdmin("/api/admin/admin-users/active", {
+        method: "POST",
+        body: JSON.stringify({ userId: admin.userId, active: !admin.active }),
+      });
+      notify(`管理员${!admin.active ? "已启用" : "已禁用"}：${admin.username}`, "success");
+      await loadAdminManagerList();
+    });
+
+    const permissionsText = (admin.permissions || []).join(", ") || "无权限";
+    return renderKeyValueCard(
+      `${admin.username} (#${admin.userId})`,
+      [
+        { label: "身份", value: admin.isSuperAdmin ? "SUPER_ADMIN" : (admin.role || "CUSTOM") },
+        { label: "状态", value: admin.active ? "启用" : "停用" },
+        { label: "模板", value: admin.templateKey || "-" },
+        { label: "UUID", value: admin.boundUuid || "未绑定" },
+        { label: "权限", value: permissionsText },
+        { label: "更新时间", value: admin.updatedAt || "-" },
+      ],
+      [editBtn, toggleBtn]
+    );
+  });
+  renderList(elements.adminManagerList, rows);
+}
+
+async function loadAdminManagerMeta() {
+  ensureAdmin();
+  if (!state.admin?.canManageAdmins) {
+    return;
+  }
+  state.adminMeta = await apiAdmin("/api/admin/admin-users/meta", { method: "GET" });
+  populateAdminTemplates();
+  renderAdminPermissionGroups();
+}
+
+async function loadAdminManagerList() {
+  ensureAdmin();
+  if (!state.admin?.canManageAdmins) {
+    setMetaText(elements.adminManagerListStatus, "当前账号没有管理员管理权限", "warn");
+    renderList(elements.adminManagerList, []);
+    return;
+  }
+  const payload = await apiAdmin("/api/admin/admin-users/list", { method: "GET" });
+  state.adminManagers = payload.admins || [];
+  renderAdminManagerList();
+  setMetaText(elements.adminManagerListStatus, `已加载 ${state.adminManagers.length} 个管理员`, "info");
+}
+
+async function loadAdminManagerData() {
+  ensureAdmin();
+  if (!state.admin?.canManageAdmins) {
+    setMetaText(elements.adminManagerStatus, "当前账号不是超级管理员，无法管理管理员。", "warn");
+    setMetaText(elements.adminManagerListStatus, "当前账号没有管理员管理权限", "warn");
+    renderList(elements.adminManagerList, []);
+    return;
+  }
+  if (!state.adminMeta) {
+    await loadAdminManagerMeta();
+  }
+  await loadAdminManagerList();
+}
+
+async function saveAdminManager() {
+  ensureAdmin();
+  if (!state.admin?.canManageAdmins) {
+    throw new Error("当前账号不是超级管理员。");
+  }
+  const identifier = String(elements.adminManagerIdentifier?.value || "").trim();
+  if (!identifier) {
+    throw new Error("请输入要授权的用户标识。");
+  }
+  const isSuperAdmin = elements.adminManagerType?.value === "super";
+  const permissions = isSuperAdmin ? [] : selectedAdminPermissions();
+  if (!isSuperAdmin && permissions.length === 0) {
+    throw new Error("请至少勾选一个权限。");
+  }
+  const payload = await apiAdmin("/api/admin/admin-users/upsert", {
+    method: "POST",
+    body: JSON.stringify({
+      identifier,
+      isSuperAdmin,
+      templateKey: elements.adminManagerTemplate?.value || null,
+      permissions,
+    }),
+  });
+  notify(`管理员已保存：${payload.username}`, "success");
+  setMetaText(elements.adminManagerStatus, `已保存管理员：${payload.username}`, "success");
+  await loadAdminManagerList();
+  populateAdminForm(payload);
+}
+
 async function loadAuditLogs() {
   ensureAdmin();
   const payload = await apiAdmin("/api/admin/audit/list?limit=200", { method: "GET" });
@@ -1910,6 +2212,53 @@ elements.userForceLogoutBtn.addEventListener("click", async () => {
   }
 });
 
+if (elements.adminManagerTemplate) {
+  elements.adminManagerTemplate.addEventListener("change", () => {
+    applyAdminTemplate(elements.adminManagerTemplate.value);
+  });
+}
+
+if (elements.adminManagerType) {
+  elements.adminManagerType.addEventListener("change", () => {
+    if (elements.adminManagerType.value === "super") {
+      setAdminPermissions(
+        (state.adminMeta?.templates || []).find((item) => item.superAdmin)?.permissions || []
+      );
+    }
+    updateAdminPermissionUi();
+  });
+}
+
+if (elements.adminManagerSaveBtn) {
+  elements.adminManagerSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveAdminManager();
+    } catch (error) {
+      setMetaText(elements.adminManagerStatus, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.adminManagerClearBtn) {
+  elements.adminManagerClearBtn.addEventListener("click", () => {
+    populateAdminForm(null);
+    notify("管理员表单已清空", "success");
+  });
+}
+
+if (elements.adminManagerRefreshBtn) {
+  elements.adminManagerRefreshBtn.addEventListener("click", async () => {
+    try {
+      await loadAdminManagerData();
+      notify("管理员列表已刷新", "success");
+    } catch (error) {
+      setMetaText(elements.adminManagerListStatus, `加载失败：${error.message}`, "error");
+      notify(`加载失败：${error.message}`, "error");
+    }
+  });
+}
+
 elements.walletAdjustBtn.addEventListener("click", async () => {
   try {
     await adjustWallet();
@@ -1984,4 +2333,11 @@ if (elements.groupBuyConsumeStatus) {
 if (elements.userListStatus) {
   setMetaText(elements.userListStatus, "等待加载列表", "info");
 }
+if (elements.adminManagerStatus) {
+  setMetaText(elements.adminManagerStatus, "等待操作", "info");
+}
+if (elements.adminManagerListStatus) {
+  setMetaText(elements.adminManagerListStatus, "等待加载管理员列表", "info");
+}
 renderAdminProfile();
+populateAdminForm(null);

@@ -128,6 +128,10 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/users/logout", this::handleAdminForceLogout);
     server.createContext("/api/admin/users/wallet-adjust", this::handleAdminWalletAdjust);
     server.createContext("/api/admin/audit/list", this::handleAdminAuditList);
+    server.createContext("/api/admin/admin-users/meta", this::handleAdminUsersMeta);
+    server.createContext("/api/admin/admin-users/list", this::handleAdminAdminUsersList);
+    server.createContext("/api/admin/admin-users/upsert", this::handleAdminAdminUsersUpsert);
+    server.createContext("/api/admin/admin-users/active", this::handleAdminAdminUsersActive);
 
     // Only serve static files in INTERNAL mode
     if (serverMode == PluginSettings.ServerMode.INTERNAL) {
@@ -966,20 +970,10 @@ class EmbeddedWebServer {
       AdminService.AdminLoginResult result = adminService.login(identifier, password);
       AuthService.AuthResult auth = result.authResult();
       JsonObject response = sessionResponse(auth);
-      JsonObject admin = new JsonObject();
-      admin.addProperty("id", auth.user().id());
-      admin.addProperty("username", auth.user().username());
-      admin.addProperty("role", result.role().name());
-      admin.addProperty("canSetZeroPrice", result.role().allows(AdminPermission.PRODUCT_ZERO_PRICE));
-      response.add("admin", admin);
+      response.add("admin", adminProfileJson(result.admin()));
       sendJson(exchange, 200, response);
 
-      AdminService.AdminUser adminUser = new AdminService.AdminUser(
-          auth.user().id(),
-          auth.user().username(),
-          auth.user().boundUuid(),
-          result.role());
-      adminAuditService.log(adminUser, "ADMIN_LOGIN", "admin", auth.user().username(), null, clientIp(exchange));
+      adminAuditService.log(result.admin(), "ADMIN_LOGIN", "admin", auth.user().username(), null, clientIp(exchange));
     });
   }
 
@@ -993,17 +987,7 @@ class EmbeddedWebServer {
     withServiceHandling(exchange, () -> {
       AuthService.AuthUser user = requireAuth(exchange, null);
       AdminService.AdminUser admin = adminService.getAdminUser(user);
-      JsonObject response = new JsonObject();
-      response.addProperty("id", admin.userId());
-      response.addProperty("username", admin.username());
-      response.addProperty("role", admin.role().name());
-      response.addProperty("canSetZeroPrice", admin.role().allows(AdminPermission.PRODUCT_ZERO_PRICE));
-      if (admin.boundUuid() == null) {
-        response.add("boundUuid", JsonNull.INSTANCE);
-      } else {
-        response.addProperty("boundUuid", admin.boundUuid().toString());
-      }
-      sendJson(exchange, 200, response);
+      sendJson(exchange, 200, adminProfileJson(admin));
     });
   }
 
@@ -1205,7 +1189,7 @@ class EmbeddedWebServer {
     withServiceHandling(exchange, () -> {
       JsonObject payload = readJson(exchange);
       AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.PRODUCT_MANAGE);
-      boolean allowZeroPrice = admin.role().allows(AdminPermission.PRODUCT_ZERO_PRICE);
+      boolean allowZeroPrice = admin.allows(AdminPermission.PRODUCT_ZERO_PRICE);
       ProductService.AdminProductInput input = new ProductService.AdminProductInput(
           getString(payload, "sku"),
           getString(payload, "title"),
@@ -1859,6 +1843,147 @@ class EmbeddedWebServer {
     });
   }
 
+  private void handleAdminUsersMeta(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      requireSuperAdmin(exchange, null);
+      JsonObject response = new JsonObject();
+      JsonArray groups = new JsonArray();
+      for (AdminService.PermissionGroup group : adminService.listPermissionGroups()) {
+        JsonObject groupJson = new JsonObject();
+        groupJson.addProperty("key", group.key());
+        groupJson.addProperty("label", group.label());
+        JsonArray permissions = new JsonArray();
+        for (AdminService.PermissionDefinition permission : group.permissions()) {
+          JsonObject item = new JsonObject();
+          item.addProperty("code", permission.code());
+          item.addProperty("label", permission.label());
+          item.addProperty("description", permission.description());
+          permissions.add(item);
+        }
+        groupJson.add("permissions", permissions);
+        groups.add(groupJson);
+      }
+      JsonArray templates = new JsonArray();
+      for (AdminService.PermissionTemplate template : adminService.listPermissionTemplates()) {
+        JsonObject item = new JsonObject();
+        item.addProperty("key", template.key());
+        item.addProperty("label", template.label());
+        item.addProperty("description", template.description());
+        item.addProperty("superAdmin", template.superAdmin());
+        JsonArray permissions = new JsonArray();
+        for (String code : template.permissions()) {
+          permissions.add(code);
+        }
+        item.add("permissions", permissions);
+        templates.add(item);
+      }
+      response.add("groups", groups);
+      response.add("templates", templates);
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminAdminUsersList(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AdminService.AdminUser admin = requireSuperAdmin(exchange, null);
+      JsonArray rows = new JsonArray();
+      for (AdminService.AdminAccessView item : adminService.listAdmins()) {
+        rows.add(adminAccessJson(item));
+      }
+      JsonObject response = new JsonObject();
+      response.add("admins", rows);
+      sendJson(exchange, 200, response);
+      adminAuditService.log(admin, "ADMIN_USER_LIST", "admin_user", null, null, clientIp(exchange));
+    });
+  }
+
+  private void handleAdminAdminUsersUpsert(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireSuperAdmin(exchange, payload);
+      String identifier = getOptionalString(payload, "identifier")
+          .or(() -> getOptionalString(payload, "username"))
+          .orElseThrow(() -> new ServiceException("bad_request", "Missing field: identifier"));
+      boolean superAdmin = payload.has("isSuperAdmin") && payload.get("isSuperAdmin").getAsBoolean();
+      String templateKey = getOptionalString(payload, "templateKey").orElse(null);
+      List<String> permissionCodes = getStringArray(payload, "permissions");
+      java.util.Set<AdminPermission> permissions = java.util.EnumSet.noneOf(AdminPermission.class);
+      for (String code : permissionCodes) {
+        permissions.add(AdminPermission.valueOf(code.trim().toUpperCase(Locale.ROOT)));
+      }
+
+      AdminService.AdminAccessView updated =
+          adminService.upsertAdmin(admin.userId(), identifier, superAdmin, permissions, templateKey);
+      sendJson(exchange, 200, adminAccessJson(updated));
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("identifier", identifier);
+      detail.addProperty("isSuperAdmin", updated.isSuperAdmin());
+      detail.addProperty("templateKey", updated.templateKey());
+      JsonArray permissionArray = new JsonArray();
+      for (String code : updated.permissions()) {
+        permissionArray.add(code);
+      }
+      detail.add("permissions", permissionArray);
+      adminAuditService.log(
+          admin,
+          "ADMIN_USER_UPSERT",
+          "admin_user",
+          String.valueOf(updated.userId()),
+          detail,
+          clientIp(exchange));
+    });
+  }
+
+  private void handleAdminAdminUsersActive(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireSuperAdmin(exchange, payload);
+      long userId = getLong(payload, "userId", -1L);
+      boolean active = payload.has("active") && payload.get("active").getAsBoolean();
+      if (userId <= 0L) {
+        throw new ServiceException("bad_request", "Invalid admin user id");
+      }
+      AdminService.AdminAccessView updated = adminService.setAdminActive(admin.userId(), userId, active);
+      sendJson(exchange, 200, adminAccessJson(updated));
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("active", updated.active());
+      detail.addProperty("isSuperAdmin", updated.isSuperAdmin());
+      adminAuditService.log(
+          admin,
+          active ? "ADMIN_USER_ENABLE" : "ADMIN_USER_DISABLE",
+          "admin_user",
+          String.valueOf(updated.userId()),
+          detail,
+          clientIp(exchange));
+    });
+  }
+
   private void handleStatic(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
       return;
@@ -1937,6 +2062,83 @@ class EmbeddedWebServer {
       AdminPermission permission) {
     AuthService.AuthUser user = requireAuth(exchange, payload);
     return adminService.requireAdmin(user, permission);
+  }
+
+  private AdminService.AdminUser requireSuperAdmin(HttpExchange exchange, JsonObject payload) {
+    AuthService.AuthUser user = requireAuth(exchange, payload);
+    return adminService.requireSuperAdmin(user);
+  }
+
+  private JsonObject adminProfileJson(AdminService.AdminUser admin) {
+    JsonObject response = new JsonObject();
+    response.addProperty("id", admin.userId());
+    response.addProperty("username", admin.username());
+    response.addProperty("role", admin.roleLabel());
+    response.addProperty("isSuperAdmin", admin.isSuperAdmin());
+    response.addProperty("canSetZeroPrice", admin.allows(AdminPermission.PRODUCT_ZERO_PRICE));
+    response.addProperty("canManageAdmins", admin.isSuperAdmin());
+    if (admin.templateKey() == null) {
+      response.add("templateKey", JsonNull.INSTANCE);
+    } else {
+      response.addProperty("templateKey", admin.templateKey());
+    }
+    if (admin.boundUuid() == null) {
+      response.add("boundUuid", JsonNull.INSTANCE);
+    } else {
+      response.addProperty("boundUuid", admin.boundUuid().toString());
+    }
+    JsonArray permissions = new JsonArray();
+    for (String code : admin.permissionCodes()) {
+      permissions.add(code);
+    }
+    response.add("permissions", permissions);
+    return response;
+  }
+
+  private JsonObject adminAccessJson(AdminService.AdminAccessView admin) {
+    JsonObject response = new JsonObject();
+    response.addProperty("userId", admin.userId());
+    response.addProperty("username", admin.username());
+    response.addProperty("role", admin.roleLabel());
+    response.addProperty("active", admin.active());
+    response.addProperty("isSuperAdmin", admin.isSuperAdmin());
+    if (admin.templateKey() == null) {
+      response.add("templateKey", JsonNull.INSTANCE);
+    } else {
+      response.addProperty("templateKey", admin.templateKey());
+    }
+    if (admin.boundUuid() == null) {
+      response.add("boundUuid", JsonNull.INSTANCE);
+    } else {
+      response.addProperty("boundUuid", admin.boundUuid().toString());
+    }
+    response.addProperty("createdAt", admin.createdAt().toString());
+    response.addProperty("updatedAt", admin.updatedAt().toString());
+    JsonArray permissions = new JsonArray();
+    for (String code : admin.permissions()) {
+      permissions.add(code);
+    }
+    response.add("permissions", permissions);
+    return response;
+  }
+
+  private List<String> getStringArray(JsonObject payload, String field) {
+    if (!payload.has(field) || payload.get(field).isJsonNull()) {
+      return List.of();
+    }
+    JsonElement value = payload.get(field);
+    if (!value.isJsonArray()) {
+      throw new ServiceException("bad_request", "Field must be an array: " + field);
+    }
+    JsonArray array = value.getAsJsonArray();
+    List<String> values = new java.util.ArrayList<>();
+    for (JsonElement element : array) {
+      if (element == null || element.isJsonNull()) {
+        continue;
+      }
+      values.add(element.getAsString());
+    }
+    return values;
   }
 
   private String readHeaderToken(HttpExchange exchange) {

@@ -1023,6 +1023,72 @@ code {
   flex-wrap: wrap;
 }
 
+.admin-permission-groups {
+  margin-top: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.admin-permission-group {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--radius-medium);
+  background: var(--app-card-soft-bg);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.admin-permission-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.admin-permission-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.admin-permission-head p {
+  margin: 4px 0 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+}
+
+.admin-permission-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-permission-list {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-permission-item {
+  display: grid;
+  gap: 4px;
+  border-radius: var(--radius-small);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container-low);
+  padding: 10px 12px;
+}
+
+.admin-permission-item input {
+  margin-right: 8px;
+}
+
+.admin-permission-item strong {
+  font-size: 13px;
+}
+
+.admin-permission-item span {
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
 .admin-key {
   font-size: 12px;
   color: var(--md-sys-color-on-surface-variant);

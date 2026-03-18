@@ -9,6 +9,7 @@ enum AdminRole {
   SHOP_ADMIN(EnumSet.of(
       AdminPermission.REDEEM_MANAGE,
       AdminPermission.PRODUCT_MANAGE,
+      AdminPermission.PRODUCT_ZERO_PRICE,
       AdminPermission.ORDER_VIEW,
       AdminPermission.ECONOMY_MANAGE)),
   MARKET_MODERATOR(EnumSet.of(AdminPermission.MARKET_MANAGE)),
@@ -23,6 +24,10 @@ enum AdminRole {
 
   boolean allows(AdminPermission permission) {
     return permissions.contains(permission);
+  }
+
+  Set<AdminPermission> permissions() {
+    return EnumSet.copyOf(permissions);
   }
 
   static AdminRole fromRaw(String raw) {

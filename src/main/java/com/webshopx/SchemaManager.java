@@ -15,6 +15,7 @@ class SchemaManager {
     createWebUsers(connection);
     migrateWebUsers(connection);
     createWebAdmins(connection);
+    migrateWebAdmins(connection);
     createAdminAuditLogs(connection);
     createWebSessions(connection);
     createBindRequests(connection);
@@ -94,6 +95,9 @@ class SchemaManager {
           user_id BIGINT NOT NULL,
           role VARCHAR(32) NOT NULL,
           active BOOLEAN NOT NULL DEFAULT TRUE,
+          is_super_admin BOOLEAN NOT NULL DEFAULT FALSE,
+          permissions_json JSON NULL,
+          template_key VARCHAR(32) NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             ON UPDATE CURRENT_TIMESTAMP,
@@ -104,6 +108,31 @@ class SchemaManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
+  }
+
+  private void migrateWebAdmins(Connection connection) throws SQLException {
+    if (!columnExists(connection, "web_admins", "is_super_admin")) {
+      execute(
+          connection,
+          "ALTER TABLE web_admins "
+              + "ADD COLUMN is_super_admin BOOLEAN NOT NULL DEFAULT FALSE AFTER active");
+    }
+    if (!columnExists(connection, "web_admins", "permissions_json")) {
+      execute(
+          connection,
+          "ALTER TABLE web_admins "
+              + "ADD COLUMN permissions_json JSON NULL AFTER is_super_admin");
+    }
+    if (!columnExists(connection, "web_admins", "template_key")) {
+      execute(
+          connection,
+          "ALTER TABLE web_admins "
+              + "ADD COLUMN template_key VARCHAR(32) NULL AFTER permissions_json");
+    }
+    execute(
+        connection,
+        "UPDATE web_admins SET is_super_admin = TRUE "
+            + "WHERE role = 'SUPER_ADMIN'");
   }
 
   private void createAdminAuditLogs(Connection connection) throws SQLException {
