@@ -1,5 +1,6 @@
 package com.webshopx;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -450,6 +451,9 @@ class MarketGuiService {
     return left.isSimilar(right);
   }
 
+  @SuppressFBWarnings(
+      value = "DB_DUPLICATE_BRANCHES",
+      justification = "Manual and supply listing modes intentionally share the same button layout")
   private void fillInputFrame(
       Inventory inventory,
       ListingMode mode,

@@ -2,6 +2,7 @@ package com.webshopx;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -30,6 +31,9 @@ final class ItemSnapshotCodec {
         sha256Hex(raw));
   }
 
+  @SuppressFBWarnings(
+      value = "OBJECT_DESERIALIZATION",
+      justification = "Item blobs are produced by this plugin and only deserialized back into Bukkit ItemStack snapshots")
   ItemStack deserialize(byte[] rawItemBlob) {
     if (rawItemBlob == null || rawItemBlob.length == 0) {
       throw new ServiceException("invalid_item_blob", "Item snapshot blob is empty");
@@ -75,8 +79,12 @@ final class ItemSnapshotCodec {
       meta.addProperty("displayName", itemMeta.getDisplayName());
     }
     if (itemMeta.hasLore()) {
+      var lore = itemMeta.getLore();
+      if (lore == null) {
+        return meta;
+      }
       JsonArray loreArray = new JsonArray();
-      for (String line : itemMeta.getLore()) {
+      for (String line : lore) {
         loreArray.add(line);
       }
       meta.add("lore", loreArray);

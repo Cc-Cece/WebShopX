@@ -328,63 +328,8 @@ class MarketService {
     int limit = normalizeLimit(query.limit());
     String sortColumn = resolveSortColumn(query.sort());
     String sortDirection = query.ascending() ? "ASC" : "DESC";
-
-    return databaseManager.withConnection(connection -> {
-      StringBuilder sql = new StringBuilder("""
-          SELECT ml.id, ml.seller_user_id, u.username AS seller_name, ml.seller_uuid, ml.currency, ml.price,
-                 ml.quantity, ml.quantity_total, ml.item_material, ml.item_meta_json,
-                 ml.remark, ml.status, ml.created_at, ml.source_mode, ml.supply_batch_size,
-                 ml.supply_max_stock, ml.supply_loaded_total, ml.supply_sold_total,
-                 ml.supply_last_loaded_amount, ml.supply_last_loaded_at
-          FROM market_listings ml
-          JOIN web_users u ON u.id = ml.seller_user_id
-          WHERE 1=1
-          """);
-      List<Object> params = new ArrayList<>();
-
-      if (query.activeOnly()) {
-        sql.append(" AND ((ml.status = 'ACTIVE' AND (ml.quantity > 0 OR ml.source_mode = 'SUPPLY'))"
-            + " OR (ml.source_mode = 'SUPPLY' AND ml.status = 'PAUSED' AND ml.quantity = 0))");
-      }
-      if (query.sellerUserId() != null) {
-        sql.append(" AND ml.seller_user_id = ?");
-        params.add(query.sellerUserId());
-      }
-      if (query.currency() != null) {
-        sql.append(" AND ml.currency = ?");
-        params.add(query.currency().name());
-      }
-      if (query.material() != null && !query.material().isBlank()) {
-        sql.append(" AND ml.item_material = ?");
-        params.add(query.material());
-      }
-      if (query.minPrice() != null) {
-        sql.append(" AND ml.price >= ?");
-        params.add(query.minPrice());
-      }
-      if (query.maxPrice() != null) {
-        sql.append(" AND ml.price <= ?");
-        params.add(query.maxPrice());
-      }
-      if (query.keyword() != null && !query.keyword().isBlank()) {
-        sql.append(" AND (LOWER(ml.item_material) LIKE ? OR LOWER(u.username) LIKE ? OR LOWER(ml.remark) LIKE ?)");
-        String keyword = "%" + query.keyword().toLowerCase(Locale.ROOT) + "%";
-        params.add(keyword);
-        params.add(keyword);
-        params.add(keyword);
-      }
-
-      sql.append(" ORDER BY ").append(sortColumn).append(" ").append(sortDirection);
-      sql.append(" LIMIT ?");
-      params.add(limit);
-
-      try (PreparedStatement statement = connection.prepareStatement(sql.toString())) {
-        for (int i = 0; i < params.size(); i++) {
-          statement.setObject(i + 1, params.get(i));
-        }
-        return readListingViews(statement.executeQuery());
-      }
-    });
+    return databaseManager.withConnection(
+        connection -> listListings(connection, query, sortColumn, sortDirection, limit));
   }
 
   List<AdminListingView> listAllListings(
@@ -396,62 +341,148 @@ class MarketService {
       String currencyFilter,
       int requestedLimit) {
     int limit = normalizeLimit(requestedLimit);
-    return databaseManager.withConnection(connection -> {
-      List<String> clauses = new ArrayList<>();
-      List<Object> params = new ArrayList<>();
-      clauses.add("1=1");
-      if (statusFilter != null && !statusFilter.isBlank()) {
-        clauses.add("ml.status = ?");
-        params.add(statusFilter.trim().toUpperCase(Locale.ROOT));
+    return databaseManager.withConnection(connection -> listAllListings(
+        connection,
+        statusFilter,
+        sellerKeyword,
+        buyerKeyword,
+        materialFilter,
+        keyword,
+        currencyFilter,
+        limit));
+  }
+
+  @SuppressFBWarnings(
+      value = "SQL_INJECTION_JDBC",
+      justification = "Dynamic clauses are assembled from validated enum values and constant SQL fragments")
+  private List<ListingView> listListings(
+      Connection connection,
+      ListingQuery query,
+      String sortColumn,
+      String sortDirection,
+      int limit) throws SQLException {
+    StringBuilder sql = new StringBuilder("""
+        SELECT ml.id, ml.seller_user_id, u.username AS seller_name, ml.seller_uuid, ml.currency, ml.price,
+               ml.quantity, ml.quantity_total, ml.item_material, ml.item_meta_json,
+               ml.remark, ml.status, ml.created_at, ml.source_mode, ml.supply_batch_size,
+               ml.supply_max_stock, ml.supply_loaded_total, ml.supply_sold_total,
+               ml.supply_last_loaded_amount, ml.supply_last_loaded_at
+        FROM market_listings ml
+        JOIN web_users u ON u.id = ml.seller_user_id
+        WHERE 1=1
+        """);
+    List<Object> params = new ArrayList<>();
+
+    if (query.activeOnly()) {
+      sql.append(" AND ((ml.status = 'ACTIVE' AND (ml.quantity > 0 OR ml.source_mode = 'SUPPLY'))"
+          + " OR (ml.source_mode = 'SUPPLY' AND ml.status = 'PAUSED' AND ml.quantity = 0))");
+    }
+    if (query.sellerUserId() != null) {
+      sql.append(" AND ml.seller_user_id = ?");
+      params.add(query.sellerUserId());
+    }
+    if (query.currency() != null) {
+      sql.append(" AND ml.currency = ?");
+      params.add(query.currency().name());
+    }
+    if (query.material() != null && !query.material().isBlank()) {
+      sql.append(" AND ml.item_material = ?");
+      params.add(query.material());
+    }
+    if (query.minPrice() != null) {
+      sql.append(" AND ml.price >= ?");
+      params.add(query.minPrice());
+    }
+    if (query.maxPrice() != null) {
+      sql.append(" AND ml.price <= ?");
+      params.add(query.maxPrice());
+    }
+    if (query.keyword() != null && !query.keyword().isBlank()) {
+      sql.append(" AND (LOWER(ml.item_material) LIKE ? OR LOWER(u.username) LIKE ? OR LOWER(ml.remark) LIKE ?)");
+      String keywordPattern = "%" + query.keyword().toLowerCase(Locale.ROOT) + "%";
+      params.add(keywordPattern);
+      params.add(keywordPattern);
+      params.add(keywordPattern);
+    }
+
+    sql.append(" ORDER BY ").append(sortColumn).append(" ").append(sortDirection);
+    sql.append(" LIMIT ?");
+    params.add(limit);
+
+    try (PreparedStatement statement = connection.prepareStatement(sql.toString())) {
+      for (int i = 0; i < params.size(); i++) {
+        statement.setObject(i + 1, params.get(i));
       }
-      if (sellerKeyword != null && !sellerKeyword.isBlank()) {
-        clauses.add("LOWER(us.username) LIKE ?");
-        params.add("%" + sellerKeyword.trim().toLowerCase(Locale.ROOT) + "%");
+      return readListingViews(statement.executeQuery());
+    }
+  }
+
+  @SuppressFBWarnings(
+      value = "SQL_INJECTION_JDBC",
+      justification = "Admin listing filters append constant SQL fragments and bind every user-provided value")
+  private List<AdminListingView> listAllListings(
+      Connection connection,
+      String statusFilter,
+      String sellerKeyword,
+      String buyerKeyword,
+      String materialFilter,
+      String keyword,
+      String currencyFilter,
+      int limit) throws SQLException {
+    List<String> clauses = new ArrayList<>();
+    List<Object> params = new ArrayList<>();
+    clauses.add("1=1");
+    if (statusFilter != null && !statusFilter.isBlank()) {
+      clauses.add("ml.status = ?");
+      params.add(statusFilter.trim().toUpperCase(Locale.ROOT));
+    }
+    if (sellerKeyword != null && !sellerKeyword.isBlank()) {
+      clauses.add("LOWER(us.username) LIKE ?");
+      params.add("%" + sellerKeyword.trim().toLowerCase(Locale.ROOT) + "%");
+    }
+    if (buyerKeyword != null && !buyerKeyword.isBlank()) {
+      clauses.add("LOWER(IFNULL(ub.username, '')) LIKE ?");
+      params.add("%" + buyerKeyword.trim().toLowerCase(Locale.ROOT) + "%");
+    }
+    if (materialFilter != null && !materialFilter.isBlank()) {
+      clauses.add("ml.item_material = ?");
+      params.add(materialFilter.trim().toUpperCase(Locale.ROOT));
+    }
+    if (currencyFilter != null && !currencyFilter.isBlank()) {
+      clauses.add("ml.currency = ?");
+      params.add(currencyFilter.trim().toUpperCase(Locale.ROOT));
+    }
+    if (keyword != null && !keyword.isBlank()) {
+      clauses.add(
+          "(CAST(ml.id AS CHAR) LIKE ? OR LOWER(ml.item_material) LIKE ? OR LOWER(IFNULL(ml.remark, '')) LIKE ? "
+              + "OR LOWER(us.username) LIKE ? OR LOWER(IFNULL(ub.username, '')) LIKE ?)");
+      String fuzzy = "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%";
+      params.add(fuzzy);
+      params.add(fuzzy);
+      params.add(fuzzy);
+      params.add(fuzzy);
+      params.add(fuzzy);
+    }
+    String sql = """
+        SELECT ml.id, ml.seller_user_id, us.username AS seller_name, ml.seller_uuid,
+               ml.buyer_user_id, ub.username AS buyer_name, ml.buyer_uuid,
+               ml.currency, ml.price, ml.quantity, ml.quantity_total, ml.item_material, ml.item_meta_json,
+               ml.remark, ml.status, ml.created_at, ml.sold_at, ml.unlisted_at,
+               ml.source_mode, ml.supply_batch_size, ml.supply_max_stock, ml.supply_loaded_total,
+               ml.supply_sold_total, ml.supply_last_loaded_amount, ml.supply_last_loaded_at
+        FROM market_listings ml
+        JOIN web_users us ON us.id = ml.seller_user_id
+        LEFT JOIN web_users ub ON ub.id = ml.buyer_user_id
+        """
+        + " WHERE " + String.join(" AND ", clauses)
+        + " ORDER BY ml.id DESC LIMIT ?";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      for (int i = 0; i < params.size(); i++) {
+        statement.setObject(i + 1, params.get(i));
       }
-      if (buyerKeyword != null && !buyerKeyword.isBlank()) {
-        clauses.add("LOWER(IFNULL(ub.username, '')) LIKE ?");
-        params.add("%" + buyerKeyword.trim().toLowerCase(Locale.ROOT) + "%");
-      }
-      if (materialFilter != null && !materialFilter.isBlank()) {
-        clauses.add("ml.item_material = ?");
-        params.add(materialFilter.trim().toUpperCase(Locale.ROOT));
-      }
-      if (currencyFilter != null && !currencyFilter.isBlank()) {
-        clauses.add("ml.currency = ?");
-        params.add(currencyFilter.trim().toUpperCase(Locale.ROOT));
-      }
-      if (keyword != null && !keyword.isBlank()) {
-        clauses.add(
-            "(CAST(ml.id AS CHAR) LIKE ? OR LOWER(ml.item_material) LIKE ? OR LOWER(IFNULL(ml.remark, '')) LIKE ? "
-                + "OR LOWER(us.username) LIKE ? OR LOWER(IFNULL(ub.username, '')) LIKE ?)");
-        String fuzzy = "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%";
-        params.add(fuzzy);
-        params.add(fuzzy);
-        params.add(fuzzy);
-        params.add(fuzzy);
-        params.add(fuzzy);
-      }
-      String sql = """
-          SELECT ml.id, ml.seller_user_id, us.username AS seller_name, ml.seller_uuid,
-                 ml.buyer_user_id, ub.username AS buyer_name, ml.buyer_uuid,
-                 ml.currency, ml.price, ml.quantity, ml.quantity_total, ml.item_material, ml.item_meta_json,
-                 ml.remark, ml.status, ml.created_at, ml.sold_at, ml.unlisted_at,
-                 ml.source_mode, ml.supply_batch_size, ml.supply_max_stock, ml.supply_loaded_total,
-                 ml.supply_sold_total, ml.supply_last_loaded_amount, ml.supply_last_loaded_at
-          FROM market_listings ml
-          JOIN web_users us ON us.id = ml.seller_user_id
-          LEFT JOIN web_users ub ON ub.id = ml.buyer_user_id
-          """
-          + " WHERE " + String.join(" AND ", clauses)
-          + " ORDER BY ml.id DESC LIMIT ?";
-      try (PreparedStatement statement = connection.prepareStatement(sql)) {
-        for (int i = 0; i < params.size(); i++) {
-          statement.setObject(i + 1, params.get(i));
-        }
-        statement.setInt(params.size() + 1, limit);
-        return readAdminListingViews(statement.executeQuery());
-      }
-    });
+      statement.setInt(params.size() + 1, limit);
+      return readAdminListingViews(statement.executeQuery());
+    }
   }
 
   UnlistResult adminUnlist(long listingId) {

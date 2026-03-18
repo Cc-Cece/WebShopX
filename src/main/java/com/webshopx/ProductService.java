@@ -38,29 +38,35 @@ class ProductService {
 
   List<ProductView> listProducts(boolean includeInactive, int requestedLimit) {
     int limit = normalizeLimit(requestedLimit);
-    return databaseManager.withConnection(connection -> {
-      String activeFilter = includeInactive
-          ? ""
-          : "WHERE active = TRUE "
-              + "AND (publish_at IS NULL OR publish_at <= NOW()) "
-              + "AND (unpublish_at IS NULL OR unpublish_at > NOW())";
-      String sql = """
-          SELECT id, sku, title, remark, currency, price, product_type, command_template,
-                 item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
-                 publish_at, unpublish_at, active
-          FROM products
-          """ + activeFilter + " ORDER BY id ASC LIMIT ?";
-      List<ProductView> products = new ArrayList<>();
-      try (PreparedStatement statement = connection.prepareStatement(sql)) {
-        statement.setInt(1, limit);
-        try (ResultSet resultSet = statement.executeQuery()) {
-          while (resultSet.next()) {
-            products.add(readProduct(resultSet));
-          }
+    return databaseManager.withConnection(connection -> listProducts(connection, includeInactive, limit));
+  }
+
+  @SuppressFBWarnings(
+      value = "SQL_INJECTION_JDBC",
+      justification = "Active filter is selected from a fixed boolean branch and the limit remains bound")
+  private List<ProductView> listProducts(Connection connection, boolean includeInactive, int limit)
+      throws SQLException {
+    String activeFilter = includeInactive
+        ? ""
+        : "WHERE active = TRUE "
+            + "AND (publish_at IS NULL OR publish_at <= NOW()) "
+            + "AND (unpublish_at IS NULL OR unpublish_at > NOW())";
+    String sql = """
+        SELECT id, sku, title, remark, currency, price, product_type, command_template,
+               item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
+               publish_at, unpublish_at, active
+        FROM products
+        """ + activeFilter + " ORDER BY id ASC LIMIT ?";
+    List<ProductView> products = new ArrayList<>();
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setInt(1, limit);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        while (resultSet.next()) {
+          products.add(readProduct(resultSet));
         }
       }
-      return products;
-    });
+    }
+    return products;
   }
 
   ProductView upsertProduct(AdminProductInput input) {
@@ -254,6 +260,9 @@ class ProductService {
     return view;
   }
 
+  @SuppressFBWarnings(
+      value = "SQL_INJECTION_JDBC",
+      justification = "Lock clause is selected from a fixed boolean branch")
   private ProductView findProductBySku(Connection connection, String sku, boolean forUpdate)
       throws SQLException {
     String lockClause = forUpdate ? " FOR UPDATE" : "";

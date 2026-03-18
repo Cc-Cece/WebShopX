@@ -1,5 +1,6 @@
 package com.webshopx;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -897,6 +898,9 @@ class SchemaManager {
     execute(connection, sql);
   }
 
+  @SuppressFBWarnings(
+      value = "SQL_INJECTION_JDBC",
+      justification = "Schema migrations execute only internal DDL strings defined in this class")
   private void execute(Connection connection, String sql) throws SQLException {
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.execute();

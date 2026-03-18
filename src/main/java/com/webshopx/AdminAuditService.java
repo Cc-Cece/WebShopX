@@ -1,6 +1,7 @@
 package com.webshopx;
 
 import com.google.gson.JsonObject;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -35,18 +36,33 @@ class AdminAuditService {
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """;
     databaseManager.withConnection(connection -> {
-      try (PreparedStatement statement = connection.prepareStatement(sql)) {
-        statement.setLong(1, admin.userId());
-        statement.setString(2, admin.role().name());
-        statement.setString(3, action);
-        statement.setString(4, targetType);
-        statement.setString(5, targetId);
-        statement.setString(6, detail == null ? null : detail.toString());
-        statement.setString(7, sourceIp);
-        statement.executeUpdate();
-      }
+      insertAuditLog(connection, sql, admin, action, targetType, targetId, detail, sourceIp);
       return null;
     });
+  }
+
+  @SuppressFBWarnings(
+      value = "SQL_INJECTION_JDBC",
+      justification = "Audit insert uses a fixed SQL statement and binds every external value")
+  private void insertAuditLog(
+      Connection connection,
+      String sql,
+      AdminService.AdminUser admin,
+      String action,
+      String targetType,
+      String targetId,
+      JsonObject detail,
+      String sourceIp) throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, admin.userId());
+      statement.setString(2, admin.role().name());
+      statement.setString(3, action);
+      statement.setString(4, targetType);
+      statement.setString(5, targetId);
+      statement.setString(6, detail == null ? null : detail.toString());
+      statement.setString(7, sourceIp);
+      statement.executeUpdate();
+    }
   }
 
   List<AuditView> list(int requestedLimit) {

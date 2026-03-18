@@ -1,5 +1,6 @@
 package com.webshopx;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -650,7 +651,11 @@ class OrderService {
 
   private boolean hasEnoughItem(Player player, Material material, int requiredAmount) {
     int count = 0;
-    for (ItemStack itemStack : player.getInventory().getContents()) {
+    ItemStack[] contents = player.getInventory().getContents();
+    if (contents == null) {
+      return false;
+    }
+    for (ItemStack itemStack : contents) {
       if (itemStack == null || itemStack.getType() != material) {
         continue;
       }
@@ -665,6 +670,9 @@ class OrderService {
   private boolean removeItems(Player player, Material material, int requiredAmount) {
     int remaining = requiredAmount;
     ItemStack[] contents = player.getInventory().getContents();
+    if (contents == null) {
+      return false;
+    }
     for (int index = 0; index < contents.length; index++) {
       ItemStack stack = contents[index];
       if (stack == null || stack.getType() != material) {
@@ -749,6 +757,9 @@ class OrderService {
     }
   }
 
+  @SuppressFBWarnings(
+      value = "SQL_INJECTION_JDBC",
+      justification = "Cursor clause is selected from a fixed branch and all external values are bound")
   private List<OrderView> listOfficialOrders(
       Connection connection,
       long userId,
@@ -796,6 +807,9 @@ class OrderService {
     }
   }
 
+  @SuppressFBWarnings(
+      value = "SQL_INJECTION_JDBC",
+      justification = "Cutoff clause is selected from a fixed branch and all external values are bound")
   private List<OrderView> listMarketOrders(
       Connection connection,
       long userId,
@@ -887,7 +901,33 @@ class OrderService {
     String normalizedProductType = productTypeFilter == null
         ? null
         : productTypeFilter.trim().toUpperCase(Locale.ROOT);
-    return databaseManager.withConnection(connection -> {
+    return databaseManager.withConnection(connection -> listOrdersForAdmin(
+        connection,
+        pageSize,
+        cursor,
+        userId,
+        normalizedStatus,
+        normalizedOrderNo,
+        normalizedUsername,
+        normalizedKeyword,
+        normalizedCurrency,
+        normalizedProductType));
+  }
+
+  @SuppressFBWarnings(
+      value = "SQL_INJECTION_JDBC",
+      justification = "Admin order filters append constant SQL fragments and bind every user-provided value")
+  private List<AdminOrderView> listOrdersForAdmin(
+      Connection connection,
+      int pageSize,
+      Long cursor,
+      Long userId,
+      String normalizedStatus,
+      String normalizedOrderNo,
+      String normalizedUsername,
+      String normalizedKeyword,
+      String normalizedCurrency,
+      String normalizedProductType) throws SQLException {
       List<String> clauses = new ArrayList<>();
       clauses.add("1=1");
       if (normalizedStatus != null && !normalizedStatus.isBlank()) {
@@ -985,7 +1025,6 @@ class OrderService {
         }
         return results;
       }
-    });
   }
 
   GroupBuyVoucherConsumeResult consumeGroupBuyVoucher(long adminUserId, String rawCode) {
@@ -1201,7 +1240,7 @@ class OrderService {
 
   private RefundResult refundMarketOrder(long userId, String orderNo) {
     long tradeId = parseMarketTradeId(orderNo);
-    MarketOrderRow order = databaseManager.inTransaction(connection -> {
+    databaseManager.inTransaction(connection -> {
       MarketOrderRow row = readMarketTradeForRefund(connection, userId, tradeId);
       if (row == null) {
         throw new ServiceException("order_missing", "Order not found");
@@ -1353,10 +1392,6 @@ class OrderService {
     }
   }
 
-  private OrderView readOrderView(ResultSet resultSet) throws SQLException {
-    return readOrderView(resultSet, null);
-  }
-
   private OrderView readOrderView(ResultSet resultSet, String claimTokenOverride) throws SQLException {
     Timestamp deliveredAt = resultSet.getTimestamp("delivered_at");
     Timestamp refundDeadline = resultSet.getTimestamp("refund_deadline");
@@ -1390,10 +1425,6 @@ class OrderService {
         resultSet.getString("group_buy_voucher_status"),
         groupBuyVoucherConsumedAt == null ? null : groupBuyVoucherConsumedAt.toLocalDateTime(),
         claimToken);
-  }
-
-  private OrderView readMarketOrderView(ResultSet resultSet, long userId) throws SQLException {
-    return readMarketOrderView(resultSet, userId, null);
   }
 
   private OrderView readMarketOrderView(ResultSet resultSet, long userId, String claimTokenOverride)

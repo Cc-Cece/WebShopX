@@ -275,6 +275,9 @@ class WalletService {
     return this.vaultEconomy != null;
   }
 
+  @SuppressFBWarnings(
+      value = "SQL_INJECTION_JDBC",
+      justification = "Lock clause is selected from a fixed boolean branch")
   private GameCoinAccount readGameCoinAccount(Connection connection, long userId, boolean forUpdate)
       throws SQLException {
     String lock = forUpdate ? " FOR UPDATE" : "";
@@ -363,9 +366,6 @@ class WalletService {
     }
   }
 
-  @SuppressFBWarnings(
-      value = "SQL_INJECTION_JDBC",
-      justification = "Lock clause is selected from a fixed boolean branch")
   private WalletBalance readBalance(Connection connection, long userId, boolean forUpdate)
       throws SQLException {
     RawWalletBalance raw = readRawBalance(connection, userId, forUpdate);

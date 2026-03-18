@@ -324,17 +324,20 @@ class DeliveryService {
     if (targetUuid == null && tradeIdFilter == null) {
       return List.of();
     }
+    String targetFilter = targetUuid == null ? "" : "md.target_uuid = ? AND ";
     String filterByTrade = tradeIdFilter == null ? "" : " AND md.trade_id = ?";
     String sql = """
         SELECT md.id, md.listing_id, md.trade_id, md.target_user_id, md.target_uuid, md.item_blob, md.quantity,
                md.delivery_type, md.retry_count
         FROM market_item_deliveries md
-        WHERE md.target_uuid = ?
+        WHERE """ + targetFilter + """
           AND md.status = 'WAIT_CLAIM'
         """ + filterByTrade + " ORDER BY md.id ASC";
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       int parameterIndex = 1;
-      statement.setString(parameterIndex++, targetUuid.toString());
+      if (targetUuid != null) {
+        statement.setString(parameterIndex++, targetUuid.toString());
+      }
       if (tradeIdFilter != null) {
         statement.setLong(parameterIndex, tradeIdFilter);
       }
