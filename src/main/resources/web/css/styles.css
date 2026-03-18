@@ -3,6 +3,7 @@
   --radius-medium: 16px;
   --radius-small: 12px;
   --control-height: 44px;
+  --mono-font: "JetBrains Mono", "Consolas", monospace;
 }
 
 .light,
@@ -55,6 +56,9 @@
   --app-warn-border:
     color-mix(in srgb, var(--md-sys-color-tertiary) 28%, var(--md-sys-color-outline-variant));
   --app-warn-fg: var(--md-sys-color-on-tertiary-container);
+  --app-warning-bg: var(--app-warn-bg);
+  --app-warning-border: var(--app-warn-border);
+  --app-warning-fg: var(--app-warn-fg);
   --app-error-bg: var(--md-sys-color-error-container);
   --app-error-border:
     color-mix(in srgb, var(--md-sys-color-error) 28%, var(--md-sys-color-outline-variant));
