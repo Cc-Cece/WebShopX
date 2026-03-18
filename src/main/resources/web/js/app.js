@@ -2300,6 +2300,7 @@ function renderListings(listings, container = elements.marketList) {
 }
 
 function renderStorefronts(listings) {
+  elements.marketList.classList.add("storefront-grid");
   elements.marketList.innerHTML = "";
   const activeListings = (listings || []).filter((listing) => listing.status === "ACTIVE");
   if (activeListings.length === 0) {
@@ -2373,6 +2374,7 @@ function renderSelectedStore(listings) {
     renderStorefronts(listings);
     return;
   }
+  elements.marketList.classList.remove("storefront-grid");
   const sellerListings = (listings || []).filter((listing) => createStoreKey(listing) === key);
   elements.marketList.innerHTML = "";
 

@@ -679,6 +679,11 @@ code {
   grid-template-columns: repeat(auto-fill, minmax(245px, 1fr));
 }
 
+.market-grid.storefront-grid {
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  align-items: start;
+}
+
 .product-card,
 .market-card {
   border: 1px solid var(--md-sys-color-outline-variant);
@@ -1294,10 +1299,22 @@ code {
   grid-column: 1 / -1;
 }
 
+.market-grid.storefront-grid .store-card {
+  grid-column: auto;
+  min-height: 0;
+  padding: 16px;
+  gap: 10px;
+  align-content: start;
+}
+
 .store-head {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.market-grid.storefront-grid .store-head {
+  align-items: flex-start;
 }
 
 .store-head-text {
@@ -1335,6 +1352,10 @@ code {
   flex-wrap: wrap;
 }
 
+.market-grid.storefront-grid .store-stats {
+  gap: 6px;
+}
+
 .store-stat {
   border-radius: 999px;
   border: 1px solid var(--app-accent-border);
@@ -1354,7 +1375,14 @@ code {
 }
 
 .market-grid .store-card {
-  min-height: 100%;
+  min-height: 0;
+}
+
+.market-grid.storefront-grid .store-card .market-action-btn,
+.market-grid.storefront-grid .store-card .btn-tonal {
+  width: auto;
+  min-width: 132px;
+  justify-self: start;
 }
 
 .market-enchants {
