@@ -1,5 +1,5 @@
 import com.github.spotbugs.snom.SpotBugsTask
-import java.text.SimpleDateFormat
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 
 plugins {
     id 'checkstyle'
@@ -12,30 +12,26 @@ version = '1.0.5'
 
 group = "com.webshopx"
 
-static def getTime() {
-    SimpleDateFormat sdf = new SimpleDateFormat("yyMMdd-HHmm")
-    sdf.setTimeZone(TimeZone.getTimeZone("UTC"))
-    return sdf.format(new Date()).toString()
+static boolean isTruthy(Object value) {
+    if (value == null) {
+        return false
+    }
+    String normalized = value.toString().trim().toLowerCase(Locale.ROOT)
+    return normalized.isEmpty() || normalized == "true" || normalized == "1" || normalized == "yes" || normalized == "on"
 }
 
-// Set version to version property if supplied
-String shortVersion = null
 if (hasProperty('ver')) {
-    if (ver.charAt(0) == "v") {
-        shortVersion = ver.substring(1).toUpperCase()
-    } else {
-        shortVersion = ver.toUpperCase()
+    String overrideVersion = ver.toString().trim()
+    if (!overrideVersion.isEmpty()) {
+        if (overrideVersion.startsWith("v") || overrideVersion.startsWith("V")) {
+            overrideVersion = overrideVersion.substring(1)
+        }
+        version = overrideVersion
     }
 }
 
-// If the tag includes "-RC-" or no tag is supplied, append "-SNAPSHOT"
-int rcIdx
-if (shortVersion == null || shortVersion == "") {
-    version = getTime() + "-SNAPSHOT"
-} else if ((rcIdx = shortVersion.indexOf("-RC-")) != -1) {
-    version = shortVersion.substring(0, rcIdx) + "-SNAPSHOT"
-} else {
-    version = shortVersion
+if (hasProperty('snapshot') && isTruthy(property('snapshot')) && !version.toString().endsWith('-SNAPSHOT')) {
+    version = version.toString() + '-SNAPSHOT'
 }
 
 java {
@@ -71,11 +67,17 @@ repositories {
     }
 }
 
+configurations {
+    proguard
+}
+
 dependencies {
     compileOnly 'io.papermc.paper:paper-api:1.20.6-R0.1-SNAPSHOT'
     compileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
     implementation 'io.papermc:paperlib:1.0.8'
-    implementation 'org.mariadb.jdbc:mariadb-java-client:3.3.3'
+    implementation('org.mariadb.jdbc:mariadb-java-client:3.3.3') {
+        exclude group: 'com.github.waffle', module: 'waffle-jna'
+    }
     implementation 'com.zaxxer:HikariCP:5.1.0'
     implementation 'com.google.code.gson:gson:2.11.0'
     compileOnly 'com.github.MilkBowl:VaultAPI:1.7.1'
@@ -84,6 +86,7 @@ dependencies {
     testImplementation 'io.papermc.paper:paper-api:1.20.6-R0.1-SNAPSHOT'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.13.4'
+    proguard 'com.guardsquare:proguard-base:7.7.0'
 }
 
 test {
@@ -127,6 +130,86 @@ shadowJar {
     archiveClassifier.set('')
     relocate 'io.papermc.lib', 'shadow.io.papermc.paperlib'
     mergeServiceFiles()
+}
+
+tasks.register('plainPluginJar', Jar) {
+    group = 'build'
+    description = 'Packages compiled plugin classes and resources without bundled dependencies.'
+    archiveClassifier.set('plain-plugin')
+    destinationDirectory.set(layout.buildDirectory.dir('tmp/plain-plugin'))
+    from sourceSets.main.output
+}
+
+tasks.register('obfuscatePluginJar', JavaExec) {
+    group = 'build'
+    description = 'Obfuscates plugin classes and resources before dependency shading.'
+    dependsOn tasks.named('plainPluginJar')
+
+    classpath = configurations.proguard
+    mainClass.set('proguard.ProGuard')
+
+    def plainPluginOutput = tasks.named('plainPluginJar', Jar).flatMap { it.archiveFile }
+    def rulesFile = layout.projectDirectory.file('proguard-rules.pro')
+    def outputFile = layout.buildDirectory.file("tmp/proguard/${rootProject.name}-plugin-obf.jar")
+    def javaHome = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }.get().metadata.installationPath.asFile
+    def jmodsDir = new File(javaHome, 'jmods')
+
+    inputs.file(plainPluginOutput)
+    inputs.file(rulesFile)
+    outputs.file(outputFile)
+
+    doFirst {
+        if (!jmodsDir.isDirectory()) {
+            throw new GradleException("JDK jmods directory not found: ${jmodsDir}")
+        }
+
+        args = ['-injars', plainPluginOutput.get().asFile.absolutePath,
+                '-outjars', outputFile.get().asFile.absolutePath,
+                '-libraryjars', new File(jmodsDir, 'java.base.jmod').absolutePath,
+                '-libraryjars', new File(jmodsDir, 'java.net.http.jmod').absolutePath,
+                '-libraryjars', new File(jmodsDir, 'java.logging.jmod').absolutePath,
+                '-libraryjars', new File(jmodsDir, 'java.sql.jmod').absolutePath,
+                '-libraryjars', new File(jmodsDir, 'jdk.httpserver.jmod').absolutePath]
+
+        configurations.compileClasspath.resolve().each { dependencyJar ->
+            args += ['-libraryjars', dependencyJar.absolutePath]
+        }
+
+        args += ['@' + rulesFile.asFile.absolutePath]
+    }
+}
+
+tasks.register('obfuscatedJar', ShadowJar) {
+    group = 'build'
+    description = 'Builds the obfuscated plugin JAR with bundled runtime dependencies.'
+    dependsOn tasks.named('obfuscatePluginJar')
+
+    archiveClassifier.set('obf')
+    from({
+        zipTree(layout.buildDirectory.file("tmp/proguard/${rootProject.name}-plugin-obf.jar").get().asFile)
+    })
+    configurations = [project.configurations.runtimeClasspath]
+    relocate 'io.papermc.lib', 'shadow.io.papermc.paperlib'
+    mergeServiceFiles()
+}
+
+tasks.register('releaseObfuscated') {
+    group = 'build'
+    description = 'Builds the obfuscated release JAR with a stable filename.'
+    dependsOn tasks.named('obfuscatedJar')
+
+    doLast {
+        def obfuscatedFile = tasks.named('obfuscatedJar', ShadowJar).get().archiveFile.get().asFile
+        def releaseFile = layout.buildDirectory.file("libs/${rootProject.name}-release-obf.jar").get().asFile
+        if (releaseFile.exists()) {
+            releaseFile.delete()
+        }
+        if (!obfuscatedFile.renameTo(releaseFile)) {
+            throw new GradleException("Failed to rename ${obfuscatedFile.name} to ${releaseFile.name}")
+        }
+    }
 }
 
 // Disable jar and replace with shadowJar
