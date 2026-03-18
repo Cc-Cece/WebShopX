@@ -198,6 +198,7 @@ const elements = {
   userSearchBtn: document.getElementById("userSearchBtn"),
   userLookupStatus: document.getElementById("userLookupStatus"),
   userListKeyword: document.getElementById("userListKeyword"),
+  userListHideInactiveToggle: document.getElementById("userListHideInactiveToggle"),
   userListRefreshBtn: document.getElementById("userListRefreshBtn"),
   userListStatus: document.getElementById("userListStatus"),
   userList: document.getElementById("userList"),
@@ -1523,6 +1524,7 @@ async function lookupUser() {
 async function loadUserList(options = {}) {
   ensureAdmin();
   const keyword = String(elements.userListKeyword?.value || "").trim();
+  const hideNoisyCards = elements.userListHideInactiveToggle?.checked !== false;
   const limit = options.limit || 120;
   const query = new URLSearchParams({ limit: String(limit) });
   if (keyword) {
@@ -1530,7 +1532,18 @@ async function loadUserList(options = {}) {
   }
   const payload = await apiAdmin(`/api/admin/users/list?${query.toString()}`, { method: "GET" });
   state.userList = payload.users || [];
-  const rows = state.userList.map((user) => {
+  const visibleUsers = hideNoisyCards
+    ? state.userList.filter((user) => {
+        const authState = String(user.authState || "").toUpperCase();
+        const isInactive = authState !== "ACTIVE";
+        const isUnbound = !user.boundUuid;
+        const isUseless = !user.boundUuid
+          && Number(user.shopCoin || 0) === 0
+          && Number(user.gameCoin || 0) === 0;
+        return !(isInactive || isUnbound || isUseless);
+      })
+    : state.userList;
+  const rows = visibleUsers.map((user) => {
     const loadBtn = document.createElement("button");
     loadBtn.className = "btn-tonal";
     loadBtn.textContent = "载入编辑";
@@ -1585,7 +1598,9 @@ async function loadUserList(options = {}) {
     );
   });
   renderList(elements.userList, rows);
-  setMetaText(elements.userListStatus, `已加载 ${state.userList.length} 个用户`, "info");
+  const hiddenCount = Math.max(0, state.userList.length - visibleUsers.length);
+  const suffix = hideNoisyCards && hiddenCount > 0 ? `，已隐藏 ${hiddenCount} 个` : "";
+  setMetaText(elements.userListStatus, `已显示 ${visibleUsers.length} / ${state.userList.length} 个用户${suffix}`, "info");
 }
 
 async function lookupUserByIdentifier(identifier) {
@@ -2176,6 +2191,14 @@ if (elements.userListRefreshBtn) {
 if (elements.userListKeyword) {
   elements.userListKeyword.addEventListener("keydown", async (event) => {
     if (event.key !== "Enter" || !state.token) {
+      return;
+    }
+    await loadUserList();
+  });
+}
+if (elements.userListHideInactiveToggle) {
+  elements.userListHideInactiveToggle.addEventListener("change", async () => {
+    if (!state.token) {
       return;
     }
     await loadUserList();
