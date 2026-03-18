@@ -189,6 +189,67 @@
             <button id="productsBtn" type="button">刷新商品</button>
           </div>
         </div>
+        <div class="field-grid two-col">
+          <label class="field">
+            <span>关键词</span>
+            <div class="inline-action">
+              <input id="productKeyword" placeholder="商品标题 / SKU / 备注 / 物品关键词" />
+              <button id="productSearchBtn" class="btn-tonal" type="button">搜索</button>
+              <button id="productKeywordClearBtn" class="btn-tonal" type="button">清空</button>
+            </div>
+          </label>
+          <label class="field">
+            <span>排序</span>
+            <select id="productSort">
+              <option value="default">默认排序</option>
+              <option value="price_asc">价格从低到高</option>
+              <option value="price_desc">价格从高到低</option>
+              <option value="title_asc">标题 A-Z</option>
+              <option value="title_desc">标题 Z-A</option>
+              <option value="stock_desc">库存从多到少</option>
+            </select>
+          </label>
+        </div>
+        <details class="advanced-filter">
+          <summary>高级筛选</summary>
+          <div class="field-grid three-col">
+            <label class="field">
+              <span>商品类型</span>
+              <select id="productFilterType">
+                <option value="">全部</option>
+                <option value="COMMAND">指令</option>
+                <option value="GIVE_ITEM">出售物品</option>
+                <option value="POTION_EFFECT">药水效果</option>
+                <option value="RECYCLE_ITEM">回收物品</option>
+                <option value="GROUP_BUY_VOUCHER">团购券</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>币种</span>
+              <select id="productFilterCurrency">
+                <option value="">全部</option>
+                <option value="SHOP_COIN">网页币</option>
+                <option value="GAME_COIN">游戏币</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>物品 ID</span>
+              <input id="productFilterMaterial" placeholder="例如 DIAMOND" />
+            </label>
+            <label class="field">
+              <span>最低价</span>
+              <input id="productMinPrice" type="number" min="0" step="1" />
+            </label>
+            <label class="field">
+              <span>最高价</span>
+              <input id="productMaxPrice" type="number" min="0" step="1" />
+            </label>
+          </div>
+          <div class="actions compact-actions">
+            <button id="productApplyBtn" class="btn-tonal" type="button">应用筛选</button>
+            <button id="productClearBtn" class="btn-tonal" type="button">重置筛选</button>
+          </div>
+        </details>
         <div id="productList" class="product-grid"></div>
       </article>
     </section>

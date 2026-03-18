@@ -237,6 +237,51 @@ const ORDER_STATUS_LABELS = {
   RECYCLED: { label: "已回收", tone: "delivered" },
 };
 
+const ENCHANTMENT_LABELS = {
+  protection: "保护",
+  fire_protection: "火焰保护",
+  feather_falling: "摔落保护",
+  blast_protection: "爆炸保护",
+  projectile_protection: "弹射物保护",
+  respiration: "水下呼吸",
+  aqua_affinity: "水下速掘",
+  thorns: "荆棘",
+  depth_strider: "深海探索者",
+  frost_walker: "冰霜行者",
+  binding_curse: "绑定诅咒",
+  soul_speed: "灵魂疾行",
+  swift_sneak: "迅捷潜行",
+  sharpness: "锋利",
+  smite: "亡灵杀手",
+  bane_of_arthropods: "节肢杀手",
+  knockback: "击退",
+  fire_aspect: "火焰附加",
+  looting: "抢夺",
+  sweeping_edge: "横扫之刃",
+  efficiency: "效率",
+  silk_touch: "精准采集",
+  unbreaking: "耐久",
+  fortune: "时运",
+  power: "力量",
+  punch: "冲击",
+  flame: "火矢",
+  infinity: "无限",
+  luck_of_the_sea: "海之眷顾",
+  lure: "饵钓",
+  loyalty: "忠诚",
+  impaling: "穿刺",
+  riptide: "激流",
+  channeling: "引雷",
+  multishot: "多重射击",
+  quick_charge: "快速装填",
+  piercing: "穿透",
+  mending: "经验修补",
+  vanishing_curse: "消失诅咒",
+  density: "致密",
+  breach: "破甲",
+  wind_burst: "风爆",
+};
+
 const elements = {
   logBox: document.getElementById("logBox"),
   statusChip: document.getElementById("statusChip"),
@@ -267,6 +312,17 @@ const elements = {
   shopCoinValue: document.getElementById("shopCoinValue"),
   gameCoinValue: document.getElementById("gameCoinValue"),
   productList: document.getElementById("productList"),
+  productKeyword: document.getElementById("productKeyword"),
+  productSearchBtn: document.getElementById("productSearchBtn"),
+  productKeywordClearBtn: document.getElementById("productKeywordClearBtn"),
+  productSort: document.getElementById("productSort"),
+  productFilterType: document.getElementById("productFilterType"),
+  productFilterCurrency: document.getElementById("productFilterCurrency"),
+  productFilterMaterial: document.getElementById("productFilterMaterial"),
+  productMinPrice: document.getElementById("productMinPrice"),
+  productMaxPrice: document.getElementById("productMaxPrice"),
+  productApplyBtn: document.getElementById("productApplyBtn"),
+  productClearBtn: document.getElementById("productClearBtn"),
   marketList: document.getElementById("marketList"),
   marketKeyword: document.getElementById("marketKeyword"),
   marketMaterial: document.getElementById("marketMaterial"),
@@ -1404,14 +1460,63 @@ function orderStatusMeta(status) {
 }
 
 function enchantLabel(key) {
-  const name = String(key || "")
-    .replace(/^minecraft:/, "")
-    .replaceAll("_", " ");
-  return name
+  const normalized = String(key || "").replace(/^minecraft:/, "").trim().toLowerCase();
+  if (!normalized) {
+    return "未知附魔";
+  }
+  if (ENCHANTMENT_LABELS[normalized]) {
+    return ENCHANTMENT_LABELS[normalized];
+  }
+  return normalized
+    .replaceAll("_", " ")
     .split(" ")
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatEnchantLevel(level) {
+  const normalized = Math.max(1, Math.floor(Number(level || 0)));
+  const numerals = [
+    [10, "X"],
+    [9, "IX"],
+    [8, "VIII"],
+    [7, "VII"],
+    [6, "VI"],
+    [5, "V"],
+    [4, "IV"],
+    [3, "III"],
+    [2, "II"],
+    [1, "I"],
+  ];
+  let remaining = normalized;
+  let output = "";
+  while (remaining > 0) {
+    const entry = numerals.find(([value]) => remaining >= value);
+    if (!entry) {
+      break;
+    }
+    output += entry[1];
+    remaining -= entry[0];
+  }
+  return output || String(normalized);
+}
+
+function collectEnchantEntries(meta) {
+  const regular = meta && meta.enchants && typeof meta.enchants === "object" ? meta.enchants : {};
+  const stored = meta && meta.storedEnchants && typeof meta.storedEnchants === "object" ? meta.storedEnchants : {};
+  const merged = new Map();
+  Object.entries(regular).forEach(([key, level]) => {
+    merged.set(key, Number(level || 0));
+  });
+  Object.entries(stored).forEach(([key, level]) => {
+    const next = Number(level || 0);
+    const current = merged.get(key);
+    merged.set(key, current == null ? next : Math.max(current, next));
+  });
+  return Array.from(merged.entries())
+    .filter(([, level]) => Number.isFinite(level) && level > 0)
+    .sort((a, b) => b[1] - a[1] || enchantLabel(a[0]).localeCompare(enchantLabel(b[0]), "zh-CN"));
 }
 
 function createEl(tag, className, text) {
@@ -1832,15 +1937,16 @@ async function refreshWallet() {
 }
 
 function renderProducts(products) {
+  const filteredProducts = filterProducts(products);
   elements.productList.innerHTML = "";
 
-  if (!products || products.length === 0) {
+  if (!filteredProducts || filteredProducts.length === 0) {
     const empty = createEl("div", "empty-state", "暂无商品，请联系管理员在后台添加。 ");
     elements.productList.appendChild(empty);
     return;
   }
 
-  for (const product of products) {
+  for (const product of filteredProducts) {
     const card = createEl("article", "product-card market-card official-card");
     const isGroupBuyVoucher = String(product.productType || "").toUpperCase() === "GROUP_BUY_VOUCHER";
     const stock = resolveOfficialProductStock(product);
@@ -1855,12 +1961,15 @@ function renderProducts(products) {
     icon.appendChild(buildTextureImage(resolveProductTextureMaterial(product), product.title));
     main.appendChild(icon);
 
-    const detail = createEl("div");
-    detail.appendChild(createEl("h3", "market-title", product.title));
+    const detail = createEl("div", "market-detail");
+    const title = createEl("h3", "market-title", product.title);
+    title.title = product.title;
+    detail.appendChild(title);
     detail.appendChild(createEl("p", "market-sub", `币种 ${(CURRENCY_META[product.currency] || { label: product.currency }).label}`));
     if (product.itemMaterial) {
       detail.appendChild(createEl("p", "market-sub", `物品：${getLocalizedMaterialName(product.itemMaterial)}`));
     }
+    detail.appendChild(createEl("p", "market-code", String(product.sku || "")));
     if (product.remark) {
       detail.appendChild(createEl("p", "market-remark", product.remark));
     }
@@ -1917,6 +2026,70 @@ function renderProducts(products) {
   }
 }
 
+function filterProducts(products) {
+  const source = Array.isArray(products) ? [...products] : [];
+  const keyword = String(elements.productKeyword?.value || "").trim().toLowerCase();
+  const type = String(elements.productFilterType?.value || "").trim().toUpperCase();
+  const currency = String(elements.productFilterCurrency?.value || "").trim().toUpperCase();
+  const materialInput = String(elements.productFilterMaterial?.value || "").trim();
+  const material = materialInput ? normalizeMaterialKey(materialInput) : "";
+  const minPrice = Number(elements.productMinPrice?.value || "");
+  const maxPrice = Number(elements.productMaxPrice?.value || "");
+  const sortValue = String(elements.productSort?.value || "default").trim();
+
+  const filtered = source.filter((product) => {
+    if (type && String(product.productType || "").toUpperCase() !== type) {
+      return false;
+    }
+    if (currency && String(product.currency || "").toUpperCase() !== currency) {
+      return false;
+    }
+    if (material && normalizeMaterialKey(product.itemMaterial || "") !== material) {
+      return false;
+    }
+    const price = Number(product.price || 0);
+    if (Number.isFinite(minPrice) && elements.productMinPrice?.value && price < minPrice) {
+      return false;
+    }
+    if (Number.isFinite(maxPrice) && elements.productMaxPrice?.value && price > maxPrice) {
+      return false;
+    }
+    if (!keyword) {
+      return true;
+    }
+    const haystack = [
+      product.title,
+      product.sku,
+      product.remark,
+      product.itemMaterial,
+      getLocalizedMaterialName(product.itemMaterial),
+      productTypeLabel(product.productType),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(keyword);
+  });
+
+  filtered.sort((left, right) => {
+    switch (sortValue) {
+      case "price_asc":
+        return Number(left.price || 0) - Number(right.price || 0);
+      case "price_desc":
+        return Number(right.price || 0) - Number(left.price || 0);
+      case "title_asc":
+        return String(left.title || "").localeCompare(String(right.title || ""), "zh-CN");
+      case "title_desc":
+        return String(right.title || "").localeCompare(String(left.title || ""), "zh-CN");
+      case "stock_desc":
+        return resolveOfficialProductStock(right).maxQuantity - resolveOfficialProductStock(left).maxQuantity;
+      default:
+        return 0;
+    }
+  });
+  return filtered;
+}
+
 function renderListings(listings, container = elements.marketList) {
   container.innerHTML = "";
   const visibleListings = container === elements.marketList
@@ -1966,9 +2139,13 @@ function renderListings(listings, container = elements.marketList) {
     icon.appendChild(buildTextureImage(listing.itemMaterial, localizedName));
     main.appendChild(icon);
 
-    const detail = createEl("div");
-    detail.appendChild(createEl("h3", "market-title", localizedName));
-    detail.appendChild(createEl("p", "market-code", String(listing.itemMaterial)));
+    const detail = createEl("div", "market-detail");
+    const title = createEl("h3", "market-title", localizedName);
+    title.title = localizedName;
+    detail.appendChild(title);
+    const code = createEl("p", "market-code", String(listing.itemMaterial));
+    code.title = String(listing.itemMaterial);
+    detail.appendChild(code);
     const quantityTotal = Number(listing.quantityTotal || listing.quantity || 0);
     if (listing.remark) {
       detail.appendChild(createEl("p", "market-remark", listing.remark));
@@ -2016,10 +2193,13 @@ function renderListings(listings, container = elements.marketList) {
     );
     card.appendChild(stockProgress.wrap);
 
-    if (meta.enchants && Object.keys(meta.enchants).length > 0) {
+    const enchantEntries = collectEnchantEntries(meta);
+    if (enchantEntries.length > 0) {
       const enchants = createEl("div", "market-enchants");
-      Object.entries(meta.enchants).forEach(([key, level]) => {
-        enchants.appendChild(createEl("span", "market-enchant", `${enchantLabel(key)} ${level}`));
+      enchantEntries.forEach(([key, level]) => {
+        enchants.appendChild(
+          createEl("span", "market-enchant", `${enchantLabel(key)} ${formatEnchantLevel(level)}`)
+        );
       });
       card.appendChild(enchants);
     }
@@ -2173,7 +2353,7 @@ function renderStorefronts(listings) {
       card.appendChild(stats);
       card.appendChild(createEl("p", "store-subtitle", `最近上架：${formatAge(store.latestAt)}`));
 
-      const button = createEl("button", "market-action-btn", "进入店铺");
+      const button = createEl("button", "btn-tonal", "进入店铺");
       button.type = "button";
       button.addEventListener("click", () => {
         state.marketStore.sellerKey = key;
@@ -3007,6 +3187,53 @@ document.getElementById("exchangeBtn").addEventListener("click", async () => {
 document.getElementById("productsBtn").addEventListener("click", () => {
   loadProducts({ announce: true });
 });
+if (elements.productSearchBtn) {
+  elements.productSearchBtn.addEventListener("click", () => renderProducts(state.products));
+}
+if (elements.productKeywordClearBtn) {
+  elements.productKeywordClearBtn.addEventListener("click", () => {
+    if (elements.productKeyword) {
+      elements.productKeyword.value = "";
+      elements.productKeyword.focus();
+    }
+    renderProducts(state.products);
+  });
+}
+if (elements.productApplyBtn) {
+  elements.productApplyBtn.addEventListener("click", () => renderProducts(state.products));
+}
+if (elements.productClearBtn) {
+  elements.productClearBtn.addEventListener("click", () => {
+    if (elements.productKeyword) elements.productKeyword.value = "";
+    if (elements.productSort) elements.productSort.value = "default";
+    if (elements.productFilterType) elements.productFilterType.value = "";
+    if (elements.productFilterCurrency) elements.productFilterCurrency.value = "";
+    if (elements.productFilterMaterial) elements.productFilterMaterial.value = "";
+    if (elements.productMinPrice) elements.productMinPrice.value = "";
+    if (elements.productMaxPrice) elements.productMaxPrice.value = "";
+    renderProducts(state.products);
+  });
+}
+[
+  elements.productSort,
+  elements.productFilterType,
+  elements.productFilterCurrency,
+].filter(Boolean).forEach((node) => {
+  node.addEventListener("change", () => renderProducts(state.products));
+});
+[
+  elements.productKeyword,
+  elements.productFilterMaterial,
+  elements.productMinPrice,
+  elements.productMaxPrice,
+].filter(Boolean).forEach((node) => {
+  node.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      renderProducts(state.products);
+    }
+  });
+});
 if (elements.ordersBtn) {
   elements.ordersBtn.addEventListener("click", () => {
     loadOrders({ announce: true });
@@ -3185,6 +3412,9 @@ if (elements.orderList) {
 elements.marketList.addEventListener("click", async (event) => {
   const button = event.target.closest(".market-action-btn");
   if (!button || button.disabled) {
+    return;
+  }
+  if (!button.dataset.action) {
     return;
   }
 

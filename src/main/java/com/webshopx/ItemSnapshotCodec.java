@@ -15,6 +15,7 @@ import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.Damageable;
+import org.bukkit.inventory.meta.EnchantmentStorageMeta;
 import org.bukkit.util.io.BukkitObjectInputStream;
 import org.bukkit.util.io.BukkitObjectOutputStream;
 
@@ -89,16 +90,15 @@ final class ItemSnapshotCodec {
       }
       meta.add("lore", loreArray);
     }
-    if (!itemMeta.getEnchants().isEmpty()) {
-      JsonObject enchantments = new JsonObject();
-      for (Map.Entry<Enchantment, Integer> entry : itemMeta.getEnchants().entrySet()) {
-        Enchantment enchantment = entry.getKey();
-        if (enchantment.getKey() == null) {
-          continue;
-        }
-        enchantments.addProperty(enchantment.getKey().toString(), entry.getValue());
-      }
+    JsonObject enchantments = serializeEnchantments(itemMeta.getEnchants());
+    if (enchantments.size() > 0) {
       meta.add("enchants", enchantments);
+    }
+    if (itemMeta instanceof EnchantmentStorageMeta storageMeta) {
+      JsonObject storedEnchantments = serializeEnchantments(storageMeta.getStoredEnchants());
+      if (storedEnchantments.size() > 0) {
+        meta.add("storedEnchants", storedEnchantments);
+      }
     }
     if (itemMeta instanceof Damageable damageable) {
       int maxDurability = itemStack.getType().getMaxDurability();
@@ -111,6 +111,21 @@ final class ItemSnapshotCodec {
       }
     }
     return meta;
+  }
+
+  private JsonObject serializeEnchantments(Map<Enchantment, Integer> enchantments) {
+    JsonObject result = new JsonObject();
+    if (enchantments == null || enchantments.isEmpty()) {
+      return result;
+    }
+    for (Map.Entry<Enchantment, Integer> entry : enchantments.entrySet()) {
+      Enchantment enchantment = entry.getKey();
+      if (enchantment == null || enchantment.getKey() == null) {
+        continue;
+      }
+      result.addProperty(enchantment.getKey().toString(), entry.getValue());
+    }
+    return result;
   }
 
   private String sha256Hex(byte[] data) {
