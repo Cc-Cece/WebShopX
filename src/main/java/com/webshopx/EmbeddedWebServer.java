@@ -970,6 +970,7 @@ class EmbeddedWebServer {
       admin.addProperty("id", auth.user().id());
       admin.addProperty("username", auth.user().username());
       admin.addProperty("role", result.role().name());
+      admin.addProperty("canSetZeroPrice", result.role().allows(AdminPermission.PRODUCT_ZERO_PRICE));
       response.add("admin", admin);
       sendJson(exchange, 200, response);
 
@@ -996,6 +997,7 @@ class EmbeddedWebServer {
       response.addProperty("id", admin.userId());
       response.addProperty("username", admin.username());
       response.addProperty("role", admin.role().name());
+      response.addProperty("canSetZeroPrice", admin.role().allows(AdminPermission.PRODUCT_ZERO_PRICE));
       if (admin.boundUuid() == null) {
         response.add("boundUuid", JsonNull.INSTANCE);
       } else {
@@ -1203,6 +1205,7 @@ class EmbeddedWebServer {
     withServiceHandling(exchange, () -> {
       JsonObject payload = readJson(exchange);
       AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.PRODUCT_MANAGE);
+      boolean allowZeroPrice = admin.role().allows(AdminPermission.PRODUCT_ZERO_PRICE);
       ProductService.AdminProductInput input = new ProductService.AdminProductInput(
           getString(payload, "sku"),
           getString(payload, "title"),
@@ -1225,7 +1228,7 @@ class EmbeddedWebServer {
           getOptionalDateTime(payload, "publishAt"),
           getOptionalDateTime(payload, "unpublishAt"),
           payload.has("active") ? payload.get("active").getAsBoolean() : true);
-      ProductService.ProductView product = productService.upsertProduct(input);
+      ProductService.ProductView product = productService.upsertProduct(input, allowZeroPrice);
       JsonObject response = new JsonObject();
       response.addProperty("id", product.id());
       response.addProperty("sku", product.sku());

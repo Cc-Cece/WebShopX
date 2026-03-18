@@ -69,8 +69,8 @@ class ProductService {
     return products;
   }
 
-  ProductView upsertProduct(AdminProductInput input) {
-    validateAdminInput(input);
+  ProductView upsertProduct(AdminProductInput input, boolean allowZeroPrice) {
+    validateAdminInput(input, allowZeroPrice);
     return databaseManager.inTransaction(connection -> {
       String normalizedSku = normalizeSku(input.sku());
       ProductType productType = ProductType.fromRaw(input.productType());
@@ -344,7 +344,7 @@ class ProductService {
         resultSet.getBoolean("active"));
   }
 
-  private void validateAdminInput(AdminProductInput input) {
+  private void validateAdminInput(AdminProductInput input, boolean allowZeroPrice) {
     if (input == null) {
       throw new ServiceException("bad_request", "Product input is required");
     }
@@ -357,8 +357,11 @@ class ProductService {
     if (input.currency() == null) {
       throw new ServiceException("invalid_product", "Currency is required");
     }
-    if (input.price() <= 0L) {
-      throw new ServiceException("invalid_product", "Price must be positive");
+    if (input.price() < 0L) {
+      throw new ServiceException("invalid_product", "Price cannot be negative");
+    }
+    if (!allowZeroPrice && input.price() == 0L) {
+      throw new ServiceException("forbidden", "Admin permission required for zero-price products");
     }
     if (input.remark() != null && input.remark().length() > 1000) {
       throw new ServiceException("invalid_product", "Remark must be <= 1000 chars");

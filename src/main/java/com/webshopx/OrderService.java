@@ -652,9 +652,6 @@ class OrderService {
   private boolean hasEnoughItem(Player player, Material material, int requiredAmount) {
     int count = 0;
     ItemStack[] contents = player.getInventory().getContents();
-    if (contents == null) {
-      return false;
-    }
     for (ItemStack itemStack : contents) {
       if (itemStack == null || itemStack.getType() != material) {
         continue;
@@ -670,9 +667,6 @@ class OrderService {
   private boolean removeItems(Player player, Material material, int requiredAmount) {
     int remaining = requiredAmount;
     ItemStack[] contents = player.getInventory().getContents();
-    if (contents == null) {
-      return false;
-    }
     for (int index = 0; index < contents.length; index++) {
       ItemStack stack = contents[index];
       if (stack == null || stack.getType() != material) {

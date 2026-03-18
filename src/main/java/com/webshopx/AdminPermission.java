@@ -3,6 +3,7 @@ package com.webshopx;
 enum AdminPermission {
   REDEEM_MANAGE,
   PRODUCT_MANAGE,
+  PRODUCT_ZERO_PRICE,
   ORDER_VIEW,
   ECONOMY_MANAGE,
   MARKET_MANAGE,
