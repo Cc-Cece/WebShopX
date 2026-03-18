@@ -2229,6 +2229,14 @@ function renderListings(listings, container = elements.marketList) {
       editBtn.dataset.currentSupplyMaxStock = String(listing.supplyMaxStock || "");
       actions.appendChild(editBtn);
 
+      if (isSupply && normalizedStatus !== "UNLISTED" && normalizedStatus !== "SOLD") {
+        const refreshBtn = createEl("button", "market-action-btn sale", "强制刷新");
+        refreshBtn.type = "button";
+        refreshBtn.dataset.action = "refreshSupply";
+        refreshBtn.dataset.listingId = String(listing.id);
+        actions.appendChild(refreshBtn);
+      }
+
       if (isActive) {
         const pauseBtn = createEl("button", "market-action-btn", "临时下架");
         pauseBtn.type = "button";
@@ -2285,7 +2293,7 @@ function renderListings(listings, container = elements.marketList) {
       disabledBtn.disabled = true;
       actions.appendChild(disabledBtn);
     }
-    if (isSupply && state.token && Number(listing.quantity || 0) <= 0 && normalizedStatus !== "UNLISTED" && normalizedStatus !== "SOLD") {
+    if (!isOwner && isSupply && state.token && Number(listing.quantity || 0) <= 0 && normalizedStatus !== "UNLISTED" && normalizedStatus !== "SOLD") {
       const refreshBtn = createEl("button", "market-action-btn sale", "刷新补货");
       refreshBtn.type = "button";
       refreshBtn.dataset.action = "refreshSupply";
