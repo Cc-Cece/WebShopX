@@ -1212,6 +1212,7 @@ code {
 }
 
 .market-code {
+  display: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
