@@ -5,6 +5,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -46,11 +47,12 @@ class ProductService {
       justification = "Active filter is selected from a fixed boolean branch and the limit remains bound")
   private List<ProductView> listProducts(Connection connection, boolean includeInactive, int limit)
       throws SQLException {
+    LocalDateTime nowUtc = TimeSupport.utcNow();
     String activeFilter = includeInactive
         ? ""
         : "WHERE active = TRUE "
-            + "AND (publish_at IS NULL OR publish_at <= NOW()) "
-            + "AND (unpublish_at IS NULL OR unpublish_at > NOW())";
+            + "AND (publish_at IS NULL OR publish_at <= ?) "
+            + "AND (unpublish_at IS NULL OR unpublish_at > ?)";
     String sql = """
         SELECT id, sku, title, remark, currency, price, product_type, command_template,
                item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
@@ -59,7 +61,12 @@ class ProductService {
         """ + activeFilter + " ORDER BY id ASC LIMIT ?";
     List<ProductView> products = new ArrayList<>();
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
-      statement.setInt(1, limit);
+      int parameterIndex = 1;
+      if (!includeInactive) {
+        statement.setObject(parameterIndex++, nowUtc);
+        statement.setObject(parameterIndex++, nowUtc);
+      }
+      statement.setInt(parameterIndex, limit);
       try (ResultSet resultSet = statement.executeQuery()) {
         while (resultSet.next()) {
           products.add(readProduct(resultSet));
@@ -126,12 +133,12 @@ class ProductService {
           if (input.publishAt() == null) {
             statement.setObject(14, null);
           } else {
-            statement.setTimestamp(14, java.sql.Timestamp.valueOf(input.publishAt()));
+            statement.setObject(14, input.publishAt());
           }
           if (input.unpublishAt() == null) {
             statement.setObject(15, null);
           } else {
-            statement.setTimestamp(15, java.sql.Timestamp.valueOf(input.unpublishAt()));
+            statement.setObject(15, input.unpublishAt());
           }
           statement.setBoolean(16, input.active());
           statement.executeUpdate();
@@ -173,12 +180,12 @@ class ProductService {
           if (input.publishAt() == null) {
             statement.setObject(13, null);
           } else {
-            statement.setTimestamp(13, java.sql.Timestamp.valueOf(input.publishAt()));
+            statement.setObject(13, input.publishAt());
           }
           if (input.unpublishAt() == null) {
             statement.setObject(14, null);
           } else {
-            statement.setTimestamp(14, java.sql.Timestamp.valueOf(input.unpublishAt()));
+            statement.setObject(14, input.unpublishAt());
           }
           statement.setBoolean(15, input.active());
           statement.setLong(16, existing.id());
@@ -212,6 +219,7 @@ class ProductService {
       justification = "Lock clause is selected from a fixed boolean branch")
   ProductView readActiveProduct(Connection connection, long productId, boolean forUpdate)
       throws SQLException {
+    LocalDateTime nowUtc = TimeSupport.utcNow();
     String lockClause = forUpdate ? " FOR UPDATE" : "";
     String sql = """
         SELECT id, sku, title, remark, currency, price, product_type, command_template,
@@ -219,11 +227,13 @@ class ProductService {
                publish_at, unpublish_at, active
         FROM products
         WHERE id = ? AND active = TRUE
-          AND (publish_at IS NULL OR publish_at <= NOW())
-          AND (unpublish_at IS NULL OR unpublish_at > NOW())
+          AND (publish_at IS NULL OR publish_at <= ?)
+          AND (unpublish_at IS NULL OR unpublish_at > ?)
         """ + lockClause;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, productId);
+      statement.setObject(2, nowUtc);
+      statement.setObject(3, nowUtc);
       try (ResultSet resultSet = statement.executeQuery()) {
         if (!resultSet.next()) {
           throw new ServiceException("product_missing", "Product is not available");
@@ -321,8 +331,8 @@ class ProductService {
     Integer effectSeconds = resultSet.wasNull() ? null : effectSecondsValue;
     int effectAmplifierValue = resultSet.getInt("effect_amplifier");
     Integer effectAmplifier = resultSet.wasNull() ? null : effectAmplifierValue;
-    java.sql.Timestamp publishAtRaw = resultSet.getTimestamp("publish_at");
-    java.sql.Timestamp unpublishAtRaw = resultSet.getTimestamp("unpublish_at");
+    LocalDateTime publishAtRaw = resultSet.getObject("publish_at", LocalDateTime.class);
+    LocalDateTime unpublishAtRaw = resultSet.getObject("unpublish_at", LocalDateTime.class);
 
     return new ProductView(
         resultSet.getLong("id"),
@@ -339,8 +349,8 @@ class ProductService {
         effectType,
         effectSeconds,
         effectAmplifier,
-        publishAtRaw == null ? null : publishAtRaw.toLocalDateTime(),
-        unpublishAtRaw == null ? null : unpublishAtRaw.toLocalDateTime(),
+        publishAtRaw,
+        unpublishAtRaw,
         resultSet.getBoolean("active"));
   }
 

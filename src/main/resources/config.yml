@@ -18,6 +18,8 @@ webshop:
   bind-request-expire-minutes: 15
   # API 会话令牌长度（建议 32-64）
   access-token-length: 48
+  # 商店业务时区：官方商品的上架/下架时间会按这个时区解释和显示
+  time-zone: Asia/Shanghai
 
   # 每轮发货处理的订单数量
   delivery-batch-size: 20

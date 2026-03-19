@@ -3,15 +3,18 @@ package com.webshopx;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
 
 class SchemaManager {
+  private static final String PRODUCT_SCHEDULE_UTC_MIGRATION_KEY = "product_schedule_utc_v1";
 
-  void ensureSchema(DatabaseManager databaseManager) {
-    databaseManager.withConnection(this::createTables);
+  void ensureSchema(DatabaseManager databaseManager, PluginSettings settings) {
+    databaseManager.withConnection(connection -> createTables(connection, settings));
   }
 
-  private Void createTables(Connection connection) throws SQLException {
+  private Void createTables(Connection connection, PluginSettings settings) throws SQLException {
     createWebUsers(connection);
     migrateWebUsers(connection);
     createWebAdmins(connection);
@@ -25,8 +28,10 @@ class SchemaManager {
     createRedeemUsage(connection);
     migrateRedeemCodes(connection);
     migrateRedeemUsage(connection);
+    createSchemaMeta(connection);
     createProducts(connection);
     migrateProducts(connection);
+    migrateLegacyProductScheduleToUtc(connection, settings.timeZone());
     createOrders(connection);
     migrateOrders(connection);
     createOrderItems(connection);
@@ -245,6 +250,19 @@ class SchemaManager {
             FOREIGN KEY (code) REFERENCES redeem_codes(code) ON DELETE CASCADE,
           CONSTRAINT fk_redeem_usage_user_id
             FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void createSchemaMeta(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS webshop_meta (
+          meta_key VARCHAR(64) NOT NULL,
+          meta_value VARCHAR(255) NULL,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (meta_key)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
@@ -927,6 +945,43 @@ class SchemaManager {
     execute(connection, sql);
   }
 
+  private void migrateLegacyProductScheduleToUtc(Connection connection, java.time.ZoneId businessZone)
+      throws SQLException {
+    if (readMetaValue(connection, PRODUCT_SCHEDULE_UTC_MIGRATION_KEY) != null) {
+      return;
+    }
+
+    String selectSql = """
+        SELECT id, publish_at, unpublish_at
+        FROM products
+        WHERE publish_at IS NOT NULL OR unpublish_at IS NOT NULL
+        """;
+    String updateSql = """
+        UPDATE products
+        SET publish_at = ?, unpublish_at = ?
+        WHERE id = ?
+        """;
+
+    try (PreparedStatement select = connection.prepareStatement(selectSql);
+         ResultSet resultSet = select.executeQuery();
+         PreparedStatement update = connection.prepareStatement(updateSql)) {
+      while (resultSet.next()) {
+        long id = resultSet.getLong("id");
+        LocalDateTime publishAt = resultSet.getObject("publish_at", LocalDateTime.class);
+        LocalDateTime unpublishAt = resultSet.getObject("unpublish_at", LocalDateTime.class);
+        LocalDateTime publishAtUtc = TimeSupport.businessLocalToUtc(publishAt, businessZone);
+        LocalDateTime unpublishAtUtc = TimeSupport.businessLocalToUtc(unpublishAt, businessZone);
+        update.setObject(1, publishAtUtc);
+        update.setObject(2, unpublishAtUtc);
+        update.setLong(3, id);
+        update.addBatch();
+      }
+      update.executeBatch();
+    }
+
+    writeMetaValue(connection, PRODUCT_SCHEDULE_UTC_MIGRATION_KEY, businessZone.getId());
+  }
+
   @SuppressFBWarnings(
       value = "SQL_INJECTION_JDBC",
       justification = "Schema migrations execute only internal DDL strings defined in this class")
@@ -974,5 +1029,31 @@ class SchemaManager {
       return;
     }
     execute(connection, "ALTER TABLE " + tableName + " DROP INDEX " + indexName);
+  }
+
+  private String readMetaValue(Connection connection, String key) throws SQLException {
+    String sql = "SELECT meta_value FROM webshop_meta WHERE meta_key = ?";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, key);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return null;
+        }
+        return resultSet.getString("meta_value");
+      }
+    }
+  }
+
+  private void writeMetaValue(Connection connection, String key, String value) throws SQLException {
+    String sql = """
+        INSERT INTO webshop_meta (meta_key, meta_value)
+        VALUES (?, ?)
+        ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, key);
+      statement.setString(2, value);
+      statement.executeUpdate();
+    }
   }
 }

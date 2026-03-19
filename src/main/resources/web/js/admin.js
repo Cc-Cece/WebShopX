@@ -28,6 +28,7 @@
     SHOP_COIN: { name: "网页币", short: "SC" },
     GAME_COIN: { name: "游戏币", short: "GC" },
   },
+  timeZone: "Asia/Shanghai",
 };
 
 const POTION_EFFECT_OPTIONS = [
@@ -148,6 +149,7 @@ const elements = {
   productEditorTabBtn: document.getElementById("productEditorTabBtn"),
   productListTabBtn: document.getElementById("productListTabBtn"),
   productVoucherTabBtn: document.getElementById("productVoucherTabBtn"),
+  productScheduleHint: document.getElementById("productScheduleHint"),
   productStatus: document.getElementById("productStatus"),
   productListStatus: document.getElementById("productListStatus"),
   productSearchKeyword: document.getElementById("productSearchKeyword"),
@@ -422,7 +424,11 @@ async function loadCurrencyMeta() {
         short: payload.gameCoin.short || state.currencyMeta.GAME_COIN.short,
       };
     }
+    if (payload && payload.timeZone) {
+      state.timeZone = String(payload.timeZone).trim() || state.timeZone;
+    }
     applyCurrencyMetaToUi();
+    updateProductScheduleHint();
   } catch (error) {
     // Ignore missing metadata.
   }
@@ -491,11 +497,142 @@ function formatCurrency(amount, currency) {
   return `${meta.short} ${normalized.toLocaleString("zh-CN")}`;
 }
 
+function hasExplicitTimeZone(value) {
+  return /(?:Z|[+\-]\d{2}:\d{2})$/i.test(String(value || "").trim());
+}
+
+function parseLocalDateTimeParts(value) {
+  const match = String(value || "")
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/);
+  if (!match) {
+    return null;
+  }
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4]),
+    minute: Number(match[5]),
+    second: Number(match[6] || 0),
+    millisecond: Number((match[7] || "0").padEnd(3, "0")),
+  };
+}
+
+function getTimeZoneOffsetMinutes(timestamp, timeZone) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const formatted = {};
+  formatter.formatToParts(new Date(timestamp)).forEach((part) => {
+    if (part.type !== "literal") {
+      formatted[part.type] = part.value;
+    }
+  });
+  const asUtc = Date.UTC(
+    Number(formatted.year),
+    Number(formatted.month) - 1,
+    Number(formatted.day),
+    Number(formatted.hour),
+    Number(formatted.minute),
+    Number(formatted.second),
+    0
+  );
+  return Math.round((asUtc - timestamp) / 60000);
+}
+
+function parseDateTimeValue(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return Number.NaN;
+  }
+  if (hasExplicitTimeZone(text)) {
+    return Date.parse(text);
+  }
+  const localParts = parseLocalDateTimeParts(text);
+  if (!localParts) {
+    return Date.parse(text);
+  }
+  const utcGuess = Date.UTC(
+    localParts.year,
+    localParts.month - 1,
+    localParts.day,
+    localParts.hour,
+    localParts.minute,
+    localParts.second,
+    localParts.millisecond
+  );
+  const initialOffset = getTimeZoneOffsetMinutes(utcGuess, state.timeZone);
+  let timestamp = utcGuess - initialOffset * 60000;
+  const resolvedOffset = getTimeZoneOffsetMinutes(timestamp, state.timeZone);
+  if (resolvedOffset !== initialOffset) {
+    timestamp = utcGuess - resolvedOffset * 60000;
+  }
+  return timestamp;
+}
+
+function collectDateTimeParts(timestamp, options) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: state.timeZone,
+    hour12: false,
+    ...options,
+  });
+  const formatted = {};
+  formatter.formatToParts(new Date(timestamp)).forEach((part) => {
+    if (part.type !== "literal") {
+      formatted[part.type] = part.value;
+    }
+  });
+  return formatted;
+}
+
+function formatDateTime(value) {
+  const timestamp = parseDateTimeValue(value);
+  if (Number.isNaN(timestamp)) {
+    return "未知时间";
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: state.timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(timestamp));
+}
+
 function toLocalInput(value) {
   if (!value) {
     return "";
   }
-  return String(value).slice(0, 16);
+  const timestamp = parseDateTimeValue(value);
+  if (Number.isNaN(timestamp)) {
+    return "";
+  }
+  const parts = collectDateTimeParts(timestamp, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+function updateProductScheduleHint() {
+  if (!elements.productScheduleHint) {
+    return;
+  }
+  elements.productScheduleHint.textContent = `商品上下架时间按时区 ${state.timeZone} 解释与显示。`;
 }
 
 function renderAdminProfile() {
@@ -1244,8 +1381,8 @@ function renderProducts() {
         { label: "剩余库存", value: product.stockRemaining != null ? `x${product.stockRemaining}` : "长期供应" },
         { label: "币种/价格", value: `${currencyName(product.currency)} / ${formatCurrency(product.price, product.currency)}` },
         { label: "备注", value: product.remark || "-" },
-        { label: "上架时间", value: product.publishAt || "立即" },
-        { label: "下架时间", value: product.unpublishAt || "不自动下架" },
+        { label: "上架时间", value: product.publishAt ? formatDateTime(product.publishAt) : "立即" },
+        { label: "下架时间", value: product.unpublishAt ? formatDateTime(product.unpublishAt) : "不自动下架" },
         { label: "启用", value: product.active ? "是" : "否" },
       ],
       [editBtn, toggleBtn]

@@ -202,7 +202,7 @@ public class WebShopPlugin extends JavaPlugin {
     databaseManager = new DatabaseManager(this, settings.databaseSettings());
     try {
       databaseManager.start();
-      new SchemaManager().ensureSchema(databaseManager);
+      new SchemaManager().ensureSchema(databaseManager, settings);
     } catch (Exception exception) {
       if (settings.databaseSettings().usesDefaultPlaceholders()) {
         if (databaseManager != null) {

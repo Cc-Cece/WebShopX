@@ -336,16 +336,8 @@ class EmbeddedWebServer {
         item.addProperty("currency", product.currency().name());
         item.addProperty("price", product.price());
         item.addProperty("productType", product.productType().name());
-        if (product.publishAt() == null) {
-          item.add("publishAt", JsonNull.INSTANCE);
-        } else {
-          item.addProperty("publishAt", product.publishAt().toString());
-        }
-        if (product.unpublishAt() == null) {
-          item.add("unpublishAt", JsonNull.INSTANCE);
-        } else {
-          item.addProperty("unpublishAt", product.unpublishAt().toString());
-        }
+        addBusinessDateTime(item, "publishAt", product.publishAt());
+        addBusinessDateTime(item, "unpublishAt", product.unpublishAt());
         if (product.itemMaterial() == null) {
           item.add("itemMaterial", JsonNull.INSTANCE);
         } else {
@@ -611,6 +603,7 @@ class EmbeddedWebServer {
       JsonObject response = new JsonObject();
       response.add("shopCoin", shop);
       response.add("gameCoin", game);
+      response.addProperty("timeZone", settingsSupplier.get().timeZone().getId());
       sendJson(exchange, 200, response);
     });
   }
@@ -1130,16 +1123,8 @@ class EmbeddedWebServer {
         row.addProperty("productType", product.productType().name());
         row.addProperty("commandTemplate", product.commandTemplate());
         row.addProperty("active", product.active());
-        if (product.publishAt() == null) {
-          row.add("publishAt", JsonNull.INSTANCE);
-        } else {
-          row.addProperty("publishAt", product.publishAt().toString());
-        }
-        if (product.unpublishAt() == null) {
-          row.add("unpublishAt", JsonNull.INSTANCE);
-        } else {
-          row.addProperty("unpublishAt", product.unpublishAt().toString());
-        }
+        addBusinessDateTime(row, "publishAt", product.publishAt());
+        addBusinessDateTime(row, "unpublishAt", product.unpublishAt());
         if (product.itemMaterial() == null) {
           row.add("itemMaterial", JsonNull.INSTANCE);
         } else {
@@ -2305,10 +2290,18 @@ class EmbeddedWebServer {
       return null;
     }
     try {
-      return java.time.LocalDateTime.parse(raw.get());
+      return TimeSupport.parseClientDateTimeToUtc(raw.get(), settingsSupplier.get().timeZone());
     } catch (java.time.format.DateTimeParseException exception) {
       throw new ServiceException("bad_request", "Invalid datetime: " + key);
     }
+  }
+
+  private void addBusinessDateTime(JsonObject object, String key, LocalDateTime utcDateTime) {
+    if (utcDateTime == null) {
+      object.add(key, JsonNull.INSTANCE);
+      return;
+    }
+    object.addProperty(key, TimeSupport.formatBusinessIsoOffset(utcDateTime, settingsSupplier.get().timeZone()));
   }
 
   private long getLong(JsonObject payload, String key, long fallback) {

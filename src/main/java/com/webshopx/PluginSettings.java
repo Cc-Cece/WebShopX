@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.time.DateTimeException;
+import java.time.ZoneId;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 
@@ -17,6 +19,7 @@ record PluginSettings(
     int orderCooldownSeconds,
     boolean allowSharedClaimCommand,
     boolean refundUndeliveredEnabled,
+    ZoneId timeZone,
     int marketMaxActiveListings,
     MarketSupplySettings marketSupplySettings,
     CurrencyDisplaySettings currencyDisplaySettings,
@@ -110,6 +113,7 @@ record PluginSettings(
         config.getInt("webshop.order-cooldown-seconds", 15),
         config.getBoolean("webshop.allow-shared-claim-command", false),
         config.getBoolean("webshop.refund-undelivered-enabled", true),
+        parseZoneId(config.getString("webshop.time-zone", "Asia/Shanghai")),
         config.getInt("webshop.market.max-active-listings", 10),
         marketSupplySettings,
         currencyDisplaySettings,
@@ -122,6 +126,15 @@ record PluginSettings(
         new EconomySettings(marketEconomySettings, inflationSettings),
         redisSettings,
         readProductSeeds(config));
+  }
+
+  private static ZoneId parseZoneId(String rawZoneId) {
+    String normalized = rawZoneId == null || rawZoneId.isBlank() ? "Asia/Shanghai" : rawZoneId.trim();
+    try {
+      return ZoneId.of(normalized);
+    } catch (DateTimeException exception) {
+      throw new IllegalArgumentException("Invalid webshop.time-zone: " + normalized, exception);
+    }
   }
 
   private static List<ProductSeed> readProductSeeds(FileConfiguration config) {
