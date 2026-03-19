@@ -358,7 +358,8 @@ class OrderService {
       }
     }
 
-    String checkSql = "SELECT stock_remaining FROM products WHERE id = ? FOR UPDATE";
+    String checkSql = "SELECT stock_remaining FROM products WHERE id = ?"
+        + databaseManager.lockClause(true);
     try (PreparedStatement statement = connection.prepareStatement(checkSql)) {
       statement.setLong(1, productId);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -382,14 +383,16 @@ class OrderService {
         UPDATE products
         SET stock_remaining = CASE
             WHEN item_amount IS NULL THEN stock_remaining
-            ELSE LEAST(item_amount, stock_remaining + ?)
+            WHEN item_amount < stock_remaining + ? THEN item_amount
+            ELSE stock_remaining + ?
           END
         WHERE id = ?
           AND stock_remaining IS NOT NULL
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setInt(1, quantity);
-      statement.setLong(2, productId);
+      statement.setInt(2, quantity);
+      statement.setLong(3, productId);
       statement.executeUpdate();
     }
   }
@@ -423,8 +426,7 @@ class OrderService {
         FROM orders o
         LEFT JOIN group_buy_vouchers gv ON gv.order_id = o.id
         WHERE o.user_id = ? AND o.idempotency_key = ?
-        FOR UPDATE
-        """;
+        """ + databaseManager.lockClause(true);
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
       statement.setString(2, idempotencyKey);
@@ -448,7 +450,8 @@ class OrderService {
   }
 
   private UUID readBoundUuidForUpdate(Connection connection, long userId) throws SQLException {
-    String sql = "SELECT bound_uuid FROM web_users WHERE id = ? FOR UPDATE";
+    String sql = "SELECT bound_uuid FROM web_users WHERE id = ?"
+        + databaseManager.lockClause(true);
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -1035,14 +1038,13 @@ class OrderService {
         throw new ServiceException("voucher_unavailable", "Group-buy voucher is already consumed");
       }
 
-      String updateSql = """
-          UPDATE group_buy_vouchers
-          SET status = 'CONSUMED',
-              consumed_by_admin_id = ?,
-              consumed_at = NOW()
-          WHERE id = ?
-            AND status = 'ISSUED'
-          """;
+      String nowExpression = databaseManager.currentTimestampExpression();
+      String updateSql = "UPDATE group_buy_vouchers "
+          + "SET status = 'CONSUMED', "
+          + "consumed_by_admin_id = ?, "
+          + "consumed_at = " + nowExpression + " "
+          + "WHERE id = ? "
+          + "AND status = 'ISSUED'";
       try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
         statement.setLong(1, adminUserId);
         statement.setLong(2, row.id());
@@ -1095,11 +1097,10 @@ class OrderService {
           row.orderNo() + ":refund",
           false);
 
-      String updateOrderSql = """
-          UPDATE orders
-          SET status = 'REFUNDED', refunded_at = NOW(), claim_token = NULL
-          WHERE id = ?
-          """;
+      String nowExpression = databaseManager.currentTimestampExpression();
+      String updateOrderSql = "UPDATE orders "
+          + "SET status = 'REFUNDED', refunded_at = " + nowExpression + ", claim_token = NULL "
+          + "WHERE id = ?";
       try (PreparedStatement statement = connection.prepareStatement(updateOrderSql)) {
         statement.setLong(1, row.id());
         statement.executeUpdate();
@@ -1147,8 +1148,7 @@ class OrderService {
         JOIN web_users u ON u.id = gv.user_id
         JOIN products p ON p.id = gv.product_id
         WHERE gv.code = ?
-        FOR UPDATE
-        """;
+        """ + databaseManager.lockClause(true);
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, code);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -1254,11 +1254,10 @@ class OrderService {
           orderNo + ":refund",
           false);
 
-      String updateTradeSql = """
-          UPDATE market_trades
-          SET status = 'REFUNDED', refunded_at = NOW(), claim_token = NULL
-          WHERE id = ? AND status IN ('PENDING', 'WAIT_CLAIM')
-          """;
+      String nowExpression = databaseManager.currentTimestampExpression();
+      String updateTradeSql = "UPDATE market_trades "
+          + "SET status = 'REFUNDED', refunded_at = " + nowExpression + ", claim_token = NULL "
+          + "WHERE id = ? AND status IN ('PENDING', 'WAIT_CLAIM')";
       try (PreparedStatement statement = connection.prepareStatement(updateTradeSql)) {
         statement.setLong(1, row.tradeId());
         statement.executeUpdate();
@@ -1279,7 +1278,10 @@ class OrderService {
       String restoreListingSql = """
           UPDATE market_listings
           SET quantity = quantity + ?,
-              quantity_total = GREATEST(quantity_total, quantity + ?),
+              quantity_total = CASE
+                WHEN quantity_total > quantity + ? THEN quantity_total
+                ELSE quantity + ?
+              END,
               status = 'ACTIVE',
               buyer_user_id = NULL,
               buyer_uuid = NULL,
@@ -1290,7 +1292,8 @@ class OrderService {
       try (PreparedStatement statement = connection.prepareStatement(restoreListingSql)) {
         statement.setInt(1, row.quantity());
         statement.setInt(2, row.quantity());
-        statement.setLong(3, row.listingId());
+        statement.setInt(3, row.quantity());
+        statement.setLong(4, row.listingId());
         statement.executeUpdate();
       }
 
@@ -1331,8 +1334,7 @@ class OrderService {
         JOIN order_items oi ON oi.order_id = o.id
         LEFT JOIN group_buy_vouchers gv ON gv.order_id = o.id
         WHERE o.user_id = ? AND o.order_no = ?
-        FOR UPDATE
-        """;
+        """ + databaseManager.lockClause(true);
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
       statement.setString(2, orderNo);
@@ -1362,8 +1364,7 @@ class OrderService {
         SELECT id, listing_id, currency, unit_price, quantity, total_price, buyer_total, status, refund_deadline
         FROM market_trades
         WHERE id = ? AND buyer_user_id = ?
-        FOR UPDATE
-        """;
+        """ + databaseManager.lockClause(true);
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, tradeId);
       statement.setLong(2, userId);

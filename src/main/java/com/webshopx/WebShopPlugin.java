@@ -11,6 +11,7 @@ import org.bukkit.scheduler.BukkitTask;
  * Main entry point for the WebShop plugin.
  */
 public class WebShopPlugin extends JavaPlugin {
+  private DatabaseType databaseType;
   private PluginSettings settings;
   private DatabaseManager databaseManager;
   private AuthService authService;
@@ -37,7 +38,8 @@ public class WebShopPlugin extends JavaPlugin {
     saveDefaultConfig();
 
     try {
-      settings = PluginSettings.fromConfig(getConfig());
+      databaseType = DatabaseType.detect(this);
+      settings = PluginSettings.fromConfig(getConfig(), databaseType);
       pluginLogService = new PluginLogService(this);
       pluginLogService.apply(settings.loggingSettings());
       staticAssetInstaller = new StaticAssetInstaller(this);
@@ -117,7 +119,7 @@ public class WebShopPlugin extends JavaPlugin {
 
   void reloadRuntimeConfig() {
     reloadConfig();
-    settings = PluginSettings.fromConfig(getConfig());
+    settings = PluginSettings.fromConfig(getConfig(), databaseType);
     if (pluginLogService != null) {
       pluginLogService.apply(settings.loggingSettings());
     }
@@ -202,7 +204,7 @@ public class WebShopPlugin extends JavaPlugin {
     databaseManager = new DatabaseManager(this, settings.databaseSettings());
     try {
       databaseManager.start();
-      new SchemaManager().ensureSchema(databaseManager);
+      databaseManager.ensureSchema();
     } catch (Exception exception) {
       if (settings.databaseSettings().usesDefaultPlaceholders()) {
         if (databaseManager != null) {

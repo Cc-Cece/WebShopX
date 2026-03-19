@@ -1,11 +1,13 @@
 package com.webshopx;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.plugin.java.JavaPlugin;
 
 record PluginSettings(
     ServerMode serverMode,
@@ -30,7 +32,7 @@ record PluginSettings(
     RedisSettings redisSettings,
     List<ProductSeed> productSeeds) {
 
-  static PluginSettings fromConfig(FileConfiguration config) {
+  static PluginSettings fromConfig(FileConfiguration config, DatabaseType databaseType) {
     String rawMode = config.getString("webshop.server-mode", "internal");
     ServerMode mode = ServerMode.fromRaw(rawMode);
 
@@ -39,14 +41,7 @@ record PluginSettings(
         config.getInt("webshop.embedded-http.port", 8819),
         config.getString("webshop.embedded-http.static-root", "web"));
 
-    DatabaseSettings databaseSettings = new DatabaseSettings(
-        config.getString("database.host", "127.0.0.1"),
-        config.getInt("database.port", 3306),
-        config.getString("database.schema", "webshop"),
-        config.getString("database.username", "webshop"),
-        config.getString("database.password", "change_me"),
-        config.getBoolean("database.use-ssl", false),
-        config.getInt("database.pool-size", 10));
+    DatabaseSettings databaseSettings = DatabaseSettings.fromConfig(config, databaseType);
 
     ExchangeDirection shopToGame = new ExchangeDirection(
         config.getBoolean("exchange.shopcoin-to-gamecoin.enabled", true),
@@ -196,6 +191,31 @@ record PluginSettings(
   }
 
   record DatabaseSettings(
+      DatabaseType type,
+      MariaDbSettings mariaDb,
+      SqliteSettings sqlite) {
+
+    static DatabaseSettings fromConfig(FileConfiguration config, DatabaseType databaseType) {
+      MariaDbSettings mariaDb = new MariaDbSettings(
+          config.getString("database.host", "127.0.0.1"),
+          config.getInt("database.port", 3306),
+          config.getString("database.schema", "webshop"),
+          config.getString("database.username", "webshop"),
+          config.getString("database.password", "change_me"),
+          config.getBoolean("database.use-ssl", false),
+          config.getInt("database.pool-size", 10));
+      SqliteSettings sqlite = new SqliteSettings(
+          config.getString("database.file", "data/webshop.db"),
+          config.getInt("database.busy-timeout-ms", 10_000));
+      return new DatabaseSettings(databaseType, mariaDb, sqlite);
+    }
+
+    boolean usesDefaultPlaceholders() {
+      return type == DatabaseType.MARIADB && mariaDb.usesDefaultPlaceholders();
+    }
+  }
+
+  record MariaDbSettings(
       String host,
       int port,
       String schema,
@@ -221,6 +241,16 @@ record PluginSettings(
           && "webshop".equals(schema)
           && "webshop".equals(username)
           && "change_me".equals(password);
+    }
+  }
+
+  record SqliteSettings(String file, int busyTimeoutMs) {
+    Path resolveFile(JavaPlugin plugin) {
+      Path configured = Path.of(file == null || file.isBlank() ? "data/webshop.db" : file.trim());
+      if (configured.isAbsolute()) {
+        return configured.normalize();
+      }
+      return plugin.getDataFolder().toPath().resolve(configured).normalize();
     }
   }
 

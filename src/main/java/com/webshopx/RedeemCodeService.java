@@ -171,13 +171,21 @@ class RedeemCodeService {
       int perUserMaxUses,
       LocalDateTime expiresAt) {
     return databaseManager.withConnection(connection -> {
-      String sql = """
-          INSERT INTO redeem_codes (
-            code, shop_coin, game_coin, max_uses, per_user_max_uses, expires_at, active
-          )
-          VALUES (?, ?, ?, ?, ?, ?, TRUE)
-          ON DUPLICATE KEY UPDATE code = code
-          """;
+      String sql = databaseManager.isSqlite()
+          ? """
+              INSERT INTO redeem_codes (
+                code, shop_coin, game_coin, max_uses, per_user_max_uses, expires_at, active
+              )
+              VALUES (?, ?, ?, ?, ?, ?, TRUE)
+              ON CONFLICT(code) DO NOTHING
+              """
+          : """
+              INSERT INTO redeem_codes (
+                code, shop_coin, game_coin, max_uses, per_user_max_uses, expires_at, active
+              )
+              VALUES (?, ?, ?, ?, ?, ?, TRUE)
+              ON DUPLICATE KEY UPDATE code = code
+              """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setString(1, code);
         statement.setLong(2, shopCoin);
@@ -203,8 +211,7 @@ class RedeemCodeService {
         SELECT shop_coin, game_coin, max_uses, per_user_max_uses, used_count, expires_at, active
         FROM redeem_codes
         WHERE code = ?
-        FOR UPDATE
-        """;
+        """ + databaseManager.lockClause(true);
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, code);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -230,8 +237,7 @@ class RedeemCodeService {
         SELECT use_count
         FROM redeem_usage
         WHERE code = ? AND user_id = ?
-        FOR UPDATE
-        """;
+        """ + databaseManager.lockClause(true);
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, code);
       statement.setLong(2, userId);
@@ -245,13 +251,21 @@ class RedeemCodeService {
   }
 
   private void incrementUserUsage(Connection connection, String code, long userId) throws SQLException {
-    String sql = """
-        INSERT INTO redeem_usage (code, user_id, use_count)
-        VALUES (?, ?, 1)
-        ON DUPLICATE KEY UPDATE
-          use_count = use_count + 1,
-          used_at = CURRENT_TIMESTAMP
-        """;
+    String sql = databaseManager.isSqlite()
+        ? """
+            INSERT INTO redeem_usage (code, user_id, use_count)
+            VALUES (?, ?, 1)
+            ON CONFLICT(code, user_id) DO UPDATE SET
+              use_count = use_count + 1,
+              used_at = CURRENT_TIMESTAMP
+            """
+        : """
+            INSERT INTO redeem_usage (code, user_id, use_count)
+            VALUES (?, ?, 1)
+            ON DUPLICATE KEY UPDATE
+              use_count = use_count + 1,
+              used_at = CURRENT_TIMESTAMP
+            """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, code);
       statement.setLong(2, userId);

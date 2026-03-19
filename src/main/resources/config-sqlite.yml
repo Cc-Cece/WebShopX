@@ -1,0 +1,98 @@
+# ============================================================
+# WebShopX SQLite 配置文件
+# 说明：
+# 1) SQLite 版本适合单机或小型服务器快速部署。
+# 2) 修改后可使用 /webshopx reload（或 /ws reload）热重载大部分配置。
+# 3) 涉及数据库文件路径时，建议重启服务器。
+# ============================================================
+
+webshop:
+  server-mode: internal
+  session-expire-hours: 72
+  bind-request-expire-minutes: 15
+  access-token-length: 48
+  delivery-batch-size: 20
+  delivery-retry-seconds: 30
+  order-cooldown-seconds: 15
+  allow-shared-claim-command: false
+  refund-undelivered-enabled: true
+
+  market:
+    max-active-listings: 10
+    supply:
+      auto-refresh-threshold: 8
+      default-transfer-batch-size: 64
+      max-transfer-batch-size: 256
+      default-transit-stock: 256
+      max-transit-stock: 1024
+
+  maintenance:
+    cleanup-interval-minutes: 30
+    pending-bind-retention-hours: 6
+    pending-password-retention-hours: 6
+    bind-request-retention-hours: 24
+    redeem-code-retention-days: 7
+
+  logging:
+    enabled: true
+    level: INFO
+    directory: logs
+    max-file-size-mb: 8
+    max-files: 8
+    retention-days: 14
+
+  admin-bootstrap:
+    enabled: true
+    username: admin
+    password: admin123456
+    role: SUPER_ADMIN
+
+  embedded-http:
+    host: 0.0.0.0
+    port: 8819
+    static-root: web
+
+database:
+  file: data/webshop.db
+  busy-timeout-ms: 10000
+
+exchange:
+  shopcoin-to-gamecoin:
+    enabled: true
+    ratio: 1.0
+  gamecoin-to-shopcoin:
+    enabled: false
+    ratio: 1.0
+
+currency:
+  shopcoin:
+    name: ShopCoin
+    short: SC
+  gamecoin:
+    name: GameCoin
+    short: GC
+
+economy:
+  market:
+    trade-fee-percent: 0.0
+    trade-tax-percent: 0.0
+  inflation-control:
+    mode: burn
+    treasury-user-id: 0
+
+redis:
+  enabled: false
+  host: 127.0.0.1
+  port: 6379
+
+sample-products:
+  - sku: vip_week
+    title: VIP Week Pass
+    currency: SHOP_COIN
+    price: 100
+    command-template: "lp user {player} parent addtemp vip 7d"
+  - sku: diamond_pack
+    title: Diamond Pack x32
+    currency: GAME_COIN
+    price: 50
+    command-template: "give {player} minecraft:diamond 32"

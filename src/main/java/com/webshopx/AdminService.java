@@ -286,16 +286,17 @@ class AdminService {
     int normalizedLimit = Math.max(1, Math.min(limit, 300));
     String likeKeyword = keyword == null || keyword.isBlank() ? null : "%" + keyword.trim() + "%";
     return databaseManager.withConnection(connection -> {
-      String sql = """
-          SELECT u.id, u.username, u.bound_uuid, u.auth_state, u.created_at,
-                 COALESCE(w.shop_coin, 0) AS shop_coin,
-                 COALESCE(w.game_coin, 0) AS game_coin
-          FROM web_users u
-          LEFT JOIN wallets w ON w.user_id = u.id
-          WHERE (? IS NULL OR u.username LIKE ? OR u.bound_uuid LIKE ? OR CAST(u.id AS CHAR) LIKE ?)
-          ORDER BY u.created_at DESC, u.id DESC
-          LIMIT ?
-          """;
+      String idAsText = databaseManager.castAsText("u.id");
+      String sql = "SELECT u.id, u.username, u.bound_uuid, u.auth_state, u.created_at, "
+          + "COALESCE(w.shop_coin, 0) AS shop_coin, "
+          + "COALESCE(w.game_coin, 0) AS game_coin "
+          + "FROM web_users u "
+          + "LEFT JOIN wallets w ON w.user_id = u.id "
+          + "WHERE (? IS NULL OR u.username LIKE ? OR u.bound_uuid LIKE ? OR "
+          + idAsText
+          + " LIKE ?) "
+          + "ORDER BY u.created_at DESC, u.id DESC "
+          + "LIMIT ?";
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setString(1, likeKeyword);
         statement.setString(2, likeKeyword);
@@ -377,16 +378,27 @@ class AdminService {
       boolean superAdmin,
       Set<AdminPermission> permissions,
       String templateKey) throws SQLException {
-    String sql = """
-        INSERT INTO web_admins (user_id, role, active, is_super_admin, permissions_json, template_key)
-        VALUES (?, ?, TRUE, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          role = VALUES(role),
-          active = TRUE,
-          is_super_admin = VALUES(is_super_admin),
-          permissions_json = VALUES(permissions_json),
-          template_key = VALUES(template_key)
-        """;
+    String sql = databaseManager.isSqlite()
+        ? """
+            INSERT INTO web_admins (user_id, role, active, is_super_admin, permissions_json, template_key)
+            VALUES (?, ?, TRUE, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+              role = excluded.role,
+              active = TRUE,
+              is_super_admin = excluded.is_super_admin,
+              permissions_json = excluded.permissions_json,
+              template_key = excluded.template_key
+            """
+        : """
+            INSERT INTO web_admins (user_id, role, active, is_super_admin, permissions_json, template_key)
+            VALUES (?, ?, TRUE, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+              role = VALUES(role),
+              active = TRUE,
+              is_super_admin = VALUES(is_super_admin),
+              permissions_json = VALUES(permissions_json),
+              template_key = VALUES(template_key)
+            """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
       statement.setString(2, superAdmin ? AdminRole.SUPER_ADMIN.name() : "CUSTOM");

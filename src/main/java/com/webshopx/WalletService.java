@@ -280,7 +280,7 @@ class WalletService {
       justification = "Lock clause is selected from a fixed boolean branch")
   private GameCoinAccount readGameCoinAccount(Connection connection, long userId, boolean forUpdate)
       throws SQLException {
-    String lock = forUpdate ? " FOR UPDATE" : "";
+    String lock = databaseManager.lockClause(forUpdate);
     String sql = """
         SELECT username, bound_uuid
         FROM web_users
@@ -313,11 +313,17 @@ class WalletService {
       long delta,
       String bizType,
       String bizId) throws SQLException {
-    String sql = """
-        INSERT INTO wallet_ledger (wallet_id, currency, delta, biz_type, biz_id)
-        VALUES (?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE id = id
-        """;
+    String sql = databaseManager.isSqlite()
+        ? """
+            INSERT INTO wallet_ledger (wallet_id, currency, delta, biz_type, biz_id)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(wallet_id, biz_type, biz_id) DO NOTHING
+            """
+        : """
+            INSERT INTO wallet_ledger (wallet_id, currency, delta, biz_type, biz_id)
+            VALUES (?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE id = id
+            """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, walletId);
       statement.setString(2, currency.name());
@@ -329,11 +335,17 @@ class WalletService {
   }
 
   private void ensureWallet(Connection connection, long userId) throws SQLException {
-    String sql = """
-        INSERT INTO wallets (user_id)
-        VALUES (?)
-        ON DUPLICATE KEY UPDATE user_id = user_id
-        """;
+    String sql = databaseManager.isSqlite()
+        ? """
+            INSERT INTO wallets (user_id)
+            VALUES (?)
+            ON CONFLICT(user_id) DO NOTHING
+            """
+        : """
+            INSERT INTO wallets (user_id)
+            VALUES (?)
+            ON DUPLICATE KEY UPDATE user_id = user_id
+            """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
       statement.executeUpdate();
@@ -353,7 +365,7 @@ class WalletService {
       value = "SQL_INJECTION_JDBC",
       justification = "Lock clause is selected from a fixed boolean branch")
   private long readWalletId(Connection connection, long userId, boolean forUpdate) throws SQLException {
-    String lockClause = forUpdate ? " FOR UPDATE" : "";
+    String lockClause = databaseManager.lockClause(forUpdate);
     String sql = "SELECT id FROM wallets WHERE user_id = ?" + lockClause;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
@@ -385,7 +397,7 @@ class WalletService {
       justification = "Lock clause is selected from a fixed boolean branch")
   private RawWalletBalance readRawBalance(Connection connection, long userId, boolean forUpdate)
       throws SQLException {
-    String lockClause = forUpdate ? " FOR UPDATE" : "";
+    String lockClause = databaseManager.lockClause(forUpdate);
     String sql = "SELECT id, shop_coin, game_coin FROM wallets WHERE user_id = ?" + lockClause;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);

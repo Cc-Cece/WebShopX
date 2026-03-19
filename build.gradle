@@ -78,6 +78,7 @@ dependencies {
     implementation('org.mariadb.jdbc:mariadb-java-client:3.3.3') {
         exclude group: 'com.github.waffle', module: 'waffle-jna'
     }
+    implementation 'org.xerial:sqlite-jdbc:3.51.1.0'
     implementation 'com.zaxxer:HikariCP:5.1.0'
     implementation 'com.google.code.gson:gson:2.11.0'
     compileOnly 'com.github.MilkBowl:VaultAPI:1.7.1'
@@ -128,8 +129,39 @@ tasks.withType(SpotBugsTask).configureEach {
 
 shadowJar {
     archiveClassifier.set('')
+    exclude 'config-sqlite.yml'
+    exclude 'database-provider-sqlite.txt'
     relocate 'io.papermc.lib', 'shadow.io.papermc.paperlib'
     mergeServiceFiles()
+    dependencies {
+        exclude(dependency('org.xerial:sqlite-jdbc:.*'))
+    }
+}
+
+tasks.register('shadowSqliteJar', ShadowJar) {
+    group = 'build'
+    description = 'Builds the SQLite plugin JAR with bundled runtime dependencies.'
+    archiveClassifier.set('sqlite')
+    from(sourceSets.main.output) {
+        exclude 'config.yml'
+        exclude 'config-sqlite.yml'
+        exclude 'database-provider.txt'
+        exclude 'database-provider-sqlite.txt'
+    }
+    from('src/main/resources') {
+        include 'config-sqlite.yml'
+        rename('config-sqlite.yml', 'config.yml')
+    }
+    from('src/main/resources') {
+        include 'database-provider-sqlite.txt'
+        rename('database-provider-sqlite.txt', 'database-provider.txt')
+    }
+    configurations = [project.configurations.runtimeClasspath]
+    relocate 'io.papermc.lib', 'shadow.io.papermc.paperlib'
+    mergeServiceFiles()
+    dependencies {
+        exclude(dependency('org.mariadb.jdbc:mariadb-java-client:.*'))
+    }
 }
 
 tasks.register('plainPluginJar', Jar) {
@@ -215,6 +247,7 @@ tasks.register('releaseObfuscated') {
 // Disable jar and replace with shadowJar
 jar.enabled = false
 assemble.dependsOn(shadowJar)
+assemble.dependsOn(tasks.named('shadowSqliteJar'))
 
 tasks.register('printProjectName') {
     doLast {
@@ -231,6 +264,9 @@ tasks.register('release') {
             shadowJar.archiveFile.get().getAsFile()
                     .renameTo(layout.buildDirectory.get().toString() + File.separator + 'libs'
                             + File.separator + rootProject.name + '.jar')
+            tasks.named('shadowSqliteJar', ShadowJar).get().archiveFile.get().getAsFile()
+                    .renameTo(layout.buildDirectory.get().toString() + File.separator + 'libs'
+                            + File.separator + rootProject.name + '-sqlite.jar')
         }
     }
 }

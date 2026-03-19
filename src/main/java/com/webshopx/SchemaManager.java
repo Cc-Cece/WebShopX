@@ -5,9 +5,10 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 
-class SchemaManager {
+class SchemaManager implements DatabaseSchemaManager {
 
-  void ensureSchema(DatabaseManager databaseManager) {
+  @Override
+  public void ensureSchema(DatabaseManager databaseManager) {
     databaseManager.withConnection(this::createTables);
   }
 

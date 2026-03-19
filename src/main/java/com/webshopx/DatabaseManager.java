@@ -11,31 +11,23 @@ import org.bukkit.plugin.java.JavaPlugin;
 class DatabaseManager {
   private final JavaPlugin plugin;
   private final PluginSettings.DatabaseSettings settings;
+  private final DatabaseDialect dialect;
   private HikariDataSource dataSource;
 
   DatabaseManager(JavaPlugin plugin, PluginSettings.DatabaseSettings settings) {
     this.plugin = plugin;
     this.settings = settings;
+    this.dialect = createDialect(settings.type());
   }
 
   void start() {
-    ensureDriverLoaded();
+    dialect.ensureDriverLoaded();
     HikariConfig hikariConfig = new HikariConfig();
-    hikariConfig.setDriverClassName("org.mariadb.jdbc.Driver");
-    hikariConfig.setJdbcUrl(settings.jdbcUrl());
-    hikariConfig.setUsername(settings.username());
-    hikariConfig.setPassword(settings.password());
-    hikariConfig.addDataSourceProperty(
-        "restrictedAuth",
-        "mysql_native_password,caching_sha2_password,client_ed25519");
-    hikariConfig.setMaximumPoolSize(Math.max(2, settings.poolSize()));
-    hikariConfig.setConnectionTimeout(10_000L);
-    hikariConfig.setValidationTimeout(5_000L);
-    hikariConfig.setPoolName("webshop-db");
+    dialect.configureHikari(plugin, settings, hikariConfig);
     try {
       this.dataSource = new HikariDataSource(hikariConfig);
     } catch (RuntimeException exception) {
-      if (containsGssApi(exception)) {
+      if (settings.type() == DatabaseType.MARIADB && containsGssApi(exception)) {
         throw new IllegalStateException(
             "Database authentication is using GSSAPI/SSPI. "
                 + "Please create a password-based SQL user and update config.yml.",
@@ -45,12 +37,8 @@ class DatabaseManager {
     }
   }
 
-  private void ensureDriverLoaded() {
-    try {
-      Class.forName("org.mariadb.jdbc.Driver");
-    } catch (ClassNotFoundException exception) {
-      throw new IllegalStateException("MariaDB JDBC driver is missing from plugin jar", exception);
-    }
+  void ensureSchema() {
+    dialect.schemaManager().ensureSchema(this);
   }
 
   private boolean containsGssApi(Throwable throwable) {
@@ -82,6 +70,30 @@ class DatabaseManager {
       throw new IllegalStateException("Data source is not initialized");
     }
     return dataSource.getConnection();
+  }
+
+  DatabaseType type() {
+    return settings.type();
+  }
+
+  boolean isSqlite() {
+    return settings.type() == DatabaseType.SQLITE;
+  }
+
+  String lockClause(boolean forUpdate) {
+    return dialect.lockClause(forUpdate);
+  }
+
+  String currentTimestampExpression() {
+    return dialect.currentTimestampExpression();
+  }
+
+  String coalesce(String expression, String fallbackExpression) {
+    return dialect.coalesce(expression, fallbackExpression);
+  }
+
+  String castAsText(String expression) {
+    return dialect.castAsText(expression);
   }
 
   <T> T withConnection(SqlFunction<T> function) {
@@ -125,5 +137,12 @@ class DatabaseManager {
     DataAccessException(String message, Throwable cause) {
       super(message, cause);
     }
+  }
+
+  private DatabaseDialect createDialect(DatabaseType databaseType) {
+    return switch (databaseType) {
+      case SQLITE -> new SqliteDialect();
+      case MARIADB -> new MariaDbDialect();
+    };
   }
 }

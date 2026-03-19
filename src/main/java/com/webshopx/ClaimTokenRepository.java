@@ -16,7 +16,7 @@ final class ClaimTokenRepository {
   static String ensureOrderToken(Connection connection, long orderId) throws SQLException {
     return ensureToken(
         connection,
-        "SELECT claim_token FROM orders WHERE id = ? FOR UPDATE",
+        "SELECT claim_token FROM orders WHERE id = ?" + lockClause(connection),
         "UPDATE orders SET claim_token = ? WHERE id = ? AND (claim_token IS NULL OR claim_token = '')",
         orderId,
         ClaimTokenGenerator::newOrderToken,
@@ -30,7 +30,7 @@ final class ClaimTokenRepository {
   static String ensureMarketTradeToken(Connection connection, long tradeId) throws SQLException {
     return ensureToken(
         connection,
-        "SELECT claim_token FROM market_trades WHERE id = ? FOR UPDATE",
+        "SELECT claim_token FROM market_trades WHERE id = ?" + lockClause(connection),
         "UPDATE market_trades SET claim_token = ? WHERE id = ? AND (claim_token IS NULL OR claim_token = '')",
         tradeId,
         ClaimTokenGenerator::newMarketToken,
@@ -103,5 +103,13 @@ final class ClaimTokenRepository {
       return true;
     }
     return message != null && message.toLowerCase(Locale.ROOT).contains("duplicate");
+  }
+
+  private static String lockClause(Connection connection) throws SQLException {
+    String productName = connection.getMetaData().getDatabaseProductName();
+    if (productName == null) {
+      return " FOR UPDATE";
+    }
+    return productName.toLowerCase(Locale.ROOT).contains("sqlite") ? "" : " FOR UPDATE";
   }
 }

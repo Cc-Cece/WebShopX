@@ -46,11 +46,12 @@ class ProductService {
       justification = "Active filter is selected from a fixed boolean branch and the limit remains bound")
   private List<ProductView> listProducts(Connection connection, boolean includeInactive, int limit)
       throws SQLException {
+    String nowExpression = databaseManager.currentTimestampExpression();
     String activeFilter = includeInactive
         ? ""
         : "WHERE active = TRUE "
-            + "AND (publish_at IS NULL OR publish_at <= NOW()) "
-            + "AND (unpublish_at IS NULL OR unpublish_at > NOW())";
+            + "AND (publish_at IS NULL OR publish_at <= " + nowExpression + ") "
+            + "AND (unpublish_at IS NULL OR unpublish_at > " + nowExpression + ")";
     String sql = """
         SELECT id, sku, title, remark, currency, price, product_type, command_template,
                item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
@@ -212,16 +213,16 @@ class ProductService {
       justification = "Lock clause is selected from a fixed boolean branch")
   ProductView readActiveProduct(Connection connection, long productId, boolean forUpdate)
       throws SQLException {
-    String lockClause = forUpdate ? " FOR UPDATE" : "";
-    String sql = """
-        SELECT id, sku, title, remark, currency, price, product_type, command_template,
-               item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
-               publish_at, unpublish_at, active
-        FROM products
-        WHERE id = ? AND active = TRUE
-          AND (publish_at IS NULL OR publish_at <= NOW())
-          AND (unpublish_at IS NULL OR unpublish_at > NOW())
-        """ + lockClause;
+    String lockClause = databaseManager.lockClause(forUpdate);
+    String nowExpression = databaseManager.currentTimestampExpression();
+    String sql = "SELECT id, sku, title, remark, currency, price, product_type, command_template, "
+        + "item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier, "
+        + "publish_at, unpublish_at, active "
+        + "FROM products "
+        + "WHERE id = ? AND active = TRUE "
+        + "AND (publish_at IS NULL OR publish_at <= " + nowExpression + ") "
+        + "AND (unpublish_at IS NULL OR unpublish_at > " + nowExpression + ")"
+        + lockClause;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, productId);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -265,7 +266,7 @@ class ProductService {
       justification = "Lock clause is selected from a fixed boolean branch")
   private ProductView findProductBySku(Connection connection, String sku, boolean forUpdate)
       throws SQLException {
-    String lockClause = forUpdate ? " FOR UPDATE" : "";
+    String lockClause = databaseManager.lockClause(forUpdate);
     String sql = """
         SELECT id, sku, title, remark, currency, price, product_type, command_template,
                item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
@@ -285,19 +286,33 @@ class ProductService {
   }
 
   private void upsertSeed(Connection connection, PluginSettings.ProductSeed seed) throws SQLException {
-    String sql = """
-        INSERT INTO products (
-          sku, title, currency, price, product_type, command_template, active
-        )
-        VALUES (?, ?, ?, ?, 'COMMAND', ?, TRUE)
-        ON DUPLICATE KEY UPDATE
-          title = VALUES(title),
-          currency = VALUES(currency),
-          price = VALUES(price),
-          product_type = VALUES(product_type),
-          command_template = VALUES(command_template),
-          active = TRUE
-        """;
+    String sql = databaseManager.isSqlite()
+        ? """
+            INSERT INTO products (
+              sku, title, currency, price, product_type, command_template, active
+            )
+            VALUES (?, ?, ?, ?, 'COMMAND', ?, TRUE)
+            ON CONFLICT(sku) DO UPDATE SET
+              title = excluded.title,
+              currency = excluded.currency,
+              price = excluded.price,
+              product_type = excluded.product_type,
+              command_template = excluded.command_template,
+              active = TRUE
+            """
+        : """
+            INSERT INTO products (
+              sku, title, currency, price, product_type, command_template, active
+            )
+            VALUES (?, ?, ?, ?, 'COMMAND', ?, TRUE)
+            ON DUPLICATE KEY UPDATE
+              title = VALUES(title),
+              currency = VALUES(currency),
+              price = VALUES(price),
+              product_type = VALUES(product_type),
+              command_template = VALUES(command_template),
+              active = TRUE
+            """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, normalizeSku(seed.sku()));
       statement.setString(2, seed.title());

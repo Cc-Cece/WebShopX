@@ -441,7 +441,7 @@ class MarketService {
       params.add("%" + sellerKeyword.trim().toLowerCase(Locale.ROOT) + "%");
     }
     if (buyerKeyword != null && !buyerKeyword.isBlank()) {
-      clauses.add("LOWER(IFNULL(ub.username, '')) LIKE ?");
+      clauses.add("LOWER(" + databaseManager.coalesce("ub.username", "''") + ") LIKE ?");
       params.add("%" + buyerKeyword.trim().toLowerCase(Locale.ROOT) + "%");
     }
     if (materialFilter != null && !materialFilter.isBlank()) {
@@ -453,9 +453,12 @@ class MarketService {
       params.add(currencyFilter.trim().toUpperCase(Locale.ROOT));
     }
     if (keyword != null && !keyword.isBlank()) {
+      String listingIdAsText = databaseManager.castAsText("ml.id");
+      String buyerName = databaseManager.coalesce("ub.username", "''");
+      String remark = databaseManager.coalesce("ml.remark", "''");
       clauses.add(
-          "(CAST(ml.id AS CHAR) LIKE ? OR LOWER(ml.item_material) LIKE ? OR LOWER(IFNULL(ml.remark, '')) LIKE ? "
-              + "OR LOWER(us.username) LIKE ? OR LOWER(IFNULL(ub.username, '')) LIKE ?)");
+          "(" + listingIdAsText + " LIKE ? OR LOWER(ml.item_material) LIKE ? OR LOWER(" + remark + ") LIKE ? "
+              + "OR LOWER(us.username) LIKE ? OR LOWER(" + buyerName + ") LIKE ?)");
       String fuzzy = "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%";
       params.add(fuzzy);
       params.add(fuzzy);
@@ -613,7 +616,7 @@ class MarketService {
       justification = "Lock clause is selected from a fixed boolean branch")
   private BoundUser readBoundUserByUuid(Connection connection, UUID playerUuid, boolean forUpdate)
       throws SQLException {
-    String lock = forUpdate ? " FOR UPDATE" : "";
+    String lock = databaseManager.lockClause(forUpdate);
     String sql = """
         SELECT id, username, bound_uuid
         FROM web_users
@@ -638,7 +641,7 @@ class MarketService {
       justification = "Lock clause is selected from a fixed boolean branch")
   private BoundUser readBoundUserById(Connection connection, long userId, boolean forUpdate)
       throws SQLException {
-    String lock = forUpdate ? " FOR UPDATE" : "";
+    String lock = databaseManager.lockClause(forUpdate);
     String sql = """
         SELECT id, username, bound_uuid
         FROM web_users
@@ -889,11 +892,10 @@ class MarketService {
     }
     BoundUser seller = readBoundUserById(connection, sellerUserId, true);
 
-    String updateSql = """
-        UPDATE market_listings
-        SET status = 'UNLISTED', unlisted_at = NOW(), paused_at = NULL
-        WHERE id = ?
-        """;
+    String nowExpression = databaseManager.currentTimestampExpression();
+    String updateSql = "UPDATE market_listings "
+        + "SET status = 'UNLISTED', unlisted_at = " + nowExpression + ", paused_at = NULL "
+        + "WHERE id = ?";
     try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
       statement.setLong(1, listing.id());
       statement.executeUpdate();
@@ -922,11 +924,10 @@ class MarketService {
     if (listing.sellerUserId() != sellerUserId) {
       throw new ServiceException("forbidden", "Only the owner can pause this listing");
     }
-    String sql = """
-        UPDATE market_listings
-        SET status = 'PAUSED', paused_at = NOW()
-        WHERE id = ?
-        """;
+    String nowExpression = databaseManager.currentTimestampExpression();
+    String sql = "UPDATE market_listings "
+        + "SET status = 'PAUSED', paused_at = " + nowExpression + " "
+        + "WHERE id = ?";
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, listing.id());
       statement.executeUpdate();
@@ -1168,17 +1169,16 @@ class MarketService {
     }
 
     try {
-      String sql = """
-          UPDATE market_listings
-          SET quantity = quantity + ?,
-              quantity_total = ?,
-              status = 'ACTIVE',
-              supply_max_stock = ?,
-              supply_last_loaded_amount = ?,
-              supply_last_loaded_at = NOW(),
-              supply_loaded_total = supply_loaded_total + ?
-          WHERE id = ?
-          """;
+      String nowExpression = databaseManager.currentTimestampExpression();
+      String sql = "UPDATE market_listings "
+          + "SET quantity = quantity + ?, "
+          + "quantity_total = ?, "
+          + "status = 'ACTIVE', "
+          + "supply_max_stock = ?, "
+          + "supply_last_loaded_amount = ?, "
+          + "supply_last_loaded_at = " + nowExpression + ", "
+          + "supply_loaded_total = supply_loaded_total + ? "
+          + "WHERE id = ?";
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setInt(1, transfer.loadedAmount());
         statement.setInt(2, maxStock);
@@ -1446,8 +1446,7 @@ class MarketService {
                t.status, t.refund_deadline
         FROM market_trades t
         WHERE t.buyer_user_id = ? AND t.idempotency_key = ?
-        FOR UPDATE
-        """;
+        """ + databaseManager.lockClause(true);
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, buyerUserId);
       statement.setString(2, idempotencyKey);
@@ -1543,20 +1542,19 @@ class MarketService {
     }
     boolean soldOut = remain == 0;
     String sql;
+    String nowExpression = databaseManager.currentTimestampExpression();
     if (listing.isSupply()) {
-      sql = """
-          UPDATE market_listings
-          SET quantity = ?, status = 'ACTIVE',
-              buyer_user_id = NULL, buyer_uuid = NULL, sold_at = CASE WHEN ? THEN NOW() ELSE sold_at END,
-              supply_sold_total = supply_sold_total + ?
-          WHERE id = ?
-          """;
+      sql = "UPDATE market_listings "
+          + "SET quantity = ?, status = 'ACTIVE', "
+          + "buyer_user_id = NULL, buyer_uuid = NULL, "
+          + "sold_at = CASE WHEN ? THEN " + nowExpression + " ELSE sold_at END, "
+          + "supply_sold_total = supply_sold_total + ? "
+          + "WHERE id = ?";
     } else if (soldOut) {
-      sql = """
-          UPDATE market_listings
-          SET quantity = 0, status = 'SOLD', buyer_user_id = ?, buyer_uuid = ?, sold_at = NOW()
-          WHERE id = ?
-          """;
+      sql = "UPDATE market_listings "
+          + "SET quantity = 0, status = 'SOLD', buyer_user_id = ?, buyer_uuid = ?, "
+          + "sold_at = " + nowExpression + " "
+          + "WHERE id = ?";
     } else {
       sql = """
           UPDATE market_listings
@@ -1591,11 +1589,10 @@ class MarketService {
       throw new ServiceException("listing_unavailable", "Supply mode is not enabled for this listing");
     }
 
-    String updateSql = """
-        UPDATE market_listings
-        SET status = 'UNLISTED', unlisted_at = NOW(), paused_at = NULL
-        WHERE id = ?
-        """;
+    String nowExpression = databaseManager.currentTimestampExpression();
+    String updateSql = "UPDATE market_listings "
+        + "SET status = 'UNLISTED', unlisted_at = " + nowExpression + ", paused_at = NULL "
+        + "WHERE id = ?";
     try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
       statement.setLong(1, listing.id());
       statement.executeUpdate();
@@ -1671,8 +1668,7 @@ class MarketService {
                supply_loaded_total, supply_sold_total, supply_last_loaded_amount, supply_last_loaded_at
         FROM market_listings
         WHERE id = ?
-        FOR UPDATE
-        """;
+        """ + databaseManager.lockClause(true);
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, listingId);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -1898,8 +1894,7 @@ class MarketService {
         SELECT COUNT(*) AS total
         FROM market_listings
         WHERE seller_user_id = ? AND status = 'ACTIVE'
-        FOR UPDATE
-        """;
+        """ + databaseManager.lockClause(true);
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
       try (ResultSet resultSet = statement.executeQuery()) {

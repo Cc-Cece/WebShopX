@@ -253,15 +253,20 @@ class DeliveryService {
 
   private void promoteOfflineRetries(UUID playerUuid) {
     databaseManager.withConnection(connection -> {
+      String nowExpression = databaseManager.currentTimestampExpression();
       String commandSql = """
-          UPDATE delivery_queue dq
-          JOIN orders o ON o.id = dq.order_id
-          SET dq.next_retry_at = NOW()
-          WHERE dq.mc_uuid = ?
-            AND dq.status = 'PENDING'
-            AND o.status = 'PENDING'
+          UPDATE delivery_queue AS dq
+          SET next_retry_at = %s
+          WHERE mc_uuid = ?
+            AND status = 'PENDING'
             AND dq.last_error = '玩家离线'
-            AND dq.next_retry_at > NOW()
+            AND dq.next_retry_at > %s
+            AND EXISTS (
+              SELECT 1
+              FROM orders o
+              WHERE o.id = dq.order_id
+                AND o.status = 'PENDING'
+            )
           """;
       try (PreparedStatement statement = connection.prepareStatement(commandSql)) {
         statement.setString(1, playerUuid.toString());
@@ -270,12 +275,12 @@ class DeliveryService {
 
       String marketSql = """
           UPDATE market_item_deliveries
-          SET next_retry_at = NOW()
+          SET next_retry_at = %s
           WHERE target_uuid = ?
             AND status = 'PENDING'
             AND last_error = '玩家离线'
-            AND next_retry_at > NOW()
-          """;
+            AND next_retry_at > %s
+          """.formatted(nowExpression, nowExpression);
       try (PreparedStatement statement = connection.prepareStatement(marketSql)) {
         statement.setString(1, playerUuid.toString());
         statement.executeUpdate();
@@ -295,15 +300,15 @@ class DeliveryService {
       return List.of();
     }
     String filterByOrder = orderNoFilter == null ? "" : " AND o.order_no = ?";
-    String sql = """
-        SELECT dq.id, dq.order_id, dq.item_id, dq.mc_uuid, dq.command_text,
-               dq.delivery_kind, dq.payload_json, dq.quantity, dq.retry_count,
-               o.order_no
-        FROM delivery_queue dq
-        JOIN orders o ON o.id = dq.order_id
-        WHERE dq.mc_uuid = ?
-          AND dq.status = 'WAIT_CLAIM'
-        """ + filterByOrder + " ORDER BY dq.id ASC";
+    String sql = "SELECT dq.id, dq.order_id, dq.item_id, dq.mc_uuid, dq.command_text, "
+        + "dq.delivery_kind, dq.payload_json, dq.quantity, dq.retry_count, "
+        + "o.order_no "
+        + "FROM delivery_queue dq "
+        + "JOIN orders o ON o.id = dq.order_id "
+        + "WHERE dq.mc_uuid = ? "
+        + "AND dq.status = 'WAIT_CLAIM'"
+        + filterByOrder
+        + " ORDER BY dq.id ASC";
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       int parameterIndex = 1;
       statement.setString(parameterIndex++, ownerUuid.toString());
@@ -326,13 +331,13 @@ class DeliveryService {
     }
     String targetFilter = targetUuid == null ? "" : "md.target_uuid = ? AND ";
     String filterByTrade = tradeIdFilter == null ? "" : " AND md.trade_id = ?";
-    String sql = """
-        SELECT md.id, md.listing_id, md.trade_id, md.target_user_id, md.target_uuid, md.item_blob, md.quantity,
-               md.delivery_type, md.retry_count
-        FROM market_item_deliveries md
-        WHERE """ + targetFilter + """
-          AND md.status = 'WAIT_CLAIM'
-        """ + filterByTrade + " ORDER BY md.id ASC";
+    String sql = "SELECT md.id, md.listing_id, md.trade_id, md.target_user_id, md.target_uuid, "
+        + "md.item_blob, md.quantity, md.delivery_type, md.retry_count "
+        + "FROM market_item_deliveries md "
+        + "WHERE " + targetFilter
+        + "md.status = 'WAIT_CLAIM'"
+        + filterByTrade
+        + " ORDER BY md.id ASC";
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       int parameterIndex = 1;
       if (targetUuid != null) {
@@ -351,16 +356,17 @@ class DeliveryService {
   private List<CommandDeliveryTask> readDueCommandTasks(Connection connection, UUID playerUuid)
       throws SQLException {
     String filterByPlayer = playerUuid == null ? "" : " AND dq.mc_uuid = ?";
-    String sql = """
-        SELECT dq.id, dq.order_id, dq.item_id, dq.mc_uuid, dq.command_text,
-               dq.delivery_kind, dq.payload_json, dq.quantity, dq.retry_count,
-               o.order_no
-        FROM delivery_queue dq
-        JOIN orders o ON o.id = dq.order_id
-        WHERE dq.status = 'PENDING'
-          AND o.status = 'PENDING'
-          AND dq.next_retry_at <= NOW()
-        """ + filterByPlayer + " ORDER BY dq.id ASC LIMIT ?";
+    String nowExpression = databaseManager.currentTimestampExpression();
+    String sql = "SELECT dq.id, dq.order_id, dq.item_id, dq.mc_uuid, dq.command_text, "
+        + "dq.delivery_kind, dq.payload_json, dq.quantity, dq.retry_count, "
+        + "o.order_no "
+        + "FROM delivery_queue dq "
+        + "JOIN orders o ON o.id = dq.order_id "
+        + "WHERE dq.status = 'PENDING' "
+        + "AND o.status = 'PENDING' "
+        + "AND dq.next_retry_at <= " + nowExpression
+        + filterByPlayer
+        + " ORDER BY dq.id ASC LIMIT ?";
 
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       int parameterIndex = 1;
@@ -379,13 +385,14 @@ class DeliveryService {
   private List<MarketItemDeliveryTask> readDueMarketItemTasks(Connection connection, UUID playerUuid)
       throws SQLException {
     String filterByPlayer = playerUuid == null ? "" : " AND md.target_uuid = ?";
-    String sql = """
-        SELECT md.id, md.listing_id, md.trade_id, md.target_user_id, md.target_uuid, md.item_blob, md.quantity,
-               md.delivery_type, md.retry_count
-        FROM market_item_deliveries md
-        WHERE md.status = 'PENDING'
-          AND md.next_retry_at <= NOW()
-        """ + filterByPlayer + " ORDER BY md.id ASC LIMIT ?";
+    String nowExpression = databaseManager.currentTimestampExpression();
+    String sql = "SELECT md.id, md.listing_id, md.trade_id, md.target_user_id, md.target_uuid, "
+        + "md.item_blob, md.quantity, md.delivery_type, md.retry_count "
+        + "FROM market_item_deliveries md "
+        + "WHERE md.status = 'PENDING' "
+        + "AND md.next_retry_at <= " + nowExpression
+        + filterByPlayer
+        + " ORDER BY md.id ASC LIMIT ?";
 
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       int parameterIndex = 1;
@@ -497,32 +504,31 @@ class DeliveryService {
 
   private void markCommandDelivered(long orderId, long deliveryId, boolean claimMode) {
     databaseManager.inTransaction(connection -> {
+      String nowExpression = databaseManager.currentTimestampExpression();
       String updateDeliverySql = """
           UPDATE delivery_queue
           SET status = 'DELIVERED',
-              delivered_at = NOW(),
-              claimed_at = CASE WHEN ? THEN NOW() ELSE claimed_at END,
+              delivered_at = %s,
+              claimed_at = CASE WHEN ? THEN %s ELSE claimed_at END,
               last_error = NULL
           WHERE id = ?
-          """;
+          """.formatted(nowExpression, nowExpression);
       try (PreparedStatement statement = connection.prepareStatement(updateDeliverySql)) {
         statement.setBoolean(1, claimMode);
         statement.setLong(2, deliveryId);
         statement.executeUpdate();
       }
 
-      String updateOrderSql = """
-          UPDATE orders
-          SET status = 'DELIVERED', delivered_at = NOW(), claim_token = NULL
-          WHERE id = ?
-            AND status IN ('PENDING', 'WAIT_CLAIM')
-            AND NOT EXISTS (
-              SELECT 1
-              FROM delivery_queue dq
-              WHERE dq.order_id = ?
-                AND dq.status <> 'DELIVERED'
-            )
-          """;
+      String updateOrderSql = "UPDATE orders "
+          + "SET status = 'DELIVERED', delivered_at = " + nowExpression + ", claim_token = NULL "
+          + "WHERE id = ? "
+          + "AND status IN ('PENDING', 'WAIT_CLAIM') "
+          + "AND NOT EXISTS ("
+          + "  SELECT 1 "
+          + "  FROM delivery_queue dq "
+          + "  WHERE dq.order_id = ? "
+          + "    AND dq.status <> 'DELIVERED'"
+          + ")";
       try (PreparedStatement statement = connection.prepareStatement(updateOrderSql)) {
         statement.setLong(1, orderId);
         statement.setLong(2, orderId);
@@ -534,15 +540,16 @@ class DeliveryService {
 
   private void markMarketDelivered(MarketItemDeliveryTask task, boolean claimMode) {
     databaseManager.inTransaction(connection -> {
+      String nowExpression = databaseManager.currentTimestampExpression();
       String updateDeliverySql = """
           UPDATE market_item_deliveries
           SET status = 'DELIVERED',
-              delivered_at = NOW(),
-              claimed_at = CASE WHEN ? THEN NOW() ELSE claimed_at END,
+              delivered_at = %s,
+              claimed_at = CASE WHEN ? THEN %s ELSE claimed_at END,
               last_error = NULL
           WHERE id = ?
             AND status IN ('PENDING', 'WAIT_CLAIM')
-          """;
+          """.formatted(nowExpression, nowExpression);
       int changed;
       try (PreparedStatement statement = connection.prepareStatement(updateDeliverySql)) {
         statement.setBoolean(1, claimMode);
@@ -585,11 +592,10 @@ class DeliveryService {
       applyEconomySink(connection, currency, sinkAmount, trade.tradeId());
     }
 
-    String settleSql = """
-        UPDATE market_trades
-        SET status = 'DELIVERED', settled_at = NOW(), claim_token = NULL
-        WHERE id = ? AND status IN ('PENDING', 'WAIT_CLAIM')
-        """;
+    String settleSql = "UPDATE market_trades "
+        + "SET status = 'DELIVERED', settled_at = " + databaseManager.currentTimestampExpression()
+        + ", claim_token = NULL "
+        + "WHERE id = ? AND status IN ('PENDING', 'WAIT_CLAIM')";
     try (PreparedStatement statement = connection.prepareStatement(settleSql)) {
       statement.setLong(1, trade.tradeId());
       statement.executeUpdate();
@@ -598,14 +604,14 @@ class DeliveryService {
 
   private MarketTradeSettlement readTradeForSettlement(Connection connection, Long tradeId, long listingId)
       throws SQLException {
+    String lockClause = databaseManager.lockClause(true);
     String sql;
     if (tradeId != null) {
       sql = """
           SELECT id, seller_user_id, currency, seller_receive, fee_amount, tax_amount, status
           FROM market_trades
           WHERE id = ?
-          FOR UPDATE
-          """;
+          """ + lockClause;
     } else {
       sql = """
           SELECT id, seller_user_id, currency, seller_receive, fee_amount, tax_amount, status
@@ -613,8 +619,7 @@ class DeliveryService {
           WHERE listing_id = ?
           ORDER BY id DESC
           LIMIT 1
-          FOR UPDATE
-          """;
+          """ + lockClause;
     }
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, tradeId == null ? listingId : tradeId);
@@ -661,14 +666,13 @@ class DeliveryService {
   private void markCommandWaitClaim(long orderId, long deliveryId, String errorMessage) {
     databaseManager.withConnection(connection -> {
       ClaimTokenRepository.ensureOrderToken(connection, orderId);
-      String sql = """
-          UPDATE delivery_queue
-          SET status = 'WAIT_CLAIM',
-              retry_count = retry_count + 1,
-              last_error = ?,
-              next_retry_at = NOW()
-          WHERE id = ?
-          """;
+      String nowExpression = databaseManager.currentTimestampExpression();
+      String sql = "UPDATE delivery_queue "
+          + "SET status = 'WAIT_CLAIM', "
+          + "retry_count = retry_count + 1, "
+          + "last_error = ?, "
+          + "next_retry_at = " + nowExpression + " "
+          + "WHERE id = ?";
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setString(1, truncate(errorMessage, 255));
         statement.setLong(2, deliveryId);
@@ -726,14 +730,13 @@ class DeliveryService {
           statement.executeUpdate();
         }
       }
-      String sql = """
-          UPDATE market_item_deliveries
-          SET status = 'WAIT_CLAIM',
-              retry_count = retry_count + 1,
-              last_error = ?,
-              next_retry_at = NOW()
-          WHERE id = ?
-          """;
+      String nowExpression = databaseManager.currentTimestampExpression();
+      String sql = "UPDATE market_item_deliveries "
+          + "SET status = 'WAIT_CLAIM', "
+          + "retry_count = retry_count + 1, "
+          + "last_error = ?, "
+          + "next_retry_at = " + nowExpression + " "
+          + "WHERE id = ?";
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setString(1, truncate(errorMessage, 255));
         statement.setLong(2, task.id());

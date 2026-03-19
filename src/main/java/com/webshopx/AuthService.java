@@ -212,10 +212,15 @@ class AuthService {
   }
 
   private void ensureWalletExists(Connection connection, long userId) throws SQLException {
-    String insertWalletSql = """
-        INSERT INTO wallets (user_id) VALUES (?)
-        ON DUPLICATE KEY UPDATE user_id = user_id
-        """;
+    String insertWalletSql = databaseManager.isSqlite()
+        ? """
+            INSERT INTO wallets (user_id) VALUES (?)
+            ON CONFLICT(user_id) DO NOTHING
+            """
+        : """
+            INSERT INTO wallets (user_id) VALUES (?)
+            ON DUPLICATE KEY UPDATE user_id = user_id
+            """;
     try (PreparedStatement statement = connection.prepareStatement(insertWalletSql)) {
       statement.setLong(1, userId);
       statement.executeUpdate();
@@ -234,7 +239,8 @@ class AuthService {
 
   private UserAccount readUserByUsernameForUpdate(Connection connection, String username)
       throws SQLException {
-    String sql = "SELECT id, username, bound_uuid FROM web_users WHERE username = ? FOR UPDATE";
+    String sql = "SELECT id, username, bound_uuid FROM web_users WHERE username = ?"
+        + databaseManager.lockClause(true);
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, username);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -248,7 +254,8 @@ class AuthService {
 
   private UserAccount readUserByBoundUuidForUpdate(Connection connection, UUID playerUuid)
       throws SQLException {
-    String sql = "SELECT id, username, bound_uuid FROM web_users WHERE bound_uuid = ? FOR UPDATE";
+    String sql = "SELECT id, username, bound_uuid FROM web_users WHERE bound_uuid = ?"
+        + databaseManager.lockClause(true);
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, playerUuid.toString());
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -339,10 +346,11 @@ class AuthService {
   }
 
   private Optional<AuthUser> readUserBySession(Connection connection, String token) throws SQLException {
+    String nowExpression = databaseManager.currentTimestampExpression();
     String sql = "SELECT u.id, u.username, u.bound_uuid "
         + "FROM web_sessions s "
         + "JOIN web_users u ON u.id = s.user_id "
-        + "WHERE s.token = ? AND s.expires_at > NOW() AND u.auth_state = ?";
+        + "WHERE s.token = ? AND s.expires_at > " + nowExpression + " AND u.auth_state = ?";
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, token);
       statement.setString(2, STATE_ACTIVE);
