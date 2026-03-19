@@ -67,6 +67,31 @@ const POTION_EFFECT_OPTIONS = [
   "darkness",
 ];
 
+const RUNTIME_CONFIG = window.WEBSHOPX_CONFIG || {};
+const API_BASE_URL = normalizeApiBaseUrl(RUNTIME_CONFIG.apiBaseUrl || "");
+
+function normalizeApiBaseUrl(value) {
+  let normalized = String(value || "").trim();
+  while (normalized.endsWith("/")) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
+function resolveApiUrl(path) {
+  const text = String(path || "").trim();
+  if (!text) {
+    return text;
+  }
+  if (/^[a-z]+:\/\//i.test(text) || text.startsWith("//")) {
+    return text;
+  }
+  if (!text.startsWith("/")) {
+    return text;
+  }
+  return API_BASE_URL ? `${API_BASE_URL}${text}` : text;
+}
+
 const POTION_EFFECT_LABELS = {
   speed: "速度",
   slowness: "缓慢",
@@ -393,7 +418,7 @@ async function apiAdmin(path, options = {}) {
   if (state.token) {
     headers.Authorization = `Bearer ${state.token}`;
   }
-  const response = await fetch(path, { ...options, headers });
+  const response = await fetch(resolveApiUrl(path), { ...options, headers });
   const contentType = response.headers.get("content-type") || "";
   let payload;
   if (contentType.includes("application/json")) {
@@ -411,7 +436,7 @@ async function apiAdmin(path, options = {}) {
 
 async function loadCurrencyMeta() {
   try {
-    const payload = await fetch("/api/meta/currency", { method: "GET" }).then((res) => res.json());
+    const payload = await fetch(resolveApiUrl("/api/meta/currency"), { method: "GET" }).then((res) => res.json());
     if (payload && payload.shopCoin) {
       state.currencyMeta.SHOP_COIN = {
         name: payload.shopCoin.name || state.currencyMeta.SHOP_COIN.name,
@@ -1099,7 +1124,7 @@ async function ensureMaterialAllowList() {
     await state.materialAllowPromise;
     return;
   }
-  state.materialAllowPromise = fetch("/api/meta/materials")
+  state.materialAllowPromise = fetch(resolveApiUrl("/api/meta/materials"))
     .then((response) => {
       if (!response.ok) {
         throw new Error(`material allow list load failed: ${response.status}`);
@@ -1134,7 +1159,7 @@ async function ensureMaterialMap() {
     return;
   }
   state.materialMapPromise = ensureMaterialAllowList()
-    .then(() => fetch("/material_zh.json"))
+    .then(() => fetch("material_zh.json"))
     .then((response) => {
       if (!response.ok) {
         throw new Error(`material map load failed: ${response.status}`);

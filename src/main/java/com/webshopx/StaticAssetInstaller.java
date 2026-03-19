@@ -2,6 +2,7 @@ package com.webshopx;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -26,13 +27,14 @@ class StaticAssetInstaller {
     this.plugin = plugin;
   }
 
-  Path install(String staticRoot) {
+  Path install(String staticRoot, PluginSettings settings) {
     Path outputRoot = plugin.getDataFolder().toPath().resolve(staticRoot);
     try {
       Files.createDirectories(outputRoot);
       for (String assetPath : ASSETS) {
         copyAsset(assetPath, outputRoot);
       }
+      writeRuntimeConfig(outputRoot, settings);
       return outputRoot;
     } catch (IOException exception) {
       throw new IllegalStateException("Failed to install static web assets", exception);
@@ -54,5 +56,24 @@ class StaticAssetInstaller {
       }
       Files.copy(inputStream, outputFile, StandardCopyOption.REPLACE_EXISTING);
     }
+  }
+
+  private void writeRuntimeConfig(Path outputRoot, PluginSettings settings) throws IOException {
+    Path outputFile = outputRoot.resolve("config.js");
+    String script = "window.WEBSHOPX_CONFIG = Object.assign({}, window.WEBSHOPX_CONFIG || {}, {"
+        + System.lineSeparator()
+        + "  apiBaseUrl: \"" + escapeJs(settings.apiBaseUrl()) + "\","
+        + System.lineSeparator()
+        + "  serverMode: \"" + settings.serverMode().name() + "\""
+        + System.lineSeparator()
+        + "});"
+        + System.lineSeparator();
+    Files.writeString(outputFile, script, StandardCharsets.UTF_8);
+  }
+
+  private String escapeJs(String value) {
+    return value
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"");
   }
 }

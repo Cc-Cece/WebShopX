@@ -184,11 +184,10 @@ public class WebShopPlugin extends JavaPlugin {
       embeddedWebServer.stop();
     }
 
-    Path staticRoot = staticAssetInstaller.install(settings.embeddedWebSettings().staticRoot());
+    Path staticRoot = staticAssetInstaller.install(settings.embeddedWebSettings().staticRoot(), settings);
     textureAssetManager.ensureLocalTextureCacheAsync(staticRoot, resolveMinecraftVersion());
     if (settings.serverMode() == PluginSettings.ServerMode.EXTERNAL) {
       getLogger().info("server-mode=external, static files extracted to: " + staticRoot);
-      return;
     }
 
     try {

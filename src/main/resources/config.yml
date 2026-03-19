@@ -11,6 +11,9 @@ webshop:
   # - internal: 使用内置服务器（默认，适合快速上手）
   # - external: 仅提供后端服务，前端由外部 Nginx 等托管（适合生产环境，需自行配置 nginx）
   server-mode: internal
+  # 外部托管前端时可填写 API 基地址，例如 https://shop.example.com 或 https://api.example.com
+  # 留空表示前端继续使用当前站点的相对路径 /api/...
+  api-base-url: ""
 
   # 玩家登录会话有效期（小时）
   session-expire-hours: 72

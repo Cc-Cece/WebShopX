@@ -75,6 +75,30 @@ const PRODUCT_TYPE_TEXTURE_MAP = {
 };
 
 const DEFAULT_TEXTURE_FALLBACK_MATERIAL = "BUNDLE";
+const RUNTIME_CONFIG = window.WEBSHOPX_CONFIG || {};
+const API_BASE_URL = normalizeApiBaseUrl(RUNTIME_CONFIG.apiBaseUrl || "");
+
+function normalizeApiBaseUrl(value) {
+  let normalized = String(value || "").trim();
+  while (normalized.endsWith("/")) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
+function resolveApiUrl(path) {
+  const text = String(path || "").trim();
+  if (!text) {
+    return text;
+  }
+  if (/^[a-z]+:\/\//i.test(text) || text.startsWith("//")) {
+    return text;
+  }
+  if (!text.startsWith("/")) {
+    return text;
+  }
+  return API_BASE_URL ? `${API_BASE_URL}${text}` : text;
+}
 
 function readThemeColor(tokenName, fallback) {
   const rootStyles = window.getComputedStyle(document.documentElement);
@@ -1270,7 +1294,7 @@ async function ensureZhNameMap() {
     return;
   }
 
-  state.zhNameMapPromise = fetch("/material_zh.json")
+  state.zhNameMapPromise = fetch("material_zh.json")
     .then((response) => {
       if (!response.ok) {
         throw new Error(`JSON 词库加载失败: ${response.status}`);
@@ -1777,7 +1801,7 @@ async function api(path, options = {}) {
     headers.Authorization = `Bearer ${state.token}`;
   }
 
-  const response = await fetch(path, { ...options, headers });
+  const response = await fetch(resolveApiUrl(path), { ...options, headers });
   const contentType = response.headers.get("content-type") || "";
   let payload;
 
