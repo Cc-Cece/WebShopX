@@ -214,6 +214,14 @@ record PluginSettings(
           schema,
           sslParam);
     }
+
+    boolean usesDefaultPlaceholders() {
+      return "127.0.0.1".equals(host)
+          && port == 3306
+          && "webshop".equals(schema)
+          && "webshop".equals(username)
+          && "change_me".equals(password);
+    }
   }
 
   record ExchangeSettings(ExchangeDirection shopToGame, ExchangeDirection gameToShop) {

@@ -43,9 +43,7 @@ public class WebShopPlugin extends JavaPlugin {
       staticAssetInstaller = new StaticAssetInstaller(this);
       textureAssetManager = new TextureAssetManager(this);
 
-      databaseManager = new DatabaseManager(this, settings.databaseSettings());
-      databaseManager.start();
-      new SchemaManager().ensureSchema(databaseManager);
+      initializeDatabase();
 
       authService = new AuthService(databaseManager, this::settings);
       walletService = new WalletService(this, databaseManager, this::settings);
@@ -86,6 +84,10 @@ public class WebShopPlugin extends JavaPlugin {
       restartWebRuntime();
 
       getLogger().info("WebShopX enabled successfully.");
+    } catch (DefaultDatabaseConfigurationException exception) {
+      getLogger().warning("WebShopX detected the default database configuration in config.yml.");
+      getLogger().warning("Please update the database connection settings and start the server again.");
+      getServer().getPluginManager().disablePlugin(this);
     } catch (Exception exception) {
       getLogger().log(Level.SEVERE, "WebShopX failed to start", exception);
       getServer().getPluginManager().disablePlugin(this);
@@ -196,6 +198,23 @@ public class WebShopPlugin extends JavaPlugin {
     }
   }
 
+  private void initializeDatabase() {
+    databaseManager = new DatabaseManager(this, settings.databaseSettings());
+    try {
+      databaseManager.start();
+      new SchemaManager().ensureSchema(databaseManager);
+    } catch (Exception exception) {
+      if (settings.databaseSettings().usesDefaultPlaceholders()) {
+        if (databaseManager != null) {
+          databaseManager.close();
+          databaseManager = null;
+        }
+        throw new DefaultDatabaseConfigurationException(exception);
+      }
+      throw exception;
+    }
+  }
+
   private PluginSettings settings() {
     return settings;
   }
@@ -214,5 +233,11 @@ public class WebShopPlugin extends JavaPlugin {
       return bukkitVersion;
     }
     return bukkitVersion.substring(0, separator);
+  }
+
+  private static final class DefaultDatabaseConfigurationException extends RuntimeException {
+    DefaultDatabaseConfigurationException(Throwable cause) {
+      super(cause);
+    }
   }
 }
