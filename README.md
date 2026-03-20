@@ -1,228 +1,204 @@
-# PaperMC/Spigot Minecraft Server Plugin Template
-A template for building PaperMC/Spigot Minecraft server plugins!
+# WebShopX
 
-<!-- TODO: CHANGE ME -->
-[![Test and Release](https://github.com/CrimsonWarpedcraft/plugin-template/actions/workflows/main.yml/badge.svg)](https://github.com/CrimsonWarpedcraft/plugin-template/actions/workflows/main.yml)
+WebShopX 是一个面向 `Paper / Spigot` 服务器的 Web 商店插件，把官方商城、玩家市场、钱包、订单流转和后台管理整合进同一套系统。
 
-<!-- TODO: CHANGE ME -->
-[![](https://dcbadge.limes.pink/api/server/5XMmeV6EtJ)](https://discord.gg/5XMmeV6EtJ)
+`WebShopX` is a web-first commerce plugin for `Paper / Spigot`, combining B2C shop, C2C player market, wallet, order flow, and admin tools in one project.
 
-## Features
-### Github Actions 🎬
-* Automated builds, testing, and release drafting
-* [Discord notifcations](https://github.com/marketplace/actions/discord-message-notify) for snapshots and releases
+## 项目概览
 
-### Bots 🤖
-* **Probot: Stale**
-    * Mark issues stale after 30 days
-* **Dependabot**
-    * Update GitHub Actions workflows
-    * Update Gradle dependencies
+- 官方商城和玩家市场共用一套账号、钱包、订单和发货逻辑
+- 内置玩家端网页和管理后台，不依赖额外的前端工程
+- 支持 `ShopCoin / GameCoin` 双币体系
+- 可选接入 `Vault`，让 `GameCoin` 对接现有经济插件
+- 支持自动发货、手动领取、退款、兑换码、团购券
+- 支持内置 HTTP 模式，也支持把前端静态资源托管到 `Nginx / CDN`
 
-### Issue Templates 📋
-* Bug report template
-* Feature request template
+## 主要功能
 
-### Gradle Builds 🏗
-* Shadowed [PaperLib](https://github.com/PaperMC/PaperLib) build
-* [Checkstyle](https://checkstyle.org/) Google standard style check
-* [SpotBugs](https://spotbugs.github.io/) code analysis
-* [JUnit](https://junit.org/) testing
+### 玩家端
 
-### Config Files 📁
-* Sample plugin.yml with autofill name, version, and main class.
-* Empty config.yml (just to make life \*that\* much easier)
-* Gradle build config
-* Simple .gitignore for common Gradle files
+- 使用 Minecraft 用户名和网页密码登录
+- 查看余额、最近钱包流水、订单记录
+- 使用兑换码入账
+- 进行 `ShopCoin / GameCoin` 双向兑换
+- 浏览并购买官方商品
+- 浏览玩家市场、玩家店铺和自己的上架
+- 修改自己上架的价格、备注、状态
+- 购买后自动发货；失败时转为 `/ws claim` 手动领取
 
-## Usage
-In order to use this template for yourself, there are a few things that you will need to keep in mind.
+### 官方商城
 
-### Release Info
-#### PaperMC Version Mapping
-Here's a list of the PaperMC versions and the versions of this latest compatible version.
+- 支持多种商品类型
+  - 指令商品
+  - 物品商品
+  - 回收商品
+  - 药水效果
+  - 团购券
+- 支持上下架时间、库存、限购和备注
+- 支持后台直接管理商品与活动状态
 
-| PaperMC | ExamplePlugin |
-|---------|---------------|
-| 1.21.11 | 4.0.18+       |
-| 1.21.10 | 4.0.17        |
-| 1.21.8  | 4.0.16        |
-| 1.21.7  | 4.0.15        |
-| 1.21.6  | 4.0.14        |
-| 1.21.5  | 4.0.12        |
-| 1.21.4  | 4.0.7         |        
-| 1.21.3  | 4.0.3         |
-| 1.21.1  | 4.0.2         |
-| 1.21    | 3.12.1        |
-| 1.20.6  | 3.11.0        |
-| 1.19.4  | 3.2.1         |
-| 1.18.2  | 3.0.2         |
-| 1.17.1  | 2.2.0         |
-| 1.16.5  | 2.1.2         |
+### 玩家市场
 
-This chart would make more sense if this plugin actually did anything and people would have a reason
-to be looking for older releases to run on older servers.
+- 普通上架
+- 供货箱上架
+- 自动补货
+- 市场筛选、排序、搜索
+- 卖家成交记录查询
+- 市场手续费 / 税率配置
 
-To use this as a template, just use the latest version of this project and update the PaperMC
-version as needed. See more info on release stability below.
+### 管理后台
 
-#### Release and Versioning Strategy
-Stable versions of this repo are tagged `vX.Y.Z` and have an associated [release](https://github.com/CrimsonWarpedcraft/plugin-template/releases).
+- 管理员登录与会话鉴权
+- 商品、订单、兑换码、市场、用户统一管理
+- 用户支持能力
+  - 重置密码
+  - 解绑账号
+  - 强制下线
+  - 调整钱包余额
+- 审计日志
+- 细粒度管理员权限与模板
 
-Testing versions of this repo are tagged `vX.Y.Z-RC-N` and have an associated [pre-release](https://github.com/CrimsonWarpedcraft/plugin-template/releases).
+## 运行环境
 
-Development versions of this repo are pushed to the master branch and are **not** tagged.
+- `Java 21`
+- `Paper 1.20.6+` 或兼容的 `Spigot`
+- `MariaDB / MySQL`
+- `Vault` 可选
 
-| Event             | Plugin Version Format | CI Action                        | GitHub Release Draft? |
-|-------------------|-----------------------|----------------------------------|-----------------------|
-| PR                | yyMMdd-HHmm-SNAPSHOT  | Build and test                   | No                    |
-| Cron              | yyMMdd-HHmm-SNAPSHOT  | Build, test, and notify          | No                    |
-| Push to `main`    | 0.0.0-SNAPSHOT        | Build, test, release, and notify | No                    |
-| Tag `vX.Y.Z-RC-N` | X.Y.Z-SNAPSHOT        | Build, test, release, and notify | Pre-release           |
-| Tag `vX.Y.Z`      | X.Y.Z                 | Build, test, release, and notify | Release               |
+## 快速开始
 
-### Discord Notifications
-In order to use Discord notifications, you will need to create two GitHub secrets. `DISCORD_WEBHOOK_ID` 
-should be set to the id of your Discord webhook. `DISCORD_WEBHOOK_TOKEN` will be the token for the webhook.
+1. 构建或下载插件 JAR。
+2. 将插件放入服务器的 `plugins/` 目录。
+3. 启动一次服务器，生成默认配置。
+4. 编辑 `plugins/WebShopX/config.yml`，至少修改数据库连接信息。
+5. 重启服务器。
+6. 玩家在游戏内执行 `/ws password <新密码>` 创建或重置网页登录密码。
+7. 打开玩家端 `http://你的地址:8819/`。
+8. 打开管理端 `http://你的地址:8819/admin.html`。
 
-You can find these values by copying the Discord Webhook URL:  
-`https://discord.com/api/webhooks/<DISCORD_WEBHOOK_ID>/<DISCORD_WEBHOOK_TOKEN>`
+## 首次部署注意事项
 
-Optionally, you can also configure `DISCORD_RELEASE_WEBHOOK_ID` and `DISCORD_RELEASE_WEBHOOK_TOKEN`
-to send release announcements to a separate channel.
+- 默认数据库占位配置为 `webshop / change_me`。如果保持默认值，插件会拒绝启动。
+- 默认启用了管理员引导账号：
+  - 用户名：`admin`
+  - 密码：`admin123456`
+- 公开环境部署前，务必修改或关闭 `webshop.admin-bootstrap`。
+- 默认内置 HTTP 监听 `0.0.0.0:8819`，公网部署时建议配合反向代理、TLS 和访问控制。
 
-For more information, see [Discord Message Notify](https://github.com/marketplace/actions/discord-message-notify).
+## Web 运行模式
 
----
+`config.yml` 中的 `webshop.server-mode` 支持两种模式：
 
-**I've broken the rest of the changes up by their files to make things a bit easier to find.**
+- `internal`
+  - 插件同时提供 API 和静态网页
+  - 适合快速部署和本地测试
+- `external`
+  - 插件仅提供 API
+  - 静态资源会导出到 `plugins/WebShopX/web/`
+  - 适合前端交给 `Nginx`、面板或 CDN 托管
 
----
+如果使用 `external` 模式，可通过 `webshop.api-base-url` 指定前端请求的 API 地址。
 
-### settings.gradle
-Update the line below with the name of your plugin.
+## 常用命令
 
-```groovy
-rootProject.name = 'ExamplePlugin'
-```
+| 命令 | 说明 |
+|---|---|
+| `/webshopx help` | 查看帮助 |
+| `/webshopx password <新密码>` | 在游戏内创建或重置网页登录密码 |
+| `/webshopx market [gui]` | 打开市场 GUI |
+| `/webshopx market sell <price> [amount] [currency]` | 兼容旧式上架命令 |
+| `/webshopx market logs [count]` | 查看自己的最近成交记录 |
+| `/webshopx claim [all\|ODR-...\|MKT-...\|CLM-...\|MCL-...]` | 领取待发货内容 |
+| `/webshopx reload` | 重载配置与内置网页 |
+| `/webshopx redeem create <shop> <game> [max] [perUserMax] [minutes] [code]` | 创建兑换码 |
 
-### build.gradle
-Make sure to update the `group` to your package's name in the following section.
+别名：`/ws`
 
-```groovy
-group = "com.crimsonwarpedcraft.exampleplugin"
-```
+## 权限节点
 
-Add any required repositories for your dependencies in the following section.
+| 权限 | 说明 |
+|---|---|
+| `webshop.use` | 普通玩家使用权限 |
+| `webshop.admin` | 后台与管理命令权限 |
 
-```groovy
-repositories {
-    maven {
-        name 'papermc'
-        url 'https://papermc.io/repo/repository/maven-public/'
-        content {
-            includeModule("io.papermc.paper", "paper-api")
-            includeModule("io.papermc", "paperlib")
-            includeModule("net.md-5", "bungeecord-chat")
-        }
-    }
+## 构建
 
-    mavenCentral()
-}
-```
+日常开发直接运行：
 
-Also, update your dependencies as needed (of course).
-
-```groovy
-dependencies {
-    compileOnly 'io.papermc.paper:paper-api:1.21.6-R0.1-SNAPSHOT'
-    compileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.3'
-    implementation 'io.papermc:paperlib:1.0.8'
-    spotbugsPlugins 'com.h3xstream.findsecbugs:findsecbugs-plugin:1.14.0'
-    testCompileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.3'
-    testImplementation 'io.papermc.paper:paper-api:1.21.6-R0.1-SNAPSHOT'
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.13.1'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.13.1'
-}
-```
-
-### src/main/resources/plugin.yml
-First, update the following with your information.
-
-```yaml
-author: AUTHOR
-description: DESCRIPTION
-```
-
-Next, the `commands` and `permissions` sections below should be updated as needed.
-
-```yaml
-commands:
-  ex:
-    description: Base command for EXAMPLE
-    usage: "For a list of commands, type /ex help"
-    aliases: example
-permissions:
-  example.test:
-    description: DESCRIPTION
-    default: true
-  example.*:
-    description: Grants all other permissions
-    default: false
-    children:
-      example.test: true
-```
-
-### .github/dependabot.yml
-You will need to replace all instances of `leviem1`, such as the one below, with your GitHub
-username.
-
-```yaml
-reviewers:
-  - "leviem1"
-```
-
-### .github/CODEOWNERS
-You will need to replace `leviem1`, with your GitHub username.
-
-```text
-*   @leviem1
-```
-
-### .github/FUNDING.yml
-Update or delete this file, whatever applies to you.
-
-```yaml
-github: leviem1
-```
-
-For more information see: [Displaying a sponsor button in your repository](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository)
-
-### CODE_OF_CONDUCT.md
-If you chose to adopt a Code of Conduct for your project, please update line 63 with your preferred
-contact method.
-
-## Creating a Release
-Below are the steps you should follow to create a release.
-
-1. Create a tag on `main` using semantic versioning (e.g. v0.1.0)
-2. Push the tag and get some coffee while the workflows run
-3. Publish the release draft once it's been automatically created
-
-## Building locally
-Thanks to [Gradle](https://gradle.org/), building locally is easy no matter what platform you're on. Simply run the following command:
-
-```text
+```bash
 ./gradlew build
 ```
 
-This build step will also run all checks and tests, making sure your code is clean.
+常用构建任务：
 
-JARs can be found in `build/libs/`.
+```bash
+./gradlew shadowJar
+./gradlew obfuscatedJar
+./gradlew releaseObfuscated
+```
 
-## Contributing
-See [CONTRIBUTING.md](https://github.com/CrimsonWarpedcraft/plugin-template/blob/main/CONTRIBUTING.md).
+构建产物位于 `build/libs/`：
 
----
+- `WebShopX-<version>.jar`
+- `WebShopX-<version>-obf.jar`
+- `WebShopX-release-obf.jar`
 
-I think that's all... phew! Oh, and update this README! ;)
+也支持通过 Gradle 属性覆盖版本号：
+
+```bash
+./gradlew shadowJar -Pver=1.0.6
+./gradlew shadowJar -Psnapshot=true
+./gradlew shadowJar obfuscatedJar -Pver=1.0.6 -Psnapshot=true
+```
+
+## 配置要点
+
+- `database.*`
+  - 数据库连接配置，必须改成真实值
+- `webshop.embedded-http.*`
+  - 内置 HTTP 服务监听地址、端口和静态资源目录
+- `webshop.admin-bootstrap.*`
+  - 首次管理员账号引导配置
+- `exchange.*`
+  - 双币兑换开关和汇率
+- `economy.market.*`
+  - 玩家市场手续费和税率
+- `webshop.market.supply.*`
+  - 自动补货和供货箱相关参数
+- `currency.*`
+  - 两种货币的名称和缩写
+
+## 项目结构
+
+```text
+src/main/java/com/webshopx/   核心插件逻辑、HTTP API、业务服务
+src/main/resources/web/       内置玩家端与管理端页面
+src/main/resources/config.yml 默认配置
+src/main/resources/plugin.yml Bukkit / Paper 插件元数据
+src/test/java/com/webshopx/   单元测试
+```
+
+## 当前状态
+
+这个仓库不是纯概念原型，当前版本已经包含可运行的完整链路：
+
+- 玩家登录与绑定
+- 官方商城
+- 玩家市场
+- 钱包与兑换
+- 订单、退款、发货与领取
+- 管理后台
+
+目前也有一些明确边界：
+
+- UI 和默认文案以中文为主
+- `Redis` 配置项已预留，但当前版本尚未接入业务流程
+- 更适合中小到中大型中文服直接落地，再按自身业务继续扩展
+
+## 开发与贡献
+
+欢迎提交 Issue 和 Pull Request。贡献流程见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
+## 许可证
+
+本项目基于 [GPL-3.0](./LICENSE) 许可证开源。
