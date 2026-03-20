@@ -34,17 +34,20 @@ class MarketService {
   private final DatabaseManager databaseManager;
   private final WalletService walletService;
   private final Supplier<PluginSettings> settingsSupplier;
+  private final MessageService messageService;
   private final ItemSnapshotCodec itemSnapshotCodec;
 
   MarketService(
       JavaPlugin plugin,
       DatabaseManager databaseManager,
       WalletService walletService,
-      Supplier<PluginSettings> settingsSupplier) {
+      Supplier<PluginSettings> settingsSupplier,
+      MessageService messageService) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.walletService = walletService;
     this.settingsSupplier = settingsSupplier;
+    this.messageService = messageService;
     this.itemSnapshotCodec = new ItemSnapshotCodec();
   }
 
@@ -1127,7 +1130,7 @@ class MarketService {
     SupplySource source = listing.supplySource();
     if (source == null) {
       pauseSupplyListing(connection, listing.id());
-      notifySupplyPausedIfOnline(listing, "Supply container broken, listing #" + listing.id() + " has been paused.");
+      notifySupplyPausedIfOnline(listing);
       throw new ServiceException("supply_missing", "Supply container is unavailable");
     }
     int requestAmount = Math.min(batchSize, space);
@@ -1139,7 +1142,7 @@ class MarketService {
     } catch (ServiceException exception) {
       if ("supply_missing".equalsIgnoreCase(exception.code())) {
         pauseSupplyListing(connection, listing.id());
-        notifySupplyPausedIfOnline(listing, "Supply container broken, listing #" + listing.id() + " has been paused.");
+        notifySupplyPausedIfOnline(listing);
         throw new ServiceException("supply_missing", "Supply container is unavailable");
       }
       throw exception;
@@ -1327,10 +1330,13 @@ class MarketService {
     }
   }
 
-  private void notifySupplyPausedIfOnline(MarketListing listing, String message) {
+  private void notifySupplyPausedIfOnline(MarketListing listing) {
     Player player = Bukkit.getPlayer(listing.sellerUuid());
     if (player != null && player.isOnline()) {
-      player.sendMessage(message);
+      player.sendMessage(messageService.format(
+          player,
+          "chat.market.supply_paused_external",
+          java.util.Map.of("listingId", listing.id())));
     }
   }
 

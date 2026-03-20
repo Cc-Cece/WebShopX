@@ -35,6 +35,7 @@ class DeliveryService {
   private final DatabaseManager databaseManager;
   private final WalletService walletService;
   private final Supplier<PluginSettings> settingsSupplier;
+  private final MessageService messageService;
   private final ItemSnapshotCodec itemSnapshotCodec;
   private final Map<UUID, Long> claimHintSentAt = new HashMap<>();
 
@@ -42,11 +43,13 @@ class DeliveryService {
       JavaPlugin plugin,
       DatabaseManager databaseManager,
       WalletService walletService,
-      Supplier<PluginSettings> settingsSupplier) {
+      Supplier<PluginSettings> settingsSupplier,
+      MessageService messageService) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.walletService = walletService;
     this.settingsSupplier = settingsSupplier;
+    this.messageService = messageService;
     this.itemSnapshotCodec = new ItemSnapshotCodec();
   }
 
@@ -213,7 +216,7 @@ class DeliveryService {
     if (pending <= 0) {
       return;
     }
-    sendWarnActionBar(player, "你有 " + pending + " 条待领取发货，请输入 /ws claim");
+    sendWarnActionBar(player, msg(player, "chat.delivery.claim_hint", Map.of("count", pending)));
     claimHintSentAt.put(player.getUniqueId(), System.currentTimeMillis());
   }
 
@@ -230,7 +233,7 @@ class DeliveryService {
         claimHintSentAt.remove(uuid);
         continue;
       }
-      sendWarnActionBar(player, "你有 " + pending + " 条待领取发货，请输入 /ws claim");
+      sendWarnActionBar(player, msg(player, "chat.delivery.claim_hint", Map.of("count", pending)));
       claimHintSentAt.put(uuid, now);
     }
   }
@@ -432,20 +435,23 @@ class DeliveryService {
       }
       markCommandDelivered(task.orderId(), task.id(), claimMode);
       if (claimMode) {
-        notifyDeliverySuccess(player, "领取成功：" + task.orderNo());
+        notifyDeliverySuccess(player, msg(player, "chat.delivery.claim_success_order",
+            Map.of("orderNo", task.orderNo())));
       } else {
-        notifyDeliverySuccess(player, "发货成功：" + task.orderNo());
+        notifyDeliverySuccess(player, msg(player, "chat.delivery.deliver_success_order",
+            Map.of("orderNo", task.orderNo())));
       }
       return true;
     } catch (Exception exception) {
-      String raw = exception.getMessage() == null ? "发货失败" : exception.getMessage();
-      String error = truncate(localizeDeliveryError(raw), 255);
+      String raw = exception.getMessage() == null ? msg(player, "chat.delivery.generic_failed") : exception.getMessage();
+      String error = truncate(localizeDeliveryError(player, raw), 255);
       if (claimMode) {
         markCommandWaitClaim(task.orderId(), task.id(), error);
-        sendWarnActionBar(player, "领取失败：" + error);
+        sendWarnActionBar(player, msg(player, "chat.delivery.claim_failed", Map.of("reason", error)));
       } else if (task.retryCount() + 1 >= MAX_AUTO_RETRY_BEFORE_CLAIM) {
         markCommandWaitClaim(task.orderId(), task.id(), error);
-        sendWarnActionBar(player, "自动发货失败，已转手动领取：/ws claim " + task.orderNo());
+        sendWarnActionBar(player, msg(player, "chat.delivery.auto_claim_hint",
+            Map.of("token", task.orderNo())));
       } else {
         rescheduleCommand(task.id(), error, true);
       }
@@ -473,21 +479,23 @@ class DeliveryService {
       markMarketDelivered(task, claimMode);
       String token = task.tradeId() == null ? "#" + task.listingId() : "MKT-" + task.tradeId();
       if (claimMode) {
-        notifyDeliverySuccess(player, "领取成功：" + token);
+        notifyDeliverySuccess(player, msg(player, "chat.delivery.claim_success_market",
+            Map.of("token", token)));
       } else {
-        notifyDeliverySuccess(player, "发货成功：" + token);
+        notifyDeliverySuccess(player, msg(player, "chat.delivery.deliver_success_market",
+            Map.of("token", token)));
       }
       return true;
     } catch (Exception exception) {
-      String raw = exception.getMessage() == null ? "发货失败" : exception.getMessage();
-      String error = truncate(localizeDeliveryError(raw), 255);
+      String raw = exception.getMessage() == null ? msg(player, "chat.delivery.generic_failed") : exception.getMessage();
+      String error = truncate(localizeDeliveryError(player, raw), 255);
       if (claimMode) {
         markMarketWaitClaim(task, error);
-        sendWarnActionBar(player, "领取失败：" + error);
+        sendWarnActionBar(player, msg(player, "chat.delivery.claim_failed", Map.of("reason", error)));
       } else if (task.retryCount() + 1 >= MAX_AUTO_RETRY_BEFORE_CLAIM) {
         markMarketWaitClaim(task, error);
         String token = task.tradeId() == null ? "#" + task.listingId() : "MKT-" + task.tradeId();
-        sendWarnActionBar(player, "自动发货失败，已转手动领取：/ws claim " + token);
+        sendWarnActionBar(player, msg(player, "chat.delivery.auto_claim_hint", Map.of("token", token)));
       } else {
         rescheduleMarket(task.id(), error, true);
       }
@@ -842,27 +850,36 @@ class DeliveryService {
     player.sendActionBar(Component.text(text, NamedTextColor.YELLOW));
   }
 
-  private String localizeDeliveryError(String message) {
+  private String localizeDeliveryError(Player player, String message) {
     if (message == null || message.isBlank()) {
-      return "发货失败";
+      return msg(player, "chat.delivery.generic_failed");
     }
+    String raw = message.trim();
     String normalized = message.toLowerCase(Locale.ROOT);
-    if (normalized.contains("inventory is full")) {
-      return "背包已满";
+    if (normalized.contains("inventory is full") || raw.contains("背包已满")) {
+      return msg(player, "chat.delivery.inventory_full");
     }
-    if (normalized.contains("player is offline")) {
-      return "玩家离线";
+    if (normalized.contains("player is offline") || raw.contains("玩家离线")) {
+      return msg(player, "chat.delivery.player_offline");
     }
-    if (normalized.contains("item snapshot is empty")) {
-      return "物品快照为空";
+    if (normalized.contains("item snapshot is empty") || raw.contains("物品快照为空")) {
+      return msg(player, "chat.delivery.empty_snapshot");
     }
-    if (normalized.contains("invalid item material")) {
-      return "物品材质无效";
+    if (normalized.contains("invalid item material") || raw.contains("物品材质无效")) {
+      return msg(player, "chat.delivery.invalid_material");
     }
-    if (normalized.contains("invalid potion effect")) {
-      return "药水效果无效";
+    if (normalized.contains("invalid potion effect") || raw.contains("药水效果无效")) {
+      return msg(player, "chat.delivery.invalid_potion");
     }
     return message;
+  }
+
+  private String msg(Player player, String key) {
+    return messageService.get(player, key);
+  }
+
+  private String msg(Player player, String key, Map<String, ?> params) {
+    return messageService.format(player, key, params);
   }
 
   private PotionEffectType resolvePotionEffectType(String raw) {

@@ -1,0 +1,248 @@
+command:
+  unknown_subcommand: "§cUnknown subcommand. Use /webshopx help for help."
+  common:
+    no_permission: "§cYou do not have permission."
+  password:
+    player_only: "§cThis command can only be used in-game: /webshopx password <new-password>"
+    usage: "§eUsage: /webshopx password <new-password>"
+    created: "§aWeb account created and linked successfully."
+    updated: "§aWebsite password updated and link completed."
+    username: "§7Login username: §f{username}"
+    web_login: "§7You can now sign in on the website with this username and password."
+    failed: "§cFailed to set password: {reason}"
+    error:
+      invalid_username: "Your current Minecraft username is invalid."
+      invalid_password: "Password length must be 8-64 characters."
+      username_exists: "This username is already used by another web account."
+      user_missing: "Account data is missing."
+  claim:
+    player_only: "§cOnly players can claim pending deliveries."
+    none: "§eThere is nothing waiting to be claimed."
+    partial: "§6Claim completed: success §a{success} §6item(s), failed §c{failed}§6. You can run /ws claim again."
+    success: "§aClaim completed: success {success} item(s)."
+    failed: "§cClaim failed: {reason}"
+  market:
+    player_only: "§cOnly players can use market commands."
+    usage_gui: "§eUsage: /webshopx market [gui]"
+    usage_legacy: "§eLegacy command: /webshopx market sell <price> [amount] [currency]"
+    usage_sell: "§eUsage: /webshopx market sell <price> [amount] [currency]"
+    sell_success: "§aListing created: §f#{listingId} §7| Item §f{material} x{quantity} §7| Unit price §f{price} {currency}"
+    sell_number: "§cPrice and amount must be numeric."
+    sell_failed: "§cListing failed: {reason}"
+    logs_number: "§cCount must be numeric."
+    logs_empty: "§eNo recent store trades."
+    logs_title: "§6Recent store trades:"
+    logs_entry: "§7[#{tradeId}] §f{itemMaterial} x{quantity} §7| Buyer §f{buyerName} §7| Total §f{totalPrice} {currency} §7| Status §f{status} §7| Time §f{createdAt}"
+    logs_failed: "§cFailed to read store trade logs: {reason}"
+  reload:
+    success: "§aWebShopX configuration reloaded."
+    failed: "§cReload failed. Check console logs."
+  redeem:
+    usage: "§eUsage: /webshopx redeem create <shopCoin> <gameCoin> [maxUses] [perUserMaxUses] [minutes] [code]"
+    created: "§aRedeem code created: §f{code}"
+    number: "§cParameters must be valid numbers."
+    failed: "§cCreate failed: {reason}"
+  help:
+    base:
+      - "§e/webshopx help §7- Show help"
+      - "§e/webshopx password <new-password> §7- Create or reset the web password in-game"
+      - "§e/webshopx market [gui] §7- Open the market GUI"
+      - "§e/webshopx market sell <price> [amount] [currency] §7- Legacy listing command"
+      - "§e/webshopx market logs [count] §7- Show recent trades from your store"
+      - "§e/webshopx claim [all|ODR-...|MKT-...|CLM-...|MCL-...] §7- Claim pending deliveries"
+    admin:
+      - "§e/webshopx reload §7- Reload config and embedded web assets"
+      - "§e/webshopx redeem create <shop> <game> [max] [perUserMax] [minutes] [code] §7- Create a redeem code"
+
+chat:
+  delivery:
+    claim_hint: "§eYou have {count} pending delivery item(s). Use /ws claim"
+    claim_success_order: "Claimed successfully: {orderNo}"
+    deliver_success_order: "Delivered successfully: {orderNo}"
+    claim_success_market: "Claimed successfully: {token}"
+    deliver_success_market: "Delivered successfully: {token}"
+    claim_failed: "§eClaim failed: {reason}"
+    auto_claim_hint: "§eAuto delivery failed and was moved to manual claim: /ws claim {token}"
+    generic_failed: "Delivery failed"
+    inventory_full: "Inventory is full"
+    player_offline: "Player is offline"
+    empty_snapshot: "Item snapshot is empty"
+    invalid_material: "Invalid item material"
+    invalid_potion: "Invalid potion effect"
+  market:
+    create_cancelled: "§eMarket listing flow cancelled."
+    invalid_price_empty: "§cEnter a valid price, or type cancel to abort."
+    invalid_price_integer: "§cPrice must be a positive integer, or type cancel to abort."
+    invalid_price_positive: "§cPrice must be greater than 0."
+    session_expired: "§cListing session expired. Start again."
+    manual_success: "§aListing created: §f#{listingId} §7| Item §f{material} x{quantity} §7| Unit price §f{price} GAME_COIN"
+    supply_success: "§aSupply listing created: §f#{listingId} §7| Template §f{material} §7| Transit §f{quantity} §7| Unit price §f{price} GAME_COIN"
+    create_failed: "§cCreate failed: {reason}"
+    bind_prompt: "§eRight-click the supply container to bind it (double chest, chest, barrel, shulker box). Use /ws market to reopen the menu."
+    bind_success: "§aSupply container bound. §ePlace one template item and click Next."
+    bind_failed: "§cBind failed: {reason}"
+    read_failed: "§cFailed to read listings: {reason}"
+    enter_price: "§eEnter the unit price, or type §ccancel §eto abort."
+    cannot_continue: "§cCannot continue: {reason}"
+    listing_missing: "§cThis listing no longer exists. Reopen the list."
+    paused: "§eListing #{listingId} paused."
+    resumed: "§aListing #{listingId} resumed."
+    unlisted: "§6Listing #{listingId} unlisted. Inventory return is in progress."
+    refresh_success: "§aSupply refreshed: loaded §f{loadedAmount} §7| Transit §f{currentStock}/{maxStock} §7| Total loaded §f{loadedTotal}"
+    web_edit_hint: "§eEdit price, currency, remark, and supply settings on the website."
+    action_failed: "§cAction failed: {reason}"
+    listener_exception: "§cThe market GUI hit an unexpected error. Try again later."
+    protected_supply: "§cThis supply container is protected by the market. §7Owner: §f{ownerName} §7| Item: §f{itemMaterial} §7| Listing: §f#{listingId} §7| Status: §f{status}"
+    supply_paused_external: "§eThe supply container became unavailable. Listing #{listingId} was paused automatically."
+
+gui:
+  market:
+    title:
+      main: "Market Center"
+      manage: "My Listings"
+      detail: "Listing #{listingId}"
+      supply_template: "Supply Template"
+      manual: "Manual Listing"
+    common:
+      back:
+        title: "Back"
+        subtitle: "Return to market center"
+      refresh:
+        title: "Refresh"
+        subtitle: "Reload latest state"
+    main:
+      manual:
+        title: "Manual Listing"
+        subtitle: "Place items and enter the price to create"
+        lore:
+          - "Default currency: GAME_COIN"
+          - "Change remark and currency later on the website"
+      supply:
+        title: "Supply Listing"
+        subtitle: "Click the supply container, then place 1 template item"
+        lore:
+          - "Supports double chest, chest, barrel, shulker box"
+          - "Uses the server default transfer and transit settings"
+      manage:
+        title: "My Listings"
+        subtitle: "View and manage your active listings"
+        lore:
+          - "Supports pause / resume / unlist"
+          - "Supply listings also support manual refresh"
+    manage:
+      empty:
+        title: "No Listings"
+        subtitle: "There are no listings to manage"
+        lore:
+          - "Go back to the main menu to create one"
+    input:
+      cancel:
+        title: "Cancel"
+        subtitle: "Abort and return all items"
+        lore:
+          - "Typing cancel in chat also aborts"
+      next:
+        title: "Next"
+        subtitle: "Close the GUI and enter the price in chat"
+        manual_lore:
+          - "Everything you place will be listed"
+          - "Default currency: GAME_COIN"
+        supply:
+          lore_template: "Place exactly 1 template item"
+          lore_currency: "Default currency: GAME_COIN"
+          lore_source_missing: "Supply source: not bound"
+          lore_source: "Supply source: {world} {x} {y} {z}"
+      info:
+        manual:
+          title: "Manual Listing"
+          subtitle: "Place the items to sell in the first 45 slots"
+          lore:
+            - "Only one item type is allowed"
+            - "Other settings can be edited on the website"
+        supply:
+          title: "Supply Listing"
+          subtitle: "Place 1 template item in the first 45 slots"
+          lore:
+            - "Other parameters use server defaults"
+            - "Edit supply settings and remarks on the website"
+    detail:
+      web_edit:
+        title: "Edit on Website"
+        subtitle: "Price, currency, remark, and supply settings are website-only"
+        lore:
+          - "Keep in-game input minimal"
+          - "Add richer settings on the website"
+      refresh:
+        title: "Refresh Supply"
+        subtitle: "Check the container and load stock once"
+        transit: "Transit stock: {current}/{max}"
+        batch: "Transfer batch: {value}"
+        loaded_total: "Total loaded: {value}"
+        sold_total: "Total sold: {value}"
+        last_loaded_empty: "Last refill: never"
+        last_loaded: "Last refill: {value}"
+      pause:
+        title: "Pause Listing"
+        subtitle: "Temporarily stop selling"
+      resume:
+        title: "Resume Listing"
+        subtitle: "Make the listing public again"
+      unlist:
+        title: "Unlist and Return"
+        subtitle: "Return current stock to the game"
+      back:
+        title: "Back to List"
+        subtitle: "Return to My Listings"
+    listing:
+      status: "Status: §f{value}"
+      price: "Price: §f{price} {currency}"
+      stock: "Stock: §f{current}/{max}"
+      mode: "Mode: §f{value}"
+      batch: "Transfer batch: §f{value}"
+      loaded_total: "Total loaded: §f{value}"
+      remark: "Remark: §f{value}"
+      remark_placeholder: "Remark: §8editable on the website"
+      created_at: "Created at: §f{value}"
+      click_open: "Click to open details"
+
+enum:
+  market_status:
+    active: "Active"
+    paused: "Paused"
+    sold: "Sold"
+    unlisted: "Unlisted"
+    supply_empty: "Needs Refill"
+  market_mode:
+    manual: "Manual Listing"
+    supply: "Supply"
+
+error:
+  market:
+    invalid_price: "Price must be greater than 0."
+    invalid_amount: "Amount must be between 1 and 64."
+    empty_hand: "Hold or place a valid item first."
+    insufficient_item: "Not enough items."
+    invalid_item: "Invalid item data."
+    input_empty: "Place the item to list in the GUI first."
+    manual_single_item: "Manual listings only support one item type at a time."
+    template_missing: "Place 1 template item first."
+    template_single: "Supply listings only allow exactly 1 template item."
+    not_bound: "Set your web password in-game and finish binding first."
+    supply_empty: "The supply container has no matching stock to list."
+    supply_missing: "No valid supply container was found."
+    invalid_listing: "Listing id is invalid."
+    listing_missing: "This listing does not exist."
+    listing_unavailable: "This listing cannot be operated right now."
+    invalid_trade: "You cannot buy your own listing."
+    insufficient_quantity: "Not enough quantity is left in this listing."
+    forbidden: "You are not allowed to operate this listing."
+    sync_timeout: "Supply operation timed out. Try again later."
+    sync_interrupted: "Supply operation was interrupted. Try again later."
+    listing_empty: "This listing has no stock to resume."
+    listing_limit: "You have reached the active listing limit."
+  delivery:
+    claim_token_invalid: "The claim token is invalid or expired."
+    claim_forbidden: "This claim token can only be used by the original owner."
+  redeem:
+    invalid_amount: "At least one currency amount must be greater than 0."
+    code_exists: "The redeem code already exists."

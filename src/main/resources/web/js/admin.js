@@ -128,6 +128,11 @@ const POTION_EFFECT_LABELS = {
   darkness: "黑暗",
 };
 
+const I18N = window.WebShopXI18n || null;
+if (I18N) {
+  I18N.preparePage("admin", { selectId: "adminLocaleSelect" });
+}
+
 const elements = {
   statusChip: document.getElementById("adminStatusChip"),
   adminThemeToggleBtn: document.getElementById("adminThemeToggleBtn"),
@@ -261,6 +266,17 @@ const elements = {
 const tabs = Array.from(document.querySelectorAll(".top-tab"));
 const panels = Array.from(document.querySelectorAll(".tab-panel"));
 
+function localizeDisplayText(text) {
+  return I18N ? I18N.localizeText(text) : text;
+}
+
+function setNodeText(node, text) {
+  if (!node) {
+    return;
+  }
+  node.textContent = localizeDisplayText(text);
+}
+
 function notify(message, tone = "info", durationMs = 3200) {
   if (!elements.snackbarHost) {
     return;
@@ -268,7 +284,7 @@ function notify(message, tone = "info", durationMs = 3200) {
   const normalized = ["info", "success", "warn", "error"].includes(tone) ? tone : "info";
   const node = document.createElement("div");
   node.className = `snackbar snackbar-${normalized}`;
-  node.textContent = message;
+  node.textContent = localizeDisplayText(message);
   elements.snackbarHost.appendChild(node);
   requestAnimationFrame(() => node.classList.add("show"));
   setTimeout(() => {
@@ -297,7 +313,9 @@ function applyTheme(theme) {
   document.documentElement.classList.add(normalized);
   window.localStorage.setItem(THEME_STORAGE_KEY, normalized);
   if (elements.adminThemeToggleBtn) {
-    elements.adminThemeToggleBtn.textContent = normalized === "dark" ? "切换亮色" : "切换暗色";
+    elements.adminThemeToggleBtn.textContent = I18N
+      ? I18N.getThemeToggleLabel(normalized)
+      : (normalized === "dark" ? "切换亮色" : "切换暗色");
   }
 }
 
@@ -308,7 +326,7 @@ function toggleTheme() {
 async function copyTextToClipboard(text) {
   const value = String(text || "").trim();
   if (!value) {
-    throw new Error("没有可复制的内容。");
+    throw new Error(localizeDisplayText("没有可复制的内容。"));
   }
   if (navigator.clipboard && navigator.clipboard.writeText) {
     await navigator.clipboard.writeText(value);
@@ -325,7 +343,7 @@ async function copyTextToClipboard(text) {
 }
 
 function setStatus(text, stateName) {
-  elements.statusChip.textContent = text;
+  elements.statusChip.textContent = localizeDisplayText(text);
   elements.statusChip.dataset.state = stateName;
 }
 
@@ -333,7 +351,7 @@ function setMetaText(element, text, tone = "info") {
   if (!element) {
     return;
   }
-  element.textContent = text;
+  element.textContent = localizeDisplayText(text);
   element.classList.remove("meta-info", "meta-success", "meta-warn", "meta-error");
   const normalized = ["info", "success", "warn", "error"].includes(tone) ? tone : "info";
   element.classList.add(`meta-${normalized}`);
@@ -520,7 +538,7 @@ function formatCurrency(amount, currency) {
   const value = Number(amount || 0);
   const normalized = Number.isNaN(value) ? 0 : value;
   const meta = state.currencyMeta[currency] || { short: String(currency) };
-  return `${meta.short} ${normalized.toLocaleString("zh-CN")}`;
+  return `${meta.short} ${normalized.toLocaleString(I18N ? I18N.getIntlLocale() : "zh-CN")}`;
 }
 
 function hasExplicitTimeZone(value) {
@@ -624,7 +642,7 @@ function formatDateTime(value) {
   if (Number.isNaN(timestamp)) {
     return "未知时间";
   }
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(I18N ? I18N.getIntlLocale() : "zh-CN", {
     timeZone: state.timeZone,
     hour12: false,
     year: "numeric",
@@ -658,12 +676,12 @@ function updateProductScheduleHint() {
   if (!elements.productScheduleHint) {
     return;
   }
-  elements.productScheduleHint.textContent = `商品上下架时间按时区 ${state.timeZone} 解释与显示。`;
+  setNodeText(elements.productScheduleHint, `商品上下架时间按时区 ${state.timeZone} 解释与显示。`);
 }
 
 function renderAdminProfile() {
   if (!state.admin) {
-    elements.adminProfileView.textContent = "未登录";
+    setNodeText(elements.adminProfileView, "未登录");
     return;
   }
   const roleLabel = state.admin.isSuperAdmin ? "SUPER_ADMIN" : (state.admin.role || "CUSTOM");
@@ -671,7 +689,7 @@ function renderAdminProfile() {
   const suffix = state.admin.isSuperAdmin
     ? "拥有全部权限"
     : `权限数：${permissionCount}${state.admin.canManageAdmins ? " | 可管理管理员" : ""}`;
-  elements.adminProfileView.textContent = `账号：${state.admin.username} | 身份：${roleLabel} | ${suffix}`;
+  setNodeText(elements.adminProfileView, `账号：${state.admin.username} | 身份：${roleLabel} | ${suffix}`);
 }
 
 function setLoggedOut() {
@@ -734,7 +752,7 @@ function renderList(container, rows) {
   if (!rows || rows.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = "暂无数据";
+    setNodeText(empty, "暂无数据");
     container.appendChild(empty);
     return;
   }
@@ -747,7 +765,7 @@ function renderKeyValueCard(title, items, actions = []) {
   const header = document.createElement("div");
   header.className = "admin-row";
   const h = document.createElement("strong");
-  h.textContent = title;
+  setNodeText(h, title);
   header.appendChild(h);
   if (actions.length > 0) {
     const actionWrap = document.createElement("div");
@@ -761,10 +779,10 @@ function renderKeyValueCard(title, items, actions = []) {
     row.className = "admin-row";
     const label = document.createElement("span");
     label.className = "admin-key";
-    label.textContent = item.label;
+    setNodeText(label, item.label);
     const value = document.createElement("span");
     value.className = "admin-value";
-    value.textContent = item.value;
+    setNodeText(value, item.value);
     row.appendChild(label);
     row.appendChild(value);
     card.appendChild(row);
@@ -808,10 +826,10 @@ function syncProductAmountSlider(source = "input") {
       input.value = "";
     }
     if (elements.productAmountPreview) {
-      elements.productAmountPreview.textContent = "无限";
+      setNodeText(elements.productAmountPreview, "无限");
     }
     if (elements.productTotalPreview) {
-      elements.productTotalPreview.textContent = "不限";
+      setNodeText(elements.productTotalPreview, "不限");
     }
     return;
   }
@@ -833,13 +851,13 @@ function syncProductAmountSlider(source = "input") {
     slider.value = String(normalized);
   }
   if (elements.productAmountPreview) {
-    elements.productAmountPreview.textContent = `x${normalized}`;
+    setNodeText(elements.productAmountPreview, `x${normalized}`);
   }
   const currency = elements.productCurrency?.value || "SHOP_COIN";
   const unitPrice = Number(elements.productPrice?.value || 0);
   const total = Math.max(0, Math.floor(Number.isFinite(unitPrice) ? unitPrice : 0)) * normalized;
   if (elements.productTotalPreview) {
-    elements.productTotalPreview.textContent = formatCurrency(total, currency);
+    setNodeText(elements.productTotalPreview, formatCurrency(total, currency));
   }
 }
 
@@ -859,7 +877,7 @@ function localizeOrderStatusOptions() {
   Array.from(elements.orderStatus.options).forEach((option) => {
     const value = String(option.value || "").trim().toUpperCase();
     if (Object.prototype.hasOwnProperty.call(labels, value)) {
-      option.textContent = labels[value];
+      setNodeText(option, labels[value]);
     }
   });
 }
@@ -997,19 +1015,21 @@ function aliasMaterialKey(text) {
 }
 
 function humanizeMaterial(materialKey) {
-  return String(materialKey || "")
-    .toLowerCase()
-    .split("_")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+  return I18N
+    ? I18N.humanizeEnum(materialKey)
+    : String(materialKey || "")
+      .toLowerCase()
+      .split("_")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
 }
 
 function getLocalizedMaterialName(material) {
   const key = normalizeMaterialKey(material);
   const aliasKey = aliasMaterialKey(key);
   if (!key) {
-    return "未知物品";
+    return localizeDisplayText("未知物品");
   }
   return state.materialMap[key] || state.materialMap[aliasKey] || humanizeMaterial(aliasKey || key);
 }
@@ -1088,14 +1108,14 @@ function populateMaterialSuggest() {
     : Object.keys(state.materialMap || {}).map((key) => normalizeMaterialKey(key));
   keys
     .filter(Boolean)
-    .sort((a, b) => String(a).localeCompare(String(b), "en"))
+    .sort((a, b) => String(a).localeCompare(String(b), I18N ? I18N.getIntlLocale() : "en"))
     .forEach((key) => {
       const zhName = state.materialMap[key] || state.materialMap[aliasMaterialKey(key)] || key;
       const option = document.createElement("option");
       const label = !zhName || zhName === key ? key : `${zhName} (${key})`;
       option.value = key;
       option.label = label;
-      option.textContent = label;
+      setNodeText(option, label);
       elements.materialSuggestList.appendChild(option);
   });
 }
@@ -1108,11 +1128,10 @@ function populatePotionEffectSuggest() {
   POTION_EFFECT_OPTIONS.forEach((effect) => {
     const option = document.createElement("option");
     option.value = effect;
-    const label = POTION_EFFECT_LABELS[effect]
-      ? `${POTION_EFFECT_LABELS[effect]} (${effect})`
-      : effect;
+    const localizedEffect = I18N ? I18N.getPotionEffectLabel(effect) : (POTION_EFFECT_LABELS[effect] || effect);
+    const label = localizedEffect ? `${localizedEffect} (${effect})` : effect;
     option.label = label;
-    option.textContent = label;
+    setNodeText(option, label);
     elements.potionEffectSuggestList.appendChild(option);
   });
 }
@@ -1160,12 +1179,16 @@ async function ensureMaterialMap() {
     return;
   }
   state.materialMapPromise = ensureMaterialAllowList()
-    .then(() => fetch("material_zh.json"))
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`material map load failed: ${response.status}`);
+    .then(() => {
+      if (!I18N || !I18N.shouldLoadMaterialMap()) {
+        return {};
       }
-      return response.json();
+      return fetch(`i18n/materials/${I18N.getLocale()}.json`).then((response) => {
+        if (!response.ok) {
+          throw new Error(`material map load failed: ${response.status}`);
+        }
+        return response.json();
+      });
     })
     .then((json) => {
       state.materialMap = json || {};
@@ -1384,7 +1407,7 @@ function renderProducts() {
   const rows = filtered.map((product) => {
     const editBtn = document.createElement("button");
     editBtn.className = "btn-tonal";
-    editBtn.textContent = "加载编辑";
+    setNodeText(editBtn, "加载编辑");
     editBtn.addEventListener("click", () => {
       elements.productSku.value = product.sku;
       elements.productTitle.value = product.title;
@@ -1415,7 +1438,7 @@ function renderProducts() {
       setMetaText(elements.productStatus, `已加载 ${product.sku} 进入编辑`, "info");
     });
     const toggleBtn = document.createElement("button");
-    toggleBtn.textContent = product.active ? "停用" : "启用";
+    setNodeText(toggleBtn, product.active ? "停用" : "启用");
     toggleBtn.addEventListener("click", async () => {
       await apiAdmin("/api/admin/products/active", {
         method: "POST",
@@ -1428,7 +1451,7 @@ function renderProducts() {
     if (product.perUserLimit != null) {
       const resetLimitBtn = document.createElement("button");
       resetLimitBtn.className = "btn-tonal";
-      resetLimitBtn.textContent = "重置限购";
+      setNodeText(resetLimitBtn, "重置限购");
       resetLimitBtn.addEventListener("click", async () => {
         try {
           await resetProductLimit(product);
@@ -1662,7 +1685,7 @@ async function loadMarket() {
     if (listing.status === "ACTIVE") {
       const unlistBtn = document.createElement("button");
       unlistBtn.className = "btn-tonal";
-      unlistBtn.textContent = "强制下架";
+      setNodeText(unlistBtn, "强制下架");
       unlistBtn.addEventListener("click", async () => {
         await apiAdmin("/api/admin/market/unlist", {
           method: "POST",
@@ -1751,7 +1774,7 @@ async function loadUserList(options = {}) {
   const rows = visibleUsers.map((user) => {
     const loadBtn = document.createElement("button");
     loadBtn.className = "btn-tonal";
-    loadBtn.textContent = "载入编辑";
+    setNodeText(loadBtn, "载入编辑");
     loadBtn.addEventListener("click", () => {
       if (elements.userIdentifier) {
         elements.userIdentifier.value = user.username;
@@ -1760,7 +1783,7 @@ async function loadUserList(options = {}) {
     });
 
     const logoutBtn = document.createElement("button");
-    logoutBtn.textContent = "强制下线";
+    setNodeText(logoutBtn, "强制下线");
     logoutBtn.addEventListener("click", async () => {
       await apiAdmin("/api/admin/users/logout", {
         method: "POST",
@@ -1776,7 +1799,7 @@ async function loadUserList(options = {}) {
 
     const unbindBtn = document.createElement("button");
     unbindBtn.className = "btn-tonal";
-    unbindBtn.textContent = "解绑";
+    setNodeText(unbindBtn, "解绑");
     unbindBtn.disabled = !user.boundUuid;
     unbindBtn.addEventListener("click", async () => {
       await apiAdmin("/api/admin/users/unbind", {
@@ -1904,9 +1927,9 @@ function updateAdminPermissionUi() {
     elements.adminManagerTemplate.disabled = isSuper;
   }
   if (elements.adminManagerTemplateHint) {
-    elements.adminManagerTemplateHint.textContent = isSuper
+    setNodeText(elements.adminManagerTemplateHint, isSuper
       ? "超级管理员自动拥有全部权限，不需要单独勾选。"
-      : "先选择一个模板，再按需要微调权限。";
+      : "先选择一个模板，再按需要微调权限。");
   }
 }
 
@@ -1924,9 +1947,9 @@ function renderAdminPermissionGroups() {
     header.className = "admin-permission-head";
     const titleWrap = document.createElement("div");
     const title = document.createElement("h3");
-    title.textContent = group.label;
+    setNodeText(title, group.label);
     const desc = document.createElement("p");
-    desc.textContent = "按分类勾选权限，可使用模板后再微调。";
+    setNodeText(desc, "按分类勾选权限，可使用模板后再微调。");
     titleWrap.appendChild(title);
     titleWrap.appendChild(desc);
 
@@ -1935,7 +1958,7 @@ function renderAdminPermissionGroups() {
     const selectAllBtn = document.createElement("button");
     selectAllBtn.className = "btn-tonal";
     selectAllBtn.type = "button";
-    selectAllBtn.textContent = "全选";
+    setNodeText(selectAllBtn, "全选");
     selectAllBtn.addEventListener("click", () => {
       card.querySelectorAll('input[type="checkbox"][data-permission-code]').forEach((node) => {
         node.checked = true;
@@ -1944,7 +1967,7 @@ function renderAdminPermissionGroups() {
     const clearBtn = document.createElement("button");
     clearBtn.className = "btn-tonal";
     clearBtn.type = "button";
-    clearBtn.textContent = "清空";
+    setNodeText(clearBtn, "清空");
     clearBtn.addEventListener("click", () => {
       card.querySelectorAll('input[type="checkbox"][data-permission-code]').forEach((node) => {
         node.checked = false;
@@ -1967,10 +1990,10 @@ function renderAdminPermissionGroups() {
       checkbox.dataset.permissionCode = permission.code;
       top.appendChild(checkbox);
       const strong = document.createElement("strong");
-      strong.textContent = permission.label;
+      setNodeText(strong, permission.label);
       top.appendChild(strong);
       const description = document.createElement("span");
-      description.textContent = permission.description || permission.code;
+      setNodeText(description, permission.description || permission.code);
       item.appendChild(top);
       item.appendChild(description);
       list.appendChild(item);
@@ -1989,12 +2012,12 @@ function populateAdminTemplates() {
   elements.adminManagerTemplate.innerHTML = "";
   const empty = document.createElement("option");
   empty.value = "";
-  empty.textContent = "自定义";
+  setNodeText(empty, "自定义");
   elements.adminManagerTemplate.appendChild(empty);
   (state.adminMeta?.templates || []).forEach((template) => {
     const option = document.createElement("option");
     option.value = template.key;
-    option.textContent = template.label;
+    setNodeText(option, template.label);
     elements.adminManagerTemplate.appendChild(option);
   });
   elements.adminManagerTemplate.value = current || "";
@@ -2054,11 +2077,11 @@ function renderAdminManagerList() {
   const rows = (state.adminManagers || []).map((admin) => {
     const editBtn = document.createElement("button");
     editBtn.className = "btn-tonal";
-    editBtn.textContent = "载入编辑";
+    setNodeText(editBtn, "载入编辑");
     editBtn.addEventListener("click", () => populateAdminForm(admin));
 
     const toggleBtn = document.createElement("button");
-    toggleBtn.textContent = admin.active ? "禁用" : "启用";
+    setNodeText(toggleBtn, admin.active ? "禁用" : "启用");
     toggleBtn.addEventListener("click", async () => {
       await apiAdmin("/api/admin/admin-users/active", {
         method: "POST",

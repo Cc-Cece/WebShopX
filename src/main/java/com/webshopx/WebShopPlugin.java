@@ -15,6 +15,7 @@ public class WebShopPlugin extends JavaPlugin {
   private DatabaseManager databaseManager;
   private AuthService authService;
   private WalletService walletService;
+  private MessageService messageService;
   private RedeemCodeService redeemCodeService;
   private ProductService productService;
   private OrderService orderService;
@@ -42,6 +43,7 @@ public class WebShopPlugin extends JavaPlugin {
       pluginLogService.apply(settings.loggingSettings());
       staticAssetInstaller = new StaticAssetInstaller(this);
       textureAssetManager = new TextureAssetManager(this);
+      messageService = new MessageService(this, this::settings);
 
       initializeDatabase();
 
@@ -50,9 +52,9 @@ public class WebShopPlugin extends JavaPlugin {
       redeemCodeService = new RedeemCodeService(databaseManager, walletService);
       productService = new ProductService(databaseManager);
       orderService = new OrderService(this, databaseManager, this::settings, productService, walletService);
-      marketService = new MarketService(this, databaseManager, walletService, this::settings);
-      marketGuiService = new MarketGuiService(marketService, this::settings);
-      deliveryService = new DeliveryService(this, databaseManager, walletService, this::settings);
+      marketService = new MarketService(this, databaseManager, walletService, this::settings, messageService);
+      marketGuiService = new MarketGuiService(marketService, this::settings, messageService);
+      deliveryService = new DeliveryService(this, databaseManager, walletService, this::settings, messageService);
       adminService = new AdminService(databaseManager, authService, walletService);
       adminAuditService = new AdminAuditService(databaseManager);
       maintenanceService = new MaintenanceService(this, databaseManager, this::settings, pluginLogService);
@@ -78,7 +80,9 @@ public class WebShopPlugin extends JavaPlugin {
       getServer().getPluginManager().registerEvents(
           new PlayerJoinListener(this, deliveryService),
           this);
-      getServer().getPluginManager().registerEvents(new MarketGuiListener(marketGuiService, marketService), this);
+      getServer().getPluginManager().registerEvents(
+          new MarketGuiListener(marketGuiService, marketService, messageService),
+          this);
       startDeliveryLoop();
       startMaintenanceLoop();
       restartWebRuntime();
@@ -139,7 +143,8 @@ public class WebShopPlugin extends JavaPlugin {
         redeemCodeService,
         marketService,
         marketGuiService,
-        deliveryService);
+        deliveryService,
+        messageService);
     PluginCommand rootCommand = getCommand("webshopx");
     if (rootCommand == null) {
       throw new IllegalStateException("Command 'webshopx' is not defined in plugin.yml");

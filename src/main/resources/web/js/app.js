@@ -22,9 +22,9 @@
     sharedClaimAllowed: false,
   },
   orderPolicyReady: false,
-  zhNameMap: {},
-  zhNameMapReady: false,
-  zhNameMapPromise: null,
+  materialNameMap: {},
+  materialNameMapReady: false,
+  materialNameMapPromise: null,
   hasLoadedProducts: false,
   hasLoadedMarket: false,
   hasLoadedOrders: false,
@@ -308,6 +308,11 @@ const ENCHANTMENT_LABELS = {
   wind_burst: "风爆",
 };
 
+const I18N = window.WebShopXI18n || null;
+if (I18N) {
+  I18N.preparePage("app", { selectId: "localeSelect" });
+}
+
 const elements = {
   logBox: document.getElementById("logBox"),
   statusChip: document.getElementById("statusChip"),
@@ -385,10 +390,21 @@ const elements = {
 const tabs = Array.from(document.querySelectorAll(".top-tab"));
 const panels = Array.from(document.querySelectorAll(".tab-panel"));
 
+function localizeDisplayText(text) {
+  return I18N ? I18N.localizeText(text) : text;
+}
+
+function setNodeText(node, text) {
+  if (!node) {
+    return;
+  }
+  node.textContent = localizeDisplayText(text);
+}
+
 function log(message, level = "INFO") {
   const now = new Date();
-  const prefix = `${now.toLocaleString("zh-CN", { hour12: false })} [${level}]`;
-  const line = `${prefix} ${message}`;
+  const prefix = `${now.toLocaleString(I18N ? I18N.getIntlLocale() : "zh-CN", { hour12: false })} [${level}]`;
+  const line = `${prefix} ${localizeDisplayText(message)}`;
   elements.logBox.textContent = `${line}\n${elements.logBox.textContent}`.slice(0, 30000);
 }
 
@@ -396,7 +412,7 @@ function setMetaText(element, text, tone = "info") {
   if (!element) {
     return;
   }
-  element.textContent = text;
+  element.textContent = localizeDisplayText(text);
   element.classList.remove("meta-info", "meta-success", "meta-warn", "meta-error");
   const normalized = ["info", "success", "warn", "error"].includes(tone) ? tone : "info";
   element.classList.add(`meta-${normalized}`);
@@ -444,7 +460,9 @@ function applyTheme(theme) {
   document.documentElement.classList.add(normalized);
   window.localStorage.setItem(THEME_STORAGE_KEY, normalized);
   if (elements.themeToggleBtn) {
-    elements.themeToggleBtn.textContent = normalized === "dark" ? "切换亮色" : "切换暗色";
+    elements.themeToggleBtn.textContent = I18N
+      ? I18N.getThemeToggleLabel(normalized)
+      : (normalized === "dark" ? "切换亮色" : "切换暗色");
   }
 }
 
@@ -455,7 +473,7 @@ function toggleTheme() {
 async function copyTextToClipboard(text) {
   const value = String(text || "").trim();
   if (!value) {
-    throw new Error("没有可复制的内容。");
+    throw new Error(localizeDisplayText("没有可复制的内容。"));
   }
   if (navigator.clipboard && navigator.clipboard.writeText) {
     await navigator.clipboard.writeText(value);
@@ -483,15 +501,15 @@ function openConfirmDialog({ title, message, details = [], confirmText = "确认
     confirmResolver = null;
   }
 
-  elements.confirmTitle.textContent = title;
-  elements.confirmMessage.textContent = message;
+  setNodeText(elements.confirmTitle, title);
+  setNodeText(elements.confirmMessage, message);
   elements.confirmDetails.innerHTML = "";
   confirmSubmitHandler = null;
   details.filter(Boolean).forEach((line) => {
     elements.confirmDetails.appendChild(createEl("div", "", line));
   });
   elements.confirmOkBtn.disabled = false;
-  elements.confirmOkBtn.textContent = confirmText;
+  setNodeText(elements.confirmOkBtn, confirmText);
   elements.confirmDialog.classList.add("show");
   elements.confirmDialog.setAttribute("aria-hidden", "false");
 
@@ -521,8 +539,8 @@ function openDeliveryConfirmDialog({
     confirmResolver = null;
   }
 
-  elements.confirmTitle.textContent = title;
-  elements.confirmMessage.textContent = message;
+  setNodeText(elements.confirmTitle, title);
+  setNodeText(elements.confirmMessage, message);
   elements.confirmDetails.innerHTML = "";
   confirmSubmitHandler = null;
   details.filter(Boolean).forEach((line) => {
@@ -604,7 +622,7 @@ function openDeliveryConfirmDialog({
   }
 
   confirmSubmitHandler = () => closeConfirmDialog(select.value);
-  elements.confirmOkBtn.textContent = confirmText;
+  setNodeText(elements.confirmOkBtn, confirmText);
   elements.confirmDialog.classList.add("show");
   elements.confirmDialog.setAttribute("aria-hidden", "false");
 
@@ -677,8 +695,8 @@ function openListingEditDialog({
     confirmResolver = null;
   }
 
-  elements.confirmTitle.textContent = `修改上架 #${listingId}`;
-  elements.confirmMessage.textContent = "可同时修改价格和备注。";
+  setNodeText(elements.confirmTitle, `修改上架 #${listingId}`);
+  setNodeText(elements.confirmMessage, "可同时修改价格和备注。");
   elements.confirmDetails.innerHTML = "";
 
   const priceField = createEl("label", "field dialog-select-field");
@@ -762,7 +780,7 @@ function openListingEditDialog({
     });
   };
   elements.confirmOkBtn.disabled = false;
-  elements.confirmOkBtn.textContent = "保存修改";
+  setNodeText(elements.confirmOkBtn, "保存修改");
   elements.confirmDialog.classList.add("show");
   elements.confirmDialog.setAttribute("aria-hidden", "false");
   priceInput.focus();
@@ -796,8 +814,8 @@ function openPriceDialog({ listingId, currentPrice, currency }) {
   }
 
   const currencyMeta = CURRENCY_META[currency] || { short: String(currency || "--") };
-  elements.priceDialogTitle.textContent = `修改价格 #${listingId}`;
-  elements.priceDialogHint.textContent = "价格修改后立即生效，请谨慎操作。";
+  setNodeText(elements.priceDialogTitle, `修改价格 #${listingId}`);
+  setNodeText(elements.priceDialogHint, "价格修改后立即生效，请谨慎操作。");
   if (elements.priceDialogBadge) {
     elements.priceDialogBadge.textContent = `#${listingId}`;
   }
@@ -837,7 +855,7 @@ function submitPriceDialog() {
   const raw = elements.priceDialogInput.value.trim();
   const price = Number(raw);
   if (!Number.isFinite(price) || price <= 0) {
-    elements.priceDialogError.textContent = "价格必须是大于 0 的数字。";
+    setNodeText(elements.priceDialogError, "价格必须是大于 0 的数字。");
     return;
   }
   elements.priceDialogError.textContent = "";
@@ -854,7 +872,7 @@ function escapeHtml(raw) {
 }
 
 function setStatus(text, stateName) {
-  elements.statusChip.textContent = text;
+  elements.statusChip.textContent = localizeDisplayText(text);
   elements.statusChip.dataset.state = stateName;
 }
 
@@ -905,7 +923,7 @@ function createIdempotencyKey() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-const formatNumber = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 });
+const formatNumber = new Intl.NumberFormat(I18N ? I18N.getIntlLocale() : "zh-CN", { maximumFractionDigits: 2 });
 
 function formatAmount(amount) {
   const value = Number(amount);
@@ -1288,7 +1306,7 @@ function aliasMaterialKey(text) {
 }
 
 function humanizeMaterial(materialKey) {
-  return materialKey
+  return I18N ? I18N.humanizeEnum(materialKey) : materialKey
     .toLowerCase()
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
@@ -1299,39 +1317,43 @@ function getLocalizedMaterialName(material) {
   const key = normalizeMaterialKey(material);
   const aliasKey = aliasMaterialKey(key);
   if (!key) {
-    return "未知物品";
+    return localizeDisplayText("未知物品");
   }
-  return state.zhNameMap[key] || state.zhNameMap[aliasKey] || humanizeMaterial(aliasKey || key);
+  return state.materialNameMap[key] || state.materialNameMap[aliasKey] || humanizeMaterial(aliasKey || key);
 }
 
-async function ensureZhNameMap() {
-  if (state.zhNameMapReady) {
+async function ensureMaterialNameMap() {
+  if (state.materialNameMapReady) {
     return;
   }
-  if (state.zhNameMapPromise) {
-    await state.zhNameMapPromise;
+  if (state.materialNameMapPromise) {
+    await state.materialNameMapPromise;
     return;
   }
-
-  state.zhNameMapPromise = fetch("material_zh.json")
+  if (!I18N || !I18N.shouldLoadMaterialMap()) {
+    state.materialNameMap = {};
+    state.materialNameMapReady = true;
+    return;
+  }
+  state.materialNameMapPromise = fetch(`i18n/materials/${I18N.getLocale()}.json`)
     .then((response) => {
       if (!response.ok) {
-        throw new Error(`JSON 词库加载失败: ${response.status}`);
+        throw new Error(`material glossary load failed: ${response.status}`);
       }
       return response.json();
     })
     .then((json) => {
-      state.zhNameMap = json || {};
-      state.zhNameMapReady = true;
-      log(`中文词库已加载：${Object.keys(state.zhNameMap).length} 条。`);
+      state.materialNameMap = json || {};
+      state.materialNameMapReady = true;
+      log(`Material glossary loaded: ${Object.keys(state.materialNameMap).length}`);
     })
     .catch((error) => {
-      state.zhNameMap = {};
-      state.zhNameMapReady = true;
-      log(`中文词库不可用，将使用英文名：${error.message}`, "WARN");
+      state.materialNameMap = {};
+      state.materialNameMapReady = true;
+      log(`Material glossary unavailable: ${error.message}`, "WARN");
     });
 
-  await state.zhNameMapPromise;
+  await state.materialNameMapPromise;
 }
 
 function buildTextureAliases(material) {
@@ -1508,7 +1530,7 @@ function parseDateTimeValue(value) {
 }
 
 function formatInBusinessTimeZone(timestamp) {
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(I18N ? I18N.getIntlLocale() : "zh-CN", {
     timeZone: state.timeZone,
     hour12: false,
     year: "numeric",
@@ -1548,31 +1570,31 @@ function formatListingStatus(status) {
   const normalized = String(status || "").toUpperCase();
   switch (normalized) {
     case "ACTIVE":
-      return "在售";
+      return localizeDisplayText("在售");
     case "SUPPLY_EMPTY":
-      return "待补货";
+      return localizeDisplayText("待补货");
     case "PAUSED":
-      return "已停用";
+      return localizeDisplayText("已停用");
     case "UNLISTED":
-      return "已退回";
+      return localizeDisplayText("已退回");
     case "SOLD":
-      return "已售";
+      return localizeDisplayText("已售");
     default:
-      return normalized || "--";
+      return localizeDisplayText(normalized || "--");
   }
 }
 
 function formatDateTime(isoText) {
   const timestamp = parseDateTimeValue(isoText);
   if (Number.isNaN(timestamp)) {
-    return "未知时间";
+    return localizeDisplayText("未知时间");
   }
   return formatInBusinessTimeZone(timestamp);
 }
 
 function formatSupplyLoadedAt(isoText) {
   if (!isoText) {
-    return "未补货";
+    return localizeDisplayText("未补货");
   }
   return formatDateTime(isoText);
 }
@@ -1585,7 +1607,7 @@ function formatCountdown(deadlineIso) {
   const diff = Math.max(0, deadline - Date.now());
   const seconds = Math.ceil(diff / 1000);
   if (seconds <= 0) {
-    return "已结束";
+    return localizeDisplayText("已结束");
   }
   if (seconds < 60) {
     return `${seconds} 秒`;
@@ -1597,13 +1619,17 @@ function formatCountdown(deadlineIso) {
 
 function orderStatusMeta(status) {
   const key = String(status || "").toUpperCase();
-  return ORDER_STATUS_LABELS[key] || { label: key || "未知", tone: "pending" };
+  const meta = ORDER_STATUS_LABELS[key] || { label: key || "未知", tone: "pending" };
+  return { ...meta, label: localizeDisplayText(meta.label) };
 }
 
 function enchantLabel(key) {
   const normalized = String(key || "").replace(/^minecraft:/, "").trim().toLowerCase();
   if (!normalized) {
-    return "未知附魔";
+    return localizeDisplayText("未知附魔");
+  }
+  if (I18N && !I18N.isChineseLocale()) {
+    return I18N.humanizeEnum(normalized);
   }
   if (ENCHANTMENT_LABELS[normalized]) {
     return ENCHANTMENT_LABELS[normalized];
@@ -1657,7 +1683,7 @@ function collectEnchantEntries(meta) {
   });
   return Array.from(merged.entries())
     .filter(([, level]) => Number.isFinite(level) && level > 0)
-    .sort((a, b) => b[1] - a[1] || enchantLabel(a[0]).localeCompare(enchantLabel(b[0]), "zh-CN"));
+    .sort((a, b) => b[1] - a[1] || enchantLabel(a[0]).localeCompare(enchantLabel(b[0]), I18N ? I18N.getIntlLocale() : "zh-CN"));
 }
 
 function createEl(tag, className, text) {
@@ -1666,7 +1692,7 @@ function createEl(tag, className, text) {
     el.className = className;
   }
   if (text !== undefined && text !== null) {
-    el.textContent = text;
+    el.textContent = localizeDisplayText(text);
   }
   return el;
 }
@@ -1732,7 +1758,7 @@ function createQuantitySelector({
     const clamped = Math.min(normalizedMax, Math.max(1, Math.floor(Number.isFinite(rawValue) ? rawValue : 1)));
     numberInput.value = String(clamped);
     rangeInput.value = String(clamped);
-    total.textContent = `总价：${formatCurrency(unitPrice * clamped, currency)}`;
+    setNodeText(total, `总价：${formatCurrency(unitPrice * clamped, currency)}`);
   };
 
   numberInput.addEventListener("input", () => sync(numberInput));
@@ -1760,7 +1786,7 @@ function createProgressIndicator(initialCurrent, initialTotal, textBuilder) {
     const normalizedTotal = Math.max(1, Number(total || 1));
     const normalizedCurrent = Math.max(0, Math.min(normalizedTotal, Number(current || 0)));
     fill.style.width = `${(normalizedCurrent / normalizedTotal) * 100}%`;
-    label.textContent = textBuilder(normalizedCurrent, normalizedTotal);
+    label.textContent = localizeDisplayText(textBuilder(normalizedCurrent, normalizedTotal));
   };
 
   update(initialCurrent, initialTotal);
@@ -1871,7 +1897,7 @@ function updateAuthLayout() {
 
 function renderProfile() {
   elements.profileName.textContent = state.username || "-";
-  elements.profileUuid.textContent = state.boundUuid || "未绑定";
+  setNodeText(elements.profileUuid, state.boundUuid || "未绑定");
 
   const avatarKey = state.username || state.boundUuid;
   if (!avatarKey) {
@@ -2233,9 +2259,9 @@ function filterProducts(products) {
       case "price_desc":
         return Number(right.price || 0) - Number(left.price || 0);
       case "title_asc":
-        return String(left.title || "").localeCompare(String(right.title || ""), "zh-CN");
+        return String(left.title || "").localeCompare(String(right.title || ""), I18N ? I18N.getIntlLocale() : "zh-CN");
       case "title_desc":
-        return String(right.title || "").localeCompare(String(left.title || ""), "zh-CN");
+        return String(right.title || "").localeCompare(String(left.title || ""), I18N ? I18N.getIntlLocale() : "zh-CN");
       case "stock_desc":
         return resolveOfficialProductStock(right).maxQuantity - resolveOfficialProductStock(left).maxQuantity;
       default:
@@ -2497,7 +2523,7 @@ function renderStorefronts(listings) {
   });
 
   Array.from(storeMap.entries())
-    .sort((a, b) => a[1].sellerName.localeCompare(b[1].sellerName, "zh-CN"))
+    .sort((a, b) => a[1].sellerName.localeCompare(b[1].sellerName, I18N ? I18N.getIntlLocale() : "zh-CN"))
     .forEach(([key, store]) => {
       const card = createEl("article", "store-card");
       const head = createEl("div", "store-head");
@@ -2592,7 +2618,7 @@ async function loadProducts(options = {}) {
 async function loadMarket(mode, options = {}) {
   const announce = !!options.announce;
   try {
-    await ensureZhNameMap();
+    await ensureMaterialNameMap();
     const normalizedMode = mode === "stores" ? "stores" : (mode === "mine" ? "mine" : "public");
     if (normalizedMode === "mine") {
       ensureToken();
@@ -2847,7 +2873,7 @@ async function loadOrders(options = {}) {
   const announce = !!options.announce;
   try {
     ensureToken();
-    await ensureZhNameMap();
+    await ensureMaterialNameMap();
     const payload = await api("/api/orders/list?limit=50", { method: "GET" });
     state.orders = payload.orders || [];
     renderOrders(state.orders);
@@ -2931,7 +2957,7 @@ async function confirmPurchase(product, quantity) {
 }
 
 async function confirmMarketBuy(listing, buyQuantity) {
-  await ensureZhNameMap();
+  await ensureMaterialNameMap();
   const meta = parseMeta(listing.itemMetaJson);
   const displayName = stripColorCodes(meta.displayName || "");
   const localizedName = displayName || getLocalizedMaterialName(listing.itemMaterial);
@@ -3529,7 +3555,7 @@ elements.productList.addEventListener("click", async (event) => {
 
   const originalText = button.textContent;
   button.disabled = true;
-  button.textContent = "下单中...";
+  setNodeText(button, "下单中...");
   try {
     await createOrder(productId, qtyValue, deliveryMode, product.title);
   } catch (error) {
@@ -3587,7 +3613,7 @@ if (elements.orderList) {
       return;
     }
     button.disabled = true;
-    button.textContent = "退款中...";
+    setNodeText(button, "退款中...");
     try {
       await refundOrder(orderNo);
     } catch (error) {
@@ -3596,7 +3622,7 @@ if (elements.orderList) {
       notify(`退款失败：${message}`, "error");
     } finally {
       button.disabled = false;
-      button.textContent = "申请退款";
+      setNodeText(button, "申请退款");
     }
   });
 }
@@ -3619,7 +3645,7 @@ elements.marketList.addEventListener("click", async (event) => {
 
   const originalText = button.textContent;
   button.disabled = true;
-  button.textContent = "处理中...";
+  setNodeText(button, "处理中...");
   try {
     if (button.dataset.action === "buy") {
       let listing = state.listings.find((item) => Number(item.id) === listingId);
@@ -3782,7 +3808,7 @@ setMetaText(elements.redeemView, "等待兑换操作", "info");
 setMetaText(elements.exchangeView, "等待兑换操作", "info");
 setMetaText(elements.orderView, "暂无订单", "info");
 setMetaText(elements.marketView, "暂无市场数据", "info");
-ensureZhNameMap();
+ensureMaterialNameMap();
 loadOrderPolicy();
 loadCurrencyMeta().finally(() => {
   loadProducts();

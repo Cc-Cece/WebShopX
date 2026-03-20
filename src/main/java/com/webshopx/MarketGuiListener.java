@@ -21,10 +21,15 @@ import org.bukkit.event.player.PlayerInteractEvent;
 class MarketGuiListener implements Listener {
   private final MarketGuiService marketGuiService;
   private final MarketService marketService;
+  private final MessageService messageService;
 
-  MarketGuiListener(MarketGuiService marketGuiService, MarketService marketService) {
+  MarketGuiListener(
+      MarketGuiService marketGuiService,
+      MarketService marketService,
+      MessageService messageService) {
     this.marketGuiService = marketGuiService;
     this.marketService = marketService;
+    this.messageService = messageService;
   }
 
   @EventHandler
@@ -43,9 +48,12 @@ class MarketGuiListener implements Listener {
     try {
       marketGuiService.handleInventoryClick(player, event);
     } catch (ServiceException exception) {
-      player.sendMessage("§c操作失败：" + exception.getMessage());
+      player.sendMessage(messageService.format(
+          player,
+          "chat.market.action_failed",
+          java.util.Map.of("reason", marketGuiService.humanizeError(player, exception))));
     } catch (Exception exception) {
-      player.sendMessage("§c市场 GUI 出现异常，请稍后重试。");
+      player.sendMessage(messageService.get(player, "chat.market.listener_exception"));
     }
   }
 
@@ -105,10 +113,14 @@ class MarketGuiListener implements Listener {
     }
     event.setCancelled(true);
     event.getPlayer().sendMessage(
-        "§c该供货箱正在被市场保护中。§7主人：§f" + info.ownerName()
-            + " §7| 物品：§f" + info.itemMaterial()
-            + " §7| 编号：§f#" + info.listingId()
-            + " §7| 状态：§f" + info.status());
+        messageService.format(
+            event.getPlayer(),
+            "chat.market.protected_supply",
+            java.util.Map.of(
+                "ownerName", info.ownerName(),
+                "itemMaterial", info.itemMaterial(),
+                "listingId", info.listingId(),
+                "status", marketGuiService.marketStatusLabel(event.getPlayer(), info.status()))));
   }
 
   @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)

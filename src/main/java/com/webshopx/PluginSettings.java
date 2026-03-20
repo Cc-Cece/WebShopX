@@ -12,6 +12,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 record PluginSettings(
     ServerMode serverMode,
     String apiBaseUrl,
+    String defaultLocale,
     int sessionExpireHours,
     int bindRequestExpireMinutes,
     int accessTokenLength,
@@ -107,6 +108,7 @@ record PluginSettings(
     return new PluginSettings(
         mode,
         normalizeApiBaseUrl(config.getString("webshop.api-base-url", "")),
+        normalizeLocale(config.getString("webshop.default-locale", "zh-CN")),
         config.getInt("webshop.session-expire-hours", 72),
         config.getInt("webshop.bind-request-expire-minutes", 15),
         config.getInt("webshop.access-token-length", 48),
@@ -137,6 +139,20 @@ record PluginSettings(
     String normalized = rawApiBaseUrl.trim();
     while (normalized.endsWith("/")) {
       normalized = normalized.substring(0, normalized.length() - 1);
+    }
+    return normalized;
+  }
+
+  private static String normalizeLocale(String rawLocale) {
+    if (rawLocale == null || rawLocale.isBlank()) {
+      return "zh-CN";
+    }
+    String normalized = rawLocale.trim().replace('_', '-');
+    if (normalized.equalsIgnoreCase("zh") || normalized.regionMatches(true, 0, "zh-", 0, 3)) {
+      return "zh-CN";
+    }
+    if (normalized.equalsIgnoreCase("en") || normalized.regionMatches(true, 0, "en-", 0, 3)) {
+      return "en-US";
     }
     return normalized;
   }

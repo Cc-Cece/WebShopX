@@ -14,12 +14,14 @@ class StaticAssetInstaller {
   private static final List<String> ASSETS = List.of(
       "web/index.html",
       "web/admin.html",
-      "web/material_zh.json",
       "web/css/light.css",
       "web/css/dark.css",
       "web/css/styles.css",
+      "web/js/i18n.js",
       "web/js/app.js",
-      "web/js/admin.js");
+      "web/js/admin.js",
+      "web/i18n/materials/zh-CN.json",
+      "web/i18n/materials/en-US.json");
 
   private final JavaPlugin plugin;
 
@@ -64,7 +66,11 @@ class StaticAssetInstaller {
         + System.lineSeparator()
         + "  apiBaseUrl: \"" + escapeJs(settings.apiBaseUrl()) + "\","
         + System.lineSeparator()
-        + "  serverMode: \"" + settings.serverMode().name() + "\""
+        + "  serverMode: \"" + settings.serverMode().name() + "\","
+        + System.lineSeparator()
+        + "  defaultLocale: \"" + escapeJs(settings.defaultLocale()) + "\","
+        + System.lineSeparator()
+        + "  supportedLocales: [\"zh-CN\", \"en-US\"]"
         + System.lineSeparator()
         + "});"
         + System.lineSeparator();

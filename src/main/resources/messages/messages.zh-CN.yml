@@ -1,0 +1,248 @@
+command:
+  unknown_subcommand: "§c未知子命令，请使用 /webshopx help 查看帮助。"
+  common:
+    no_permission: "§c你没有权限。"
+  password:
+    player_only: "§c该命令仅可在游戏内执行：/webshopx password <新密码>"
+    usage: "§e用法：/webshopx password <新密码>"
+    created: "§a网页账号已创建并绑定成功。"
+    updated: "§a网页登录密码已更新并完成绑定。"
+    username: "§7登录用户名：§f{username}"
+    web_login: "§7现在可以前往网页使用该用户名与密码登录。"
+    failed: "§c设置密码失败：{reason}"
+    error:
+      invalid_username: "当前游戏用户名不合法，请检查名称格式。"
+      invalid_password: "密码长度需为 8-64 位。"
+      username_exists: "当前用户名已被其他网页账号占用，请联系管理员处理。"
+      user_missing: "账号数据不存在，请联系管理员处理。"
+  claim:
+    player_only: "§c仅玩家可领取待发货内容。"
+    none: "§e当前没有可领取的内容。"
+    partial: "§6领取完成：成功 §a{success} §6条，失败 §c{failed} §6条。可再次使用 /ws claim。"
+    success: "§a领取完成：成功 {success} 条。"
+    failed: "§c领取失败：{reason}"
+  market:
+    player_only: "§c仅玩家可使用市场命令。"
+    usage_gui: "§e用法：/webshopx market [gui]"
+    usage_legacy: "§e兼容旧命令：/webshopx market sell <price> [amount] [currency]"
+    usage_sell: "§e用法：/webshopx market sell <price> [amount] [currency]"
+    sell_success: "§a上架成功：§f#{listingId} §7| 物品 §f{material} x{quantity} §7| 单价 §f{price} {currency}"
+    sell_number: "§c价格与数量必须为数字。"
+    sell_failed: "§c上架失败：{reason}"
+    logs_number: "§c数量必须为数字。"
+    logs_empty: "§e最近没有店铺成交记录。"
+    logs_title: "§6最近店铺成交记录："
+    logs_entry: "§7[#{tradeId}] §f{itemMaterial} x{quantity} §7| 买家 §f{buyerName} §7| 成交额 §f{totalPrice} {currency} §7| 状态 §f{status} §7| 时间 §f{createdAt}"
+    logs_failed: "§c读取店铺成交记录失败：{reason}"
+  reload:
+    success: "§aWebShopX 配置已重载。"
+    failed: "§c重载失败，请查看控制台日志。"
+  redeem:
+    usage: "§e用法：/webshopx redeem create <shopCoin> <gameCoin> [maxUses] [perUserMaxUses] [minutes] [code]"
+    created: "§a兑换码已创建：§f{code}"
+    number: "§c参数必须为有效数字。"
+    failed: "§c创建失败：{reason}"
+  help:
+    base:
+      - "§e/webshopx help §7- 查看帮助"
+      - "§e/webshopx password <新密码> §7- 在游戏内创建或重置网页登录密码"
+      - "§e/webshopx market [gui] §7- 打开市场 GUI（创建上架与管理）"
+      - "§e/webshopx market sell <price> [amount] [currency] §7- 兼容旧式上架命令"
+      - "§e/webshopx market logs [count] §7- 查看自己店铺最近成交记录"
+      - "§e/webshopx claim [all|ODR-...|MKT-...|CLM-...|MCL-...] §7- 领取待发货内容"
+    admin:
+      - "§e/webshopx reload §7- 重载配置与内置网页"
+      - "§e/webshopx redeem create <shop> <game> [max] [perUserMax] [minutes] [code] §7- 创建兑换码"
+
+chat:
+  delivery:
+    claim_hint: "§e你有 {count} 条待领取发货，请输入 /ws claim"
+    claim_success_order: "领取成功：{orderNo}"
+    deliver_success_order: "发货成功：{orderNo}"
+    claim_success_market: "领取成功：{token}"
+    deliver_success_market: "发货成功：{token}"
+    claim_failed: "§e领取失败：{reason}"
+    auto_claim_hint: "§e自动发货失败，已转手动领取：/ws claim {token}"
+    generic_failed: "发货失败"
+    inventory_full: "背包已满"
+    player_offline: "玩家离线"
+    empty_snapshot: "物品快照为空"
+    invalid_material: "物品材质无效"
+    invalid_potion: "药水效果无效"
+  market:
+    create_cancelled: "§e已取消市场创建流程。"
+    invalid_price_empty: "§c请输入有效价格，或输入 cancel 取消。"
+    invalid_price_integer: "§c价格必须为正整数，或输入 cancel 取消。"
+    invalid_price_positive: "§c价格必须大于 0。"
+    session_expired: "§c市场创建状态已失效，请重新开始。"
+    manual_success: "§a上架成功：§f#{listingId} §7| 物品 §f{material} x{quantity} §7| 单价 §f{price} GAME_COIN"
+    supply_success: "§a供货箱上架成功：§f#{listingId} §7| 模板 §f{material} §7| 当前中转 §f{quantity} §7| 单价 §f{price} GAME_COIN"
+    create_failed: "§c创建失败：{reason}"
+    bind_prompt: "§e请右键点击要绑定的供货箱（支持大箱子、箱子、木桶、潜影盒）。输入 /ws market 可重新打开菜单。"
+    bind_success: "§a供货箱已绑定。§e请放入 1 个模板物品后点击“下一步”。"
+    bind_failed: "§c绑定失败：{reason}"
+    read_failed: "§c读取上架失败：{reason}"
+    enter_price: "§e请输入单价，或输入 §ccancel §e取消。"
+    cannot_continue: "§c无法继续：{reason}"
+    listing_missing: "§c该上架已不存在，请重新打开列表。"
+    paused: "§e已暂停上架 #{listingId}"
+    resumed: "§a已恢复上架 #{listingId}"
+    unlisted: "§6已下架 #{listingId}，库存退回处理中。"
+    refresh_success: "§a供货刷新完成：本次提取 §f{loadedAmount} §7| 当前中转 §f{currentStock}/{maxStock} §7| 累计提取 §f{loadedTotal}"
+    web_edit_hint: "§e价格、币种、备注与供货参数请前往网页端编辑。"
+    action_failed: "§c操作失败：{reason}"
+    listener_exception: "§c市场 GUI 出现异常，请稍后重试。"
+    protected_supply: "§c该供货箱正在被市场保护中。§7主人：§f{ownerName} §7| 物品：§f{itemMaterial} §7| 编号：§f#{listingId} §7| 状态：§f{status}"
+    supply_paused_external: "§e供货箱已失效，对应上架 #{listingId} 已自动暂停。"
+
+gui:
+  market:
+    title:
+      main: "市场中心"
+      manage: "我的上架"
+      detail: "上架 #{listingId}"
+      supply_template: "供货模板"
+      manual: "普通上架"
+    common:
+      back:
+        title: "返回"
+        subtitle: "回到市场中心"
+      refresh:
+        title: "刷新列表"
+        subtitle: "重新读取最新状态"
+    main:
+      manual:
+        title: "普通上架"
+        subtitle: "放入物品后输入单价即可创建"
+        lore:
+          - "默认币种：GAME_COIN"
+          - "备注和币种后续到网页修改"
+      supply:
+        title: "供货箱上架"
+        subtitle: "先点击供货箱，再放入 1 个模板物品"
+        lore:
+          - "支持大箱子、箱子、木桶、潜影盒"
+          - "默认使用服务器配置的提取量与中转上限"
+      manage:
+        title: "我的上架"
+        subtitle: "查看并管理当前上架"
+        lore:
+          - "支持暂停 / 恢复 / 下架"
+          - "供货箱模式支持手动刷新"
+    manage:
+      empty:
+        title: "暂无上架"
+        subtitle: "当前没有可管理的上架"
+        lore:
+          - "可先返回主菜单创建上架"
+    input:
+      cancel:
+        title: "取消"
+        subtitle: "取消流程并退回物品"
+        lore:
+          - "输入 cancel 也可取消聊天流程"
+      next:
+        title: "下一步"
+        subtitle: "关闭 GUI 后在聊天栏输入单价"
+        manual_lore:
+          - "放多少个就上架多少个"
+          - "默认币种：GAME_COIN"
+        supply:
+          lore_template: "只放 1 个模板物品"
+          lore_currency: "默认币种：GAME_COIN"
+          lore_source_missing: "供货箱：未绑定"
+          lore_source: "供货箱：{world} {x} {y} {z}"
+      info:
+        manual:
+          title: "普通上架"
+          subtitle: "把要出售的物品放入前 45 格"
+          lore:
+            - "只允许一种物品"
+            - "其他设置后续在网页编辑"
+        supply:
+          title: "供货箱上架"
+          subtitle: "把 1 个模板物品放入前 45 格"
+          lore:
+            - "其他参数默认取服务器配置"
+            - "后续在网页编辑供货参数和备注"
+    detail:
+      web_edit:
+        title: "网页编辑"
+        subtitle: "价格、币种、备注与供货参数只在网页编辑"
+        lore:
+          - "游戏内保持最少输入"
+          - "网页端可补充更多设置"
+      refresh:
+        title: "手动刷新供货"
+        subtitle: "检查供货箱并补货一次"
+        transit: "当前中转：{current}/{max}"
+        batch: "单次提取：{value}"
+        loaded_total: "累计提取：{value}"
+        sold_total: "累计售出：{value}"
+        last_loaded_empty: "最近补货：未补货"
+        last_loaded: "最近补货：{value}"
+      pause:
+        title: "暂停上架"
+        subtitle: "暂时停止出售"
+      resume:
+        title: "恢复上架"
+        subtitle: "重新对外出售"
+      unlist:
+        title: "下架退回"
+        subtitle: "将当前库存退回游戏内"
+      back:
+        title: "返回列表"
+        subtitle: "回到我的上架"
+    listing:
+      status: "状态：§f{value}"
+      price: "价格：§f{price} {currency}"
+      stock: "库存：§f{current}/{max}"
+      mode: "模式：§f{value}"
+      batch: "单次提取：§f{value}"
+      loaded_total: "累计提取：§f{value}"
+      remark: "备注：§f{value}"
+      remark_placeholder: "备注：§8网页端可编辑"
+      created_at: "创建时间：§f{value}"
+      click_open: "点击打开详情"
+
+enum:
+  market_status:
+    active: "在售"
+    paused: "已暂停"
+    sold: "已售"
+    unlisted: "已下架"
+    supply_empty: "待补货"
+  market_mode:
+    manual: "普通上架"
+    supply: "供货箱"
+
+error:
+  market:
+    invalid_price: "价格必须大于 0。"
+    invalid_amount: "数量必须在 1-64 之间。"
+    empty_hand: "请先手持或放入有效物品。"
+    insufficient_item: "物品数量不足。"
+    invalid_item: "物品数据无效，请重新检查。"
+    input_empty: "请先在箱子 GUI 中放入要上架的物品。"
+    manual_single_item: "普通上架一次只允许放入一种物品。"
+    template_missing: "请先放入 1 个模板物品。"
+    template_single: "供货箱上架只允许放入 1 个模板物品。"
+    not_bound: "请先在游戏内设置网页登录密码并完成绑定。"
+    supply_empty: "供货箱里没有匹配的货物可上架。"
+    supply_missing: "当前未找到有效供货箱，请检查绑定状态。"
+    invalid_listing: "上架编号无效。"
+    listing_missing: "该上架不存在。"
+    listing_unavailable: "该上架当前不可操作。"
+    invalid_trade: "不能购买自己的上架。"
+    insufficient_quantity: "当前上架剩余数量不足。"
+    forbidden: "你无权操作该上架。"
+    sync_timeout: "供货操作超时，请稍后重试。"
+    sync_interrupted: "供货操作被中断，请稍后重试。"
+    listing_empty: "当前上架没有可恢复的库存。"
+    listing_limit: "当前上架数量已达到上限。"
+  delivery:
+    claim_token_invalid: "领取命令无效或已失效，请重新复制。"
+    claim_forbidden: "该领取命令仅限订单本人使用。"
+  redeem:
+    invalid_amount: "至少需要一种货币数量大于 0。"
+    code_exists: "兑换码已存在，请更换后重试。"

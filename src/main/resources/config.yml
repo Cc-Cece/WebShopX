@@ -14,6 +14,9 @@ webshop:
   # 外部托管前端时可填写 API 基地址，例如 https://shop.example.com 或 https://api.example.com
   # 留空表示前端继续使用当前站点的相对路径 /api/...
   api-base-url: ""
+  # 默认语言：用于网页首选语言回退和插件内提示语言回退
+  # 当前内置：zh-CN / en-US
+  default-locale: zh-CN
 
   # 玩家登录会话有效期（小时）
   session-expire-hours: 72

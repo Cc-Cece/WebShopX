@@ -29,40 +29,111 @@ class MarketGuiService {
 
   private final MarketService marketService;
   private final Supplier<PluginSettings> settingsSupplier;
+  private final MessageService messageService;
   private final Map<UUID, CreationSession> creationSessions = new HashMap<>();
   private final Map<UUID, ChatSession> chatSessions = new HashMap<>();
   private final Map<UUID, SupplyBindSession> supplyBindSessions = new HashMap<>();
 
-  MarketGuiService(MarketService marketService, Supplier<PluginSettings> settingsSupplier) {
+  MarketGuiService(
+      MarketService marketService,
+      Supplier<PluginSettings> settingsSupplier,
+      MessageService messageService) {
     this.marketService = marketService;
     this.settingsSupplier = settingsSupplier;
+    this.messageService = messageService;
+  }
+
+  String humanizeError(Player player, ServiceException exception) {
+    return switch (exception.code()) {
+      case "invalid_price" -> messageService.get(player, "error.market.invalid_price");
+      case "invalid_amount" -> messageService.get(player, "error.market.invalid_amount");
+      case "empty_hand" -> messageService.get(player, "error.market.empty_hand");
+      case "invalid_item" -> humanizeInvalidItem(player, exception.getMessage());
+      case "insufficient_item" -> messageService.get(player, "error.market.insufficient_item");
+      case "not_bound" -> messageService.get(player, "error.market.not_bound");
+      case "supply_empty" -> messageService.get(player, "error.market.supply_empty");
+      case "supply_missing" -> messageService.get(player, "error.market.supply_missing");
+      case "invalid_listing" -> messageService.get(player, "error.market.invalid_listing");
+      case "listing_missing" -> messageService.get(player, "error.market.listing_missing");
+      case "listing_unavailable" -> messageService.get(player, "error.market.listing_unavailable");
+      case "invalid_trade" -> messageService.get(player, "error.market.invalid_trade");
+      case "insufficient_quantity" -> messageService.get(player, "error.market.insufficient_quantity");
+      case "forbidden" -> messageService.get(player, "error.market.forbidden");
+      case "sync_timeout" -> messageService.get(player, "error.market.sync_timeout");
+      case "sync_interrupted" -> messageService.get(player, "error.market.sync_interrupted");
+      case "listing_empty" -> messageService.get(player, "error.market.listing_empty");
+      case "listing_limit" -> messageService.get(player, "error.market.listing_limit");
+      default -> exception.getMessage();
+    };
+  }
+
+  private String humanizeInvalidItem(Player player, String rawMessage) {
+    if (rawMessage == null) {
+      return messageService.get(player, "error.market.invalid_item");
+    }
+    return switch (rawMessage) {
+      case "请先在箱子 GUI 中放入要上架的物品" -> messageService.get(player, "error.market.input_empty");
+      case "普通上架一次只允许放入一种物品" -> messageService.get(player, "error.market.manual_single_item");
+      case "未检测到有效物品" -> messageService.get(player, "error.market.invalid_item");
+      case "请先放入 1 个模板物品" -> messageService.get(player, "error.market.template_missing");
+      case "供货箱上架只允许放入 1 个模板物品" -> messageService.get(player, "error.market.template_single");
+      default -> messageService.get(player, "error.market.invalid_item");
+    };
+  }
+
+  String marketStatusLabel(Player player, String status) {
+    String normalized = status == null ? "" : status.trim().toUpperCase(Locale.ROOT);
+    return switch (normalized) {
+      case "ACTIVE" -> messageService.get(player, "enum.market_status.active");
+      case "PAUSED" -> messageService.get(player, "enum.market_status.paused");
+      case "SOLD" -> messageService.get(player, "enum.market_status.sold");
+      case "UNLISTED" -> messageService.get(player, "enum.market_status.unlisted");
+      case "SUPPLY_EMPTY" -> messageService.get(player, "enum.market_status.supply_empty");
+      default -> normalized;
+    };
+  }
+
+  private String msg(Player player, String key) {
+    return messageService.get(player, key);
+  }
+
+  private String msg(Player player, String key, Map<String, ?> params) {
+    return messageService.format(player, key, params);
+  }
+
+  private List<String> msgList(Player player, String key) {
+    return messageService.getList(player, key);
+  }
+
+  private List<String> msgList(Player player, String key, Map<String, ?> params) {
+    return messageService.getList(player, key, params);
   }
 
   void openMainMenu(Player player) {
     MainHolder holder = new MainHolder(player.getUniqueId());
-    Inventory inventory = createInventory(holder, MAIN_SIZE, "市场中心");
+    Inventory inventory = createInventory(holder, MAIN_SIZE, msg(player, "gui.market.title.main"));
     fill(inventory);
     inventory.setItem(
         11,
         buildButton(
             Material.CHEST,
-            "普通上架",
-            "放入物品后输入单价即可创建",
-            List.of("默认币种：GAME_COIN", "备注和币种后续到网页修改")));
+            msg(player, "gui.market.main.manual.title"),
+            msg(player, "gui.market.main.manual.subtitle"),
+            msgList(player, "gui.market.main.manual.lore")));
     inventory.setItem(
         13,
         buildButton(
             Material.HOPPER,
-            "供货箱上架",
-            "先点击供货箱，再放入 1 个模板物品",
-            List.of("支持大箱子、箱子、木桶、潜影盒", "默认使用服务器配置的提取量与中转上限")));
+            msg(player, "gui.market.main.supply.title"),
+            msg(player, "gui.market.main.supply.subtitle"),
+            msgList(player, "gui.market.main.supply.lore")));
     inventory.setItem(
         15,
         buildButton(
             Material.BOOK,
-            "我的上架",
-            "查看并管理当前上架",
-            List.of("支持暂停 / 恢复 / 下架", "供货箱模式支持手动刷新")));
+            msg(player, "gui.market.main.manage.title"),
+            msg(player, "gui.market.main.manage.subtitle"),
+            msgList(player, "gui.market.main.manage.lore")));
     player.openInventory(inventory);
   }
 
@@ -98,29 +169,29 @@ class MarketGuiService {
     }
     String trimmed = message == null ? "" : message.trim();
     if (trimmed.equalsIgnoreCase("cancel")) {
-      cancelChatSession(player, "已取消市场创建流程。");
+      cancelChatSession(player, msg(player, "chat.market.create_cancelled"));
       return;
     }
     if (trimmed.isBlank()) {
-      player.sendMessage("§c请输入有效价格，或输入 cancel 取消。");
+      player.sendMessage(msg(player, "chat.market.invalid_price_empty"));
       return;
     }
     long price;
     try {
       price = Long.parseLong(trimmed);
     } catch (NumberFormatException exception) {
-      player.sendMessage("§c价格必须为正整数，或输入 cancel 取消。");
+      player.sendMessage(msg(player, "chat.market.invalid_price_integer"));
       return;
     }
     if (price <= 0) {
-      player.sendMessage("§c价格必须大于 0。");
+      player.sendMessage(msg(player, "chat.market.invalid_price_positive"));
       return;
     }
 
     chatSessions.remove(player.getUniqueId());
     CreationSession creation = creationSessions.remove(player.getUniqueId());
     if (creation == null) {
-      player.sendMessage("§c市场创建状态已失效，请重新开始。");
+      player.sendMessage(msg(player, "chat.market.session_expired"));
       return;
     }
 
@@ -132,11 +203,11 @@ class MarketGuiService {
             listingItem,
             price,
             CurrencyType.GAME_COIN);
-        player.sendMessage(
-            "§a上架成功：§f#" + result.listingId()
-                + " §7| 物品 §f" + result.material()
-                + " x" + result.quantity()
-                + " §7| 单价 §f" + result.price() + " GAME_COIN");
+        player.sendMessage(msg(player, "chat.market.manual_success", Map.of(
+            "listingId", result.listingId(),
+            "material", result.material(),
+            "quantity", result.quantity(),
+            "price", result.price())));
       } else {
         ItemStack template = extractSupplyTemplate(creation.inventory());
         returnItems(player, creation.inventory());
@@ -146,15 +217,16 @@ class MarketGuiService {
             template,
             price,
             CurrencyType.GAME_COIN);
-        player.sendMessage(
-            "§a供货箱上架成功：§f#" + result.listingId()
-                + " §7| 模板 §f" + result.material()
-                + " §7| 当前中转 §f" + result.quantity()
-                + " §7| 单价 §f" + result.price() + " GAME_COIN");
+        player.sendMessage(msg(player, "chat.market.supply_success", Map.of(
+            "listingId", result.listingId(),
+            "material", result.material(),
+            "quantity", result.quantity(),
+            "price", result.price())));
       }
       openManageMenu(player);
     } catch (ServiceException exception) {
-      player.sendMessage("§c创建失败：" + exception.getMessage());
+      player.sendMessage(msg(player, "chat.market.create_failed",
+          Map.of("reason", humanizeError(player, exception))));
       returnItems(player, creation.inventory());
     }
   }
@@ -167,7 +239,7 @@ class MarketGuiService {
     clearTransientState(player);
     supplyBindSessions.put(player.getUniqueId(), new SupplyBindSession(player.getUniqueId()));
     player.closeInventory();
-    player.sendMessage("§e请右键点击要绑定的供货箱（支持大箱子、箱子、木桶、潜影盒）。输入 /ws market 可重新打开菜单。");
+    player.sendMessage(msg(player, "chat.market.bind_prompt"));
   }
 
   void handleSupplyBindClick(Player player, Block block) {
@@ -177,10 +249,11 @@ class MarketGuiService {
     }
     try {
       MarketService.SupplySourceDescriptor source = marketService.describeSupplySource(block);
-      openInputInventory(player, ListingMode.SUPPLY, source, "供货模板");
-      player.sendMessage("§a供货箱已绑定。§e请放入 1 个模板物品后点击“下一步”。");
+      openInputInventory(player, ListingMode.SUPPLY, source, msg(player, "gui.market.title.supply_template"));
+      player.sendMessage(msg(player, "chat.market.bind_success"));
     } catch (ServiceException exception) {
-      player.sendMessage("§c绑定失败：" + exception.getMessage());
+      player.sendMessage(msg(player, "chat.market.bind_failed",
+          Map.of("reason", humanizeError(player, exception))));
     }
   }
 
@@ -193,30 +266,35 @@ class MarketGuiService {
     try {
       listings = marketService.listListingsForPlayer(player.getUniqueId(), 45);
     } catch (ServiceException exception) {
-      player.sendMessage("§c读取上架失败：" + exception.getMessage());
+      player.sendMessage(msg(player, "chat.market.read_failed",
+          Map.of("reason", humanizeError(player, exception))));
       openMainMenu(player);
       return;
     }
     ManageHolder holder = new ManageHolder(player.getUniqueId());
-    Inventory inventory = createInventory(holder, MANAGE_SIZE, "我的上架");
+    Inventory inventory = createInventory(holder, MANAGE_SIZE, msg(player, "gui.market.title.manage"));
     fill(inventory);
     if (listings.isEmpty()) {
       inventory.setItem(
           22,
-          buildButton(Material.BARRIER, "暂无上架", "当前没有可管理的上架", List.of("可先返回主菜单创建上架")));
+          buildButton(
+              Material.BARRIER,
+              msg(player, "gui.market.manage.empty.title"),
+              msg(player, "gui.market.manage.empty.subtitle"),
+              msgList(player, "gui.market.manage.empty.lore")));
     } else {
       for (int index = 0; index < Math.min(45, listings.size()); index++) {
-        inventory.setItem(index, buildListingIcon(listings.get(index)));
+        inventory.setItem(index, buildListingIcon(player, listings.get(index)));
       }
     }
-    inventory.setItem(45, buildButton(Material.ARROW, "返回", "回到市场中心", List.of()));
-    inventory.setItem(49, buildButton(Material.SUNFLOWER, "刷新列表", "重新读取最新状态", List.of()));
+    inventory.setItem(45, buildButton(Material.ARROW, msg(player, "gui.market.common.back.title"), msg(player, "gui.market.common.back.subtitle"), List.of()));
+    inventory.setItem(49, buildButton(Material.SUNFLOWER, msg(player, "gui.market.common.refresh.title"), msg(player, "gui.market.common.refresh.subtitle"), List.of()));
     player.openInventory(inventory);
   }
 
   private void handleMainClick(Player player, int slot) {
     if (slot == 11) {
-      openInputInventory(player, ListingMode.MANUAL, null, "普通上架");
+      openInputInventory(player, ListingMode.MANUAL, null, msg(player, "gui.market.title.manual"));
     } else if (slot == 13) {
       beginSupplyBinding(player);
     } else if (slot == 15) {
@@ -244,10 +322,10 @@ class MarketGuiService {
     try {
       if (session.mode() == ListingMode.MANUAL) {
         extractManualItem(session.inventory());
-        player.sendMessage("§e请输入单价，或输入 §ccancel §e取消。");
+        player.sendMessage(msg(player, "chat.market.enter_price"));
       } else {
         extractSupplyTemplate(session.inventory());
-        player.sendMessage("§e请输入单价，或输入 §ccancel §e取消。");
+        player.sendMessage(msg(player, "chat.market.enter_price"));
       }
       creationSessions.put(player.getUniqueId(), session.markAwaitingChat());
       chatSessions.put(
@@ -255,7 +333,8 @@ class MarketGuiService {
           new ChatSession(player.getUniqueId(), session.mode(), session.source()));
       player.closeInventory();
     } catch (ServiceException exception) {
-      player.sendMessage("§c无法继续：" + exception.getMessage());
+      player.sendMessage(msg(player, "chat.market.cannot_continue",
+          Map.of("reason", humanizeError(player, exception))));
     }
   }
 
@@ -278,7 +357,7 @@ class MarketGuiService {
   private void handleDetailClick(Player player, DetailHolder holder, int slot) {
     MarketService.ListingView listing = findOwnedListing(player, holder.listingId());
     if (listing == null) {
-      player.sendMessage("§c该上架已不存在，请重新打开列表。");
+      player.sendMessage(msg(player, "chat.market.listing_missing"));
       openManageMenu(player);
       return;
     }
@@ -290,36 +369,37 @@ class MarketGuiService {
       if (slot == 40) {
         if ("ACTIVE".equalsIgnoreCase(listing.status())) {
           marketService.pause(listing.sellerUserId(), listing.id());
-          player.sendMessage("§e已暂停上架 #" + listing.id());
+          player.sendMessage(msg(player, "chat.market.paused", Map.of("listingId", listing.id())));
         } else if ("PAUSED".equalsIgnoreCase(listing.status())) {
           marketService.resume(listing.sellerUserId(), listing.id());
-          player.sendMessage("§a已恢复上架 #" + listing.id());
+          player.sendMessage(msg(player, "chat.market.resumed", Map.of("listingId", listing.id())));
         }
         openDetailMenu(player, listing.id());
         return;
       }
       if (slot == 42) {
         MarketService.UnlistResult result = marketService.unlist(listing.sellerUserId(), listing.id());
-        player.sendMessage("§6已下架 #" + result.listingId() + "，库存退回处理中。");
+        player.sendMessage(msg(player, "chat.market.unlisted", Map.of("listingId", result.listingId())));
         openManageMenu(player);
         return;
       }
       if (slot == 24 && listing.sourceMode() == MarketService.SupplyMode.SUPPLY) {
         MarketService.SupplyRefreshResult result =
             marketService.refreshSupplyListing(listing.sellerUserId(), listing.id());
-        player.sendMessage(
-            "§a供货刷新完成：本次提取 §f" + result.loadedAmount()
-                + " §7| 当前中转 §f" + result.currentStock()
-                + "/" + result.maxStock()
-                + " §7| 累计提取 §f" + result.loadedTotal());
+        player.sendMessage(msg(player, "chat.market.refresh_success", Map.of(
+            "loadedAmount", result.loadedAmount(),
+            "currentStock", result.currentStock(),
+            "maxStock", result.maxStock(),
+            "loadedTotal", result.loadedTotal())));
         openDetailMenu(player, listing.id());
         return;
       }
       if (slot == 20) {
-        player.sendMessage("§e价格、币种、备注与供货参数请前往网页端编辑。");
+        player.sendMessage(msg(player, "chat.market.web_edit_hint"));
       }
     } catch (ServiceException exception) {
-      player.sendMessage("§c操作失败：" + exception.getMessage());
+      player.sendMessage(msg(player, "chat.market.action_failed",
+          Map.of("reason", humanizeError(player, exception))));
       openDetailMenu(player, listing.id());
     }
   }
@@ -332,7 +412,7 @@ class MarketGuiService {
     clearTransientState(player);
     InputHolder holder = new InputHolder(player.getUniqueId(), mode);
     Inventory inventory = createInventory(holder, INPUT_SIZE, title);
-    fillInputFrame(inventory, mode, source);
+    fillInputFrame(player, inventory, mode, source);
     creationSessions.put(player.getUniqueId(), new CreationSession(player.getUniqueId(), mode, inventory, source));
     player.openInventory(inventory);
   }
@@ -340,44 +420,46 @@ class MarketGuiService {
   private void openDetailMenu(Player player, long listingId) {
     MarketService.ListingView listing = findOwnedListing(player, listingId);
     if (listing == null) {
-      player.sendMessage("§c该上架已不存在，请重新打开列表。");
+      player.sendMessage(msg(player, "chat.market.listing_missing"));
       openManageMenu(player);
       return;
     }
     DetailHolder holder = new DetailHolder(player.getUniqueId(), listingId);
-    Inventory inventory = createInventory(holder, DETAIL_SIZE, "上架 #" + listing.id());
+    Inventory inventory = createInventory(holder, DETAIL_SIZE, msg(player, "gui.market.title.detail", Map.of("listingId", listing.id())));
     fill(inventory);
-    inventory.setItem(4, buildListingIcon(listing));
+    inventory.setItem(4, buildListingIcon(player, listing));
     inventory.setItem(
         20,
         buildButton(
             Material.WRITABLE_BOOK,
-            "网页编辑",
-            "价格、币种、备注与供货参数只在网页编辑",
-            List.of("游戏内保持最少输入", "网页端可补充更多设置")));
+            msg(player, "gui.market.detail.web_edit.title"),
+            msg(player, "gui.market.detail.web_edit.subtitle"),
+            msgList(player, "gui.market.detail.web_edit.lore")));
     if (listing.sourceMode() == MarketService.SupplyMode.SUPPLY) {
       inventory.setItem(
           24,
           buildButton(
               Material.HOPPER,
-              "手动刷新供货",
-              "检查供货箱并补货一次",
+              msg(player, "gui.market.detail.refresh.title"),
+              msg(player, "gui.market.detail.refresh.subtitle"),
               List.of(
-                  "当前中转：" + listing.quantity() + "/" + listing.quantityTotal(),
-                  "单次提取：" + safeInt(listing.supplyBatchSize()),
-                  "累计提取：" + listing.supplyLoadedTotal(),
-                  "累计售出：" + listing.supplySoldTotal(),
+                  msg(player, "gui.market.detail.refresh.transit",
+                      Map.of("current", listing.quantity(), "max", listing.quantityTotal())),
+                  msg(player, "gui.market.detail.refresh.batch", Map.of("value", safeInt(listing.supplyBatchSize()))),
+                  msg(player, "gui.market.detail.refresh.loaded_total", Map.of("value", listing.supplyLoadedTotal())),
+                  msg(player, "gui.market.detail.refresh.sold_total", Map.of("value", listing.supplySoldTotal())),
                   listing.supplyLastLoadedAt() == null
-                      ? "最近补货：未补货"
-                      : "最近补货：" + TIME_FORMATTER.format(listing.supplyLastLoadedAt()))));
+                      ? msg(player, "gui.market.detail.refresh.last_loaded_empty")
+                      : msg(player, "gui.market.detail.refresh.last_loaded",
+                          Map.of("value", TIME_FORMATTER.format(listing.supplyLastLoadedAt()))))));
     }
     if ("ACTIVE".equalsIgnoreCase(listing.status())) {
-      inventory.setItem(40, buildButton(Material.REDSTONE_TORCH, "暂停上架", "暂时停止出售", List.of()));
+      inventory.setItem(40, buildButton(Material.REDSTONE_TORCH, msg(player, "gui.market.detail.pause.title"), msg(player, "gui.market.detail.pause.subtitle"), List.of()));
     } else if ("PAUSED".equalsIgnoreCase(listing.status())) {
-      inventory.setItem(40, buildButton(Material.SOUL_TORCH, "恢复上架", "重新对外出售", List.of()));
+      inventory.setItem(40, buildButton(Material.SOUL_TORCH, msg(player, "gui.market.detail.resume.title"), msg(player, "gui.market.detail.resume.subtitle"), List.of()));
     }
-    inventory.setItem(42, buildButton(Material.BARRIER, "下架退回", "将当前库存退回游戏内", List.of()));
-    inventory.setItem(36, buildButton(Material.ARROW, "返回列表", "回到我的上架", List.of()));
+    inventory.setItem(42, buildButton(Material.BARRIER, msg(player, "gui.market.detail.unlist.title"), msg(player, "gui.market.detail.unlist.subtitle"), List.of()));
+    inventory.setItem(36, buildButton(Material.ARROW, msg(player, "gui.market.detail.back.title"), msg(player, "gui.market.detail.back.subtitle"), List.of()));
     player.openInventory(inventory);
   }
 
@@ -390,7 +472,8 @@ class MarketGuiService {
         }
       }
     } catch (ServiceException exception) {
-      player.sendMessage("§c读取上架失败：" + exception.getMessage());
+      player.sendMessage(msg(player, "chat.market.read_failed",
+          Map.of("reason", humanizeError(player, exception))));
     }
     return null;
   }
@@ -455,6 +538,7 @@ class MarketGuiService {
       value = "DB_DUPLICATE_BRANCHES",
       justification = "Manual and supply listing modes intentionally share the same button layout")
   private void fillInputFrame(
+      Player player,
       Inventory inventory,
       ListingMode mode,
       MarketService.SupplySourceDescriptor source) {
@@ -464,30 +548,42 @@ class MarketGuiService {
     }
     inventory.setItem(
         45,
-        buildButton(Material.ARROW, "取消", "取消流程并退回物品", List.of("输入 cancel 也可取消聊天流程")));
+        buildButton(
+            Material.ARROW,
+            msg(player, "gui.market.input.cancel.title"),
+            msg(player, "gui.market.input.cancel.subtitle"),
+            msgList(player, "gui.market.input.cancel.lore")));
     inventory.setItem(
         49,
         buildButton(
             Material.LIME_WOOL,
-            "下一步",
-            mode == ListingMode.MANUAL ? "关闭 GUI 后在聊天栏输入单价" : "关闭 GUI 后在聊天栏输入单价",
+            msg(player, "gui.market.input.next.title"),
+            msg(player, "gui.market.input.next.subtitle"),
             mode == ListingMode.MANUAL
-                ? List.of("放多少个就上架多少个", "默认币种：GAME_COIN")
+                ? msgList(player, "gui.market.input.next.manual_lore")
                 : List.of(
-                    "只放 1 个模板物品",
-                    "默认币种：GAME_COIN",
+                    msg(player, "gui.market.input.next.supply.lore_template"),
+                    msg(player, "gui.market.input.next.supply.lore_currency"),
                     source == null
-                        ? "供货箱：未绑定"
-                        : "供货箱：" + source.worldName() + " " + source.x() + " " + source.y() + " " + source.z())));
+                        ? msg(player, "gui.market.input.next.supply.lore_source_missing")
+                        : msg(player, "gui.market.input.next.supply.lore_source", Map.of(
+                            "world", source.worldName(),
+                            "x", source.x(),
+                            "y", source.y(),
+                            "z", source.z())))));
     inventory.setItem(
         53,
         buildButton(
             mode == ListingMode.MANUAL ? Material.CHEST : Material.HOPPER,
-            mode == ListingMode.MANUAL ? "普通上架" : "供货箱上架",
-            mode == ListingMode.MANUAL ? "把要出售的物品放入前 45 格" : "把 1 个模板物品放入前 45 格",
             mode == ListingMode.MANUAL
-                ? List.of("只允许一种物品", "其他设置后续在网页编辑")
-                : List.of("其他参数默认取服务器配置", "后续在网页编辑供货参数和备注")));
+                ? msg(player, "gui.market.input.info.manual.title")
+                : msg(player, "gui.market.input.info.supply.title"),
+            mode == ListingMode.MANUAL
+                ? msg(player, "gui.market.input.info.manual.subtitle")
+                : msg(player, "gui.market.input.info.supply.subtitle"),
+            mode == ListingMode.MANUAL
+                ? msgList(player, "gui.market.input.info.manual.lore")
+                : msgList(player, "gui.market.input.info.supply.lore")));
   }
 
   private void returnItems(Player player, Inventory inventory) {
@@ -509,7 +605,7 @@ class MarketGuiService {
     if (session != null) {
       returnItems(player, session.inventory());
     }
-    player.sendMessage("§e" + message);
+    player.sendMessage(message);
     openMainMenu(player);
   }
 
@@ -535,30 +631,31 @@ class MarketGuiService {
     }
   }
 
-  private ItemStack buildListingIcon(MarketService.ListingView listing) {
+  private ItemStack buildListingIcon(Player player, MarketService.ListingView listing) {
     Material material = Material.matchMaterial(String.valueOf(listing.itemMaterial()));
     ItemStack item = new ItemStack(material == null || material == Material.AIR ? Material.CHEST : material);
     ItemMeta meta = item.getItemMeta();
     if (meta != null) {
       meta.setDisplayName("§f#" + listing.id() + " §7" + listing.itemMaterial());
       List<String> lore = new ArrayList<>();
-      lore.add("§7状态：§f" + listing.status());
-      lore.add("§7价格：§f" + listing.price() + " " + listing.currency().name());
-      lore.add("§7库存：§f" + listing.quantity() + "/" + listing.quantityTotal());
+      lore.add("§7" + msg(player, "gui.market.listing.status", Map.of("value", marketStatusLabel(player, listing.status()))));
+      lore.add("§7" + msg(player, "gui.market.listing.price", Map.of("price", listing.price(), "currency", listing.currency().name())));
+      lore.add("§7" + msg(player, "gui.market.listing.stock", Map.of("current", listing.quantity(), "max", listing.quantityTotal())));
       if (listing.sourceMode() == MarketService.SupplyMode.SUPPLY) {
-        lore.add("§7模式：§f供货箱");
-        lore.add("§7单次提取：§f" + safeInt(listing.supplyBatchSize()));
-        lore.add("§7累计提取：§f" + listing.supplyLoadedTotal());
+        lore.add("§7" + msg(player, "gui.market.listing.mode", Map.of("value", msg(player, "enum.market_mode.supply"))));
+        lore.add("§7" + msg(player, "gui.market.listing.batch", Map.of("value", safeInt(listing.supplyBatchSize()))));
+        lore.add("§7" + msg(player, "gui.market.listing.loaded_total", Map.of("value", listing.supplyLoadedTotal())));
       } else {
-        lore.add("§7模式：§f普通上架");
+        lore.add("§7" + msg(player, "gui.market.listing.mode", Map.of("value", msg(player, "enum.market_mode.manual"))));
       }
       if (listing.remark() != null && !listing.remark().isBlank()) {
-        lore.add("§7备注：§f" + trimRemark(listing.remark()));
+        lore.add("§7" + msg(player, "gui.market.listing.remark", Map.of("value", trimRemark(listing.remark()))));
       } else {
-        lore.add("§7备注：§8网页端可编辑");
+        lore.add("§7" + msg(player, "gui.market.listing.remark_placeholder"));
       }
-      lore.add("§7创建时间：§f" + TIME_FORMATTER.format(listing.createdAt()));
-      lore.add("§e点击打开详情");
+      lore.add("§7" + msg(player, "gui.market.listing.created_at",
+          Map.of("value", TIME_FORMATTER.format(listing.createdAt()))));
+      lore.add("§e" + msg(player, "gui.market.listing.click_open"));
       meta.setLore(lore);
       meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
       item.setItemMeta(meta);

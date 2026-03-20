@@ -149,6 +149,10 @@ body {
   white-space: nowrap;
 }
 
+.header-locale-select {
+  min-width: 132px;
+}
+
 .market-toggle {
   display: inline-flex;
   align-items: center;
