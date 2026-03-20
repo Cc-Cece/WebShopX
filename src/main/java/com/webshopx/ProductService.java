@@ -7,8 +7,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import org.bukkit.Material;
 
 class ProductService {
@@ -37,6 +39,25 @@ class ProductService {
     return listProducts(false, 300);
   }
 
+  List<ProductView> listActiveProductsForUser(long userId) {
+    return databaseManager.withConnection(connection -> {
+      List<ProductView> products = listProducts(connection, false, 300);
+      Map<Long, Integer> usageByProduct = readUsageByProduct(connection, userId);
+      List<ProductView> enriched = new ArrayList<>(products.size());
+      for (ProductView product : products) {
+        Integer perUserLimit = product.perUserLimit();
+        if (perUserLimit == null) {
+          enriched.add(product);
+          continue;
+        }
+        int used = usageByProduct.getOrDefault(product.id(), 0);
+        int remaining = Math.max(0, perUserLimit - used);
+        enriched.add(product.withPersonalLimitRemaining(remaining));
+      }
+      return enriched;
+    });
+  }
+
   List<ProductView> listProducts(boolean includeInactive, int requestedLimit) {
     int limit = normalizeLimit(requestedLimit);
     return databaseManager.withConnection(connection -> listProducts(connection, includeInactive, limit));
@@ -55,7 +76,8 @@ class ProductService {
             + "AND (unpublish_at IS NULL OR unpublish_at > ?)";
     String sql = """
         SELECT id, sku, title, remark, currency, price, product_type, command_template,
-               item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
+               item_material, item_amount, stock_remaining, per_user_limit,
+               effect_type, effect_seconds, effect_amplifier,
                publish_at, unpublish_at, active
         FROM products
         """ + activeFilter + " ORDER BY id ASC LIMIT ?";
@@ -85,6 +107,7 @@ class ProductService {
       String normalizedCommand = normalizeCommandTemplate(input.commandTemplate(), productType);
       String normalizedItemMaterial = normalizeItemMaterial(input.itemMaterial(), productType);
       Integer normalizedItemAmount = normalizeItemAmount(input.itemAmount(), productType);
+      Integer normalizedPerUserLimit = normalizePerUserLimit(input.perUserLimit());
       String normalizedEffectType = normalizeEffectType(input.effectType(), productType);
       Integer normalizedEffectSeconds = normalizeEffectSeconds(input.effectSeconds(), productType);
       Integer normalizedEffectAmplifier = normalizeEffectAmplifier(
@@ -98,10 +121,10 @@ class ProductService {
         String insertSql = """
             INSERT INTO products (
               sku, title, remark, currency, price, product_type, command_template,
-              item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
-              publish_at, unpublish_at, active
+              item_material, item_amount, stock_remaining, per_user_limit,
+              effect_type, effect_seconds, effect_amplifier, publish_at, unpublish_at, active
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
         try (PreparedStatement statement = connection.prepareStatement(insertSql)) {
           statement.setString(1, normalizedSku);
@@ -118,6 +141,63 @@ class ProductService {
           } else {
             statement.setInt(9, normalizedItemAmount);
             statement.setInt(10, adjustedStockRemaining == null ? normalizedItemAmount : adjustedStockRemaining);
+          }
+          if (normalizedPerUserLimit == null) {
+            statement.setObject(11, null);
+          } else {
+            statement.setInt(11, normalizedPerUserLimit);
+          }
+          statement.setString(12, normalizedEffectType);
+          if (normalizedEffectSeconds == null) {
+            statement.setObject(13, null);
+          } else {
+            statement.setInt(13, normalizedEffectSeconds);
+          }
+          if (normalizedEffectAmplifier == null) {
+            statement.setObject(14, null);
+          } else {
+            statement.setInt(14, normalizedEffectAmplifier);
+          }
+          if (input.publishAt() == null) {
+            statement.setObject(15, null);
+          } else {
+            statement.setObject(15, input.publishAt());
+          }
+          if (input.unpublishAt() == null) {
+            statement.setObject(16, null);
+          } else {
+            statement.setObject(16, input.unpublishAt());
+          }
+          statement.setBoolean(17, input.active());
+          statement.executeUpdate();
+        }
+      } else {
+        String updateSql = """
+            UPDATE products
+            SET title = ?, remark = ?, currency = ?, price = ?, product_type = ?, command_template = ?,
+                item_material = ?, item_amount = ?, stock_remaining = ?, per_user_limit = ?, effect_type = ?,
+                effect_seconds = ?, effect_amplifier = ?, publish_at = ?, unpublish_at = ?, active = ?
+            WHERE id = ?
+            """;
+        try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
+          statement.setString(1, input.title().trim());
+          statement.setString(2, normalizedRemark);
+          statement.setString(3, input.currency().name());
+          statement.setLong(4, input.price());
+          statement.setString(5, productType.name());
+          statement.setString(6, normalizedCommand);
+          statement.setString(7, normalizedItemMaterial);
+          if (normalizedItemAmount == null) {
+            statement.setObject(8, null);
+            statement.setObject(9, null);
+          } else {
+            statement.setInt(8, normalizedItemAmount);
+            statement.setInt(9, adjustedStockRemaining == null ? normalizedItemAmount : adjustedStockRemaining);
+          }
+          if (normalizedPerUserLimit == null) {
+            statement.setObject(10, null);
+          } else {
+            statement.setInt(10, normalizedPerUserLimit);
           }
           statement.setString(11, normalizedEffectType);
           if (normalizedEffectSeconds == null) {
@@ -141,54 +221,7 @@ class ProductService {
             statement.setObject(15, input.unpublishAt());
           }
           statement.setBoolean(16, input.active());
-          statement.executeUpdate();
-        }
-      } else {
-        String updateSql = """
-            UPDATE products
-            SET title = ?, remark = ?, currency = ?, price = ?, product_type = ?, command_template = ?,
-                item_material = ?, item_amount = ?, stock_remaining = ?, effect_type = ?, effect_seconds = ?,
-                effect_amplifier = ?, publish_at = ?, unpublish_at = ?, active = ?
-            WHERE id = ?
-            """;
-        try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
-          statement.setString(1, input.title().trim());
-          statement.setString(2, normalizedRemark);
-          statement.setString(3, input.currency().name());
-          statement.setLong(4, input.price());
-          statement.setString(5, productType.name());
-          statement.setString(6, normalizedCommand);
-          statement.setString(7, normalizedItemMaterial);
-          if (normalizedItemAmount == null) {
-            statement.setObject(8, null);
-            statement.setObject(9, null);
-          } else {
-            statement.setInt(8, normalizedItemAmount);
-            statement.setInt(9, adjustedStockRemaining == null ? normalizedItemAmount : adjustedStockRemaining);
-          }
-          statement.setString(10, normalizedEffectType);
-          if (normalizedEffectSeconds == null) {
-            statement.setObject(11, null);
-          } else {
-            statement.setInt(11, normalizedEffectSeconds);
-          }
-          if (normalizedEffectAmplifier == null) {
-            statement.setObject(12, null);
-          } else {
-            statement.setInt(12, normalizedEffectAmplifier);
-          }
-          if (input.publishAt() == null) {
-            statement.setObject(13, null);
-          } else {
-            statement.setObject(13, input.publishAt());
-          }
-          if (input.unpublishAt() == null) {
-            statement.setObject(14, null);
-          } else {
-            statement.setObject(14, input.unpublishAt());
-          }
-          statement.setBoolean(15, input.active());
-          statement.setLong(16, existing.id());
+          statement.setLong(17, existing.id());
           statement.executeUpdate();
         }
       }
@@ -223,7 +256,8 @@ class ProductService {
     String lockClause = forUpdate ? " FOR UPDATE" : "";
     String sql = """
         SELECT id, sku, title, remark, currency, price, product_type, command_template,
-               item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
+               item_material, item_amount, stock_remaining, per_user_limit,
+               effect_type, effect_seconds, effect_amplifier,
                publish_at, unpublish_at, active
         FROM products
         WHERE id = ? AND active = TRUE
@@ -246,7 +280,8 @@ class ProductService {
   private ProductView readProductById(Connection connection, long productId) throws SQLException {
     String sql = """
         SELECT id, sku, title, remark, currency, price, product_type, command_template,
-               item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
+               item_material, item_amount, stock_remaining, per_user_limit,
+               effect_type, effect_seconds, effect_amplifier,
                publish_at, unpublish_at, active
         FROM products
         WHERE id = ?
@@ -278,7 +313,8 @@ class ProductService {
     String lockClause = forUpdate ? " FOR UPDATE" : "";
     String sql = """
         SELECT id, sku, title, remark, currency, price, product_type, command_template,
-               item_material, item_amount, stock_remaining, effect_type, effect_seconds, effect_amplifier,
+               item_material, item_amount, stock_remaining, per_user_limit,
+               effect_type, effect_seconds, effect_amplifier,
                publish_at, unpublish_at, active
         FROM products
         WHERE sku = ?
@@ -326,6 +362,8 @@ class ProductService {
     Integer itemAmount = resultSet.wasNull() ? null : itemAmountValue;
     int stockRemainingValue = resultSet.getInt("stock_remaining");
     Integer stockRemaining = resultSet.wasNull() ? null : stockRemainingValue;
+    int perUserLimitValue = resultSet.getInt("per_user_limit");
+    Integer perUserLimit = resultSet.wasNull() ? null : perUserLimitValue;
     String effectType = resultSet.getString("effect_type");
     int effectSecondsValue = resultSet.getInt("effect_seconds");
     Integer effectSeconds = resultSet.wasNull() ? null : effectSecondsValue;
@@ -346,12 +384,14 @@ class ProductService {
         itemMaterial,
         itemAmount,
         stockRemaining,
+        perUserLimit,
         effectType,
         effectSeconds,
         effectAmplifier,
         publishAtRaw,
         unpublishAtRaw,
-        resultSet.getBoolean("active"));
+        resultSet.getBoolean("active"),
+        null);
   }
 
   private void validateAdminInput(AdminProductInput input, boolean allowZeroPrice) {
@@ -446,6 +486,17 @@ class ProductService {
     return normalized;
   }
 
+  private Integer normalizePerUserLimit(Integer perUserLimit) {
+    if (perUserLimit == null) {
+      return null;
+    }
+    int normalized = perUserLimit;
+    if (normalized <= 0 || normalized > 100_000) {
+      throw new ServiceException("invalid_product", "Per-user limit must be between 1 and 100000");
+    }
+    return normalized;
+  }
+
   private String aliasMaterialKey(String key) {
     if (key == null || key.isBlank()) {
       return key;
@@ -522,6 +573,31 @@ class ProductService {
     return Math.min(limit, MAX_LIMIT);
   }
 
+  ProductView readProductView(long productId) {
+    if (productId <= 0) {
+      throw new ServiceException("invalid_product", "Product id must be positive");
+    }
+    return databaseManager.withConnection(connection -> readProductById(connection, productId));
+  }
+
+  private Map<Long, Integer> readUsageByProduct(Connection connection, long userId) throws SQLException {
+    String sql = """
+        SELECT product_id, used_count
+        FROM product_user_usage
+        WHERE user_id = ?
+        """;
+    Map<Long, Integer> usage = new HashMap<>();
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        while (resultSet.next()) {
+          usage.put(resultSet.getLong("product_id"), Math.max(0, resultSet.getInt("used_count")));
+        }
+      }
+    }
+    return usage;
+  }
+
   enum ProductType {
     COMMAND,
     GIVE_ITEM,
@@ -551,6 +627,7 @@ class ProductService {
       String commandTemplate,
       String itemMaterial,
       Integer itemAmount,
+      Integer perUserLimit,
       String effectType,
       Integer effectSeconds,
       Integer effectAmplifier,
@@ -571,11 +648,35 @@ class ProductService {
       String itemMaterial,
       Integer itemAmount,
       Integer stockRemaining,
+      Integer perUserLimit,
       String effectType,
       Integer effectSeconds,
       Integer effectAmplifier,
       java.time.LocalDateTime publishAt,
       java.time.LocalDateTime unpublishAt,
-      boolean active) {
+      boolean active,
+      Integer personalLimitRemaining) {
+    ProductView withPersonalLimitRemaining(Integer remaining) {
+      return new ProductView(
+          id,
+          sku,
+          title,
+          remark,
+          currency,
+          price,
+          productType,
+          commandTemplate,
+          itemMaterial,
+          itemAmount,
+          stockRemaining,
+          perUserLimit,
+          effectType,
+          effectSeconds,
+          effectAmplifier,
+          publishAt,
+          unpublishAt,
+          active,
+          remaining);
+    }
   }
 }

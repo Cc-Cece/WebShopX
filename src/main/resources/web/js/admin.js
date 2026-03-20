@@ -161,6 +161,7 @@ const elements = {
   productItemMaterial: document.getElementById("productItemMaterial"),
   productStockMode: document.getElementById("productStockMode"),
   productItemAmount: document.getElementById("productItemAmount"),
+  productPerUserLimit: document.getElementById("productPerUserLimit"),
   productEffectType: document.getElementById("productEffectType"),
   productEffectSeconds: document.getElementById("productEffectSeconds"),
   productEffectAmplifier: document.getElementById("productEffectAmplifier"),
@@ -1259,6 +1260,8 @@ function getProductInput() {
   const isUnlimited = elements.productStockMode?.value === "UNLIMITED";
   const rawItemAmount = String(elements.productItemAmount.value || "").trim();
   const parsedItemAmount = rawItemAmount ? Number(rawItemAmount) : null;
+  const rawPerUserLimit = String(elements.productPerUserLimit?.value || "").trim();
+  const parsedPerUserLimit = rawPerUserLimit ? Number(rawPerUserLimit) : null;
   return {
     sku: elements.productSku.value.trim(),
     title: elements.productTitle.value.trim(),
@@ -1276,6 +1279,10 @@ function getProductInput() {
       parsedItemAmount && Number.isFinite(parsedItemAmount) && parsedItemAmount > 0
         ? Math.floor(parsedItemAmount)
         : null,
+    perUserLimit:
+      parsedPerUserLimit && Number.isFinite(parsedPerUserLimit) && parsedPerUserLimit > 0
+        ? Math.floor(parsedPerUserLimit)
+        : null,
     effectType: elements.productEffectType.value.trim(),
     effectSeconds: Number(elements.productEffectSeconds.value || 0),
     effectAmplifier: Number(elements.productEffectAmplifier.value || 0),
@@ -1292,6 +1299,24 @@ async function saveProduct() {
   });
   setMetaText(elements.productStatus, `商品已保存：${payload.sku}`, "success");
   notify(`商品已保存：${payload.sku}`, "success");
+  await loadProducts();
+}
+
+async function resetProductLimit(product) {
+  ensureAdmin();
+  if (!product || !product.id) {
+    throw new Error("商品信息无效，无法重置限购。");
+  }
+  const confirmed = window.confirm(`确认清空商品 ${product.sku} 的所有玩家限购记录吗？`);
+  if (!confirmed) {
+    return;
+  }
+  const payload = await apiAdmin("/api/admin/products/reset-limit", {
+    method: "POST",
+    body: JSON.stringify({ productId: product.id }),
+  });
+  notify(`商品 ${payload.sku} 的限购记录已重置，清理 ${payload.resetCount} 条。`, "success");
+  setMetaText(elements.productListStatus, `已重置 ${payload.sku} 的限购记录`, "success");
   await loadProducts();
 }
 
@@ -1377,6 +1402,9 @@ function renderProducts() {
         elements.productStockMode.value = product.itemAmount == null ? "UNLIMITED" : "FINITE";
       }
       elements.productItemAmount.value = product.itemAmount || 64;
+      if (elements.productPerUserLimit) {
+        elements.productPerUserLimit.value = product.perUserLimit || "";
+      }
       elements.productEffectType.value = product.effectType || "";
       elements.productEffectSeconds.value = product.effectSeconds || 30;
       elements.productEffectAmplifier.value = product.effectAmplifier || 0;
@@ -1396,6 +1424,20 @@ function renderProducts() {
       notify(`商品 ${product.sku} 已${product.active ? "停用" : "启用"}`, "success");
       await loadProducts();
     });
+    const actions = [editBtn, toggleBtn];
+    if (product.perUserLimit != null) {
+      const resetLimitBtn = document.createElement("button");
+      resetLimitBtn.className = "btn-tonal";
+      resetLimitBtn.textContent = "重置限购";
+      resetLimitBtn.addEventListener("click", async () => {
+        try {
+          await resetProductLimit(product);
+        } catch (error) {
+          notify(`重置限购失败：${resolveAdminErrorMessage(error)}`, "error");
+        }
+      });
+      actions.push(resetLimitBtn);
+    }
     return renderKeyValueCard(
       `${product.title} (${product.sku})`,
       [
@@ -1404,13 +1446,14 @@ function renderProducts() {
         { label: "材质", value: product.itemMaterial ? `${product.itemMaterial} (${getLocalizedMaterialName(product.itemMaterial)})` : "-" },
         { label: "总库存", value: product.itemAmount ? `x${product.itemAmount}` : "长期供应" },
         { label: "剩余库存", value: product.stockRemaining != null ? `x${product.stockRemaining}` : "长期供应" },
+        { label: "单玩家限购", value: product.perUserLimit != null ? `x${product.perUserLimit}` : "不限购" },
         { label: "币种/价格", value: `${currencyName(product.currency)} / ${formatCurrency(product.price, product.currency)}` },
         { label: "备注", value: product.remark || "-" },
         { label: "上架时间", value: product.publishAt ? formatDateTime(product.publishAt) : "立即" },
         { label: "下架时间", value: product.unpublishAt ? formatDateTime(product.unpublishAt) : "不自动下架" },
         { label: "启用", value: product.active ? "是" : "否" },
       ],
-      [editBtn, toggleBtn]
+      actions
     );
   });
   renderList(elements.productList, rows);

@@ -166,6 +166,7 @@ const ERROR_TIPS_BY_SCENE = {
   order_create: {
     invalid_quantity: "购买数量需在 1-64 之间。",
     product_missing: "该商品已下架或不可购买。",
+    product_user_limit_reached: "该商品已达到你的限购上限，请等待管理员重置或退款后再试。",
     not_bound: "账号未绑定游戏角色，无法下单。",
     idempotency_too_long: "请求参数异常，请刷新后重试。",
     player_offline: "回收类商品需玩家在线且背包满足回收条件。",
@@ -956,13 +957,31 @@ function resolveOfficialProductStock(product) {
   const totalStock = Number(product?.itemAmount);
   const remainingStock = Number(product?.stockRemaining);
   const hasTrackedStock = Number.isFinite(totalStock) && Number.isFinite(remainingStock);
+  const stockMaxQuantity = hasTrackedStock
+    ? Math.max(0, Math.floor(remainingStock))
+    : Math.max(1, Math.floor(Number(product?.itemAmount || 64)));
+  const perUserLimitRaw = Number(product?.perUserLimit);
+  const hasPerUserLimit = Number.isFinite(perUserLimitRaw) && perUserLimitRaw > 0;
+  const perUserLimit = hasPerUserLimit ? Math.floor(perUserLimitRaw) : null;
+  const personalRemainingRaw = Number(product?.personalLimitRemaining);
+  const hasPersonalLimitRemaining = hasPerUserLimit && Number.isFinite(personalRemainingRaw);
+  const personalLimitRemaining = hasPersonalLimitRemaining
+    ? Math.max(0, Math.floor(personalRemainingRaw))
+    : null;
+  const maxQuantity = hasPersonalLimitRemaining
+    ? Math.min(stockMaxQuantity, personalLimitRemaining)
+    : stockMaxQuantity;
   return {
     totalStock,
     remainingStock,
     hasTrackedStock,
-    maxQuantity: hasTrackedStock
-      ? Math.max(0, Math.floor(remainingStock))
-      : Math.max(1, Math.floor(Number(product?.itemAmount || 64))),
+    stockMaxQuantity,
+    hasPerUserLimit,
+    perUserLimit,
+    personalLimitRemaining,
+    hasPersonalLimitRemaining,
+    isPersonalLimitReached: hasPersonalLimitRemaining && personalLimitRemaining <= 0,
+    maxQuantity,
   };
 }
 
@@ -2072,7 +2091,7 @@ function renderProducts(products) {
     const card = createEl("article", "product-card market-card official-card");
     const isGroupBuyVoucher = String(product.productType || "").toUpperCase() === "GROUP_BUY_VOUCHER";
     const stock = resolveOfficialProductStock(product);
-    const isSoldOut = stock.hasTrackedStock && stock.maxQuantity <= 0;
+    const isSoldOut = stock.maxQuantity <= 0 && (stock.hasTrackedStock || stock.isPersonalLimitReached);
     const top = createEl("div", "market-top");
     top.appendChild(createEl("span", "market-chip official", productTypeLabel(product.productType)));
     top.appendChild(createEl("span", "market-time", product.unpublishAt ? `下架：${formatDateTime(product.unpublishAt)}` : "长期供应"));
@@ -2090,6 +2109,14 @@ function renderProducts(products) {
     detail.appendChild(createEl("p", "market-sub", `币种 ${(CURRENCY_META[product.currency] || { label: product.currency }).label}`));
     if (product.itemMaterial) {
       detail.appendChild(createEl("p", "market-sub", `物品：${getLocalizedMaterialName(product.itemMaterial)}`));
+    }
+    if (stock.hasPerUserLimit) {
+      detail.appendChild(createEl("p", "market-sub", `限购：每人 x${stock.perUserLimit}`));
+      if (stock.hasPersonalLimitRemaining) {
+        detail.appendChild(createEl("p", "market-sub", `你还可购买：x${stock.personalLimitRemaining}`));
+      } else {
+        detail.appendChild(createEl("p", "market-sub", "登录后可查看你的限购剩余额度"));
+      }
     }
     detail.appendChild(createEl("p", "market-code", String(product.sku || "")));
     if (product.remark) {
@@ -2115,11 +2142,17 @@ function renderProducts(products) {
     const footer = createEl("div", "market-footer");
     if (isGroupBuyVoucher) {
       footer.appendChild(createEl("p", "market-sub", "购买后生成团购兑换码，需由管理员核销"));
+    } else if (stock.isPersonalLimitReached) {
+      footer.appendChild(createEl("p", "market-sub", "你已达到该商品的限购上限"));
     }
 
     const actions = createEl("div", "market-actions-row");
     if (isSoldOut) {
-      const soldOutBtn = createEl("button", "market-action-btn", "已售罄");
+      const soldOutBtn = createEl(
+        "button",
+        "market-action-btn",
+        stock.isPersonalLimitReached ? "已达限购" : "已售罄"
+      );
       soldOutBtn.type = "button";
       soldOutBtn.disabled = true;
       actions.appendChild(soldOutBtn);
@@ -2855,6 +2888,14 @@ async function confirmPurchase(product, quantity) {
     `SKU：${product.sku}`,
     `数量：x${qty}`,
   ];
+  const perUserLimit = Number(product?.perUserLimit);
+  const personalRemaining = Number(product?.personalLimitRemaining);
+  if (Number.isFinite(perUserLimit) && perUserLimit > 0) {
+    details.push(`单人限购：x${Math.floor(perUserLimit)}`);
+    if (Number.isFinite(personalRemaining)) {
+      details.push(`当前可购买剩余：x${Math.max(0, Math.floor(personalRemaining))}`);
+    }
+  }
   if (product.remark) {
     details.push(`备注：${product.remark}`);
   }
@@ -2947,6 +2988,7 @@ async function refundOrder(orderNo) {
   updateWalletView(payload);
   notify(`退款成功：${payload.orderNo}`, "success");
   await loadOrders();
+  await loadProducts();
 }
 
 async function createOrder(productId, quantity, deliveryMode, productTitle) {
@@ -3001,6 +3043,12 @@ async function createOrder(productId, quantity, deliveryMode, productTitle) {
   } catch (orderError) {
     const orderMessage = resolveErrorMessage(orderError, "orders_load");
     log(`订单创建后加载订单失败：${orderMessage}`, "WARN");
+  }
+  try {
+    await loadProducts();
+  } catch (productError) {
+    const productMessage = resolveErrorMessage(productError, "products_load");
+    log(`订单创建后刷新商品失败：${productMessage}`, "WARN");
   }
   return payload;
 }
@@ -3189,6 +3237,12 @@ if (elements.loginBtn) {
     await refreshWallet();
     await loadWalletLedger();
     await loadOrders();
+    try {
+      await loadProducts();
+    } catch (productError) {
+      const productMessage = resolveErrorMessage(productError, "products_load");
+      log(`登录后刷新商品失败：${productMessage}`, "WARN");
+    }
     switchTab("wallet");
     log("登录成功。", "SUCCESS");
     notify("登录成功。", "success");
@@ -3208,6 +3262,12 @@ elements.logoutBtn.addEventListener("click", async () => {
       body: JSON.stringify({}),
     });
     clearSession();
+    try {
+      await loadProducts();
+    } catch (productError) {
+      const productMessage = resolveErrorMessage(productError, "products_load");
+      log(`退出登录后刷新商品失败：${productMessage}`, "WARN");
+    }
     switchTab("auth");
     log("已退出登录。", "SUCCESS");
     notify("已退出登录。", "success");

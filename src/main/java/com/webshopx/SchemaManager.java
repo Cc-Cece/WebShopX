@@ -31,6 +31,8 @@ class SchemaManager {
     createSchemaMeta(connection);
     createProducts(connection);
     migrateProducts(connection);
+    createProductUserUsage(connection);
+    migrateProductUserUsage(connection);
     migrateLegacyProductScheduleToUtc(connection, settings.timeZone());
     createOrders(connection);
     migrateOrders(connection);
@@ -304,6 +306,7 @@ class SchemaManager {
           item_material VARCHAR(64) NULL,
           item_amount INT NULL,
           stock_remaining INT NULL,
+          per_user_limit INT NULL,
           effect_type VARCHAR(64) NULL,
           effect_seconds INT NULL,
           effect_amplifier INT NULL,
@@ -354,6 +357,15 @@ class SchemaManager {
           connection,
           "UPDATE products SET stock_remaining = item_amount WHERE item_amount IS NOT NULL");
     }
+    if (!columnExists(connection, "products", "per_user_limit")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN per_user_limit INT NULL AFTER stock_remaining");
+    }
+    execute(
+        connection,
+        "UPDATE products SET per_user_limit = NULL WHERE per_user_limit IS NOT NULL AND per_user_limit <= 0");
     if (!columnExists(connection, "products", "effect_type")) {
       execute(
           connection,
@@ -943,6 +955,31 @@ class SchemaManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
+  }
+
+  private void createProductUserUsage(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS product_user_usage (
+          product_id BIGINT NOT NULL,
+          user_id BIGINT NOT NULL,
+          used_count INT NOT NULL DEFAULT 0,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (product_id, user_id),
+          KEY idx_product_user_usage_user (user_id),
+          CONSTRAINT fk_product_user_usage_product_id
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+          CONSTRAINT fk_product_user_usage_user_id
+            FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void migrateProductUserUsage(Connection connection) throws SQLException {
+    execute(
+        connection,
+        "DELETE FROM product_user_usage WHERE used_count <= 0");
   }
 
   private void migrateLegacyProductScheduleToUtc(Connection connection, java.time.ZoneId businessZone)

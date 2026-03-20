@@ -103,6 +103,7 @@ class OrderService {
     validatePurchaseQuantity(quantity, maxQuantity);
     DeliveryMode deliveryMode = resolveDeliveryMode(deliveryModeRaw, product.productType());
     UUID playerUuid = readBoundUuidForUpdate(connection, userId);
+    consumePersonalLimitQuota(connection, userId, product, quantity);
     long totalAmount = Math.multiplyExact(product.price(), quantity);
     String orderNo = newOrderNo();
     boolean isGroupBuyVoucher = product.productType() == ProductService.ProductType.GROUP_BUY_VOUCHER;
@@ -317,6 +318,13 @@ class OrderService {
 
   private int resolveProductMaxQuantity(ProductService.ProductView product) {
     Integer trackedStock = product.stockRemaining();
+    Integer personalRemaining = product.personalLimitRemaining();
+    if (personalRemaining != null) {
+      if (trackedStock != null) {
+        return Math.max(0, Math.min(trackedStock, personalRemaining));
+      }
+      return Math.max(0, personalRemaining);
+    }
     if (trackedStock != null) {
       return Math.max(0, trackedStock);
     }
@@ -394,6 +402,85 @@ class OrderService {
     }
   }
 
+  private void consumePersonalLimitQuota(
+      Connection connection,
+      long userId,
+      ProductService.ProductView product,
+      int quantity) throws SQLException {
+    Integer perUserLimit = product.perUserLimit();
+    if (perUserLimit == null || quantity <= 0) {
+      return;
+    }
+    int usedCount = readPersonalLimitUsageForUpdate(connection, product.id(), userId);
+    int remaining = Math.max(0, perUserLimit - usedCount);
+    if (quantity > remaining) {
+      throw new ServiceException("product_user_limit_reached", "该商品已达到单个玩家限购上限。");
+    }
+    incrementPersonalLimitUsage(connection, product.id(), userId, quantity);
+  }
+
+  private int readPersonalLimitUsageForUpdate(Connection connection, long productId, long userId)
+      throws SQLException {
+    String sql = """
+        SELECT used_count
+        FROM product_user_usage
+        WHERE product_id = ? AND user_id = ?
+        FOR UPDATE
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, productId);
+      statement.setLong(2, userId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return 0;
+        }
+        return Math.max(0, resultSet.getInt("used_count"));
+      }
+    }
+  }
+
+  private void incrementPersonalLimitUsage(Connection connection, long productId, long userId, int quantity)
+      throws SQLException {
+    String sql = """
+        INSERT INTO product_user_usage (product_id, user_id, used_count)
+        VALUES (?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          used_count = used_count + VALUES(used_count),
+          updated_at = CURRENT_TIMESTAMP
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, productId);
+      statement.setLong(2, userId);
+      statement.setInt(3, quantity);
+      statement.executeUpdate();
+    }
+  }
+
+  private void reducePersonalLimitUsage(Connection connection, long productId, long userId, int quantity)
+      throws SQLException {
+    if (productId <= 0 || userId <= 0 || quantity <= 0) {
+      return;
+    }
+    String updateSql = """
+        UPDATE product_user_usage
+        SET used_count = GREATEST(0, used_count - ?),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE product_id = ? AND user_id = ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
+      statement.setInt(1, quantity);
+      statement.setLong(2, productId);
+      statement.setLong(3, userId);
+      statement.executeUpdate();
+    }
+    String deleteSql = "DELETE FROM product_user_usage WHERE product_id = ? AND user_id = ? AND used_count <= 0";
+    try (PreparedStatement statement = connection.prepareStatement(deleteSql)) {
+      statement.setLong(1, productId);
+      statement.setLong(2, userId);
+      statement.executeUpdate();
+    }
+  }
+
   private DeliveryMode resolveDeliveryMode(String rawMode, ProductService.ProductType productType) {
     DeliveryMode defaultMode = defaultDeliveryMode(productType);
     if (rawMode == null || rawMode.isBlank()) {
@@ -460,6 +547,30 @@ class OrderService {
           throw new ServiceException("not_bound", "Minecraft account is not bound yet");
         }
         return UUID.fromString(rawUuid);
+      }
+    }
+  }
+
+  private void lockUserForUpdate(Connection connection, long userId) throws SQLException {
+    String sql = "SELECT id FROM web_users WHERE id = ? FOR UPDATE";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          throw new ServiceException("user_missing", "User not found");
+        }
+      }
+    }
+  }
+
+  private void lockProductForUpdate(Connection connection, long productId) throws SQLException {
+    String sql = "SELECT id FROM products WHERE id = ? FOR UPDATE";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, productId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          throw new ServiceException("product_missing", "Product not found");
+        }
       }
     }
   }
@@ -1081,6 +1192,8 @@ class OrderService {
       if (row == null) {
         throw new ServiceException("order_missing", "Order not found");
       }
+      lockProductForUpdate(connection, row.productId());
+      lockUserForUpdate(connection, userId);
       if ("REFUNDED".equalsIgnoreCase(row.status())) {
         throw new ServiceException("already_refunded", "Order has already been refunded");
       }
@@ -1105,6 +1218,7 @@ class OrderService {
         statement.executeUpdate();
       }
       restoreProductStock(connection, row.productId(), row.quantity());
+      reducePersonalLimitUsage(connection, row.productId(), userId, row.quantity());
 
       if (row.groupBuyVoucherCode() != null) {
         String updateVoucherSql = """
@@ -1135,6 +1249,19 @@ class OrderService {
 
     WalletService.WalletBalance balance = walletService.getBalance(userId);
     return new RefundResult(order.orderNo(), balance);
+  }
+
+  int resetProductUserLimitUsage(long productId) {
+    if (productId <= 0) {
+      throw new ServiceException("invalid_product", "Product id must be positive");
+    }
+    return databaseManager.inTransaction(connection -> {
+      String sql = "DELETE FROM product_user_usage WHERE product_id = ?";
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, productId);
+        return statement.executeUpdate();
+      }
+    });
   }
 
   private GroupBuyVoucherRow readGroupBuyVoucherForUpdate(Connection connection, String code)

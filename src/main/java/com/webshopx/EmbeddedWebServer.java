@@ -114,6 +114,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/products/list", this::handleAdminProductsList);
     server.createContext("/api/admin/products/upsert", this::handleAdminProductsUpsert);
     server.createContext("/api/admin/products/active", this::handleAdminProductsActive);
+    server.createContext("/api/admin/products/reset-limit", this::handleAdminProductsResetLimit);
     server.createContext("/api/admin/group-buy/consume", this::handleAdminGroupBuyConsume);
     server.createContext("/api/admin/orders/list", this::handleAdminOrdersList);
     server.createContext("/api/admin/economy/settings", this::handleAdminEconomySettings);
@@ -321,53 +322,14 @@ class EmbeddedWebServer {
       return;
     }
     withServiceHandling(exchange, () -> {
-      List<ProductService.ProductView> products = productService.listActiveProducts();
+      Optional<AuthService.AuthUser> user = findOptionalAuth(exchange);
+      List<ProductService.ProductView> products = user.isPresent()
+          ? productService.listActiveProductsForUser(user.get().id())
+          : productService.listActiveProducts();
       JsonArray array = new JsonArray();
       for (ProductService.ProductView product : products) {
         JsonObject item = new JsonObject();
-        item.addProperty("id", product.id());
-        item.addProperty("sku", product.sku());
-        item.addProperty("title", product.title());
-        if (product.remark() == null) {
-          item.add("remark", JsonNull.INSTANCE);
-        } else {
-          item.addProperty("remark", product.remark());
-        }
-        item.addProperty("currency", product.currency().name());
-        item.addProperty("price", product.price());
-        item.addProperty("productType", product.productType().name());
-        addBusinessDateTime(item, "publishAt", product.publishAt());
-        addBusinessDateTime(item, "unpublishAt", product.unpublishAt());
-        if (product.itemMaterial() == null) {
-          item.add("itemMaterial", JsonNull.INSTANCE);
-        } else {
-          item.addProperty("itemMaterial", product.itemMaterial());
-        }
-        if (product.itemAmount() == null) {
-          item.add("itemAmount", JsonNull.INSTANCE);
-        } else {
-          item.addProperty("itemAmount", product.itemAmount());
-        }
-        if (product.stockRemaining() == null) {
-          item.add("stockRemaining", JsonNull.INSTANCE);
-        } else {
-          item.addProperty("stockRemaining", product.stockRemaining());
-        }
-        if (product.effectType() == null) {
-          item.add("effectType", JsonNull.INSTANCE);
-        } else {
-          item.addProperty("effectType", product.effectType());
-        }
-        if (product.effectSeconds() == null) {
-          item.add("effectSeconds", JsonNull.INSTANCE);
-        } else {
-          item.addProperty("effectSeconds", product.effectSeconds());
-        }
-        if (product.effectAmplifier() == null) {
-          item.add("effectAmplifier", JsonNull.INSTANCE);
-        } else {
-          item.addProperty("effectAmplifier", product.effectAmplifier());
-        }
+        addProductJson(item, product, true);
         array.add(item);
       }
       JsonObject response = new JsonObject();
@@ -1110,51 +1072,9 @@ class EmbeddedWebServer {
       JsonArray array = new JsonArray();
       for (ProductService.ProductView product : products) {
         JsonObject row = new JsonObject();
-        row.addProperty("id", product.id());
-        row.addProperty("sku", product.sku());
-        row.addProperty("title", product.title());
-        if (product.remark() == null) {
-          row.add("remark", JsonNull.INSTANCE);
-        } else {
-          row.addProperty("remark", product.remark());
-        }
-        row.addProperty("currency", product.currency().name());
-        row.addProperty("price", product.price());
-        row.addProperty("productType", product.productType().name());
+        addProductJson(row, product, false);
         row.addProperty("commandTemplate", product.commandTemplate());
         row.addProperty("active", product.active());
-        addBusinessDateTime(row, "publishAt", product.publishAt());
-        addBusinessDateTime(row, "unpublishAt", product.unpublishAt());
-        if (product.itemMaterial() == null) {
-          row.add("itemMaterial", JsonNull.INSTANCE);
-        } else {
-          row.addProperty("itemMaterial", product.itemMaterial());
-        }
-        if (product.itemAmount() == null) {
-          row.add("itemAmount", JsonNull.INSTANCE);
-        } else {
-          row.addProperty("itemAmount", product.itemAmount());
-        }
-        if (product.stockRemaining() == null) {
-          row.add("stockRemaining", JsonNull.INSTANCE);
-        } else {
-          row.addProperty("stockRemaining", product.stockRemaining());
-        }
-        if (product.effectType() == null) {
-          row.add("effectType", JsonNull.INSTANCE);
-        } else {
-          row.addProperty("effectType", product.effectType());
-        }
-        if (product.effectSeconds() == null) {
-          row.add("effectSeconds", JsonNull.INSTANCE);
-        } else {
-          row.addProperty("effectSeconds", product.effectSeconds());
-        }
-        if (product.effectAmplifier() == null) {
-          row.add("effectAmplifier", JsonNull.INSTANCE);
-        } else {
-          row.addProperty("effectAmplifier", product.effectAmplifier());
-        }
         array.add(row);
       }
       JsonObject response = new JsonObject();
@@ -1187,6 +1107,9 @@ class EmbeddedWebServer {
           payload.has("itemAmount") && !payload.get("itemAmount").isJsonNull()
               ? (int) getLong(payload, "itemAmount", 0L)
               : null,
+          payload.has("perUserLimit") && !payload.get("perUserLimit").isJsonNull()
+              ? (int) getLong(payload, "perUserLimit", 0L)
+              : null,
           getOptionalString(payload, "effectType").orElse(null),
           payload.has("effectSeconds") && !payload.get("effectSeconds").isJsonNull()
               ? (int) getLong(payload, "effectSeconds", 0L)
@@ -1199,28 +1122,8 @@ class EmbeddedWebServer {
           payload.has("active") ? payload.get("active").getAsBoolean() : true);
       ProductService.ProductView product = productService.upsertProduct(input, allowZeroPrice);
       JsonObject response = new JsonObject();
-      response.addProperty("id", product.id());
-      response.addProperty("sku", product.sku());
-      response.addProperty("title", product.title());
-      if (product.remark() == null) {
-        response.add("remark", JsonNull.INSTANCE);
-      } else {
-        response.addProperty("remark", product.remark());
-      }
-      response.addProperty("currency", product.currency().name());
-      response.addProperty("price", product.price());
-      response.addProperty("productType", product.productType().name());
+      addProductJson(response, product, false);
       response.addProperty("active", product.active());
-      if (product.itemAmount() == null) {
-        response.add("itemAmount", JsonNull.INSTANCE);
-      } else {
-        response.addProperty("itemAmount", product.itemAmount());
-      }
-      if (product.stockRemaining() == null) {
-        response.add("stockRemaining", JsonNull.INSTANCE);
-      } else {
-        response.addProperty("stockRemaining", product.stockRemaining());
-      }
       sendJson(exchange, 200, response);
 
       JsonObject detail = new JsonObject();
@@ -1252,6 +1155,33 @@ class EmbeddedWebServer {
       JsonObject detail = new JsonObject();
       detail.addProperty("active", active);
       adminAuditService.log(admin, "PRODUCT_ACTIVE", "product", String.valueOf(product.id()), detail, clientIp(exchange));
+    });
+  }
+
+  private void handleAdminProductsResetLimit(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.PRODUCT_MANAGE);
+      long productId = getLong(payload, "productId", -1L);
+      ProductService.ProductView product = productService.readProductView(productId);
+      int resetCount = orderService.resetProductUserLimitUsage(productId);
+
+      JsonObject response = new JsonObject();
+      response.addProperty("productId", product.id());
+      response.addProperty("sku", product.sku());
+      response.addProperty("resetCount", resetCount);
+      sendJson(exchange, 200, response);
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("sku", product.sku());
+      detail.addProperty("resetCount", resetCount);
+      adminAuditService.log(admin, "PRODUCT_LIMIT_RESET", "product", product.sku(), detail, clientIp(exchange));
     });
   }
 
@@ -2041,6 +1971,14 @@ class EmbeddedWebServer {
         .orElseThrow(() -> new ServiceException("auth_invalid", "Session token is invalid or expired"));
   }
 
+  private Optional<AuthService.AuthUser> findOptionalAuth(HttpExchange exchange) {
+    String token = readHeaderToken(exchange);
+    if (token == null) {
+      return Optional.empty();
+    }
+    return authService.findUserBySession(token);
+  }
+
   private AdminService.AdminUser requireAdmin(
       HttpExchange exchange,
       JsonObject payload,
@@ -2105,6 +2043,67 @@ class EmbeddedWebServer {
     }
     response.add("permissions", permissions);
     return response;
+  }
+
+  private void addProductJson(
+      JsonObject row,
+      ProductService.ProductView product,
+      boolean includePersonalLimitRemaining) {
+    row.addProperty("id", product.id());
+    row.addProperty("sku", product.sku());
+    row.addProperty("title", product.title());
+    if (product.remark() == null) {
+      row.add("remark", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("remark", product.remark());
+    }
+    row.addProperty("currency", product.currency().name());
+    row.addProperty("price", product.price());
+    row.addProperty("productType", product.productType().name());
+    addBusinessDateTime(row, "publishAt", product.publishAt());
+    addBusinessDateTime(row, "unpublishAt", product.unpublishAt());
+    if (product.itemMaterial() == null) {
+      row.add("itemMaterial", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("itemMaterial", product.itemMaterial());
+    }
+    if (product.itemAmount() == null) {
+      row.add("itemAmount", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("itemAmount", product.itemAmount());
+    }
+    if (product.stockRemaining() == null) {
+      row.add("stockRemaining", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("stockRemaining", product.stockRemaining());
+    }
+    if (product.perUserLimit() == null) {
+      row.add("perUserLimit", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("perUserLimit", product.perUserLimit());
+    }
+    if (includePersonalLimitRemaining) {
+      if (product.personalLimitRemaining() == null) {
+        row.add("personalLimitRemaining", JsonNull.INSTANCE);
+      } else {
+        row.addProperty("personalLimitRemaining", product.personalLimitRemaining());
+      }
+    }
+    if (product.effectType() == null) {
+      row.add("effectType", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("effectType", product.effectType());
+    }
+    if (product.effectSeconds() == null) {
+      row.add("effectSeconds", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("effectSeconds", product.effectSeconds());
+    }
+    if (product.effectAmplifier() == null) {
+      row.add("effectAmplifier", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("effectAmplifier", product.effectAmplifier());
+    }
   }
 
   private List<String> getStringArray(JsonObject payload, String field) {
