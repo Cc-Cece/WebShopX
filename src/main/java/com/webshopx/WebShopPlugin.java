@@ -68,7 +68,8 @@ public class WebShopPlugin extends JavaPlugin {
           orderService,
           marketService,
           adminService,
-          adminAuditService);
+          adminAuditService,
+          databaseManager);
 
       // Products are managed via admin backend; no seed import from config.
       adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());

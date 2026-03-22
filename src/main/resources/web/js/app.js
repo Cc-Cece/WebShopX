@@ -2190,7 +2190,8 @@ function renderProducts(products) {
         totalClassName: "market-total",
       });
 
-      const buyBtn = createEl("button", "market-action-btn product-buy-btn", "立即购买");
+      const actionText = String(product.productType || "").toUpperCase() === "RECYCLE_ITEM" ? "立即回收" : "立即购买";
+      const buyBtn = createEl("button", "market-action-btn product-buy-btn", actionText);
       buyBtn.type = "button";
       buyBtn.dataset.action = "buy-product";
       buyBtn.dataset.productId = String(product.id);
@@ -2905,15 +2906,46 @@ async function loadOrders(options = {}) {
 async function confirmPurchase(product, quantity) {
   const qty = Number(quantity || 1);
   const subtotalAmount = Number(product.price || 0) * qty;
-  const total = formatCurrency(subtotalAmount, product.currency);
   const cooldown = Number(state.orderPolicy.cooldownSeconds || 0);
-  const allowClaim = String(product.productType || "").toUpperCase() !== "GROUP_BUY_VOUCHER";
+  const productType = String(product.productType || "").toUpperCase();
+  const isRecycle = productType === "RECYCLE_ITEM";
+  const allowClaim = productType !== "GROUP_BUY_VOUCHER" && !isRecycle;
   const currentBalance = getWalletBalanceForCurrency(product.currency);
   const details = [
     `商品：${product.title}`,
     `SKU：${product.sku}`,
     `数量：x${qty}`,
   ];
+
+  if (isRecycle) {
+    const preview = await api("/api/orders/recycle-preview", {
+      method: "POST",
+      body: JSON.stringify({ productId: Number(product.id), quantity: qty }),
+    });
+    details.push(`单价：${formatCurrency(product.price, product.currency)}`);
+    details.push(`预计所得：${formatCurrency(subtotalAmount, product.currency)}`);
+    details.push(`背包持有：x${Math.max(0, Number(preview.inventoryCount || 0))}`);
+    if (!preview.online) {
+      details.push("状态：角色离线，无法回收");
+    } else if (preview.enough) {
+      details.push("状态：库存充足，可回收");
+    } else {
+      details.push(`状态：库存不足，还差 x${Math.max(0, Number(preview.missingQuantity || 0))}`);
+    }
+    if (product.remark) {
+      details.push(`备注：${product.remark}`);
+    }
+    return openDeliveryConfirmDialog({
+      title: "确认回收",
+      message: "请确认以下回收信息，确认后将立即扣除背包物品并发放回收所得。",
+      details,
+      confirmText: "确认回收",
+      initialValue: "IMMEDIATE",
+      allowClaim: false,
+      summary: null,
+    });
+  }
+
   const perUserLimit = Number(product?.perUserLimit);
   const personalRemaining = Number(product?.personalLimitRemaining);
   if (Number.isFinite(perUserLimit) && perUserLimit > 0) {
@@ -2925,7 +2957,7 @@ async function confirmPurchase(product, quantity) {
   if (product.remark) {
     details.push(`备注：${product.remark}`);
   }
-  if (String(product.productType || "").toUpperCase() === "GROUP_BUY_VOUCHER") {
+  if (productType === "GROUP_BUY_VOUCHER") {
     details.push("该商品会生成团购兑换码，需由管理员在后台核销。");
   }
   if (state.orderPolicy.refundUndeliveredEnabled) {

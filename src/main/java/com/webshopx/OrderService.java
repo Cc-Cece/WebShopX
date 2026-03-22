@@ -534,6 +534,23 @@ class OrderService {
     }
   }
 
+  UUID readBoundUuidForWebUser(Connection connection, long userId) throws SQLException {
+    String sql = "SELECT bound_uuid FROM web_users WHERE id = ?";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          throw new ServiceException("user_missing", "User not found");
+        }
+        String rawUuid = resultSet.getString("bound_uuid");
+        if (rawUuid == null || rawUuid.isBlank()) {
+          throw new ServiceException("not_bound", "Minecraft account is not bound yet");
+        }
+        return UUID.fromString(rawUuid);
+      }
+    }
+  }
+
   private UUID readBoundUuidForUpdate(Connection connection, long userId) throws SQLException {
     String sql = "SELECT bound_uuid FROM web_users WHERE id = ? FOR UPDATE";
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -760,7 +777,10 @@ class OrderService {
     return message != null && message.toLowerCase(Locale.ROOT).contains("duplicate");
   }
 
-  private boolean hasEnoughItem(Player player, Material material, int requiredAmount) {
+  int countItem(Player player, Material material) {
+    if (player == null || material == null || material == Material.AIR) {
+      return 0;
+    }
     int count = 0;
     ItemStack[] contents = player.getInventory().getContents();
     for (ItemStack itemStack : contents) {
@@ -768,11 +788,12 @@ class OrderService {
         continue;
       }
       count += itemStack.getAmount();
-      if (count >= requiredAmount) {
-        return true;
-      }
     }
-    return false;
+    return count;
+  }
+
+  private boolean hasEnoughItem(Player player, Material material, int requiredAmount) {
+    return countItem(player, material) >= requiredAmount;
   }
 
   private boolean removeItems(Player player, Material material, int requiredAmount) {

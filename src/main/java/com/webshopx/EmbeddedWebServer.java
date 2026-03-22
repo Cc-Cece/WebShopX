@@ -38,6 +38,7 @@ class EmbeddedWebServer {
   private final RedeemCodeService redeemCodeService;
   private final ProductService productService;
   private final OrderService orderService;
+  private final DatabaseManager databaseManager;
   private final MarketService marketService;
   private final AdminService adminService;
   private final AdminAuditService adminAuditService;
@@ -57,7 +58,8 @@ class EmbeddedWebServer {
       OrderService orderService,
       MarketService marketService,
       AdminService adminService,
-      AdminAuditService adminAuditService) {
+      AdminAuditService adminAuditService,
+      DatabaseManager databaseManager) {
     this.plugin = plugin;
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
@@ -65,6 +67,7 @@ class EmbeddedWebServer {
     this.redeemCodeService = redeemCodeService;
     this.productService = productService;
     this.orderService = orderService;
+    this.databaseManager = databaseManager;
     this.marketService = marketService;
     this.adminService = adminService;
     this.adminAuditService = adminAuditService;
@@ -95,6 +98,7 @@ class EmbeddedWebServer {
     server.createContext("/api/orders/list", this::handleOrdersList);
     server.createContext("/api/orders/refund", this::handleOrdersRefund);
     server.createContext("/api/orders/policy", this::handleOrdersPolicy);
+    server.createContext("/api/orders/recycle-preview", this::handleRecyclePreview);
     server.createContext("/api/meta/currency", this::handleCurrencyMeta);
     server.createContext("/api/meta/materials", this::handleMaterialMeta);
     server.createContext("/api/market/listings", this::handleMarketListings);
@@ -543,6 +547,46 @@ class EmbeddedWebServer {
           "marketSupplyAutoRefreshThreshold",
           Math.max(0, settingsSupplier.get().marketSupplySettings().autoRefreshThreshold()));
       response.addProperty("sharedClaimAllowed", settingsSupplier.get().allowSharedClaimCommand());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleRecyclePreview(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      long productId = getLong(payload, "productId", -1L);
+      int quantity = (int) getLong(payload, "quantity", 1L);
+      ProductService.ProductView product = databaseManager.withConnection(
+          connection -> productService.readActiveProduct(connection, productId, false));
+      if (product.productType() != ProductService.ProductType.RECYCLE_ITEM) {
+        throw new ServiceException("invalid_product_type", "Product type is not recyclable");
+      }
+      if (product.itemMaterial() == null) {
+        throw new ServiceException("invalid_product", "Recycle material is missing");
+      }
+      Material material = Material.matchMaterial(product.itemMaterial());
+      if (material == null || material == Material.AIR) {
+        throw new ServiceException("invalid_product", "Recycle material is invalid");
+      }
+      UUID playerUuid = databaseManager.withConnection(
+          connection -> orderService.readBoundUuidForWebUser(connection, user.id()));
+      org.bukkit.entity.Player player = org.bukkit.Bukkit.getPlayer(playerUuid);
+      boolean online = player != null && player.isOnline();
+      int requiredQuantity = Math.max(0, quantity);
+      int inventoryCount = online ? orderService.countItem(player, material) : 0;
+      JsonObject response = new JsonObject();
+      response.addProperty("online", online);
+      response.addProperty("inventoryCount", inventoryCount);
+      response.addProperty("requiredQuantity", requiredQuantity);
+      response.addProperty("enough", online && inventoryCount >= requiredQuantity);
+      response.addProperty("missingQuantity", Math.max(0, requiredQuantity - inventoryCount));
       sendJson(exchange, 200, response);
     });
   }
