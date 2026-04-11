@@ -1,0 +1,41 @@
+name: ✨ Feature Request
+description: 为 WebShopX 提出改进建议或新功能想法
+title: "[FEATURE]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        欢迎提出新想法！请描述你希望在 WebShopX 中看到的功能。
+
+  - type: textarea
+    id: concept
+    attributes:
+      label: 你的想法是什么？
+      description: 请清晰描述你希望增加的功能。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: 为什么要增加这个功能？
+      description: 这个功能可以解决什么实际问题，或者能给玩家带来什么体验提升？
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: 实现方案建议
+      description: （可选）你认为这个功能应该如何运作或表现？
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: agreement
+    attributes:
+      label: 确认项
+      options:
+        - label: 我确认这是一个通用的功能需求，而非仅针对我个人服务器的定制需求。
+          required: true

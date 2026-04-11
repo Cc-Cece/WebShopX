@@ -1,0 +1,83 @@
+name: 🐛 Bug Report
+description: 报告插件运行中的错误或异常
+title: "[BUG]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈 Bug！请详细填写以下信息以帮助我们定位问题。
+
+  - type: input
+    id: plugin_version
+    attributes:
+      label: WebShopX 插件版本
+      placeholder: "例如: 1.0.5"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: server_core
+    attributes:
+      label: 服务器核心类型
+      description: 请选择你正在使用的服务端核心
+      options:
+        - Paper 
+        - Purpur 
+        - Folia
+        - Spigot
+        - Leaves
+        - 混合端(请明白我们目前未明确支持混合端)
+        - 其他 (请在下方问题描述中备注)
+    validations:
+      required: true
+
+  - type: input
+    id: server_version
+    attributes:
+      label: 核心具体版本
+      description: 游戏版本 (可通过 /version 查看)
+      placeholder: "例如: 1.20.6"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 请清晰简洁地描述 Bug 是什么。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 告诉我们如何触发这个 Bug。
+      placeholder: |
+        1. 执行指令 ...
+        2. 点击界面 ...
+        3. 发生错误 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 错误日志 / 截图
+      description: 请在此粘贴完整的报错日志（推荐）或上传截图。
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认项
+      options:
+        - label: 我已确认使用的是 Java 21 环境。
+          required: true
+        - label: 我已搜索过 Issue 列表，确认没有重复的报告。
+          required: true
+        - label: 我确认已清理日志中的敏感信息（如数据库密码、IP等）。
+          required: true
