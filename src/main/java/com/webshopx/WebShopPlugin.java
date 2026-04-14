@@ -2,7 +2,10 @@ package com.webshopx;
 
 import io.papermc.lib.PaperLib;
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.logging.Level;
+import org.bstats.bukkit.Metrics;
+import org.bstats.charts.SimplePie;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -29,6 +32,7 @@ public class WebShopPlugin extends JavaPlugin {
   private TextureAssetManager textureAssetManager;
   private MaintenanceService maintenanceService;
   private PluginLogService pluginLogService;
+  private Metrics metrics;
   private BukkitTask deliveryTask;
   private BukkitTask maintenanceTask;
   private BukkitTask marketCycleTask;
@@ -88,6 +92,7 @@ public class WebShopPlugin extends JavaPlugin {
       startMaintenanceLoop();
       startMarketCycleLoop();
       restartWebRuntime();
+      initializeMetrics();
 
       getLogger().info("WebShopX enabled successfully.");
     } catch (DefaultDatabaseConfigurationException exception) {
@@ -238,6 +243,28 @@ public class WebShopPlugin extends JavaPlugin {
         throw new DefaultDatabaseConfigurationException(exception);
       }
       throw exception;
+    }
+  }
+
+  private void initializeMetrics() {
+    PluginSettings.MetricsSettings metricsSettings = settings.metricsSettings();
+    if (!metricsSettings.enabled()) {
+      return;
+    }
+
+    int pluginId = metricsSettings.pluginId();
+    if (pluginId <= 0) {
+      getLogger().warning("bStats is enabled but webshop.metrics.plugin-id is not configured. Metrics skipped.");
+      return;
+    }
+
+    try {
+      metrics = new Metrics(this, pluginId);
+      metrics.addCustomChart(new SimplePie("server_mode", () -> settings.serverMode().name().toLowerCase(Locale.ROOT)));
+      metrics.addCustomChart(new SimplePie("default_locale", settings::defaultLocale));
+      getLogger().info("bStats metrics enabled.");
+    } catch (Exception exception) {
+      getLogger().log(Level.WARNING, "Failed to initialize bStats metrics.", exception);
     }
   }
 
