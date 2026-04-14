@@ -224,9 +224,32 @@
               <span>价格步长（可空，默认 1）</span>
               <input id="productDynamicPriceStep" type="number" min="1" step="1" placeholder="留空=1" />
             </label>
+            <label class="field product-remark-field" id="productDynamicParamEditor">
+              <span>算法参数编辑器</span>
+              <p class="field-hint" id="productDynamicSummary">参数说明加载中…</p>
+              <div class="dialog-inline-config">
+                <div></div>
+                <button id="productDynamicHelpBtn" class="btn-tonal" type="button">查看算法文档</button>
+              </div>
+              <div class="dialog-param-tabs">
+                <button id="productDynamicParamBasicTabBtn" class="dialog-param-tab is-active" type="button">基础参数</button>
+                <button id="productDynamicParamAdvancedTabBtn" class="dialog-param-tab" type="button">高级参数</button>
+              </div>
+              <div id="productDynamicParamBasicPanel" class="dialog-param-panel">
+                <div id="productDynamicBasicParams" class="dialog-algo-params"></div>
+              </div>
+              <div id="productDynamicParamAdvancedPanel" class="dialog-param-panel" style="display: none;">
+                <details id="productDynamicAdvancedDetails" class="dialog-advanced-details" open>
+                  <summary>高级参数（查看文档 | 谨慎修改）</summary>
+                  <p class="field-hint">留空将自动回退到默认值。</p>
+                  <div id="productDynamicAdvancedParams" class="dialog-algo-params"></div>
+                </details>
+              </div>
+            </label>
             <label class="field product-remark-field">
-              <span>算法参数 JSON（可空）</span>
+              <span>算法参数 JSON（可空，兼容手动覆盖）</span>
               <textarea id="productDynamicParamsJson" rows="3" placeholder='例如 {"elasticity": 1.2}'></textarea>
+              <p class="field-hint">通常可通过上方可视化编辑器配置；手动填写 JSON 时请使用对象格式。</p>
             </label>
           </div>
             <p class="meta">

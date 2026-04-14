@@ -18,6 +18,12 @@
   materialAllowSet: new Set(),
   materialAllowReady: false,
   materialAllowPromise: null,
+  marketAlgorithmGlossary: {
+    dynamic: [],
+    auction: [],
+  },
+  marketAlgorithmGlossaryReady: false,
+  marketAlgorithmGlossaryPromise: null,
   autoSyncTimer: null,
   autoSyncBusy: false,
   realtime: {
@@ -128,6 +134,29 @@ const POTION_EFFECT_LABELS = {
   darkness: "黑暗",
 };
 
+const FALLBACK_MARKET_ALGORITHM_GLOSSARY = Object.freeze({
+  dynamic: [
+    { id: "LINEAR_DEMAND_V1", label: "LINEAR_DEMAND_V1", params: [] },
+    { id: "DIMINISHING_RETURN_V1", label: "DIMINISHING_RETURN_V1", params: [] },
+    { id: "LOG_SMOOTH_V1", label: "LOG_SMOOTH_V1", params: [] },
+    { id: "EXPONENTIAL_DEFENSE_V1", label: "EXPONENTIAL_DEFENSE_V1", params: [] },
+    { id: "THRESHOLD_STEP_V1", label: "THRESHOLD_STEP_V1", params: [] },
+    { id: "ELASTICITY_V1", label: "ELASTICITY_V1", params: [] },
+    { id: "PANIC_BUYING_V1", label: "PANIC_BUYING_V1", params: [] },
+  ],
+  auction: [
+    { id: "ENGLISH_AUCTION_V1", label: "ENGLISH_AUCTION_V1", params: [] },
+    { id: "DUTCH_AUCTION_V1", label: "DUTCH_AUCTION_V1", params: [] },
+    { id: "VICKREY_AUCTION_V1", label: "VICKREY_AUCTION_V1", params: [] },
+    { id: "CANDLE_AUCTION_V1", label: "CANDLE_AUCTION_V1", params: [] },
+  ],
+});
+
+const PARAM_KEY_ALIAS_MAP = Object.freeze({
+  threshold: ["thresholdK", "panicThreshold"],
+  eta: ["elasticity"],
+});
+
 const I18N = window.WebShopXI18n || null;
 if (I18N) {
   I18N.preparePage("admin", { selectId: "adminLocaleSelect" });
@@ -166,6 +195,16 @@ const elements = {
   productDynamicCapPrice: document.getElementById("productDynamicCapPrice"),
   productDynamicPriceStep: document.getElementById("productDynamicPriceStep"),
   productDynamicParamsJson: document.getElementById("productDynamicParamsJson"),
+  productDynamicParamEditor: document.getElementById("productDynamicParamEditor"),
+  productDynamicSummary: document.getElementById("productDynamicSummary"),
+  productDynamicHelpBtn: document.getElementById("productDynamicHelpBtn"),
+  productDynamicParamBasicTabBtn: document.getElementById("productDynamicParamBasicTabBtn"),
+  productDynamicParamAdvancedTabBtn: document.getElementById("productDynamicParamAdvancedTabBtn"),
+  productDynamicParamBasicPanel: document.getElementById("productDynamicParamBasicPanel"),
+  productDynamicParamAdvancedPanel: document.getElementById("productDynamicParamAdvancedPanel"),
+  productDynamicAdvancedDetails: document.getElementById("productDynamicAdvancedDetails"),
+  productDynamicBasicParams: document.getElementById("productDynamicBasicParams"),
+  productDynamicAdvancedParams: document.getElementById("productDynamicAdvancedParams"),
   productPublishAt: document.getElementById("productPublishAt"),
   productUnpublishAt: document.getElementById("productUnpublishAt"),
   productType: document.getElementById("productType"),
@@ -1211,6 +1250,418 @@ async function ensureMaterialMap() {
   await state.materialMapPromise;
 }
 
+let productDynamicBasicParamEntries = [];
+let productDynamicAdvancedParamEntries = [];
+
+function normalizeAlgorithmParamSchema(raw, index) {
+  const key = String(raw?.key || `param_${index}`).trim();
+  if (!key) {
+    return null;
+  }
+  const type = String(raw?.type || "number").trim().toLowerCase();
+  const tier = String(raw?.tier || raw?.group || "").trim().toLowerCase();
+  return {
+    key,
+    label: String(raw?.label || key),
+    type: type === "text" ? "text" : "number",
+    advanced: Boolean(raw?.advanced) || tier === "advanced",
+    required: Boolean(raw?.required),
+    min: Number.isFinite(Number(raw?.min)) ? Number(raw.min) : null,
+    max: Number.isFinite(Number(raw?.max)) ? Number(raw.max) : null,
+    step: Number.isFinite(Number(raw?.step)) ? Number(raw.step) : null,
+    defaultValue: raw?.default,
+    description: String(raw?.description || "").trim(),
+  };
+}
+
+function normalizeAlgorithmDefinition(raw, index) {
+  const id = String(raw?.id || "").trim().toUpperCase();
+  if (!id) {
+    return null;
+  }
+  const params = Array.isArray(raw?.params)
+    ? raw.params
+      .map((param, paramIndex) => normalizeAlgorithmParamSchema(param, paramIndex))
+      .filter(Boolean)
+    : [];
+  return {
+    id,
+    label: String(raw?.label || id),
+    summary: String(raw?.summary || "").trim(),
+    helpSlug: String(raw?.helpSlug || id.toLowerCase()),
+    requiresMinIncrement: Boolean(raw?.requiresMinIncrement),
+    requiresEndAt: Boolean(raw?.requiresEndAt),
+    params,
+    sortOrder: Number.isFinite(Number(raw?.sortOrder)) ? Number(raw.sortOrder) : index,
+  };
+}
+
+function normalizeMarketAlgorithmGlossary(raw) {
+  const dynamic = Array.isArray(raw?.dynamic)
+    ? raw.dynamic.map((item, index) => normalizeAlgorithmDefinition(item, index)).filter(Boolean)
+    : [];
+  const auction = Array.isArray(raw?.auction)
+    ? raw.auction.map((item, index) => normalizeAlgorithmDefinition(item, index)).filter(Boolean)
+    : [];
+  const normalized = {
+    dynamic: dynamic.length > 0 ? dynamic : FALLBACK_MARKET_ALGORITHM_GLOSSARY.dynamic,
+    auction: auction.length > 0 ? auction : FALLBACK_MARKET_ALGORITHM_GLOSSARY.auction,
+  };
+  normalized.dynamic = normalized.dynamic
+    .slice()
+    .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+  normalized.auction = normalized.auction
+    .slice()
+    .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+  return normalized;
+}
+
+async function ensureMarketAlgorithmGlossary() {
+  if (state.marketAlgorithmGlossaryReady) {
+    return;
+  }
+  if (state.marketAlgorithmGlossaryPromise) {
+    await state.marketAlgorithmGlossaryPromise;
+    return;
+  }
+
+  const locale = I18N ? I18N.getLocale() : "zh-CN";
+  const candidates = [
+    `i18n/market-algorithms/${locale}.json`,
+    "i18n/market-algorithms/zh-CN.json",
+    "i18n/market-algorithms/en-US.json",
+  ];
+
+  state.marketAlgorithmGlossaryPromise = (async () => {
+    for (const path of candidates) {
+      try {
+        const response = await fetch(path, { cache: "no-cache" });
+        if (!response.ok) {
+          continue;
+        }
+        const json = await response.json();
+        state.marketAlgorithmGlossary = normalizeMarketAlgorithmGlossary(json || {});
+        state.marketAlgorithmGlossaryReady = true;
+        return;
+      } catch (error) {
+        continue;
+      }
+    }
+
+    state.marketAlgorithmGlossary = normalizeMarketAlgorithmGlossary({});
+    state.marketAlgorithmGlossaryReady = true;
+  })();
+
+  await state.marketAlgorithmGlossaryPromise;
+}
+
+function getAlgorithmCatalog(type) {
+  const key = type === "auction" ? "auction" : "dynamic";
+  const fallback = key === "auction"
+    ? FALLBACK_MARKET_ALGORITHM_GLOSSARY.auction
+    : FALLBACK_MARKET_ALGORITHM_GLOSSARY.dynamic;
+  const catalog = state.marketAlgorithmGlossary?.[key];
+  return Array.isArray(catalog) && catalog.length > 0 ? catalog : fallback;
+}
+
+function getAlgorithmDefinition(type, algorithmId) {
+  const normalizedId = String(algorithmId || "").trim().toUpperCase();
+  if (!normalizedId) {
+    return null;
+  }
+  const catalog = getAlgorithmCatalog(type);
+  return catalog.find((item) => String(item.id || "").toUpperCase() === normalizedId) || null;
+}
+
+function getAlgorithmLabel(type, algorithmId) {
+  const definition = getAlgorithmDefinition(type, algorithmId);
+  if (!definition) {
+    return String(algorithmId || "").trim() || "--";
+  }
+  return definition.label || definition.id;
+}
+
+function parseAlgorithmParamsJson(raw) {
+  if (!raw) {
+    return {};
+  }
+  if (typeof raw === "object") {
+    return raw && !Array.isArray(raw) ? raw : {};
+  }
+  try {
+    const parsed = JSON.parse(String(raw));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function parseAlgorithmParamsJsonStrict(raw) {
+  const text = String(raw || "").trim();
+  if (!text) {
+    return {};
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error("算法参数 JSON 格式无效，请输入对象格式。");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("算法参数 JSON 必须是对象格式，例如 {\"k\": 1.2}。");
+  }
+  return parsed;
+}
+
+function resolveAlgorithmParamInitialValue(paramValues, schemaKey) {
+  if (!paramValues || typeof paramValues !== "object") {
+    return undefined;
+  }
+  if (Object.prototype.hasOwnProperty.call(paramValues, schemaKey)) {
+    return paramValues[schemaKey];
+  }
+  const aliases = PARAM_KEY_ALIAS_MAP[schemaKey];
+  if (!Array.isArray(aliases)) {
+    return undefined;
+  }
+  for (const alias of aliases) {
+    if (Object.prototype.hasOwnProperty.call(paramValues, alias)) {
+      return paramValues[alias];
+    }
+  }
+  return undefined;
+}
+
+function renderAlgorithmParamEditors(host, paramSchemas, paramValues, options = {}) {
+  const entries = [];
+  if (!host) {
+    return entries;
+  }
+  const advancedOnly = Boolean(options.advancedOnly);
+  const emptyMessage = options.emptyMessage || "当前算法无额外参数。";
+  const filteredSchemas = Array.isArray(paramSchemas)
+    ? paramSchemas.filter((schema) => Boolean(schema?.advanced) === advancedOnly)
+    : [];
+  host.innerHTML = "";
+  if (filteredSchemas.length === 0) {
+    const hint = document.createElement("p");
+    hint.className = "field-hint";
+    setNodeText(hint, emptyMessage);
+    host.appendChild(hint);
+    return entries;
+  }
+
+  for (const schema of filteredSchemas) {
+    const field = document.createElement("label");
+    field.className = "field dialog-select-field";
+
+    const title = document.createElement("span");
+    const requiredSuffix = schema.required ? " *" : "";
+    setNodeText(title, `${schema.label}${requiredSuffix}`);
+    field.appendChild(title);
+
+    const input = document.createElement("input");
+    input.type = schema.type === "text" ? "text" : "number";
+    if (schema.type === "number") {
+      if (schema.min !== null) {
+        input.min = String(schema.min);
+      }
+      if (schema.max !== null) {
+        input.max = String(schema.max);
+      }
+      if (schema.step !== null) {
+        input.step = String(schema.step);
+      } else {
+        input.step = "1";
+      }
+    }
+    const mappedValue = resolveAlgorithmParamInitialValue(paramValues, schema.key);
+    const initialValue = mappedValue !== undefined ? mappedValue : schema.defaultValue;
+    if (initialValue !== undefined && initialValue !== null) {
+      input.value = String(initialValue);
+    }
+
+    field.appendChild(input);
+    host.appendChild(field);
+    if (schema.description) {
+      const desc = document.createElement("p");
+      desc.className = "field-hint";
+      setNodeText(desc, schema.description);
+      host.appendChild(desc);
+    }
+
+    entries.push({ schema, input });
+  }
+  return entries;
+}
+
+function collectAlgorithmParamValues(entries) {
+  const payload = {};
+  for (const entry of entries) {
+    const rawValue = String(entry.input.value || "").trim();
+    const fallbackValue = entry.schema.defaultValue === undefined || entry.schema.defaultValue === null
+      ? ""
+      : String(entry.schema.defaultValue).trim();
+    const effectiveValue = rawValue || fallbackValue;
+    if (!effectiveValue) {
+      if (entry.schema.required) {
+        entry.input.focus();
+        return undefined;
+      }
+      continue;
+    }
+    if (entry.schema.type === "number") {
+      const numericValue = Number(effectiveValue);
+      if (!Number.isFinite(numericValue)) {
+        entry.input.focus();
+        return undefined;
+      }
+      if (entry.schema.min !== null && numericValue < entry.schema.min) {
+        entry.input.focus();
+        return undefined;
+      }
+      if (entry.schema.max !== null && numericValue > entry.schema.max) {
+        entry.input.focus();
+        return undefined;
+      }
+      payload[entry.schema.key] = Number.isInteger(numericValue)
+        ? Math.trunc(numericValue)
+        : numericValue;
+    } else {
+      payload[entry.schema.key] = effectiveValue;
+    }
+  }
+  return payload;
+}
+
+function stripKnownDynamicParamKeys(paramPayload) {
+  const payload = paramPayload && typeof paramPayload === "object" ? { ...paramPayload } : {};
+  const blockedKeys = new Set();
+  const catalog = getAlgorithmCatalog("dynamic");
+  (catalog || []).forEach((definition) => {
+    (definition.params || []).forEach((schema) => {
+      blockedKeys.add(schema.key);
+      const aliases = PARAM_KEY_ALIAS_MAP[schema.key];
+      if (Array.isArray(aliases)) {
+        aliases.forEach((alias) => blockedKeys.add(alias));
+      }
+    });
+  });
+  if (blockedKeys.size === 0) {
+    return payload;
+  }
+  Object.keys(payload).forEach((key) => {
+    if (blockedKeys.has(key)) {
+      delete payload[key];
+    }
+  });
+  return payload;
+}
+
+function buildProductDynamicParamsJson() {
+  const rawJson = String(elements.productDynamicParamsJson?.value || "").trim();
+  const basePayload = parseAlgorithmParamsJsonStrict(rawJson);
+  const entries = productDynamicBasicParamEntries.concat(productDynamicAdvancedParamEntries);
+  const paramPayload = collectAlgorithmParamValues(entries);
+  if (paramPayload === undefined) {
+    throw new Error("动态算法参数无效，请检查必填项与数值范围。");
+  }
+  const merged = stripKnownDynamicParamKeys(basePayload);
+  Object.entries(paramPayload).forEach(([key, value]) => {
+    merged[key] = value;
+  });
+  return Object.keys(merged).length > 0 ? JSON.stringify(merged) : null;
+}
+
+function switchProductDynamicParamTab(target) {
+  const showAdvanced = target === "advanced";
+  if (elements.productDynamicParamBasicTabBtn) {
+    elements.productDynamicParamBasicTabBtn.classList.toggle("is-active", !showAdvanced);
+  }
+  if (elements.productDynamicParamAdvancedTabBtn) {
+    elements.productDynamicParamAdvancedTabBtn.classList.toggle("is-active", showAdvanced);
+  }
+  if (elements.productDynamicParamBasicPanel) {
+    elements.productDynamicParamBasicPanel.style.display = showAdvanced ? "none" : "grid";
+  }
+  if (elements.productDynamicParamAdvancedPanel) {
+    elements.productDynamicParamAdvancedPanel.style.display = showAdvanced ? "grid" : "none";
+  }
+  if (showAdvanced && elements.productDynamicAdvancedDetails) {
+    elements.productDynamicAdvancedDetails.open = true;
+  }
+}
+
+function renderProductDynamicParamEditors() {
+  const algorithm = String(elements.productDynamicAlgorithm?.value || "").trim().toUpperCase();
+  const definition = getAlgorithmDefinition("dynamic", algorithm);
+  const paramValues = parseAlgorithmParamsJson(elements.productDynamicParamsJson?.value);
+  productDynamicBasicParamEntries = renderAlgorithmParamEditors(
+    elements.productDynamicBasicParams,
+    definition?.params || [],
+    paramValues,
+    { advancedOnly: false, emptyMessage: "当前算法无基础参数。" }
+  );
+  productDynamicAdvancedParamEntries = renderAlgorithmParamEditors(
+    elements.productDynamicAdvancedParams,
+    definition?.params || [],
+    paramValues,
+    { advancedOnly: true, emptyMessage: "当前算法暂无高级参数。" }
+  );
+  if (elements.productDynamicSummary) {
+    setNodeText(elements.productDynamicSummary, definition?.summary || "当前算法暂无额外说明。");
+  }
+}
+
+function populateProductDynamicAlgorithmSelect() {
+  if (!elements.productDynamicAlgorithm) {
+    return;
+  }
+  const catalog = getAlgorithmCatalog("dynamic");
+  if (!Array.isArray(catalog) || catalog.length === 0) {
+    return;
+  }
+  const current = String(elements.productDynamicAlgorithm.value || "").trim().toUpperCase();
+  elements.productDynamicAlgorithm.innerHTML = "";
+
+  catalog.forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = item.label || item.id;
+    elements.productDynamicAlgorithm.appendChild(option);
+  });
+
+  const matched = catalog.some((item) => String(item.id || "").toUpperCase() === current);
+  if (!matched && current) {
+    const customOption = document.createElement("option");
+    customOption.value = current;
+    customOption.textContent = current;
+    elements.productDynamicAlgorithm.appendChild(customOption);
+  }
+
+  elements.productDynamicAlgorithm.value = matched
+    ? current
+    : (current || catalog[0].id);
+}
+
+function openAlgorithmHelpPage(category, algorithmId) {
+  const normalizedCategory = category === "auction" ? "auction" : "dynamic";
+  const locale = I18N ? I18N.getLocale() : "zh-CN";
+  const query = new URLSearchParams();
+  query.set("mode", "single");
+  query.set("doc", "manual");
+  query.set("lang", locale);
+  query.set("category", normalizedCategory);
+  const normalizedAlgorithm = String(algorithmId || "").trim();
+  if (normalizedAlgorithm) {
+    query.set("algorithm", normalizedAlgorithm);
+  }
+  query.set("locale", locale);
+  const fallbackAnchor = normalizedCategory === "auction" ? "market-auction" : "dynamic-algorithms";
+  const anchor = normalizedAlgorithm || fallbackAnchor;
+  window.open(`help.html?${query.toString()}#${encodeURIComponent(anchor)}`, "_blank", "noopener");
+}
+
 function setProductFieldVisible(inputElement, visible) {
   if (!inputElement) {
     return;
@@ -1242,6 +1693,7 @@ function updateProductTypeFieldsVisibility(typeRaw) {
   setProductFieldVisible(elements.productDynamicFloorPrice, dynamicVisible);
   setProductFieldVisible(elements.productDynamicCapPrice, dynamicVisible);
   setProductFieldVisible(elements.productDynamicPriceStep, dynamicVisible);
+  setProductFieldVisible(elements.productDynamicParamEditor, dynamicVisible);
   setProductFieldVisible(elements.productDynamicParamsJson, dynamicVisible);
   if (!dynamicVisible && elements.productDynamicEnabled) {
     elements.productDynamicEnabled.value = "false";
@@ -1316,7 +1768,7 @@ function getProductInput() {
   const rawPerUserLimit = String(elements.productPerUserLimit?.value || "").trim();
   const parsedPerUserLimit = rawPerUserLimit ? Number(rawPerUserLimit) : null;
   const dynamicEnabled = String(elements.productDynamicEnabled?.value || "false") === "true";
-  const dynamicParamsJsonRaw = String(elements.productDynamicParamsJson?.value || "").trim();
+  const dynamicParamsJson = dynamicEnabled ? buildProductDynamicParamsJson() : null;
   return {
     sku: elements.productSku.value.trim(),
     title: elements.productTitle.value.trim(),
@@ -1342,8 +1794,8 @@ function getProductInput() {
     effectSeconds: Number(elements.productEffectSeconds.value || 0),
     effectAmplifier: Number(elements.productEffectAmplifier.value || 0),
     dynamicPricingEnabled: dynamicEnabled,
-    dynamicAlgorithm: String(elements.productDynamicAlgorithm?.value || "LINEAR_DEMAND_V1").trim(),
-    dynamicParamsJson: dynamicParamsJsonRaw || null,
+    dynamicAlgorithm: String(elements.productDynamicAlgorithm?.value || "LINEAR_DEMAND_V1").trim().toUpperCase(),
+    dynamicParamsJson,
     dynamicBasePrice: parseOptionalPositiveWhole(elements.productDynamicBasePrice?.value),
     dynamicFloorPrice: parseOptionalPositiveWhole(elements.productDynamicFloorPrice?.value),
     dynamicCapPrice: parseOptionalPositiveWhole(elements.productDynamicCapPrice?.value),
@@ -1459,7 +1911,17 @@ function renderProducts() {
         elements.productDynamicEnabled.value = product.dynamicPricingEnabled ? "true" : "false";
       }
       if (elements.productDynamicAlgorithm) {
-        elements.productDynamicAlgorithm.value = product.dynamicAlgorithm || "LINEAR_DEMAND_V1";
+        const dynamicAlgorithm = String(product.dynamicAlgorithm || "LINEAR_DEMAND_V1").trim().toUpperCase();
+        const matched = Array.from(elements.productDynamicAlgorithm.options || []).some(
+          (option) => String(option.value || "").trim().toUpperCase() === dynamicAlgorithm
+        );
+        if (!matched && dynamicAlgorithm) {
+          const customOption = document.createElement("option");
+          customOption.value = dynamicAlgorithm;
+          customOption.textContent = getAlgorithmLabel("dynamic", dynamicAlgorithm);
+          elements.productDynamicAlgorithm.appendChild(customOption);
+        }
+        elements.productDynamicAlgorithm.value = dynamicAlgorithm;
       }
       if (elements.productDynamicBasePrice) {
         elements.productDynamicBasePrice.value = product.dynamicBasePrice ?? "";
@@ -1492,6 +1954,7 @@ function renderProducts() {
       elements.productEffectSeconds.value = product.effectSeconds || 30;
       elements.productEffectAmplifier.value = product.effectAmplifier || 0;
       elements.productActive.value = product.active ? "true" : "false";
+      renderProductDynamicParamEditors();
       updateProductTypeFieldsVisibility(product.productType);
       syncProductAmountSlider("input");
       setProductPanel("editor");
@@ -1532,7 +1995,7 @@ function renderProducts() {
         { label: "单玩家限购", value: product.perUserLimit != null ? `x${product.perUserLimit}` : "不限购" },
         { label: "币种/价格", value: `${currencyName(product.currency)} / ${formatCurrency(product.price, product.currency)}` },
         { label: "动态价格", value: product.dynamicPricingEnabled ? "启用" : "关闭" },
-        { label: "动态算法", value: product.dynamicPricingEnabled ? (product.dynamicAlgorithm || "-") : "-" },
+        { label: "动态算法", value: product.dynamicPricingEnabled ? getAlgorithmLabel("dynamic", product.dynamicAlgorithm || "-") : "-" },
         { label: "热度分数", value: product.dynamicPricingEnabled ? Number(product.dynamicDemandScore || 0) : "-" },
         { label: "备注", value: product.remark || "-" },
         { label: "上架时间", value: product.publishAt ? formatDateTime(product.publishAt) : "立即" },
@@ -1548,7 +2011,8 @@ function renderProducts() {
 
 async function loadProducts() {
   ensureAdmin();
-  await ensureMaterialMap();
+  await Promise.all([ensureMaterialMap(), ensureMarketAlgorithmGlossary()]);
+  populateProductDynamicAlgorithmSelect();
   const payload = await apiAdmin("/api/admin/products/list?includeInactive=true&limit=300", {
     method: "GET",
   });
@@ -2614,6 +3078,40 @@ if (elements.productDynamicEnabled) {
     updateProductTypeFieldsVisibility(elements.productType ? elements.productType.value : "COMMAND");
   });
 }
+if (elements.productDynamicAlgorithm) {
+  elements.productDynamicAlgorithm.addEventListener("change", () => {
+    renderProductDynamicParamEditors();
+  });
+}
+if (elements.productDynamicParamsJson) {
+  elements.productDynamicParamsJson.addEventListener("blur", () => {
+    const raw = String(elements.productDynamicParamsJson.value || "").trim();
+    if (raw) {
+      try {
+        parseAlgorithmParamsJsonStrict(raw);
+      } catch (error) {
+        notify(error.message || "算法参数 JSON 格式无效。", "warn");
+        return;
+      }
+    }
+    renderProductDynamicParamEditors();
+  });
+}
+if (elements.productDynamicHelpBtn) {
+  elements.productDynamicHelpBtn.addEventListener("click", () => {
+    openAlgorithmHelpPage("dynamic", elements.productDynamicAlgorithm?.value || "");
+  });
+}
+if (elements.productDynamicParamBasicTabBtn) {
+  elements.productDynamicParamBasicTabBtn.addEventListener("click", () => {
+    switchProductDynamicParamTab("basic");
+  });
+}
+if (elements.productDynamicParamAdvancedTabBtn) {
+  elements.productDynamicParamAdvancedTabBtn.addEventListener("click", () => {
+    switchProductDynamicParamTab("advanced");
+  });
+}
 if (elements.productItemMaterial) {
   elements.productItemMaterial.addEventListener("blur", () => {
     const resolved = resolveMaterialInput(elements.productItemMaterial.value);
@@ -2637,10 +3135,21 @@ if (elements.marketMaterial) {
 updateProductTypeFieldsVisibility(elements.productType ? elements.productType.value : "COMMAND");
 setProductPanel("editor");
 syncProductAmountSlider("input");
+switchProductDynamicParamTab("basic");
+renderProductDynamicParamEditors();
 
 applyCurrencyMetaToUi();
 loadCurrencyMeta();
 ensureMaterialMap();
+ensureMarketAlgorithmGlossary()
+  .then(() => {
+    populateProductDynamicAlgorithmSelect();
+    renderProductDynamicParamEditors();
+  })
+  .catch(() => {
+    populateProductDynamicAlgorithmSelect();
+    renderProductDynamicParamEditors();
+  });
 populatePotionEffectSuggest();
 setMetaText(elements.adminLoginStatus, "等待登录", "info");
 if (elements.productListStatus) {
