@@ -1,0 +1,206 @@
+{
+  "dynamic": [
+    {
+      "id": "LINEAR_DEMAND_V1",
+      "label": "Linear Demand",
+      "summary": "Demand heat increases linearly and price follows the configured step.",
+      "helpSlug": "dynamic-linear-demand-v1",
+      "sortOrder": 10,
+      "params": []
+    },
+    {
+      "id": "DIMINISHING_RETURN_V1",
+      "label": "Diminishing Return",
+      "summary": "Demand growth scales with square root to dampen sudden spikes.",
+      "helpSlug": "dynamic-diminishing-return-v1",
+      "sortOrder": 20,
+      "params": []
+    },
+    {
+      "id": "LOG_SMOOTH_V1",
+      "label": "Log Smoothing",
+      "summary": "Demand growth follows a log curve for high-frequency small trades.",
+      "helpSlug": "dynamic-log-smooth-v1",
+      "sortOrder": 30,
+      "params": []
+    },
+    {
+      "id": "EXPONENTIAL_DEFENSE_V1",
+      "label": "Exponential Defense",
+      "summary": "Large purchases get heavier demand weight to protect scarce stock.",
+      "helpSlug": "dynamic-exponential-defense-v1",
+      "sortOrder": 40,
+      "params": []
+    },
+    {
+      "id": "THRESHOLD_STEP_V1",
+      "label": "Threshold Step",
+      "summary": "Demand heat only grows after quantity exceeds the configured threshold.",
+      "helpSlug": "dynamic-threshold-step-v1",
+      "sortOrder": 50,
+      "params": [
+        {
+          "key": "thresholdK",
+          "label": "Threshold K",
+          "type": "number",
+          "required": false,
+          "min": 0,
+          "step": 1,
+          "default": 4,
+          "description": "Extra demand only starts when buy quantity is above this value."
+        }
+      ]
+    },
+    {
+      "id": "ELASTICITY_V1",
+      "label": "Elasticity",
+      "summary": "Elasticity controls how sensitive price is to demand changes.",
+      "helpSlug": "dynamic-elasticity-v1",
+      "sortOrder": 60,
+      "params": [
+        {
+          "key": "elasticity",
+          "label": "Elasticity",
+          "type": "number",
+          "required": false,
+          "min": 0.1,
+          "step": 0.1,
+          "default": 1,
+          "description": "Higher values make price movement smoother."
+        }
+      ]
+    },
+    {
+      "id": "PANIC_BUYING_V1",
+      "label": "Panic Buying",
+      "summary": "After threshold, price enters accelerated growth for scarcity events.",
+      "helpSlug": "dynamic-panic-buying-v1",
+      "sortOrder": 70,
+      "params": [
+        {
+          "key": "panicThreshold",
+          "label": "Panic Threshold",
+          "type": "number",
+          "required": false,
+          "min": 1,
+          "step": 1,
+          "default": 20,
+          "description": "When demand heat exceeds this value, extra growth is applied."
+        }
+      ]
+    }
+  ],
+  "auction": [
+    {
+      "id": "ENGLISH_AUCTION_V1",
+      "label": "English Auction",
+      "summary": "Open ascending bids with realtime highest bid visibility.",
+      "helpSlug": "auction-english-v1",
+      "requiresMinIncrement": true,
+      "requiresEndAt": true,
+      "sortOrder": 10,
+      "params": [
+        {
+          "key": "reservePrice",
+          "label": "Reserve Price",
+          "type": "number",
+          "required": false,
+          "min": 1,
+          "step": 1,
+          "description": "Optional. Auction fails if reserve is not reached."
+        }
+      ]
+    },
+    {
+      "id": "DUTCH_AUCTION_V1",
+      "label": "Dutch Auction",
+      "summary": "Price declines over time; first buyer closes the lot immediately.",
+      "helpSlug": "auction-dutch-v1",
+      "requiresMinIncrement": false,
+      "requiresEndAt": false,
+      "sortOrder": 20,
+      "params": [
+        {
+          "key": "floorPrice",
+          "label": "Floor Price",
+          "type": "number",
+          "required": true,
+          "min": 1,
+          "step": 1,
+          "default": 1,
+          "description": "Lower bound of descending price; cannot exceed start price."
+        },
+        {
+          "key": "durationSeconds",
+          "label": "Duration (seconds)",
+          "type": "number",
+          "required": true,
+          "min": 30,
+          "step": 1,
+          "default": 3600,
+          "description": "Total descending window from start toward floor."
+        }
+      ]
+    },
+    {
+      "id": "VICKREY_AUCTION_V1",
+      "label": "Vickrey Sealed Auction",
+      "summary": "Sealed bids; highest bidder wins but pays second price.",
+      "helpSlug": "auction-vickrey-v1",
+      "requiresMinIncrement": false,
+      "requiresEndAt": true,
+      "sortOrder": 30,
+      "params": [
+        {
+          "key": "reservePrice",
+          "label": "Reserve Price",
+          "type": "number",
+          "required": false,
+          "min": 1,
+          "step": 1,
+          "description": "Optional. Auction fails if highest bid does not reach reserve."
+        }
+      ]
+    },
+    {
+      "id": "CANDLE_AUCTION_V1",
+      "label": "Candle Auction",
+      "summary": "Open bidding with randomized hidden extension window.",
+      "helpSlug": "auction-candle-v1",
+      "requiresMinIncrement": true,
+      "requiresEndAt": false,
+      "sortOrder": 40,
+      "params": [
+        {
+          "key": "baseDurationSeconds",
+          "label": "Base Duration (seconds)",
+          "type": "number",
+          "required": true,
+          "min": 30,
+          "step": 1,
+          "default": 3600,
+          "description": "Public minimum duration before random extension is applied."
+        },
+        {
+          "key": "maxExtensionSeconds",
+          "label": "Max Random Extension (seconds)",
+          "type": "number",
+          "required": false,
+          "min": 0,
+          "step": 1,
+          "default": 1800,
+          "description": "System randomly adds 0..N seconds after public end."
+        },
+        {
+          "key": "reservePrice",
+          "label": "Reserve Price",
+          "type": "number",
+          "required": false,
+          "min": 1,
+          "step": 1,
+          "description": "Optional. Auction fails if reserve is not reached."
+        }
+      ]
+    }
+  ]
+}

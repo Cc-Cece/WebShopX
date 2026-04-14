@@ -1,0 +1,206 @@
+{
+  "dynamic": [
+    {
+      "id": "LINEAR_DEMAND_V1",
+      "label": "线性需求",
+      "summary": "需求热度每增加 1，价格按步长线性上升。",
+      "helpSlug": "dynamic-linear-demand-v1",
+      "sortOrder": 10,
+      "params": []
+    },
+    {
+      "id": "DIMINISHING_RETURN_V1",
+      "label": "边际递减",
+      "summary": "需求增量随购买数量的平方根增长，抑制短时暴涨。",
+      "helpSlug": "dynamic-diminishing-return-v1",
+      "sortOrder": 20,
+      "params": []
+    },
+    {
+      "id": "LOG_SMOOTH_V1",
+      "label": "对数平滑",
+      "summary": "需求增量采用对数曲线，适合高频小额交易场景。",
+      "helpSlug": "dynamic-log-smooth-v1",
+      "sortOrder": 30,
+      "params": []
+    },
+    {
+      "id": "EXPONENTIAL_DEFENSE_V1",
+      "label": "指数防护",
+      "summary": "大额扫货会获得更高需求权重，用于防止库存瞬时被清空。",
+      "helpSlug": "dynamic-exponential-defense-v1",
+      "sortOrder": 40,
+      "params": []
+    },
+    {
+      "id": "THRESHOLD_STEP_V1",
+      "label": "阈值分段",
+      "summary": "仅当购买数量超过阈值后，才提升需求热度。",
+      "helpSlug": "dynamic-threshold-step-v1",
+      "sortOrder": 50,
+      "params": [
+        {
+          "key": "thresholdK",
+          "label": "阈值 K",
+          "type": "number",
+          "required": false,
+          "min": 0,
+          "step": 1,
+          "default": 4,
+          "description": "购买数量超过该值后才计入额外需求。"
+        }
+      ]
+    },
+    {
+      "id": "ELASTICITY_V1",
+      "label": "弹性模型",
+      "summary": "通过弹性系数控制需求对价格的敏感度。",
+      "helpSlug": "dynamic-elasticity-v1",
+      "sortOrder": 60,
+      "params": [
+        {
+          "key": "elasticity",
+          "label": "弹性系数",
+          "type": "number",
+          "required": false,
+          "min": 0.1,
+          "step": 0.1,
+          "default": 1,
+          "description": "值越大，价格变化越平缓。"
+        }
+      ]
+    },
+    {
+      "id": "PANIC_BUYING_V1",
+      "label": "恐慌抢购",
+      "summary": "超过阈值后进入二次加速涨价，适合稀缺商品活动。",
+      "helpSlug": "dynamic-panic-buying-v1",
+      "sortOrder": 70,
+      "params": [
+        {
+          "key": "panicThreshold",
+          "label": "恐慌阈值",
+          "type": "number",
+          "required": false,
+          "min": 1,
+          "step": 1,
+          "default": 20,
+          "description": "需求热度超过阈值后触发额外涨幅。"
+        }
+      ]
+    }
+  ],
+  "auction": [
+    {
+      "id": "ENGLISH_AUCTION_V1",
+      "label": "英式拍卖",
+      "summary": "公开加价，系统实时显示当前最高价。",
+      "helpSlug": "auction-english-v1",
+      "requiresMinIncrement": true,
+      "requiresEndAt": true,
+      "sortOrder": 10,
+      "params": [
+        {
+          "key": "reservePrice",
+          "label": "保留价",
+          "type": "number",
+          "required": false,
+          "min": 1,
+          "step": 1,
+          "description": "可选。未达到保留价则流拍。"
+        }
+      ]
+    },
+    {
+      "id": "DUTCH_AUCTION_V1",
+      "label": "荷兰拍卖",
+      "summary": "价格随时间下降，首位买断者立即成交。",
+      "helpSlug": "auction-dutch-v1",
+      "requiresMinIncrement": false,
+      "requiresEndAt": false,
+      "sortOrder": 20,
+      "params": [
+        {
+          "key": "floorPrice",
+          "label": "底价",
+          "type": "number",
+          "required": true,
+          "min": 1,
+          "step": 1,
+          "default": 1,
+          "description": "价格下降的下限，不能高于起拍价。"
+        },
+        {
+          "key": "durationSeconds",
+          "label": "总时长（秒）",
+          "type": "number",
+          "required": true,
+          "min": 30,
+          "step": 1,
+          "default": 3600,
+          "description": "从起拍价下降到目标区间的持续时间。"
+        }
+      ]
+    },
+    {
+      "id": "VICKREY_AUCTION_V1",
+      "label": "Vickrey 密封拍卖",
+      "summary": "玩家提交密封出价，最高出价者按次高价成交。",
+      "helpSlug": "auction-vickrey-v1",
+      "requiresMinIncrement": false,
+      "requiresEndAt": true,
+      "sortOrder": 30,
+      "params": [
+        {
+          "key": "reservePrice",
+          "label": "保留价",
+          "type": "number",
+          "required": false,
+          "min": 1,
+          "step": 1,
+          "description": "可选。最高出价未达保留价时流拍。"
+        }
+      ]
+    },
+    {
+      "id": "CANDLE_AUCTION_V1",
+      "label": "蜡烛拍卖",
+      "summary": "公开加价并设置随机延长区间，真实结束时间不公开。",
+      "helpSlug": "auction-candle-v1",
+      "requiresMinIncrement": true,
+      "requiresEndAt": false,
+      "sortOrder": 40,
+      "params": [
+        {
+          "key": "baseDurationSeconds",
+          "label": "基础时长（秒）",
+          "type": "number",
+          "required": true,
+          "min": 30,
+          "step": 1,
+          "default": 3600,
+          "description": "公开阶段的最短持续时间。"
+        },
+        {
+          "key": "maxExtensionSeconds",
+          "label": "随机延长上限（秒）",
+          "type": "number",
+          "required": false,
+          "min": 0,
+          "step": 1,
+          "default": 1800,
+          "description": "系统会在公开结束后随机追加 0~该值秒数。"
+        },
+        {
+          "key": "reservePrice",
+          "label": "保留价",
+          "type": "number",
+          "required": false,
+          "min": 1,
+          "step": 1,
+          "description": "可选。未达到保留价则流拍。"
+        }
+      ]
+    }
+  ]
+}

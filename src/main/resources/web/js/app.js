@@ -25,6 +25,12 @@
   materialNameMap: {},
   materialNameMapReady: false,
   materialNameMapPromise: null,
+  marketAlgorithmGlossary: {
+    dynamic: [],
+    auction: [],
+  },
+  marketAlgorithmGlossaryReady: false,
+  marketAlgorithmGlossaryPromise: null,
   hasLoadedProducts: false,
   hasLoadedMarket: false,
   hasLoadedOrders: false,
@@ -55,6 +61,24 @@ const CURRENCY_META = {
     short: "GC",
   },
 };
+
+const FALLBACK_MARKET_ALGORITHM_GLOSSARY = Object.freeze({
+  dynamic: [
+    { id: "LINEAR_DEMAND_V1", label: "LINEAR_DEMAND_V1", params: [] },
+    { id: "DIMINISHING_RETURN_V1", label: "DIMINISHING_RETURN_V1", params: [] },
+    { id: "LOG_SMOOTH_V1", label: "LOG_SMOOTH_V1", params: [] },
+    { id: "EXPONENTIAL_DEFENSE_V1", label: "EXPONENTIAL_DEFENSE_V1", params: [] },
+    { id: "THRESHOLD_STEP_V1", label: "THRESHOLD_STEP_V1", params: [] },
+    { id: "ELASTICITY_V1", label: "ELASTICITY_V1", params: [] },
+    { id: "PANIC_BUYING_V1", label: "PANIC_BUYING_V1", params: [] },
+  ],
+  auction: [
+    { id: "ENGLISH_AUCTION_V1", label: "ENGLISH_AUCTION_V1", params: [] },
+    { id: "DUTCH_AUCTION_V1", label: "DUTCH_AUCTION_V1", params: [] },
+    { id: "VICKREY_AUCTION_V1", label: "VICKREY_AUCTION_V1", params: [] },
+    { id: "CANDLE_AUCTION_V1", label: "CANDLE_AUCTION_V1", params: [] },
+  ],
+});
 
 const LOCAL_TEXTURE_BASE = "/textures";
 const REMOTE_TEXTURE_BASES = [
@@ -729,26 +753,40 @@ function openMarketParamDialog({ title, hint, confirmText, setupForm, resolveVal
   });
 }
 
-function openDynamicParamDialog(state, fallbackBasePrice) {
+async function openDynamicParamDialog(state, fallbackBasePrice) {
+  await ensureMarketAlgorithmGlossary();
+  const catalog = getAlgorithmCatalog("dynamic");
+  const fallbackAlgorithm = catalog[0]?.id || "LINEAR_DEMAND_V1";
   return openMarketParamDialog({
     title: "动态定价参数",
-    hint: "先做框架：算法可切换，参数后续可扩展。",
+    hint: "参数与说明来自外部配置文件，修改后可扩展新算法。",
     confirmText: "保存动态参数",
     setupForm: (host) => {
+      const algorithmRow = createEl("div", "dialog-inline-config");
       const algorithmField = createEl("label", "field dialog-select-field");
       algorithmField.appendChild(createEl("span", "", "选择动态定价算法"));
       const algorithmSelect = document.createElement("select");
-      [
-        { value: "LINEAR_DEMAND_V1", label: "线性需求（占位）" },
-      ].forEach((item) => {
+      for (const item of catalog) {
         const option = document.createElement("option");
-        option.value = item.value;
-        option.textContent = item.label;
+        option.value = item.id;
+        option.textContent = item.label === item.id ? item.label : `${item.label} (${item.id})`;
         algorithmSelect.appendChild(option);
-      });
-      algorithmSelect.value = state.dynamicAlgorithm || "LINEAR_DEMAND_V1";
+      }
+      algorithmSelect.value = String(state.dynamicAlgorithm || fallbackAlgorithm).toUpperCase();
+      if (!algorithmSelect.value) {
+        algorithmSelect.value = fallbackAlgorithm;
+      }
       algorithmField.appendChild(algorithmSelect);
-      host.appendChild(algorithmField);
+      algorithmRow.appendChild(algorithmField);
+      const helpBtn = createEl("button", "btn-tonal", "[!]");
+      helpBtn.type = "button";
+      helpBtn.title = "查看算法帮助";
+      helpBtn.addEventListener("click", () => openAlgorithmHelpPage("dynamic", algorithmSelect.value));
+      algorithmRow.appendChild(helpBtn);
+      host.appendChild(algorithmRow);
+
+      const summary = createEl("p", "field-hint", "");
+      host.appendChild(summary);
 
       const baseField = createEl("label", "field dialog-select-field");
       baseField.appendChild(createEl("span", "", "动态基准价"));
@@ -791,9 +829,25 @@ function openDynamicParamDialog(state, fallbackBasePrice) {
       stepField.appendChild(stepInput);
       host.appendChild(stepField);
 
-      return { algorithmSelect, baseInput, floorInput, capInput, stepInput };
+      const paramHost = createEl("div", "dialog-algo-params");
+      host.appendChild(paramHost);
+
+      const initialParamValues = parseAlgorithmParamsJson(state.dynamicParamsJson);
+      let paramEntries = [];
+      const renderParams = () => {
+        const definition = getAlgorithmDefinition("dynamic", algorithmSelect.value);
+        summary.textContent = definition?.summary || "";
+        const values = definition && String(definition.id || "").toUpperCase() === String(state.dynamicAlgorithm || "").toUpperCase()
+          ? initialParamValues
+          : {};
+        paramEntries = renderAlgorithmParamEditors(paramHost, definition?.params || [], values);
+      };
+      algorithmSelect.addEventListener("change", renderParams);
+      renderParams();
+
+      return { algorithmSelect, baseInput, floorInput, capInput, stepInput, getParamEntries: () => paramEntries };
     },
-    resolveValue: ({ algorithmSelect, baseInput, floorInput, capInput, stepInput }) => {
+    resolveValue: ({ algorithmSelect, baseInput, floorInput, capInput, stepInput, getParamEntries }) => {
       const base = Number(baseInput.value.trim());
       if (!Number.isFinite(base) || base <= 0) {
         baseInput.focus();
@@ -828,8 +882,14 @@ function openDynamicParamDialog(state, fallbackBasePrice) {
         return undefined;
       }
 
+      const paramPayload = collectAlgorithmParamValues(getParamEntries());
+      if (paramPayload === undefined) {
+        return undefined;
+      }
+
       return {
         dynamicAlgorithm: algorithmSelect.value,
+        dynamicParamsJson: Object.keys(paramPayload).length > 0 ? JSON.stringify(paramPayload) : null,
         dynamicBasePrice: Math.floor(base),
         dynamicFloorPrice: floor === null ? null : Math.floor(floor),
         dynamicCapPrice: cap === null ? null : Math.floor(cap),
@@ -839,26 +899,40 @@ function openDynamicParamDialog(state, fallbackBasePrice) {
   });
 }
 
-function openAuctionParamDialog(state, fallbackPrice) {
+async function openAuctionParamDialog(state, fallbackPrice) {
+  await ensureMarketAlgorithmGlossary();
+  const catalog = getAlgorithmCatalog("auction");
+  const fallbackAlgorithm = catalog[0]?.id || "ENGLISH_AUCTION_V1";
   return openMarketParamDialog({
     title: "拍卖竞价参数",
-    hint: "先做框架：算法可切换，参数后续可扩展。",
+    hint: "根据算法类型展示对应参数；帮助页可查看详细说明。",
     confirmText: "保存拍卖参数",
     setupForm: (host) => {
+      const algorithmRow = createEl("div", "dialog-inline-config");
       const algorithmField = createEl("label", "field dialog-select-field");
       algorithmField.appendChild(createEl("span", "", "选择拍卖竞价算法"));
       const algorithmSelect = document.createElement("select");
-      [
-        { value: "HIGHEST_BID_WINS_V1", label: "最高价获胜（占位）" },
-      ].forEach((item) => {
+      for (const item of catalog) {
         const option = document.createElement("option");
-        option.value = item.value;
-        option.textContent = item.label;
+        option.value = item.id;
+        option.textContent = item.label === item.id ? item.label : `${item.label} (${item.id})`;
         algorithmSelect.appendChild(option);
-      });
-      algorithmSelect.value = state.auctionAlgorithm || "HIGHEST_BID_WINS_V1";
+      }
+      algorithmSelect.value = String(state.auctionAlgorithm || fallbackAlgorithm).toUpperCase();
+      if (!algorithmSelect.value) {
+        algorithmSelect.value = fallbackAlgorithm;
+      }
       algorithmField.appendChild(algorithmSelect);
-      host.appendChild(algorithmField);
+      algorithmRow.appendChild(algorithmField);
+      const helpBtn = createEl("button", "btn-tonal", "[!]");
+      helpBtn.type = "button";
+      helpBtn.title = "查看算法帮助";
+      helpBtn.addEventListener("click", () => openAlgorithmHelpPage("auction", algorithmSelect.value));
+      algorithmRow.appendChild(helpBtn);
+      host.appendChild(algorithmRow);
+
+      const summary = createEl("p", "field-hint", "");
+      host.appendChild(summary);
 
       const startField = createEl("label", "field dialog-select-field");
       startField.appendChild(createEl("span", "", "起拍价"));
@@ -891,41 +965,84 @@ function openAuctionParamDialog(state, fallbackPrice) {
       endField.appendChild(endInput);
       host.appendChild(endField);
 
-      return { algorithmSelect, startInput, incrementInput, endInput };
+      const paramHost = createEl("div", "dialog-algo-params");
+      host.appendChild(paramHost);
+
+      const initialParamValues = parseAlgorithmParamsJson(state.auctionParamsJson);
+      let paramEntries = [];
+      let currentDefinition = null;
+      const renderByAlgorithm = () => {
+        currentDefinition = getAlgorithmDefinition("auction", algorithmSelect.value);
+        summary.textContent = currentDefinition?.summary || "";
+        incrementField.style.display = currentDefinition?.requiresMinIncrement ? "grid" : "none";
+        endField.style.display = currentDefinition?.requiresEndAt ? "grid" : "none";
+        const values = currentDefinition && String(currentDefinition.id || "").toUpperCase() === String(state.auctionAlgorithm || "").toUpperCase()
+          ? initialParamValues
+          : {};
+        paramEntries = renderAlgorithmParamEditors(paramHost, currentDefinition?.params || [], values);
+      };
+      algorithmSelect.addEventListener("change", renderByAlgorithm);
+      renderByAlgorithm();
+
+      return {
+        algorithmSelect,
+        startInput,
+        incrementInput,
+        endInput,
+        getCurrentDefinition: () => currentDefinition,
+        getParamEntries: () => paramEntries,
+      };
     },
-    resolveValue: ({ algorithmSelect, startInput, incrementInput, endInput }) => {
+    resolveValue: ({ algorithmSelect, startInput, incrementInput, endInput, getCurrentDefinition, getParamEntries }) => {
       const start = Number(startInput.value.trim());
       if (!Number.isFinite(start) || start <= 0) {
         startInput.focus();
         return undefined;
       }
-      const increment = Number(incrementInput.value.trim());
-      if (!Number.isFinite(increment) || increment <= 0) {
-        incrementInput.focus();
-        return undefined;
+
+      const definition = getCurrentDefinition() || getAlgorithmDefinition("auction", algorithmSelect.value);
+      let incrementValue = null;
+      if (definition?.requiresMinIncrement) {
+        const increment = Number(incrementInput.value.trim());
+        if (!Number.isFinite(increment) || increment <= 0) {
+          incrementInput.focus();
+          return undefined;
+        }
+        incrementValue = Math.floor(increment);
       }
-      const endRaw = endInput.value.trim();
-      if (!endRaw) {
-        endInput.focus();
-        return undefined;
+
+      let auctionEndAt = null;
+      if (definition?.requiresEndAt) {
+        const endRaw = endInput.value.trim();
+        if (!endRaw) {
+          endInput.focus();
+          return undefined;
+        }
+        const endDate = new Date(endRaw);
+        if (!Number.isFinite(endDate.getTime())) {
+          endInput.focus();
+          return undefined;
+        }
+        auctionEndAt = endDate.toISOString();
       }
-      const endDate = new Date(endRaw);
-      if (!Number.isFinite(endDate.getTime())) {
-        endInput.focus();
+
+      const paramPayload = collectAlgorithmParamValues(getParamEntries());
+      if (paramPayload === undefined) {
         return undefined;
       }
 
       return {
         auctionAlgorithm: algorithmSelect.value,
+        auctionParamsJson: Object.keys(paramPayload).length > 0 ? JSON.stringify(paramPayload) : null,
         auctionStartPrice: Math.floor(start),
-        auctionMinIncrement: Math.floor(increment),
-        auctionEndAt: endDate.toISOString(),
+        auctionMinIncrement: incrementValue,
+        auctionEndAt,
       };
     },
   });
 }
 
-function openListingEditDialog({
+async function openListingEditDialog({
   listingId,
   currentPrice,
   currency,
@@ -935,14 +1052,23 @@ function openListingEditDialog({
   currentSupplyMaxStock,
   tradeMode,
   currentDynamicPricingEnabled,
+  currentDynamicAlgorithm,
+  currentDynamicParamsJson,
   currentDynamicBasePrice,
   currentDynamicFloorPrice,
   currentDynamicCapPrice,
   currentDynamicPriceStep,
+  currentAuctionAlgorithm,
+  currentAuctionParamsJson,
   currentAuctionStartPrice,
   currentAuctionMinIncrement,
   currentAuctionEndAt,
 }) {
+  await ensureMarketAlgorithmGlossary();
+  const dynamicCatalog = getAlgorithmCatalog("dynamic");
+  const auctionCatalog = getAlgorithmCatalog("auction");
+  const defaultDynamicAlgorithm = dynamicCatalog[0]?.id || "LINEAR_DEMAND_V1";
+  const defaultAuctionAlgorithm = auctionCatalog[0]?.id || "ENGLISH_AUCTION_V1";
   const normalizedTradeMode = String(tradeMode || "DIRECT").toUpperCase();
   const isSupplyListing = String(sourceMode || "").toUpperCase() === "SUPPLY";
   const initialMode = normalizedTradeMode === "AUCTION"
@@ -970,10 +1096,14 @@ function openListingEditDialog({
       supplyMaxStock: null,
       tradeMode: "DIRECT",
       dynamicPricingEnabled: false,
+      dynamicAlgorithm: String(currentDynamicAlgorithm || defaultDynamicAlgorithm).toUpperCase(),
+      dynamicParamsJson: currentDynamicParamsJson || null,
       dynamicBasePrice: null,
       dynamicFloorPrice: null,
       dynamicCapPrice: null,
       dynamicPriceStep: null,
+      auctionAlgorithm: String(currentAuctionAlgorithm || defaultAuctionAlgorithm).toUpperCase(),
+      auctionParamsJson: currentAuctionParamsJson || null,
       auctionStartPrice: null,
       auctionMinIncrement: null,
       auctionEndAt: null,
@@ -987,8 +1117,10 @@ function openListingEditDialog({
 
   const draft = {
     mode: isSupplyListing && initialMode === "AUCTION" ? "DIRECT_STATIC" : initialMode,
-    dynamicAlgorithm: "LINEAR_DEMAND_V1",
-    auctionAlgorithm: "HIGHEST_BID_WINS_V1",
+    dynamicAlgorithm: String(currentDynamicAlgorithm || defaultDynamicAlgorithm).toUpperCase(),
+    dynamicParamsJson: currentDynamicParamsJson || null,
+    auctionAlgorithm: String(currentAuctionAlgorithm || defaultAuctionAlgorithm).toUpperCase(),
+    auctionParamsJson: currentAuctionParamsJson || null,
     dynamicBasePrice: Number.isFinite(Number(currentDynamicBasePrice)) ? Math.floor(Number(currentDynamicBasePrice)) : Math.floor(Number(currentPrice || 1)),
     dynamicFloorPrice: Number.isFinite(Number(currentDynamicFloorPrice)) ? Math.floor(Number(currentDynamicFloorPrice)) : null,
     dynamicCapPrice: Number.isFinite(Number(currentDynamicCapPrice)) ? Math.floor(Number(currentDynamicCapPrice)) : null,
@@ -1057,14 +1189,15 @@ function openListingEditDialog({
   const dynamicAlgoField = createEl("label", "field dialog-select-field");
   dynamicAlgoField.appendChild(createEl("span", "", "选择动态定价算法"));
   const dynamicAlgoSelect = document.createElement("select");
-  [
-    { value: "LINEAR_DEMAND_V1", label: "线性需求（占位）" },
-  ].forEach((item) => {
+  dynamicCatalog.forEach((item) => {
     const option = document.createElement("option");
-    option.value = item.value;
-    option.textContent = item.label;
+    option.value = item.id;
+    option.textContent = item.label === item.id ? item.label : `${item.label} (${item.id})`;
     dynamicAlgoSelect.appendChild(option);
   });
+  if (!dynamicCatalog.some((item) => item.id === draft.dynamicAlgorithm)) {
+    draft.dynamicAlgorithm = defaultDynamicAlgorithm;
+  }
   dynamicAlgoSelect.value = draft.dynamicAlgorithm;
   dynamicAlgoField.appendChild(dynamicAlgoSelect);
   const dynamicParamBtn = createEl("button", "btn-tonal", "参数设置");
@@ -1077,14 +1210,15 @@ function openListingEditDialog({
   const auctionAlgoField = createEl("label", "field dialog-select-field");
   auctionAlgoField.appendChild(createEl("span", "", "选择拍卖竞价算法"));
   const auctionAlgoSelect = document.createElement("select");
-  [
-    { value: "HIGHEST_BID_WINS_V1", label: "最高价获胜（占位）" },
-  ].forEach((item) => {
+  auctionCatalog.forEach((item) => {
     const option = document.createElement("option");
-    option.value = item.value;
-    option.textContent = item.label;
+    option.value = item.id;
+    option.textContent = item.label === item.id ? item.label : `${item.label} (${item.id})`;
     auctionAlgoSelect.appendChild(option);
   });
+  if (!auctionCatalog.some((item) => item.id === draft.auctionAlgorithm)) {
+    draft.auctionAlgorithm = defaultAuctionAlgorithm;
+  }
   auctionAlgoSelect.value = draft.auctionAlgorithm;
   auctionAlgoField.appendChild(auctionAlgoSelect);
   const auctionParamBtn = createEl("button", "btn-tonal", "参数设置");
@@ -1106,6 +1240,7 @@ function openListingEditDialog({
       return;
     }
     draft.dynamicAlgorithm = value.dynamicAlgorithm;
+    draft.dynamicParamsJson = value.dynamicParamsJson;
     draft.dynamicBasePrice = value.dynamicBasePrice;
     draft.dynamicFloorPrice = value.dynamicFloorPrice;
     draft.dynamicCapPrice = value.dynamicCapPrice;
@@ -1119,6 +1254,7 @@ function openListingEditDialog({
       return;
     }
     draft.auctionAlgorithm = value.auctionAlgorithm;
+    draft.auctionParamsJson = value.auctionParamsJson;
     draft.auctionStartPrice = value.auctionStartPrice;
     draft.auctionMinIncrement = value.auctionMinIncrement;
     draft.auctionEndAt = value.auctionEndAt;
@@ -1177,16 +1313,35 @@ function openListingEditDialog({
 
     let mappedTradeMode = "DIRECT";
     let dynamicPricingEnabled = false;
+    let dynamicAlgorithm = null;
+    let dynamicParamsJson = null;
     let dynamicBasePrice = null;
     let dynamicFloorPrice = null;
     let dynamicCapPrice = null;
     let dynamicPriceStep = null;
+    let auctionAlgorithm = null;
+    let auctionParamsJson = null;
     let auctionStartPrice = null;
     let auctionMinIncrement = null;
     let auctionEndAt = null;
 
     if (draft.mode === "DIRECT_DYNAMIC") {
       dynamicPricingEnabled = true;
+      dynamicAlgorithm = String(draft.dynamicAlgorithm || defaultDynamicAlgorithm).toUpperCase();
+      const dynamicDefinition = getAlgorithmDefinition("dynamic", dynamicAlgorithm);
+      const dynamicParamPayload = parseAlgorithmParamsJson(draft.dynamicParamsJson);
+      if (dynamicDefinition?.params) {
+        for (const schema of dynamicDefinition.params) {
+          if (
+            !Object.prototype.hasOwnProperty.call(dynamicParamPayload, schema.key)
+            && schema.defaultValue !== undefined
+            && schema.defaultValue !== null
+          ) {
+            dynamicParamPayload[schema.key] = schema.defaultValue;
+          }
+        }
+      }
+      dynamicParamsJson = Object.keys(dynamicParamPayload).length > 0 ? JSON.stringify(dynamicParamPayload) : null;
       const base = Number(draft.dynamicBasePrice ?? price);
       const step = Number(draft.dynamicPriceStep ?? 1);
       if (!Number.isFinite(base) || base <= 0) {
@@ -1217,28 +1372,48 @@ function openListingEditDialog({
       dynamicPriceStep = Math.floor(step);
     } else if (draft.mode === "AUCTION") {
       mappedTradeMode = "AUCTION";
+      auctionAlgorithm = String(draft.auctionAlgorithm || defaultAuctionAlgorithm).toUpperCase();
+      const auctionParamPayload = parseAlgorithmParamsJson(draft.auctionParamsJson);
       const start = Number(draft.auctionStartPrice ?? price);
-      const increment = Number(draft.auctionMinIncrement ?? 1);
       if (!Number.isFinite(start) || start <= 0) {
         notify("拍卖参数无效：起拍价必须大于 0。", "warn");
         return;
       }
-      if (!Number.isFinite(increment) || increment <= 0) {
-        notify("拍卖参数无效：最小加价幅度必须大于 0。", "warn");
-        return;
+
+      const definition = getAlgorithmDefinition("auction", auctionAlgorithm);
+      if (definition?.params) {
+        for (const schema of definition.params) {
+          if (
+            !Object.prototype.hasOwnProperty.call(auctionParamPayload, schema.key)
+            && schema.defaultValue !== undefined
+            && schema.defaultValue !== null
+          ) {
+            auctionParamPayload[schema.key] = schema.defaultValue;
+          }
+        }
       }
-      if (!draft.auctionEndAt) {
-        notify("拍卖参数无效：请设置结束时间。", "warn");
-        return;
+      auctionParamsJson = Object.keys(auctionParamPayload).length > 0 ? JSON.stringify(auctionParamPayload) : null;
+      if (definition?.requiresMinIncrement) {
+        const increment = Number(draft.auctionMinIncrement ?? 1);
+        if (!Number.isFinite(increment) || increment <= 0) {
+          notify("拍卖参数无效：最小加价幅度必须大于 0。", "warn");
+          return;
+        }
+        auctionMinIncrement = Math.floor(increment);
       }
-      const endTimestamp = Date.parse(draft.auctionEndAt);
-      if (!Number.isFinite(endTimestamp)) {
-        notify("拍卖参数无效：结束时间格式不正确。", "warn");
-        return;
+      if (definition?.requiresEndAt) {
+        if (!draft.auctionEndAt) {
+          notify("拍卖参数无效：请设置结束时间。", "warn");
+          return;
+        }
+        const endTimestamp = Date.parse(draft.auctionEndAt);
+        if (!Number.isFinite(endTimestamp)) {
+          notify("拍卖参数无效：结束时间格式不正确。", "warn");
+          return;
+        }
+        auctionEndAt = new Date(endTimestamp).toISOString();
       }
       auctionStartPrice = Math.floor(start);
-      auctionMinIncrement = Math.floor(increment);
-      auctionEndAt = new Date(endTimestamp).toISOString();
     }
 
     closeConfirmDialog({
@@ -1249,10 +1424,14 @@ function openListingEditDialog({
       supplyMaxStock: supplyMaxInput ? Math.floor(maxStock) : null,
       tradeMode: mappedTradeMode,
       dynamicPricingEnabled,
+      dynamicAlgorithm,
+      dynamicParamsJson,
       dynamicBasePrice,
       dynamicFloorPrice,
       dynamicCapPrice,
       dynamicPriceStep,
+      auctionAlgorithm,
+      auctionParamsJson,
       auctionStartPrice,
       auctionMinIncrement,
       auctionEndAt,
@@ -1836,6 +2015,239 @@ async function ensureMaterialNameMap() {
     });
 
   await state.materialNameMapPromise;
+}
+
+function normalizeAlgorithmParamSchema(raw, index) {
+  const key = String(raw?.key || `param_${index}`).trim();
+  if (!key) {
+    return null;
+  }
+  const type = String(raw?.type || "number").trim().toLowerCase();
+  return {
+    key,
+    label: String(raw?.label || key),
+    type: type === "text" ? "text" : "number",
+    required: Boolean(raw?.required),
+    min: Number.isFinite(Number(raw?.min)) ? Number(raw.min) : null,
+    max: Number.isFinite(Number(raw?.max)) ? Number(raw.max) : null,
+    step: Number.isFinite(Number(raw?.step)) ? Number(raw.step) : null,
+    defaultValue: raw?.default,
+    description: String(raw?.description || "").trim(),
+  };
+}
+
+function normalizeAlgorithmDefinition(raw, index) {
+  const id = String(raw?.id || "").trim().toUpperCase();
+  if (!id) {
+    return null;
+  }
+  const params = Array.isArray(raw?.params)
+    ? raw.params
+      .map((param, paramIndex) => normalizeAlgorithmParamSchema(param, paramIndex))
+      .filter(Boolean)
+    : [];
+  return {
+    id,
+    label: String(raw?.label || id),
+    summary: String(raw?.summary || "").trim(),
+    helpSlug: String(raw?.helpSlug || id.toLowerCase()),
+    requiresMinIncrement: Boolean(raw?.requiresMinIncrement),
+    requiresEndAt: Boolean(raw?.requiresEndAt),
+    params,
+    sortOrder: Number.isFinite(Number(raw?.sortOrder)) ? Number(raw.sortOrder) : index,
+  };
+}
+
+function normalizeMarketAlgorithmGlossary(raw) {
+  const dynamic = Array.isArray(raw?.dynamic)
+    ? raw.dynamic.map((item, index) => normalizeAlgorithmDefinition(item, index)).filter(Boolean)
+    : [];
+  const auction = Array.isArray(raw?.auction)
+    ? raw.auction.map((item, index) => normalizeAlgorithmDefinition(item, index)).filter(Boolean)
+    : [];
+  const normalized = {
+    dynamic: dynamic.length > 0 ? dynamic : FALLBACK_MARKET_ALGORITHM_GLOSSARY.dynamic,
+    auction: auction.length > 0 ? auction : FALLBACK_MARKET_ALGORITHM_GLOSSARY.auction,
+  };
+  normalized.dynamic = normalized.dynamic
+    .slice()
+    .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+  normalized.auction = normalized.auction
+    .slice()
+    .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+  return normalized;
+}
+
+async function ensureMarketAlgorithmGlossary() {
+  if (state.marketAlgorithmGlossaryReady) {
+    return;
+  }
+  if (state.marketAlgorithmGlossaryPromise) {
+    await state.marketAlgorithmGlossaryPromise;
+    return;
+  }
+
+  const locale = I18N ? I18N.getLocale() : "zh-CN";
+  const candidates = [
+    `i18n/market-algorithms/${locale}.json`,
+    "i18n/market-algorithms/zh-CN.json",
+    "i18n/market-algorithms/en-US.json",
+  ];
+
+  state.marketAlgorithmGlossaryPromise = (async () => {
+    for (const path of candidates) {
+      try {
+        const response = await fetch(path, { cache: "no-cache" });
+        if (!response.ok) {
+          continue;
+        }
+        const json = await response.json();
+        state.marketAlgorithmGlossary = normalizeMarketAlgorithmGlossary(json || {});
+        state.marketAlgorithmGlossaryReady = true;
+        log(
+          `Market algorithm glossary loaded: dynamic=${state.marketAlgorithmGlossary.dynamic.length}, auction=${state.marketAlgorithmGlossary.auction.length}`,
+          "SUCCESS"
+        );
+        return;
+      } catch (error) {
+        continue;
+      }
+    }
+
+    state.marketAlgorithmGlossary = normalizeMarketAlgorithmGlossary({});
+    state.marketAlgorithmGlossaryReady = true;
+    log("Market algorithm glossary unavailable, fallback catalog enabled.", "WARN");
+  })();
+
+  await state.marketAlgorithmGlossaryPromise;
+}
+
+function getAlgorithmCatalog(type) {
+  const key = type === "auction" ? "auction" : "dynamic";
+  const catalog = state.marketAlgorithmGlossary?.[key];
+  return Array.isArray(catalog) ? catalog : [];
+}
+
+function getAlgorithmDefinition(type, algorithmId) {
+  const normalizedId = String(algorithmId || "").trim().toUpperCase();
+  if (!normalizedId) {
+    return null;
+  }
+  const catalog = getAlgorithmCatalog(type);
+  return catalog.find((item) => String(item.id || "").toUpperCase() === normalizedId) || null;
+}
+
+function getAlgorithmLabel(type, algorithmId) {
+  const definition = getAlgorithmDefinition(type, algorithmId);
+  if (!definition) {
+    return String(algorithmId || "").trim() || "--";
+  }
+  return definition.label || definition.id;
+}
+
+function parseAlgorithmParamsJson(raw) {
+  if (!raw) {
+    return {};
+  }
+  if (typeof raw === "object") {
+    return raw && !Array.isArray(raw) ? raw : {};
+  }
+  try {
+    const parsed = JSON.parse(String(raw));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function renderAlgorithmParamEditors(host, paramSchemas, paramValues) {
+  const entries = [];
+  host.innerHTML = "";
+  if (!Array.isArray(paramSchemas) || paramSchemas.length === 0) {
+    host.appendChild(createEl("p", "field-hint", "当前算法无额外参数。"));
+    return entries;
+  }
+
+  for (const schema of paramSchemas) {
+    const field = createEl("label", "field dialog-select-field");
+    const requiredSuffix = schema.required ? " *" : "";
+    field.appendChild(createEl("span", "", `${schema.label}${requiredSuffix}`));
+    const input = document.createElement("input");
+    input.type = schema.type === "text" ? "text" : "number";
+    if (schema.type === "number") {
+      if (schema.min !== null) {
+        input.min = String(schema.min);
+      }
+      if (schema.max !== null) {
+        input.max = String(schema.max);
+      }
+      if (schema.step !== null) {
+        input.step = String(schema.step);
+      } else {
+        input.step = "1";
+      }
+    }
+    const initialValue = paramValues && Object.prototype.hasOwnProperty.call(paramValues, schema.key)
+      ? paramValues[schema.key]
+      : schema.defaultValue;
+    if (initialValue !== undefined && initialValue !== null) {
+      input.value = String(initialValue);
+    }
+    field.appendChild(input);
+    host.appendChild(field);
+    if (schema.description) {
+      host.appendChild(createEl("p", "field-hint", schema.description));
+    }
+    entries.push({ schema, input });
+  }
+  return entries;
+}
+
+function collectAlgorithmParamValues(entries) {
+  const payload = {};
+  for (const entry of entries) {
+    const rawValue = String(entry.input.value || "").trim();
+    if (!rawValue) {
+      if (entry.schema.required) {
+        entry.input.focus();
+        return undefined;
+      }
+      continue;
+    }
+    if (entry.schema.type === "number") {
+      const numericValue = Number(rawValue);
+      if (!Number.isFinite(numericValue)) {
+        entry.input.focus();
+        return undefined;
+      }
+      if (entry.schema.min !== null && numericValue < entry.schema.min) {
+        entry.input.focus();
+        return undefined;
+      }
+      if (entry.schema.max !== null && numericValue > entry.schema.max) {
+        entry.input.focus();
+        return undefined;
+      }
+      payload[entry.schema.key] = Number.isInteger(numericValue)
+        ? Math.trunc(numericValue)
+        : numericValue;
+    } else {
+      payload[entry.schema.key] = rawValue;
+    }
+  }
+  return payload;
+}
+
+function openAlgorithmHelpPage(category, algorithmId) {
+  const normalizedCategory = category === "auction" ? "auction" : "dynamic";
+  const locale = I18N ? I18N.getLocale() : "zh-CN";
+  const query = new URLSearchParams();
+  query.set("category", normalizedCategory);
+  if (algorithmId) {
+    query.set("algorithm", String(algorithmId));
+  }
+  query.set("locale", locale);
+  window.open(`help.html?${query.toString()}`, "_blank", "noopener");
 }
 
 function buildTextureAliases(material) {
@@ -2790,6 +3202,9 @@ function renderListings(listings, container = elements.marketList) {
     const isSupply = String(listing.sourceMode || "").toUpperCase() === "SUPPLY";
     const tradeMode = String(listing.tradeMode || "DIRECT").toUpperCase();
     const isAuction = tradeMode === "AUCTION";
+    const auctionAlgorithm = String(listing.auctionAlgorithm || "ENGLISH_AUCTION_V1").toUpperCase();
+    const isDutchAuction = isAuction && auctionAlgorithm === "DUTCH_AUCTION_V1";
+    const isVickreyAuction = isAuction && auctionAlgorithm === "VICKREY_AUCTION_V1";
     const displayStatus = isSupply && Number(listing.quantity || 0) <= 0 && normalizedStatus === "ACTIVE"
       ? "SUPPLY_EMPTY"
       : normalizedStatus;
@@ -2867,24 +3282,66 @@ function renderListings(listings, container = elements.marketList) {
       }
     }
     if (isAuction) {
-      const hasHighestBid = Number(listing.auctionHighestBid || 0) > 0;
-      const currentBidAmount = hasHighestBid
-        ? Number(listing.auctionHighestBid || 0)
-        : Number(listing.auctionStartPrice || listing.price || 0);
+      const auctionParams = parseAlgorithmParamsJson(listing.auctionParamsJson);
       detail.appendChild(
         createEl(
           "p",
           "market-sub",
-          `当前${hasHighestBid ? "最高出价" : "起拍价"}：${formatCurrency(currentBidAmount, listing.currency)}`
+          `拍卖算法：${getAlgorithmLabel("auction", auctionAlgorithm)}`
         )
       );
-      detail.appendChild(
-        createEl(
-          "p",
-          "market-sub",
-          `最小加价：${formatCurrency(Math.max(1, Number(listing.auctionMinIncrement || 1)), listing.currency)}`
-        )
-      );
+      if (isDutchAuction) {
+        const floorPrice = Number(auctionParams.floorPrice || 0);
+        detail.appendChild(
+          createEl(
+            "p",
+            "market-sub",
+            `当前买断价：${formatCurrency(Number(listing.price || listing.auctionStartPrice || 0), listing.currency)}`
+          )
+        );
+        detail.appendChild(
+          createEl(
+            "p",
+            "market-sub",
+            `底价：${floorPrice > 0 ? formatCurrency(floorPrice, listing.currency) : "--"}`
+          )
+        );
+      } else if (isVickreyAuction) {
+        const reservePrice = Number(auctionParams.reservePrice || 0);
+        detail.appendChild(
+          createEl(
+            "p",
+            "market-sub",
+            `起拍价：${formatCurrency(Number(listing.auctionStartPrice || listing.price || 0), listing.currency)}`
+          )
+        );
+        detail.appendChild(
+          createEl(
+            "p",
+            "market-sub",
+            `保留价：${reservePrice > 0 ? formatCurrency(reservePrice, listing.currency) : "未设置"}`
+          )
+        );
+      } else {
+        const hasHighestBid = Number(listing.auctionHighestBid || 0) > 0;
+        const currentBidAmount = hasHighestBid
+          ? Number(listing.auctionHighestBid || 0)
+          : Number(listing.auctionStartPrice || listing.price || 0);
+        detail.appendChild(
+          createEl(
+            "p",
+            "market-sub",
+            `当前${hasHighestBid ? "最高出价" : "起拍价"}：${formatCurrency(currentBidAmount, listing.currency)}`
+          )
+        );
+        detail.appendChild(
+          createEl(
+            "p",
+            "market-sub",
+            `最小加价：${formatCurrency(Math.max(1, Number(listing.auctionMinIncrement || 1)), listing.currency)}`
+          )
+        );
+      }
       detail.appendChild(
         createEl(
           "p",
@@ -2895,6 +3352,13 @@ function renderListings(listings, container = elements.marketList) {
     } else if (listing.dynamicPricingEnabled) {
       const floorText = listing.dynamicFloorPrice ? formatCurrency(listing.dynamicFloorPrice, listing.currency) : "--";
       const capText = listing.dynamicCapPrice ? formatCurrency(listing.dynamicCapPrice, listing.currency) : "--";
+      detail.appendChild(
+        createEl(
+          "p",
+          "market-sub",
+          `动态算法：${getAlgorithmLabel("dynamic", listing.dynamicAlgorithm || "LINEAR_DEMAND_V1")}`
+        )
+      );
       detail.appendChild(
         createEl(
           "p",
@@ -2932,9 +3396,13 @@ function renderListings(listings, container = elements.marketList) {
     }
 
     const priceRow = createEl("div", "market-price-row");
-    const priceLabel = isAuction ? "当前竞价" : "价格";
-    const displayPrice = isAuction && Number(listing.auctionHighestBid || 0) > 0
-      ? Number(listing.auctionHighestBid || 0)
+    const priceLabel = isAuction ? (isDutchAuction ? "当前买断价" : "当前竞价") : "价格";
+    const displayPrice = isAuction
+      ? (isDutchAuction
+        ? Number(listing.price || listing.auctionStartPrice || 0)
+        : (Number(listing.auctionHighestBid || 0) > 0
+          ? Number(listing.auctionHighestBid || 0)
+          : Number(listing.auctionStartPrice || listing.price || 0)))
       : Number(listing.price || 0);
     priceRow.appendChild(createEl("p", "market-price-label", priceLabel));
     priceRow.appendChild(createEl("p", "market-price", formatCurrency(displayPrice, listing.currency)));
@@ -2960,10 +3428,14 @@ function renderListings(listings, container = elements.marketList) {
       editBtn.dataset.currentSupplyMaxStock = String(listing.supplyMaxStock || "");
       editBtn.dataset.tradeMode = listing.tradeMode || "DIRECT";
       editBtn.dataset.dynamicPricingEnabled = listing.dynamicPricingEnabled ? "1" : "0";
+      editBtn.dataset.dynamicAlgorithm = listing.dynamicAlgorithm || "LINEAR_DEMAND_V1";
+      editBtn.dataset.dynamicParamsJson = listing.dynamicParamsJson || "";
       editBtn.dataset.dynamicBasePrice = String(listing.dynamicBasePrice || "");
       editBtn.dataset.dynamicFloorPrice = String(listing.dynamicFloorPrice || "");
       editBtn.dataset.dynamicCapPrice = String(listing.dynamicCapPrice || "");
       editBtn.dataset.dynamicPriceStep = String(listing.dynamicPriceStep || "");
+      editBtn.dataset.auctionAlgorithm = listing.auctionAlgorithm || "ENGLISH_AUCTION_V1";
+      editBtn.dataset.auctionParamsJson = listing.auctionParamsJson || "";
       editBtn.dataset.auctionStartPrice = String(listing.auctionStartPrice || "");
       editBtn.dataset.auctionMinIncrement = String(listing.auctionMinIncrement || "");
       editBtn.dataset.auctionEndAt = listing.auctionEndAt || "";
@@ -3011,30 +3483,45 @@ function renderListings(listings, container = elements.marketList) {
       }
     } else if (isActive) {
       if (isAuction) {
-        const hasHighestBid = Number(listing.auctionHighestBid || 0) > 0;
-        const openingBid = Number(listing.auctionStartPrice || listing.price || 0);
-        const currentBid = hasHighestBid ? Number(listing.auctionHighestBid || 0) : openingBid;
-        const minIncrement = Math.max(1, Number(listing.auctionMinIncrement || 1));
-        const minBid = hasHighestBid ? currentBid + minIncrement : Math.max(1, openingBid);
-        const bidWrap = createEl("div", "market-buy-wrap");
-        const bidInput = document.createElement("input");
-        bidInput.type = "number";
-        bidInput.className = "product-qty market-bid-input";
-        bidInput.min = String(minBid);
-        bidInput.step = "1";
-        bidInput.value = String(minBid);
-        bidWrap.appendChild(bidInput);
+        if (isDutchAuction) {
+          const buyBtn = createEl("button", "market-action-btn sale", "立即买断");
+          buyBtn.type = "button";
+          buyBtn.dataset.action = "buy";
+          buyBtn.dataset.listingId = String(listing.id);
+          buyBtn.dataset.currency = listing.currency;
+          buyBtn.dataset.unitPrice = String(Number(listing.price || listing.auctionStartPrice || 0));
+          buyBtn.dataset.maxQuantity = "1";
+          const buyWrap = createEl("div", "market-buy-wrap");
+          buyWrap.appendChild(buyBtn);
+          actions.appendChild(buyWrap);
+        } else {
+          const hasHighestBid = Number(listing.auctionHighestBid || 0) > 0;
+          const openingBid = Math.max(1, Number(listing.auctionStartPrice || listing.price || 0));
+          const minIncrement = Math.max(1, Number(listing.auctionMinIncrement || 1));
+          const minBid = isVickreyAuction
+            ? openingBid
+            : (hasHighestBid ? Number(listing.auctionHighestBid || 0) + minIncrement : openingBid);
+          const bidWrap = createEl("div", "market-buy-wrap");
+          const bidInput = document.createElement("input");
+          bidInput.type = "number";
+          bidInput.className = "product-qty market-bid-input";
+          bidInput.min = String(minBid);
+          bidInput.step = "1";
+          bidInput.value = String(minBid);
+          bidWrap.appendChild(bidInput);
 
-        const bidBtn = createEl("button", "market-action-btn sale", "出价竞拍");
-        bidBtn.type = "button";
-        bidBtn.dataset.action = "bid";
-        bidBtn.dataset.listingId = String(listing.id);
-        bidBtn.dataset.currency = listing.currency;
-        bidBtn.dataset.minBid = String(minBid);
-        bidBtn.dataset.currentBid = String(currentBid);
-        bidBtn.dataset.minIncrement = String(minIncrement);
-        bidWrap.appendChild(bidBtn);
-        actions.appendChild(bidWrap);
+          const bidBtn = createEl("button", "market-action-btn sale", isVickreyAuction ? "提交密封出价" : "出价竞拍");
+          bidBtn.type = "button";
+          bidBtn.dataset.action = "bid";
+          bidBtn.dataset.listingId = String(listing.id);
+          bidBtn.dataset.currency = listing.currency;
+          bidBtn.dataset.minBid = String(minBid);
+          bidBtn.dataset.currentBid = String(hasHighestBid ? Number(listing.auctionHighestBid || 0) : openingBid);
+          bidBtn.dataset.minIncrement = String(isVickreyAuction ? 0 : minIncrement);
+          bidBtn.dataset.sealedBid = isVickreyAuction ? "1" : "0";
+          bidWrap.appendChild(bidBtn);
+          actions.appendChild(bidWrap);
+        }
       } else {
         const quantitySelector = createQuantitySelector({
           max: listing.quantity || 1,
@@ -3205,6 +3692,7 @@ async function loadMarket(mode, options = {}) {
   const announce = !!options.announce;
   try {
     await ensureMaterialNameMap();
+    await ensureMarketAlgorithmGlossary();
     const normalizedMode = mode === "stores" ? "stores" : (mode === "mine" ? "mine" : "public");
     if (normalizedMode === "mine") {
       ensureToken();
@@ -3605,28 +4093,39 @@ async function confirmMarketBid(listing, bidAmount) {
   const meta = parseMeta(listing.itemMetaJson);
   const displayName = stripColorCodes(meta.displayName || "");
   const localizedName = displayName || getLocalizedMaterialName(listing.itemMaterial);
+  const auctionAlgorithm = String(listing.auctionAlgorithm || "ENGLISH_AUCTION_V1").toUpperCase();
+  const isSealedBid = auctionAlgorithm === "VICKREY_AUCTION_V1";
   const minIncrement = Math.max(1, Number(listing.auctionMinIncrement || 1));
   const hasHighestBid = Number(listing.auctionHighestBid || 0) > 0;
-  const currentBid = hasHighestBid
-    ? Number(listing.auctionHighestBid || 0)
-    : Number(listing.auctionStartPrice || listing.price || 0);
-  const requiredBid = hasHighestBid ? currentBid + minIncrement : Math.max(1, currentBid);
+  const currentBid = Math.max(1, Number(listing.auctionStartPrice || listing.price || 0));
+  const visibleBid = hasHighestBid ? Number(listing.auctionHighestBid || 0) : currentBid;
+  const requiredBid = isSealedBid
+    ? currentBid
+    : (hasHighestBid ? visibleBid + minIncrement : Math.max(1, currentBid));
   const currentBalance = getWalletBalanceForCurrency(listing.currency);
+  const details = [
+    `物品：${localizedName}`,
+    `卖家：${listing.sellerName}`,
+    `算法：${getAlgorithmLabel("auction", auctionAlgorithm)}`,
+    `起拍价：${formatCurrency(currentBid, listing.currency)}`,
+  ];
+  if (!isSealedBid) {
+    details.push(`当前${hasHighestBid ? "最高出价" : "可出价"}：${formatCurrency(visibleBid, listing.currency)}`);
+    details.push(`最小加价幅度：${formatCurrency(minIncrement, listing.currency)}`);
+  }
+  details.push(`本次出价：${formatCurrency(bidAmount, listing.currency)}`);
+  details.push(`最低有效出价：${formatCurrency(requiredBid, listing.currency)}`);
+  details.push(`当前余额：${formatCurrency(currentBalance, listing.currency)}`);
+  details.push(`预计出价后余额：${formatCurrency(currentBalance - bidAmount, listing.currency)}`);
+  details.push(`拍卖截止：${listing.auctionEndAt ? formatDateTime(listing.auctionEndAt) : "未设置"}`);
+
   return openConfirmDialog({
     title: "确认竞拍出价",
-    message: "出价后将先冻结该金额，若被超价系统会自动退回。",
-    details: [
-      `物品：${localizedName}`,
-      `卖家：${listing.sellerName}`,
-      `当前${hasHighestBid ? "最高出价" : "起拍价"}：${formatCurrency(currentBid, listing.currency)}`,
-      `最小加价幅度：${formatCurrency(minIncrement, listing.currency)}`,
-      `本次出价：${formatCurrency(bidAmount, listing.currency)}`,
-      `最低有效出价：${formatCurrency(requiredBid, listing.currency)}`,
-      `当前余额：${formatCurrency(currentBalance, listing.currency)}`,
-      `预计出价后余额：${formatCurrency(currentBalance - bidAmount, listing.currency)}`,
-      `拍卖截止：${listing.auctionEndAt ? formatDateTime(listing.auctionEndAt) : "未设置"}`,
-    ],
-    confirmText: "确认出价",
+    message: isSealedBid
+      ? "此算法为密封出价，其他玩家与前端不会显示你的出价金额。"
+      : "出价后将先冻结该金额，若被超价系统会自动退回。",
+    details,
+    confirmText: isSealedBid ? "提交密封出价" : "确认出价",
   });
 }
 
@@ -3784,13 +4283,24 @@ async function bidListing(listingId, bidAmount) {
     }),
   });
   const isExisting = String(payload.state || "").toUpperCase() === "EXISTING";
+  const isSealedBid = Boolean(payload.sealedBid);
   if (isExisting) {
     notify(`已识别为重复请求，沿用历史出价（#${payload.bidId}）。`, "warn");
   } else {
-    notify(
-      `出价成功：${formatCurrency(payload.bidAmount, payload.currency)}，当前最高价 ${formatCurrency(payload.currentHighestBid, payload.currency)}。`,
-      "success"
-    );
+    if (isSealedBid) {
+      const requiredHint = payload.minimumRequiredBid
+        ? `，最低门槛 ${formatCurrency(payload.minimumRequiredBid, payload.currency)}`
+        : "";
+      notify(
+        `密封出价已提交：${formatCurrency(payload.bidAmount, payload.currency)}${requiredHint}。`,
+        "success"
+      );
+    } else {
+      notify(
+        `出价成功：${formatCurrency(payload.bidAmount, payload.currency)}，当前最高价 ${formatCurrency(payload.currentHighestBid, payload.currency)}。`,
+        "success"
+      );
+    }
   }
   log(
     `竞拍出价完成：listingId=${payload.listingId} bidId=${payload.bidId} amount=${payload.bidAmount}`,
@@ -3898,10 +4408,14 @@ async function updateListing(
   supplyMaxStock,
   tradeMode,
   dynamicPricingEnabled,
+  dynamicAlgorithm,
+  dynamicParamsJson,
   dynamicBasePrice,
   dynamicFloorPrice,
   dynamicCapPrice,
   dynamicPriceStep,
+  auctionAlgorithm,
+  auctionParamsJson,
   auctionStartPrice,
   auctionMinIncrement,
   auctionEndAt
@@ -3918,10 +4432,14 @@ async function updateListing(
       supplyMaxStock,
       tradeMode,
       dynamicPricingEnabled,
+      dynamicAlgorithm,
+      dynamicParamsJson,
       dynamicBasePrice,
       dynamicFloorPrice,
       dynamicCapPrice,
       dynamicPriceStep,
+      auctionAlgorithm,
+      auctionParamsJson,
       auctionStartPrice,
       auctionMinIncrement,
       auctionEndAt,
@@ -4425,10 +4943,14 @@ elements.marketList.addEventListener("click", async (event) => {
         currentSupplyMaxStock: Number(button.dataset.currentSupplyMaxStock || 0) || null,
         tradeMode: button.dataset.tradeMode || "DIRECT",
         currentDynamicPricingEnabled: button.dataset.dynamicPricingEnabled === "1",
+        currentDynamicAlgorithm: button.dataset.dynamicAlgorithm || "LINEAR_DEMAND_V1",
+        currentDynamicParamsJson: button.dataset.dynamicParamsJson || null,
         currentDynamicBasePrice: Number(button.dataset.dynamicBasePrice || 0) || null,
         currentDynamicFloorPrice: Number(button.dataset.dynamicFloorPrice || 0) || null,
         currentDynamicCapPrice: Number(button.dataset.dynamicCapPrice || 0) || null,
         currentDynamicPriceStep: Number(button.dataset.dynamicPriceStep || 0) || null,
+        currentAuctionAlgorithm: button.dataset.auctionAlgorithm || "ENGLISH_AUCTION_V1",
+        currentAuctionParamsJson: button.dataset.auctionParamsJson || null,
         currentAuctionStartPrice: Number(button.dataset.auctionStartPrice || 0) || null,
         currentAuctionMinIncrement: Number(button.dataset.auctionMinIncrement || 0) || null,
         currentAuctionEndAt: button.dataset.auctionEndAt || null,
@@ -4446,10 +4968,14 @@ elements.marketList.addEventListener("click", async (event) => {
         result.supplyMaxStock,
         result.tradeMode,
         result.dynamicPricingEnabled,
+        result.dynamicAlgorithm,
+        result.dynamicParamsJson,
         result.dynamicBasePrice,
         result.dynamicFloorPrice,
         result.dynamicCapPrice,
         result.dynamicPriceStep,
+        result.auctionAlgorithm,
+        result.auctionParamsJson,
         result.auctionStartPrice,
         result.auctionMinIncrement,
         result.auctionEndAt

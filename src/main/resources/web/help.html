@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebShopX 算法帮助</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --line: #d8e1ee;
+      --text: #1f2937;
+      --sub: #5a6678;
+      --accent: #1677c5;
+      --accent-soft: #e8f3ff;
+      --radius: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: radial-gradient(circle at top right, #eaf5ff 0%, var(--bg) 42%, #eef2f8 100%);
+      color: var(--text);
+      line-height: 1.55;
+    }
+
+    main {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 28px 18px 54px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .hero,
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: 0 8px 20px rgba(15, 37, 64, 0.08);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(20px, 4vw, 30px);
+      letter-spacing: 0.02em;
+    }
+
+    .sub {
+      margin: 8px 0 0;
+      color: var(--sub);
+      font-size: 14px;
+    }
+
+    .chips {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 5px 12px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 18px;
+    }
+
+    .algo-id {
+      margin: 0;
+      color: var(--sub);
+      font-size: 13px;
+      word-break: break-all;
+    }
+
+    .summary {
+      margin-top: 10px;
+      font-size: 14px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    th {
+      width: 22%;
+      background: #f6fbff;
+      color: #1c4f83;
+      font-weight: 700;
+    }
+
+    .muted {
+      color: var(--sub);
+      font-size: 13px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 14px;
+      font-size: 14px;
+      text-decoration: none;
+      color: var(--text);
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .btn.primary {
+      border-color: #b7d8f6;
+      color: #0d5a94;
+      background: #edf7ff;
+    }
+
+    .empty {
+      margin: 0;
+      color: #8a96a8;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <h1>WebShopX 算法帮助页</h1>
+      <p class="sub">此页面由系统静态托管，用于承载动态定价与拍卖算法说明。当前内容来源于外部 JSON 配置。</p>
+      <div class="chips">
+        <span class="chip" id="chipCategory">CATEGORY</span>
+        <span class="chip" id="chipAlgorithm">ALGORITHM</span>
+        <span class="chip" id="chipLocale">LOCALE</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 id="algoTitle">正在加载算法描述...</h2>
+      <p class="algo-id" id="algoId"></p>
+      <p class="summary" id="algoSummary"></p>
+      <div id="paramBlock"></div>
+    </section>
+
+    <section class="card">
+      <h2>占位说明</h2>
+      <p class="sub">正式版可在此补充公式推导、示例曲线、运维建议、FAQ 与风险提示。</p>
+      <div class="actions">
+        <a class="btn primary" href="index.html">返回市场页</a>
+        <button class="btn" id="reloadBtn" type="button">重新加载文档</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const query = new URLSearchParams(window.location.search);
+    const category = (query.get("category") || "dynamic").toLowerCase() === "auction" ? "auction" : "dynamic";
+    const algorithm = String(query.get("algorithm") || "").trim().toUpperCase();
+    const locale = String(query.get("locale") || "zh-CN").trim() || "zh-CN";
+
+    const chipCategory = document.getElementById("chipCategory");
+    const chipAlgorithm = document.getElementById("chipAlgorithm");
+    const chipLocale = document.getElementById("chipLocale");
+    const algoTitle = document.getElementById("algoTitle");
+    const algoId = document.getElementById("algoId");
+    const algoSummary = document.getElementById("algoSummary");
+    const paramBlock = document.getElementById("paramBlock");
+
+    chipCategory.textContent = category.toUpperCase();
+    chipAlgorithm.textContent = algorithm || "AUTO";
+    chipLocale.textContent = locale;
+
+    function renderParams(params) {
+      paramBlock.innerHTML = "";
+      if (!Array.isArray(params) || params.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "empty";
+        empty.textContent = "该算法没有额外参数。";
+        paramBlock.appendChild(empty);
+        return;
+      }
+
+      const table = document.createElement("table");
+      const head = document.createElement("thead");
+      head.innerHTML = "<tr><th>参数</th><th>说明</th><th>约束</th></tr>";
+      table.appendChild(head);
+      const body = document.createElement("tbody");
+
+      for (const param of params) {
+        const row = document.createElement("tr");
+        const requiredTag = param.required ? " (required)" : "";
+        const typeText = param.type || "number";
+        const minText = Number.isFinite(Number(param.min)) ? `min=${param.min}` : "";
+        const maxText = Number.isFinite(Number(param.max)) ? `max=${param.max}` : "";
+        const stepText = Number.isFinite(Number(param.step)) ? `step=${param.step}` : "";
+        const defaultText = param.default !== undefined ? `default=${param.default}` : "";
+        const constraints = [typeText, minText, maxText, stepText, defaultText].filter(Boolean).join(" | ");
+        row.innerHTML = `
+          <td><strong>${param.label || param.key || "-"}</strong><div class="muted">${param.key || ""}${requiredTag}</div></td>
+          <td>${param.description || "-"}</td>
+          <td class="muted">${constraints || "-"}</td>
+        `;
+        body.appendChild(row);
+      }
+
+      table.appendChild(body);
+      paramBlock.appendChild(table);
+    }
+
+    async function loadDefinition() {
+      const candidates = [
+        `i18n/market-algorithms/${locale}.json`,
+        "i18n/market-algorithms/zh-CN.json",
+        "i18n/market-algorithms/en-US.json",
+      ];
+
+      let data = null;
+      for (const path of candidates) {
+        try {
+          const response = await fetch(path, { cache: "no-cache" });
+          if (!response.ok) {
+            continue;
+          }
+          data = await response.json();
+          break;
+        } catch (error) {
+          continue;
+        }
+      }
+
+      if (!data || !Array.isArray(data[category])) {
+        algoTitle.textContent = "未找到算法文档";
+        algoId.textContent = "请确认资源是否已打包。";
+        algoSummary.textContent = "当前帮助页是占位版本，后续可扩展为更完整文档。";
+        renderParams([]);
+        return;
+      }
+
+      const list = data[category];
+      let target = null;
+      if (algorithm) {
+        target = list.find((item) => String(item.id || "").toUpperCase() === algorithm);
+      }
+      if (!target && list.length > 0) {
+        target = list[0];
+      }
+
+      if (!target) {
+        algoTitle.textContent = "未找到匹配算法";
+        algoId.textContent = algorithm || "(empty)";
+        algoSummary.textContent = "请检查 category 与 algorithm 查询参数。";
+        renderParams([]);
+        return;
+      }
+
+      chipAlgorithm.textContent = String(target.id || algorithm || "AUTO");
+      algoTitle.textContent = target.label || target.id || "Unknown";
+      algoId.textContent = target.id || "";
+      algoSummary.textContent = target.summary || "暂无摘要说明。";
+      renderParams(target.params || []);
+    }
+
+    document.getElementById("reloadBtn").addEventListener("click", () => {
+      loadDefinition();
+    });
+
+    loadDefinition();
+  </script>
+</body>
+</html>

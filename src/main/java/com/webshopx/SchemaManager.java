@@ -572,13 +572,19 @@ class SchemaManager {
           paused_at DATETIME NULL,
           trade_mode VARCHAR(16) NOT NULL DEFAULT 'DIRECT',
           dynamic_pricing_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+          dynamic_algorithm VARCHAR(64) NOT NULL DEFAULT 'LINEAR_DEMAND_V1',
           dynamic_base_price BIGINT NULL,
           dynamic_floor_price BIGINT NULL,
           dynamic_cap_price BIGINT NULL,
           dynamic_price_step BIGINT NULL,
           dynamic_demand_score BIGINT NOT NULL DEFAULT 0,
+          dynamic_params_json JSON NULL,
+          auction_algorithm VARCHAR(64) NOT NULL DEFAULT 'ENGLISH_AUCTION_V1',
           auction_start_price BIGINT NULL,
           auction_min_increment BIGINT NULL,
+          auction_started_at DATETIME NULL,
+          auction_public_end_at DATETIME NULL,
+          auction_params_json JSON NULL,
           auction_end_at DATETIME NULL,
           auction_highest_bid BIGINT NULL,
           auction_highest_bidder_user_id BIGINT NULL,
@@ -702,11 +708,18 @@ class SchemaManager {
         "ALTER TABLE market_listings "
           + "ADD COLUMN dynamic_pricing_enabled BOOLEAN NOT NULL DEFAULT FALSE AFTER trade_mode");
     }
+    if (!columnExists(connection, "market_listings", "dynamic_algorithm")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN dynamic_algorithm VARCHAR(64) NOT NULL DEFAULT 'LINEAR_DEMAND_V1' "
+          + "AFTER dynamic_pricing_enabled");
+    }
     if (!columnExists(connection, "market_listings", "dynamic_base_price")) {
       execute(
         connection,
         "ALTER TABLE market_listings "
-          + "ADD COLUMN dynamic_base_price BIGINT NULL AFTER dynamic_pricing_enabled");
+          + "ADD COLUMN dynamic_base_price BIGINT NULL AFTER dynamic_algorithm");
     }
     if (!columnExists(connection, "market_listings", "dynamic_floor_price")) {
       execute(
@@ -732,11 +745,24 @@ class SchemaManager {
         "ALTER TABLE market_listings "
           + "ADD COLUMN dynamic_demand_score BIGINT NOT NULL DEFAULT 0 AFTER dynamic_price_step");
     }
+    if (!columnExists(connection, "market_listings", "dynamic_params_json")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN dynamic_params_json JSON NULL AFTER dynamic_demand_score");
+    }
+    if (!columnExists(connection, "market_listings", "auction_algorithm")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN auction_algorithm VARCHAR(64) NOT NULL DEFAULT 'ENGLISH_AUCTION_V1' "
+          + "AFTER dynamic_params_json");
+    }
     if (!columnExists(connection, "market_listings", "auction_start_price")) {
       execute(
         connection,
         "ALTER TABLE market_listings "
-          + "ADD COLUMN auction_start_price BIGINT NULL AFTER dynamic_demand_score");
+          + "ADD COLUMN auction_start_price BIGINT NULL AFTER auction_algorithm");
     }
     if (!columnExists(connection, "market_listings", "auction_min_increment")) {
       execute(
@@ -744,11 +770,29 @@ class SchemaManager {
         "ALTER TABLE market_listings "
           + "ADD COLUMN auction_min_increment BIGINT NULL AFTER auction_start_price");
     }
+    if (!columnExists(connection, "market_listings", "auction_started_at")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN auction_started_at DATETIME NULL AFTER auction_min_increment");
+    }
+    if (!columnExists(connection, "market_listings", "auction_public_end_at")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN auction_public_end_at DATETIME NULL AFTER auction_started_at");
+    }
+    if (!columnExists(connection, "market_listings", "auction_params_json")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN auction_params_json JSON NULL AFTER auction_public_end_at");
+    }
     if (!columnExists(connection, "market_listings", "auction_end_at")) {
       execute(
         connection,
         "ALTER TABLE market_listings "
-          + "ADD COLUMN auction_end_at DATETIME NULL AFTER auction_min_increment");
+          + "ADD COLUMN auction_end_at DATETIME NULL AFTER auction_params_json");
     }
     if (!columnExists(connection, "market_listings", "auction_highest_bid")) {
       execute(
@@ -800,6 +844,10 @@ class SchemaManager {
         + "WHERE dynamic_base_price IS NULL OR dynamic_base_price <= 0");
     execute(
       connection,
+      "UPDATE market_listings SET dynamic_algorithm = 'LINEAR_DEMAND_V1' "
+        + "WHERE dynamic_algorithm IS NULL OR dynamic_algorithm = ''");
+    execute(
+      connection,
       "UPDATE market_listings SET dynamic_price_step = 1 "
         + "WHERE dynamic_pricing_enabled = TRUE "
         + "AND (dynamic_price_step IS NULL OR dynamic_price_step <= 0)");
@@ -807,6 +855,18 @@ class SchemaManager {
       connection,
       "UPDATE market_listings SET dynamic_demand_score = 0 "
         + "WHERE dynamic_demand_score IS NULL OR dynamic_demand_score < 0");
+    execute(
+      connection,
+      "UPDATE market_listings SET auction_algorithm = 'ENGLISH_AUCTION_V1' "
+        + "WHERE auction_algorithm IS NULL OR auction_algorithm = ''");
+    execute(
+      connection,
+      "UPDATE market_listings SET auction_started_at = created_at "
+        + "WHERE trade_mode = 'AUCTION' AND auction_started_at IS NULL");
+    execute(
+      connection,
+      "UPDATE market_listings SET auction_public_end_at = auction_end_at "
+        + "WHERE trade_mode = 'AUCTION' AND auction_end_at IS NOT NULL AND auction_public_end_at IS NULL");
     execute(
       connection,
       "UPDATE market_listings SET auction_min_increment = 1 "

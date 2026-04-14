@@ -659,6 +659,12 @@ class EmbeddedWebServer {
         row.addProperty("sourceMode", listing.sourceMode().name());
         row.addProperty("tradeMode", listing.tradeMode().name());
         row.addProperty("dynamicPricingEnabled", listing.dynamicPricingEnabled());
+        row.addProperty("dynamicAlgorithm", listing.dynamicAlgorithm());
+        if (listing.dynamicParamsJson() == null) {
+          row.add("dynamicParamsJson", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("dynamicParamsJson", listing.dynamicParamsJson());
+        }
         if (listing.dynamicBasePrice() == null) {
           row.add("dynamicBasePrice", JsonNull.INSTANCE);
         } else {
@@ -680,6 +686,12 @@ class EmbeddedWebServer {
           row.addProperty("dynamicPriceStep", listing.dynamicPriceStep());
         }
         row.addProperty("dynamicDemandScore", listing.dynamicDemandScore());
+        row.addProperty("auctionAlgorithm", listing.auctionAlgorithm());
+        if (listing.auctionParamsJson() == null) {
+          row.add("auctionParamsJson", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("auctionParamsJson", listing.auctionParamsJson());
+        }
         if (listing.auctionStartPrice() == null) {
           row.add("auctionStartPrice", JsonNull.INSTANCE);
         } else {
@@ -694,6 +706,16 @@ class EmbeddedWebServer {
           row.add("auctionEndAt", JsonNull.INSTANCE);
         } else {
           addBusinessDateTime(row, "auctionEndAt", listing.auctionEndAt());
+        }
+        if (listing.auctionStartedAt() == null) {
+          row.add("auctionStartedAt", JsonNull.INSTANCE);
+        } else {
+          addBusinessDateTime(row, "auctionStartedAt", listing.auctionStartedAt());
+        }
+        if (listing.auctionPublicEndAt() == null) {
+          row.add("auctionPublicEndAt", JsonNull.INSTANCE);
+        } else {
+          addBusinessDateTime(row, "auctionPublicEndAt", listing.auctionPublicEndAt());
         }
         if (listing.auctionHighestBid() == null) {
           row.add("auctionHighestBid", JsonNull.INSTANCE);
@@ -812,6 +834,8 @@ class EmbeddedWebServer {
       response.addProperty("currency", result.currency().name());
       response.addProperty("bidAmount", result.bidAmount());
       response.addProperty("currentHighestBid", result.currentHighestBid());
+      response.addProperty("auctionAlgorithm", result.auctionAlgorithm());
+      response.addProperty("sealedBid", result.sealedBid());
       if (result.previousHighestBid() == null) {
         response.add("previousHighestBid", JsonNull.INSTANCE);
       } else {
@@ -826,6 +850,11 @@ class EmbeddedWebServer {
         response.add("auctionEndAt", JsonNull.INSTANCE);
       } else {
         addBusinessDateTime(response, "auctionEndAt", result.auctionEndAt());
+      }
+      if (result.minimumRequiredBid() == null) {
+        response.add("minimumRequiredBid", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("minimumRequiredBid", result.minimumRequiredBid());
       }
       sendJson(exchange, 200, response);
     });
@@ -962,6 +991,14 @@ class EmbeddedWebServer {
           && !payload.get("dynamicPricingEnabled").isJsonNull()
           ? payload.get("dynamicPricingEnabled").getAsBoolean()
           : null;
+        String dynamicAlgorithm = getOptionalString(payload, "dynamicAlgorithm").orElse(null);
+        String dynamicParamsJson = null;
+        if (payload.has("dynamicParamsJson") && !payload.get("dynamicParamsJson").isJsonNull()) {
+          JsonElement dynamicParamsElement = payload.get("dynamicParamsJson");
+          dynamicParamsJson = dynamicParamsElement.isJsonPrimitive() && dynamicParamsElement.getAsJsonPrimitive().isString()
+              ? dynamicParamsElement.getAsString()
+              : dynamicParamsElement.toString();
+        }
         Long dynamicBasePrice = payload.has("dynamicBasePrice") && !payload.get("dynamicBasePrice").isJsonNull()
           ? getLong(payload, "dynamicBasePrice", 0L)
           : null;
@@ -974,6 +1011,14 @@ class EmbeddedWebServer {
         Long dynamicPriceStep = payload.has("dynamicPriceStep") && !payload.get("dynamicPriceStep").isJsonNull()
           ? getLong(payload, "dynamicPriceStep", 0L)
           : null;
+        String auctionAlgorithm = getOptionalString(payload, "auctionAlgorithm").orElse(null);
+        String auctionParamsJson = null;
+        if (payload.has("auctionParamsJson") && !payload.get("auctionParamsJson").isJsonNull()) {
+          JsonElement auctionParamsElement = payload.get("auctionParamsJson");
+          auctionParamsJson = auctionParamsElement.isJsonPrimitive() && auctionParamsElement.getAsJsonPrimitive().isString()
+              ? auctionParamsElement.getAsString()
+              : auctionParamsElement.toString();
+        }
         Long auctionStartPrice = payload.has("auctionStartPrice") && !payload.get("auctionStartPrice").isJsonNull()
           ? getLong(payload, "auctionStartPrice", 0L)
           : null;
@@ -991,10 +1036,14 @@ class EmbeddedWebServer {
           supplyMaxStock,
           tradeMode,
           dynamicPricingEnabled,
+          dynamicAlgorithm,
+          dynamicParamsJson,
           dynamicBasePrice,
           dynamicFloorPrice,
           dynamicCapPrice,
           dynamicPriceStep,
+          auctionAlgorithm,
+          auctionParamsJson,
           auctionStartPrice,
           auctionMinIncrement,
           auctionEndAt);
@@ -1006,7 +1055,19 @@ class EmbeddedWebServer {
         response.addProperty("tradeMode", result.tradeMode().name());
       response.addProperty("quantityTotal", result.quantityTotal());
         response.addProperty("dynamicPricingEnabled", result.dynamicPricingEnabled());
+        response.addProperty("dynamicAlgorithm", result.dynamicAlgorithm());
         response.addProperty("dynamicDemandScore", result.dynamicDemandScore());
+      if (result.dynamicParamsJson() == null) {
+        response.add("dynamicParamsJson", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("dynamicParamsJson", result.dynamicParamsJson());
+      }
+      response.addProperty("auctionAlgorithm", result.auctionAlgorithm());
+      if (result.auctionParamsJson() == null) {
+        response.add("auctionParamsJson", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("auctionParamsJson", result.auctionParamsJson());
+      }
       if (result.remark() == null) {
         response.add("remark", JsonNull.INSTANCE);
       } else {
@@ -1056,6 +1117,16 @@ class EmbeddedWebServer {
         response.add("auctionEndAt", JsonNull.INSTANCE);
       } else {
         addBusinessDateTime(response, "auctionEndAt", result.auctionEndAt());
+      }
+      if (result.auctionStartedAt() == null) {
+        response.add("auctionStartedAt", JsonNull.INSTANCE);
+      } else {
+        addBusinessDateTime(response, "auctionStartedAt", result.auctionStartedAt());
+      }
+      if (result.auctionPublicEndAt() == null) {
+        response.add("auctionPublicEndAt", JsonNull.INSTANCE);
+      } else {
+        addBusinessDateTime(response, "auctionPublicEndAt", result.auctionPublicEndAt());
       }
       if (result.auctionHighestBid() == null) {
         response.add("auctionHighestBid", JsonNull.INSTANCE);
