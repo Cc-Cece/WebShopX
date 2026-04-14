@@ -79,13 +79,6 @@ webshop:
     # 超过该天数的日志文件将被维护任务清理（<=0 表示不清理）
     retention-days: 14
 
-  metrics:
-    # 是否启用 bStats 统计
-    enabled: true
-    # bStats 插件 ID（https://bstats.org/what-is-my-plugin-id）
-    # <= 0 表示不初始化 bStats
-    plugin-id: 30746
-
   admin-bootstrap:
     # 首次启动自动创建管理员
     enabled: true

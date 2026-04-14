@@ -75,6 +75,7 @@ dependencies {
     compileOnly 'io.papermc.paper:paper-api:1.20.6-R0.1-SNAPSHOT'
     compileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
     implementation 'org.bstats:bstats-bukkit:3.2.1'
+    implementation 'com.tchristofferson:ConfigUpdater:2.2'
     implementation 'io.papermc:paperlib:1.0.8'
     implementation('org.mariadb.jdbc:mariadb-java-client:3.3.3') {
         exclude group: 'com.github.waffle', module: 'waffle-jna'

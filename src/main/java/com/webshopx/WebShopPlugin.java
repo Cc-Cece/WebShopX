@@ -1,5 +1,8 @@
 package com.webshopx;
 
+import com.tchristofferson.configupdater.ConfigUpdater;
+import java.io.File;
+import java.io.IOException;
 import io.papermc.lib.PaperLib;
 import java.nio.file.Path;
 import java.util.Locale;
@@ -14,6 +17,9 @@ import org.bukkit.scheduler.BukkitTask;
  * Main entry point for the WebShop plugin.
  */
 public class WebShopPlugin extends JavaPlugin {
+  private static final String MAIN_CONFIG_RESOURCE = "config.yml";
+  private static final int BSTATS_PLUGIN_ID = 30746;
+
   private PluginSettings settings;
   private DatabaseManager databaseManager;
   private AuthService authService;
@@ -40,7 +46,7 @@ public class WebShopPlugin extends JavaPlugin {
   @Override
   public void onEnable() {
     PaperLib.suggestPaper(this);
-    saveDefaultConfig();
+    refreshMainConfig();
 
     try {
       settings = PluginSettings.fromConfig(getConfig());
@@ -131,7 +137,7 @@ public class WebShopPlugin extends JavaPlugin {
   }
 
   void reloadRuntimeConfig() {
-    reloadConfig();
+    refreshMainConfig();
     settings = PluginSettings.fromConfig(getConfig());
     if (pluginLogService != null) {
       pluginLogService.apply(settings.loggingSettings());
@@ -146,6 +152,17 @@ public class WebShopPlugin extends JavaPlugin {
     startMaintenanceLoop();
     startMarketCycleLoop();
     restartWebRuntime();
+  }
+
+  private void refreshMainConfig() {
+    saveDefaultConfig();
+    File configFile = new File(getDataFolder(), MAIN_CONFIG_RESOURCE);
+    try {
+      ConfigUpdater.update(this, MAIN_CONFIG_RESOURCE, configFile);
+    } catch (IOException exception) {
+      getLogger().log(Level.WARNING, "Failed to update config.yml via Config-Updater.", exception);
+    }
+    reloadConfig();
   }
 
   private void registerCommands() {
@@ -256,19 +273,8 @@ public class WebShopPlugin extends JavaPlugin {
   }
 
   private void initializeMetrics() {
-    PluginSettings.MetricsSettings metricsSettings = settings.metricsSettings();
-    if (!metricsSettings.enabled()) {
-      return;
-    }
-
-    int pluginId = metricsSettings.pluginId();
-    if (pluginId <= 0) {
-      getLogger().warning("bStats is enabled but webshop.metrics.plugin-id is not configured. Metrics skipped.");
-      return;
-    }
-
     try {
-      metrics = new Metrics(this, pluginId);
+      metrics = new Metrics(this, BSTATS_PLUGIN_ID);
       metrics.addCustomChart(new SimplePie("server_mode", () -> settings.serverMode().name().toLowerCase(Locale.ROOT)));
       metrics.addCustomChart(new SimplePie("default_locale", settings::defaultLocale));
       getLogger().info("bStats metrics enabled.");

@@ -27,7 +27,6 @@ record PluginSettings(
     CurrencyDisplaySettings currencyDisplaySettings,
     MaintenanceSettings maintenanceSettings,
     LoggingSettings loggingSettings,
-    MetricsSettings metricsSettings,
     AdminBootstrapSettings adminBootstrapSettings,
     EmbeddedWebSettings embeddedWebSettings,
     DatabaseSettings databaseSettings,
@@ -106,10 +105,6 @@ record PluginSettings(
         config.getInt("webshop.logging.max-files", 8),
         config.getInt("webshop.logging.retention-days", 14));
 
-    MetricsSettings metricsSettings = new MetricsSettings(
-      config.getBoolean("webshop.metrics.enabled", true),
-      config.getInt("webshop.metrics.plugin-id", -1));
-
     return new PluginSettings(
         mode,
         normalizeApiBaseUrl(config.getString("webshop.api-base-url", "")),
@@ -128,7 +123,6 @@ record PluginSettings(
         currencyDisplaySettings,
         maintenanceSettings,
         loggingSettings,
-        metricsSettings,
         adminBootstrapSettings,
         webSettings,
         databaseSettings,
@@ -310,9 +304,6 @@ record PluginSettings(
       int maxFileSizeMb,
       int maxFiles,
       int retentionDays) {
-  }
-
-  record MetricsSettings(boolean enabled, int pluginId) {
   }
 
   enum LogLevel {

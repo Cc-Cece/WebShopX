@@ -936,7 +936,7 @@ function buildParamTabContainers(host) {
   advancedPanel.style.display = "none";
 
   const advancedDetails = createEl("details", "dialog-advanced-details");
-  const advancedSummary = createEl("summary", "", "高级参数（默认折叠）");
+  const advancedSummary = createEl("summary", "", "高级参数（查看文档|谨慎修改）");
   advancedDetails.appendChild(advancedSummary);
   advancedDetails.appendChild(createEl("p", "field-hint", "留空将自动回退到默认值。"));
   const advancedParamHost = createEl("div", "dialog-algo-params");
