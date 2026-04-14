@@ -2242,12 +2242,18 @@ function openAlgorithmHelpPage(category, algorithmId) {
   const normalizedCategory = category === "auction" ? "auction" : "dynamic";
   const locale = I18N ? I18N.getLocale() : "zh-CN";
   const query = new URLSearchParams();
+  query.set("mode", "single");
+  query.set("doc", "manual");
+  query.set("lang", locale);
   query.set("category", normalizedCategory);
-  if (algorithmId) {
-    query.set("algorithm", String(algorithmId));
+  const normalizedAlgorithm = String(algorithmId || "").trim();
+  if (normalizedAlgorithm) {
+    query.set("algorithm", normalizedAlgorithm);
   }
   query.set("locale", locale);
-  window.open(`help.html?${query.toString()}`, "_blank", "noopener");
+  const fallbackAnchor = normalizedCategory === "auction" ? "market-auction" : "dynamic-algorithms";
+  const anchor = normalizedAlgorithm || fallbackAnchor;
+  window.open(`help.html?${query.toString()}#${encodeURIComponent(anchor)}`, "_blank", "noopener");
 }
 
 function buildTextureAliases(material) {

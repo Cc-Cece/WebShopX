@@ -1,310 +1,405 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
+<!doctype html>
+<html lang="zh-CN" class="light">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WebShopX 算法帮助</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebShopX 帮助文档</title>
+  <script>
+    (function () {
+      try {
+        var saved = window.localStorage.getItem("webshopx_theme");
+        var theme = saved === "dark" || saved === "light"
+          ? saved
+          : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.classList.remove("light", "dark");
+        document.documentElement.classList.add(theme);
+      } catch (error) {
+        document.documentElement.classList.remove("dark");
+        document.documentElement.classList.add("light");
+      }
+    })();
+  </script>
+  <script src="config.js"></script>
+  <link rel="stylesheet" href="css/light.css" />
+  <link rel="stylesheet" href="css/dark.css" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="vendor/katex.min.css" />
   <style>
-    :root {
-      color-scheme: light;
-      --bg: #f4f7fb;
-      --panel: #ffffff;
-      --line: #d8e1ee;
-      --text: #1f2937;
-      --sub: #5a6678;
-      --accent: #1677c5;
-      --accent-soft: #e8f3ff;
-      --radius: 14px;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
     body {
       margin: 0;
-      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-      background: radial-gradient(circle at top right, #eaf5ff 0%, var(--bg) 42%, #eef2f8 100%);
-      color: var(--text);
-      line-height: 1.55;
+      min-height: 100vh;
     }
 
-    main {
-      max-width: 920px;
-      margin: 0 auto;
-      padding: 28px 18px 54px;
+    .help-shell {
+      width: min(1320px, calc(100vw - 22px));
+      margin: 10px auto 16px;
       display: grid;
-      gap: 14px;
+      gap: 10px;
     }
 
-    .hero,
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      padding: 18px;
-      box-shadow: 0 8px 20px rgba(15, 37, 64, 0.08);
-    }
-
-    h1 {
-      margin: 0;
-      font-size: clamp(20px, 4vw, 30px);
-      letter-spacing: 0.02em;
-    }
-
-    .sub {
-      margin: 8px 0 0;
-      color: var(--sub);
-      font-size: 14px;
-    }
-
-    .chips {
-      margin-top: 12px;
+    .help-header {
+      position: sticky;
+      top: 8px;
+      z-index: 50;
       display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 14px;
+      background: color-mix(in srgb, var(--app-card-raised-bg) 86%, transparent);
+      backdrop-filter: blur(12px);
+    }
+
+    .help-header h1 {
+      margin: 0;
+      font-size: clamp(18px, 2.2vw, 26px);
+    }
+
+    .help-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
       flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .help-doc-select,
+    .help-search-input {
+      border: 1px solid var(--md-sys-color-outline-variant);
+      background: var(--md-sys-color-surface-container-low);
+      color: var(--md-sys-color-on-surface);
+      border-radius: 10px;
+      min-height: 38px;
+      font-size: 13px;
+      padding: 0 10px;
+    }
+
+    .help-doc-select {
+      min-width: 220px;
+      max-width: 360px;
+    }
+
+    .help-layout {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: minmax(220px, 290px) minmax(0, 1fr);
+      align-items: start;
+    }
+
+    .help-nav {
+      position: sticky;
+      top: 88px;
+      max-height: calc(100vh - 102px);
+      overflow: auto;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .help-nav h2 {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .help-nav-tools {
+      display: grid;
       gap: 8px;
     }
 
-    .chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      border-radius: 999px;
-      padding: 5px 12px;
-      background: var(--accent-soft);
-      color: var(--accent);
+    .help-search-input {
+      width: 100%;
+      outline: none;
+    }
+
+    .help-search-input:focus {
+      border-color: var(--md-sys-color-primary);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
+    }
+
+    .help-search-results {
+      display: grid;
+      gap: 4px;
+      max-height: 224px;
+      overflow: auto;
+    }
+
+    .search-result-item {
+      display: grid;
+      gap: 2px;
+      text-align: left;
+      border: 1px solid var(--md-sys-color-outline-variant);
+      border-radius: 9px;
+      padding: 7px 9px;
+      background: var(--md-sys-color-surface-container-low);
+      color: var(--md-sys-color-on-surface);
+      cursor: pointer;
       font-size: 12px;
+      min-height: auto;
+    }
+
+    .search-result-item:hover {
+      border-color: var(--md-sys-color-primary);
+    }
+
+    .search-result-main {
+      color: var(--md-sys-color-on-surface);
       font-weight: 700;
-      letter-spacing: 0.03em;
     }
 
-    h2 {
-      margin: 0 0 10px;
-      font-size: 18px;
+    .search-result-sub,
+    .help-search-empty {
+      color: var(--md-sys-color-on-surface-variant);
+      font-size: 11px;
     }
 
-    .algo-id {
-      margin: 0;
-      color: var(--sub);
+    .toc {
+      display: grid;
+      gap: 2px;
+    }
+
+    .toc-link {
+      display: block;
+      color: var(--md-sys-color-on-surface-variant);
+      text-decoration: none;
       font-size: 13px;
-      word-break: break-all;
+      border-left: 2px solid transparent;
+      padding: 6px 8px;
+      border-radius: 6px;
+      transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
     }
 
-    .summary {
-      margin-top: 10px;
+    .toc-link:hover {
+      color: var(--md-sys-color-on-surface);
+      background: var(--md-sys-color-surface-container-low);
+    }
+
+    .toc-link.level-3 {
+      padding-left: 16px;
+      font-size: 12px;
+    }
+
+    .toc-link.level-4 {
+      padding-left: 24px;
+      font-size: 12px;
+    }
+
+    .toc-link.active {
+      color: var(--md-sys-color-primary);
+      border-color: var(--md-sys-color-primary);
+      background: color-mix(in srgb, var(--md-sys-color-primary-container) 40%, transparent);
+      font-weight: 700;
+    }
+
+    .help-doc {
+      padding: 14px 16px;
+      min-height: calc(100vh - 120px);
+    }
+
+    .help-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+      color: var(--md-sys-color-on-surface-variant);
+      font-size: 12px;
+    }
+
+    .help-content h1,
+    .help-content h2,
+    .help-content h3,
+    .help-content h4,
+    .help-content h5,
+    .help-content h6 {
+      color: var(--md-sys-color-on-surface);
+      line-height: 1.32;
+      margin: 16px 0 8px;
+      scroll-margin-top: 100px;
+    }
+
+    .help-content h1 {
+      margin-top: 0;
+      font-size: 30px;
+    }
+
+    .help-content h2 {
+      font-size: 24px;
+      border-bottom: 1px solid var(--md-sys-color-outline-variant);
+      padding-bottom: 5px;
+    }
+
+    .help-content h3 {
+      font-size: 19px;
+    }
+
+    .help-content h4 {
+      font-size: 17px;
+    }
+
+    .help-content p,
+    .help-content li,
+    .help-content blockquote,
+    .help-content td,
+    .help-content th {
+      color: var(--md-sys-color-on-surface-variant);
       font-size: 14px;
+      line-height: 1.7;
     }
 
-    table {
+    .help-content ul,
+    .help-content ol {
+      margin: 8px 0 14px;
+      padding-left: 22px;
+    }
+
+    .help-content code {
+      background: color-mix(in srgb, var(--md-sys-color-primary-container) 26%, transparent);
+      color: var(--md-sys-color-primary);
+      border-radius: 6px;
+      padding: 1px 6px;
+      font-size: 12px;
+    }
+
+    .help-content pre {
+      margin: 10px 0 14px;
+      max-height: 360px;
+      overflow: auto;
+      border-radius: 10px;
+      border: 1px solid var(--md-sys-color-outline-variant);
+      background: var(--md-sys-color-surface-container-low);
+      padding: 12px;
+    }
+
+    .help-content pre code {
+      background: transparent;
+      color: var(--md-sys-color-on-surface);
+      padding: 0;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .help-content blockquote {
+      margin: 10px 0;
+      padding: 8px 12px;
+      border-left: 3px solid var(--md-sys-color-primary);
+      background: color-mix(in srgb, var(--md-sys-color-primary-container) 24%, transparent);
+      border-radius: 6px;
+    }
+
+    .help-content table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 10px;
-      font-size: 14px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
+      margin: 10px 0 14px;
+      border: 1px solid var(--md-sys-color-outline-variant);
+      border-radius: 9px;
       overflow: hidden;
     }
 
-    th,
-    td {
-      border-bottom: 1px solid var(--line);
-      padding: 10px 12px;
+    .help-content th,
+    .help-content td {
+      border-bottom: 1px solid var(--md-sys-color-outline-variant);
+      padding: 8px 10px;
       text-align: left;
       vertical-align: top;
     }
 
-    tr:last-child td {
+    .help-content tr:last-child td {
       border-bottom: none;
     }
 
-    th {
-      width: 22%;
-      background: #f6fbff;
-      color: #1c4f83;
-      font-weight: 700;
+    .help-content a {
+      color: var(--md-sys-color-primary);
+      text-decoration: underline;
+      text-underline-offset: 2px;
     }
 
-    .muted {
-      color: var(--sub);
+    .help-empty {
+      margin: 12px 0;
+      color: var(--app-danger-fg);
       font-size: 13px;
     }
 
-    .actions {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 8px;
+    .doc-section[hidden] {
+      display: none !important;
     }
 
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 8px 14px;
-      font-size: 14px;
-      text-decoration: none;
-      color: var(--text);
-      background: #fff;
-      cursor: pointer;
+    .doc-section {
+      animation: helpFadeIn 0.2s ease;
     }
 
-    .btn.primary {
-      border-color: #b7d8f6;
-      color: #0d5a94;
-      background: #edf7ff;
+    @keyframes helpFadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(4px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
-    .empty {
-      margin: 0;
-      color: #8a96a8;
-      font-style: italic;
+    @media (max-width: 980px) {
+      .help-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .help-nav {
+        position: static;
+        max-height: none;
+      }
+
+      .help-header {
+        top: 0;
+      }
+
+      .help-doc {
+        min-height: auto;
+      }
     }
   </style>
 </head>
 <body>
-  <main>
-    <section class="hero">
-      <h1>WebShopX 算法帮助页</h1>
-      <p class="sub">此页面由系统静态托管，用于承载动态定价与拍卖算法说明。当前内容来源于外部 JSON 配置。</p>
-      <div class="chips">
-        <span class="chip" id="chipCategory">CATEGORY</span>
-        <span class="chip" id="chipAlgorithm">ALGORITHM</span>
-        <span class="chip" id="chipLocale">LOCALE</span>
+  <main class="help-shell">
+    <header class="md-card help-header">
+      <div>
+        <h1>WebShopX 帮助中心</h1>
       </div>
-    </section>
-
-    <section class="card">
-      <h2 id="algoTitle">正在加载算法描述...</h2>
-      <p class="algo-id" id="algoId"></p>
-      <p class="summary" id="algoSummary"></p>
-      <div id="paramBlock"></div>
-    </section>
-
-    <section class="card">
-      <h2>占位说明</h2>
-      <p class="sub">正式版可在此补充公式推导、示例曲线、运维建议、FAQ 与风险提示。</p>
-      <div class="actions">
-        <a class="btn primary" href="index.html">返回市场页</a>
-        <button class="btn" id="reloadBtn" type="button">重新加载文档</button>
+      <div class="help-header-actions">
+        <button id="helpHomeBtn" class="btn-tonal" type="button">返回首页</button>
+        <select id="helpDocSelect" class="help-doc-select" title="文档切换"></select>
+        <button id="helpLanguageBtn" class="btn-tonal" type="button">语言: zh-CN</button>
+        <button id="helpModeToggleBtn" class="btn-tonal" type="button">单页模式</button>
+        <button id="helpThemeToggleBtn" class="btn-tonal" type="button">切换主题</button>
+        <button id="helpReloadBtn" class="btn-tonal" type="button">重新加载</button>
       </div>
-    </section>
+    </header>
+
+    <div class="help-layout">
+      <aside class="md-card help-nav">
+        <h2>目录</h2>
+        <div class="help-nav-tools">
+          <input
+            id="helpSearchInput"
+            class="help-search-input"
+            type="search"
+            placeholder="搜索标题/内容（本地）"
+            autocomplete="off"
+          />
+          <div id="helpSearchResults" class="help-search-results" aria-live="polite"></div>
+        </div>
+        <nav id="helpToc" class="toc" aria-label="帮助目录"></nav>
+      </aside>
+
+      <article class="md-card help-doc">
+        <div id="helpMeta" class="help-meta"></div>
+        <div id="helpContent" class="help-content"></div>
+      </article>
+    </div>
   </main>
 
-  <script>
-    const query = new URLSearchParams(window.location.search);
-    const category = (query.get("category") || "dynamic").toLowerCase() === "auction" ? "auction" : "dynamic";
-    const algorithm = String(query.get("algorithm") || "").trim().toUpperCase();
-    const locale = String(query.get("locale") || "zh-CN").trim() || "zh-CN";
-
-    const chipCategory = document.getElementById("chipCategory");
-    const chipAlgorithm = document.getElementById("chipAlgorithm");
-    const chipLocale = document.getElementById("chipLocale");
-    const algoTitle = document.getElementById("algoTitle");
-    const algoId = document.getElementById("algoId");
-    const algoSummary = document.getElementById("algoSummary");
-    const paramBlock = document.getElementById("paramBlock");
-
-    chipCategory.textContent = category.toUpperCase();
-    chipAlgorithm.textContent = algorithm || "AUTO";
-    chipLocale.textContent = locale;
-
-    function renderParams(params) {
-      paramBlock.innerHTML = "";
-      if (!Array.isArray(params) || params.length === 0) {
-        const empty = document.createElement("p");
-        empty.className = "empty";
-        empty.textContent = "该算法没有额外参数。";
-        paramBlock.appendChild(empty);
-        return;
-      }
-
-      const table = document.createElement("table");
-      const head = document.createElement("thead");
-      head.innerHTML = "<tr><th>参数</th><th>说明</th><th>约束</th></tr>";
-      table.appendChild(head);
-      const body = document.createElement("tbody");
-
-      for (const param of params) {
-        const row = document.createElement("tr");
-        const requiredTag = param.required ? " (required)" : "";
-        const typeText = param.type || "number";
-        const minText = Number.isFinite(Number(param.min)) ? `min=${param.min}` : "";
-        const maxText = Number.isFinite(Number(param.max)) ? `max=${param.max}` : "";
-        const stepText = Number.isFinite(Number(param.step)) ? `step=${param.step}` : "";
-        const defaultText = param.default !== undefined ? `default=${param.default}` : "";
-        const constraints = [typeText, minText, maxText, stepText, defaultText].filter(Boolean).join(" | ");
-        row.innerHTML = `
-          <td><strong>${param.label || param.key || "-"}</strong><div class="muted">${param.key || ""}${requiredTag}</div></td>
-          <td>${param.description || "-"}</td>
-          <td class="muted">${constraints || "-"}</td>
-        `;
-        body.appendChild(row);
-      }
-
-      table.appendChild(body);
-      paramBlock.appendChild(table);
-    }
-
-    async function loadDefinition() {
-      const candidates = [
-        `i18n/market-algorithms/${locale}.json`,
-        "i18n/market-algorithms/zh-CN.json",
-        "i18n/market-algorithms/en-US.json",
-      ];
-
-      let data = null;
-      for (const path of candidates) {
-        try {
-          const response = await fetch(path, { cache: "no-cache" });
-          if (!response.ok) {
-            continue;
-          }
-          data = await response.json();
-          break;
-        } catch (error) {
-          continue;
-        }
-      }
-
-      if (!data || !Array.isArray(data[category])) {
-        algoTitle.textContent = "未找到算法文档";
-        algoId.textContent = "请确认资源是否已打包。";
-        algoSummary.textContent = "当前帮助页是占位版本，后续可扩展为更完整文档。";
-        renderParams([]);
-        return;
-      }
-
-      const list = data[category];
-      let target = null;
-      if (algorithm) {
-        target = list.find((item) => String(item.id || "").toUpperCase() === algorithm);
-      }
-      if (!target && list.length > 0) {
-        target = list[0];
-      }
-
-      if (!target) {
-        algoTitle.textContent = "未找到匹配算法";
-        algoId.textContent = algorithm || "(empty)";
-        algoSummary.textContent = "请检查 category 与 algorithm 查询参数。";
-        renderParams([]);
-        return;
-      }
-
-      chipAlgorithm.textContent = String(target.id || algorithm || "AUTO");
-      algoTitle.textContent = target.label || target.id || "Unknown";
-      algoId.textContent = target.id || "";
-      algoSummary.textContent = target.summary || "暂无摘要说明。";
-      renderParams(target.params || []);
-    }
-
-    document.getElementById("reloadBtn").addEventListener("click", () => {
-      loadDefinition();
-    });
-
-    loadDefinition();
-  </script>
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/purify.min.js"></script>
+  <script src="vendor/katex.min.js"></script>
+  <script src="vendor/auto-render.min.js"></script>
+  <script src="js/help.js"></script>
 </body>
 </html>
