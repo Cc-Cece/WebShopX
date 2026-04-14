@@ -28,11 +28,13 @@
     body {
       margin: 0;
       min-height: 100vh;
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
     }
 
     .help-shell {
-      width: min(1320px, calc(100vw - 22px));
-      margin: 10px auto 16px;
+      width: min(1320px, calc(100vw - 16px));
+      margin: 8px auto 14px;
       display: grid;
       gap: 10px;
     }
@@ -75,8 +77,9 @@
     }
 
     .help-doc-select {
-      min-width: 220px;
+      min-width: 200px;
       max-width: 360px;
+      width: min(360px, 100%);
     }
 
     .help-layout {
@@ -193,6 +196,11 @@
     .help-doc {
       padding: 14px 16px;
       min-height: calc(100vh - 120px);
+      min-width: 0;
+    }
+
+    .help-content {
+      min-width: 0;
     }
 
     .help-meta {
@@ -243,6 +251,7 @@
       color: var(--md-sys-color-on-surface-variant);
       font-size: 14px;
       line-height: 1.7;
+      overflow-wrap: anywhere;
     }
 
     .help-content ul,
@@ -263,6 +272,7 @@
       margin: 10px 0 14px;
       max-height: 360px;
       overflow: auto;
+      -webkit-overflow-scrolling: touch;
       border-radius: 10px;
       border: 1px solid var(--md-sys-color-outline-variant);
       background: var(--md-sys-color-surface-container-low);
@@ -338,21 +348,124 @@
     }
 
     @media (max-width: 980px) {
+      .help-shell {
+        width: calc(100vw - 12px);
+        gap: 8px;
+      }
+
       .help-layout {
         grid-template-columns: 1fr;
+        gap: 8px;
       }
 
       .help-nav {
         position: static;
         max-height: none;
+        order: 2;
       }
 
       .help-header {
         top: 0;
+        padding: 10px 12px;
       }
 
       .help-doc {
         min-height: auto;
+        order: 1;
+      }
+
+      .help-header-actions {
+        width: 100%;
+        justify-content: flex-start;
+      }
+
+      .help-doc-select {
+        min-width: 0;
+        max-width: none;
+        width: 100%;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .help-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+      }
+
+      .help-header h1 {
+        font-size: clamp(17px, 5.3vw, 22px);
+      }
+
+      .help-header-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .help-header-actions > * {
+        width: 100%;
+      }
+
+      .help-doc-select {
+        grid-column: 1 / -1;
+      }
+
+      .help-doc {
+        padding: 12px;
+      }
+
+      .help-nav {
+        padding: 10px;
+      }
+
+      .help-content h1 {
+        font-size: 24px;
+      }
+
+      .help-content h2 {
+        font-size: 20px;
+      }
+
+      .help-content h3 {
+        font-size: 17px;
+      }
+
+      .help-content p,
+      .help-content li,
+      .help-content blockquote,
+      .help-content td,
+      .help-content th {
+        font-size: 13px;
+        line-height: 1.65;
+      }
+
+      .help-content pre {
+        padding: 10px;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .help-shell {
+        width: calc(100vw - 8px);
+      }
+
+      .help-header {
+        top: 0;
+        padding: 9px 10px;
+      }
+
+      .help-header-actions {
+        grid-template-columns: 1fr;
+      }
+
+      .help-meta {
+        font-size: 11px;
+      }
+
+      .toc-link {
+        font-size: 12px;
+        padding: 8px 8px;
       }
     }
   </style>
