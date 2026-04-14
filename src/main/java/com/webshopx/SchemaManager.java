@@ -43,6 +43,8 @@ class SchemaManager {
     migrateMarketListings(connection);
     createMarketTrades(connection);
     migrateMarketTrades(connection);
+    createMarketBids(connection);
+    migrateMarketBids(connection);
     createMarketItemDeliveries(connection);
     migrateMarketItemDeliveries(connection);
     createGroupBuyVouchers(connection);
@@ -568,9 +570,25 @@ class SchemaManager {
           sold_at DATETIME NULL,
           unlisted_at DATETIME NULL,
           paused_at DATETIME NULL,
+          trade_mode VARCHAR(16) NOT NULL DEFAULT 'DIRECT',
+          dynamic_pricing_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+          dynamic_base_price BIGINT NULL,
+          dynamic_floor_price BIGINT NULL,
+          dynamic_cap_price BIGINT NULL,
+          dynamic_price_step BIGINT NULL,
+          dynamic_demand_score BIGINT NOT NULL DEFAULT 0,
+          auction_start_price BIGINT NULL,
+          auction_min_increment BIGINT NULL,
+          auction_end_at DATETIME NULL,
+          auction_highest_bid BIGINT NULL,
+          auction_highest_bidder_user_id BIGINT NULL,
+          auction_highest_bidder_uuid CHAR(36) NULL,
+          auction_highest_bid_id BIGINT NULL,
+          auction_last_bid_at DATETIME NULL,
           PRIMARY KEY (id),
           KEY idx_market_listing_status (status, created_at),
           KEY idx_market_listing_seller (seller_user_id, status),
+          KEY idx_market_listing_auction_due (trade_mode, status, auction_end_at),
           CONSTRAINT fk_market_listing_seller
             FOREIGN KEY (seller_user_id) REFERENCES web_users(id) ON DELETE CASCADE,
           CONSTRAINT fk_market_listing_buyer
@@ -672,16 +690,222 @@ class SchemaManager {
           "ALTER TABLE market_listings "
               + "ADD COLUMN supply_last_loaded_at DATETIME NULL AFTER supply_last_loaded_amount");
     }
+    if (!columnExists(connection, "market_listings", "trade_mode")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN trade_mode VARCHAR(16) NOT NULL DEFAULT 'DIRECT' AFTER paused_at");
+    }
+    if (!columnExists(connection, "market_listings", "dynamic_pricing_enabled")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN dynamic_pricing_enabled BOOLEAN NOT NULL DEFAULT FALSE AFTER trade_mode");
+    }
+    if (!columnExists(connection, "market_listings", "dynamic_base_price")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN dynamic_base_price BIGINT NULL AFTER dynamic_pricing_enabled");
+    }
+    if (!columnExists(connection, "market_listings", "dynamic_floor_price")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN dynamic_floor_price BIGINT NULL AFTER dynamic_base_price");
+    }
+    if (!columnExists(connection, "market_listings", "dynamic_cap_price")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN dynamic_cap_price BIGINT NULL AFTER dynamic_floor_price");
+    }
+    if (!columnExists(connection, "market_listings", "dynamic_price_step")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN dynamic_price_step BIGINT NULL AFTER dynamic_cap_price");
+    }
+    if (!columnExists(connection, "market_listings", "dynamic_demand_score")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN dynamic_demand_score BIGINT NOT NULL DEFAULT 0 AFTER dynamic_price_step");
+    }
+    if (!columnExists(connection, "market_listings", "auction_start_price")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN auction_start_price BIGINT NULL AFTER dynamic_demand_score");
+    }
+    if (!columnExists(connection, "market_listings", "auction_min_increment")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN auction_min_increment BIGINT NULL AFTER auction_start_price");
+    }
+    if (!columnExists(connection, "market_listings", "auction_end_at")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN auction_end_at DATETIME NULL AFTER auction_min_increment");
+    }
+    if (!columnExists(connection, "market_listings", "auction_highest_bid")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN auction_highest_bid BIGINT NULL AFTER auction_end_at");
+    }
+    if (!columnExists(connection, "market_listings", "auction_highest_bidder_user_id")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN auction_highest_bidder_user_id BIGINT NULL AFTER auction_highest_bid");
+    }
+    if (!columnExists(connection, "market_listings", "auction_highest_bidder_uuid")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN auction_highest_bidder_uuid CHAR(36) NULL AFTER auction_highest_bidder_user_id");
+    }
+    if (!columnExists(connection, "market_listings", "auction_highest_bid_id")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN auction_highest_bid_id BIGINT NULL AFTER auction_highest_bidder_uuid");
+    }
+    if (!columnExists(connection, "market_listings", "auction_last_bid_at")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD COLUMN auction_last_bid_at DATETIME NULL AFTER auction_highest_bid_id");
+    }
+    if (!indexExists(connection, "market_listings", "idx_market_listing_auction_due")) {
+      execute(
+        connection,
+        "ALTER TABLE market_listings "
+          + "ADD INDEX idx_market_listing_auction_due (trade_mode, status, auction_end_at)");
+    }
     execute(
         connection,
         "UPDATE market_listings SET source_mode = 'MANUAL' "
             + "WHERE source_mode IS NULL OR source_mode = ''");
+    execute(
+      connection,
+      "UPDATE market_listings SET trade_mode = 'DIRECT' "
+        + "WHERE trade_mode IS NULL OR trade_mode = ''");
+    execute(
+      connection,
+      "UPDATE market_listings SET dynamic_base_price = price "
+        + "WHERE dynamic_base_price IS NULL OR dynamic_base_price <= 0");
+    execute(
+      connection,
+      "UPDATE market_listings SET dynamic_price_step = 1 "
+        + "WHERE dynamic_pricing_enabled = TRUE "
+        + "AND (dynamic_price_step IS NULL OR dynamic_price_step <= 0)");
+    execute(
+      connection,
+      "UPDATE market_listings SET dynamic_demand_score = 0 "
+        + "WHERE dynamic_demand_score IS NULL OR dynamic_demand_score < 0");
+    execute(
+      connection,
+      "UPDATE market_listings SET auction_min_increment = 1 "
+        + "WHERE trade_mode = 'AUCTION' "
+        + "AND (auction_min_increment IS NULL OR auction_min_increment <= 0)");
     execute(
         connection,
         "UPDATE market_listings SET supply_loaded_total = 0 WHERE supply_loaded_total IS NULL");
     execute(
         connection,
         "UPDATE market_listings SET supply_sold_total = 0 WHERE supply_sold_total IS NULL");
+  }
+
+  private void createMarketBids(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS market_bids (
+          id BIGINT NOT NULL AUTO_INCREMENT,
+          listing_id BIGINT NOT NULL,
+          bidder_user_id BIGINT NOT NULL,
+          bidder_uuid CHAR(36) NOT NULL,
+          bid_amount BIGINT NOT NULL,
+          status VARCHAR(24) NOT NULL DEFAULT 'LEADING',
+          idempotency_key VARCHAR(96) NOT NULL,
+          outbid_at DATETIME NULL,
+          refunded_at DATETIME NULL,
+          settled_at DATETIME NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uniq_market_bid_idempotency (bidder_user_id, idempotency_key),
+          KEY idx_market_bid_listing_status (listing_id, status, created_at),
+          KEY idx_market_bid_bidder (bidder_user_id, created_at),
+          CONSTRAINT fk_market_bid_listing
+            FOREIGN KEY (listing_id) REFERENCES market_listings(id) ON DELETE CASCADE,
+          CONSTRAINT fk_market_bid_bidder
+            FOREIGN KEY (bidder_user_id) REFERENCES web_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void migrateMarketBids(Connection connection) throws SQLException {
+    if (!columnExists(connection, "market_bids", "bidder_uuid")) {
+      execute(
+          connection,
+          "ALTER TABLE market_bids "
+              + "ADD COLUMN bidder_uuid CHAR(36) NOT NULL AFTER bidder_user_id");
+    }
+    if (!columnExists(connection, "market_bids", "status")) {
+      execute(
+          connection,
+          "ALTER TABLE market_bids "
+              + "ADD COLUMN status VARCHAR(24) NOT NULL DEFAULT 'LEADING' AFTER bid_amount");
+    }
+    if (!columnExists(connection, "market_bids", "idempotency_key")) {
+      execute(
+          connection,
+          "ALTER TABLE market_bids "
+              + "ADD COLUMN idempotency_key VARCHAR(96) NOT NULL AFTER status");
+    }
+    if (!columnExists(connection, "market_bids", "outbid_at")) {
+      execute(
+          connection,
+          "ALTER TABLE market_bids "
+              + "ADD COLUMN outbid_at DATETIME NULL AFTER idempotency_key");
+    }
+    if (!columnExists(connection, "market_bids", "refunded_at")) {
+      execute(
+          connection,
+          "ALTER TABLE market_bids "
+              + "ADD COLUMN refunded_at DATETIME NULL AFTER outbid_at");
+    }
+    if (!columnExists(connection, "market_bids", "settled_at")) {
+      execute(
+          connection,
+          "ALTER TABLE market_bids "
+              + "ADD COLUMN settled_at DATETIME NULL AFTER refunded_at");
+    }
+    if (!indexExists(connection, "market_bids", "uniq_market_bid_idempotency")) {
+      execute(
+          connection,
+          "ALTER TABLE market_bids "
+              + "ADD UNIQUE KEY uniq_market_bid_idempotency (bidder_user_id, idempotency_key)");
+    }
+    if (!indexExists(connection, "market_bids", "idx_market_bid_listing_status")) {
+      execute(
+          connection,
+          "ALTER TABLE market_bids "
+              + "ADD INDEX idx_market_bid_listing_status (listing_id, status, created_at)");
+    }
+    if (!indexExists(connection, "market_bids", "idx_market_bid_bidder")) {
+      execute(
+          connection,
+          "ALTER TABLE market_bids "
+              + "ADD INDEX idx_market_bid_bidder (bidder_user_id, created_at)");
+    }
+    execute(
+        connection,
+        "UPDATE market_bids SET status = 'LEADING' "
+            + "WHERE status IS NULL OR status = ''");
   }
 
   private void createMarketTrades(Connection connection) throws SQLException {

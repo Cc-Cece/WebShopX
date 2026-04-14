@@ -99,6 +99,7 @@ class EmbeddedWebServer {
     server.createContext("/api/meta/materials", this::handleMaterialMeta);
     server.createContext("/api/market/listings", this::handleMarketListings);
     server.createContext("/api/market/buy", this::handleMarketBuy);
+    server.createContext("/api/market/bid", this::handleMarketBid);
     server.createContext("/api/market/unlist", this::handleMarketUnlist);
     server.createContext("/api/market/pause", this::handleMarketPause);
     server.createContext("/api/market/resume", this::handleMarketResume);
@@ -656,6 +657,69 @@ class EmbeddedWebServer {
         row.addProperty("status", listing.status());
         row.addProperty("createdAt", listing.createdAt().toString());
         row.addProperty("sourceMode", listing.sourceMode().name());
+        row.addProperty("tradeMode", listing.tradeMode().name());
+        row.addProperty("dynamicPricingEnabled", listing.dynamicPricingEnabled());
+        if (listing.dynamicBasePrice() == null) {
+          row.add("dynamicBasePrice", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("dynamicBasePrice", listing.dynamicBasePrice());
+        }
+        if (listing.dynamicFloorPrice() == null) {
+          row.add("dynamicFloorPrice", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("dynamicFloorPrice", listing.dynamicFloorPrice());
+        }
+        if (listing.dynamicCapPrice() == null) {
+          row.add("dynamicCapPrice", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("dynamicCapPrice", listing.dynamicCapPrice());
+        }
+        if (listing.dynamicPriceStep() == null) {
+          row.add("dynamicPriceStep", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("dynamicPriceStep", listing.dynamicPriceStep());
+        }
+        row.addProperty("dynamicDemandScore", listing.dynamicDemandScore());
+        if (listing.auctionStartPrice() == null) {
+          row.add("auctionStartPrice", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("auctionStartPrice", listing.auctionStartPrice());
+        }
+        if (listing.auctionMinIncrement() == null) {
+          row.add("auctionMinIncrement", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("auctionMinIncrement", listing.auctionMinIncrement());
+        }
+        if (listing.auctionEndAt() == null) {
+          row.add("auctionEndAt", JsonNull.INSTANCE);
+        } else {
+          addBusinessDateTime(row, "auctionEndAt", listing.auctionEndAt());
+        }
+        if (listing.auctionHighestBid() == null) {
+          row.add("auctionHighestBid", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("auctionHighestBid", listing.auctionHighestBid());
+        }
+        if (listing.auctionHighestBidderUserId() == null) {
+          row.add("auctionHighestBidderUserId", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("auctionHighestBidderUserId", listing.auctionHighestBidderUserId());
+        }
+        if (listing.auctionHighestBidderUuid() == null) {
+          row.add("auctionHighestBidderUuid", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("auctionHighestBidderUuid", listing.auctionHighestBidderUuid().toString());
+        }
+        if (listing.auctionHighestBidId() == null) {
+          row.add("auctionHighestBidId", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("auctionHighestBidId", listing.auctionHighestBidId());
+        }
+        if (listing.auctionLastBidAt() == null) {
+          row.add("auctionLastBidAt", JsonNull.INSTANCE);
+        } else {
+          addBusinessDateTime(row, "auctionLastBidAt", listing.auctionLastBidAt());
+        }
         if (listing.supplyBatchSize() == null) {
           row.add("supplyBatchSize", JsonNull.INSTANCE);
         } else {
@@ -721,6 +785,47 @@ class EmbeddedWebServer {
         response.add("refundDeadline", JsonNull.INSTANCE);
       } else {
         response.addProperty("refundDeadline", result.refundDeadline().toString());
+      }
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleMarketBid(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      long listingId = getLong(payload, "listingId", -1L);
+      long bidAmount = getLong(payload, "bidAmount", 0L);
+      String idempotencyKey = getOptionalString(payload, "idempotencyKey")
+          .orElse(UUID.randomUUID().toString());
+      MarketService.BidResult result = marketService.placeBid(user.id(), listingId, bidAmount, idempotencyKey);
+      JsonObject response = new JsonObject();
+      response.addProperty("state", result.state().name());
+      response.addProperty("bidId", result.bidId());
+      response.addProperty("listingId", result.listingId());
+      response.addProperty("currency", result.currency().name());
+      response.addProperty("bidAmount", result.bidAmount());
+      response.addProperty("currentHighestBid", result.currentHighestBid());
+      if (result.previousHighestBid() == null) {
+        response.add("previousHighestBid", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("previousHighestBid", result.previousHighestBid());
+      }
+      if (result.previousHighestBidderUserId() == null) {
+        response.add("previousHighestBidderUserId", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("previousHighestBidderUserId", result.previousHighestBidderUserId());
+      }
+      if (result.auctionEndAt() == null) {
+        response.add("auctionEndAt", JsonNull.INSTANCE);
+      } else {
+        addBusinessDateTime(response, "auctionEndAt", result.auctionEndAt());
       }
       sendJson(exchange, 200, response);
     });
@@ -852,6 +957,30 @@ class EmbeddedWebServer {
       Integer supplyMaxStock = payload.has("supplyMaxStock") && !payload.get("supplyMaxStock").isJsonNull()
           ? (int) getLong(payload, "supplyMaxStock", 0L)
           : null;
+        String tradeMode = getOptionalString(payload, "tradeMode").orElse(null);
+        Boolean dynamicPricingEnabled = payload.has("dynamicPricingEnabled")
+          && !payload.get("dynamicPricingEnabled").isJsonNull()
+          ? payload.get("dynamicPricingEnabled").getAsBoolean()
+          : null;
+        Long dynamicBasePrice = payload.has("dynamicBasePrice") && !payload.get("dynamicBasePrice").isJsonNull()
+          ? getLong(payload, "dynamicBasePrice", 0L)
+          : null;
+        Long dynamicFloorPrice = payload.has("dynamicFloorPrice") && !payload.get("dynamicFloorPrice").isJsonNull()
+          ? getLong(payload, "dynamicFloorPrice", 0L)
+          : null;
+        Long dynamicCapPrice = payload.has("dynamicCapPrice") && !payload.get("dynamicCapPrice").isJsonNull()
+          ? getLong(payload, "dynamicCapPrice", 0L)
+          : null;
+        Long dynamicPriceStep = payload.has("dynamicPriceStep") && !payload.get("dynamicPriceStep").isJsonNull()
+          ? getLong(payload, "dynamicPriceStep", 0L)
+          : null;
+        Long auctionStartPrice = payload.has("auctionStartPrice") && !payload.get("auctionStartPrice").isJsonNull()
+          ? getLong(payload, "auctionStartPrice", 0L)
+          : null;
+        Long auctionMinIncrement = payload.has("auctionMinIncrement") && !payload.get("auctionMinIncrement").isJsonNull()
+          ? getLong(payload, "auctionMinIncrement", 0L)
+          : null;
+        LocalDateTime auctionEndAt = getOptionalDateTime(payload, "auctionEndAt");
       MarketService.ListingSettingsUpdateResult result = marketService.updateListingSettings(
           user.id(),
           listingId,
@@ -859,13 +988,25 @@ class EmbeddedWebServer {
           currency,
           remark,
           supplyBatchSize,
-          supplyMaxStock);
+          supplyMaxStock,
+          tradeMode,
+          dynamicPricingEnabled,
+          dynamicBasePrice,
+          dynamicFloorPrice,
+          dynamicCapPrice,
+          dynamicPriceStep,
+          auctionStartPrice,
+          auctionMinIncrement,
+          auctionEndAt);
       JsonObject response = new JsonObject();
       response.addProperty("listingId", result.listingId());
       response.addProperty("currency", result.currency().name());
       response.addProperty("price", result.price());
       response.addProperty("sourceMode", result.sourceMode().name());
+        response.addProperty("tradeMode", result.tradeMode().name());
       response.addProperty("quantityTotal", result.quantityTotal());
+        response.addProperty("dynamicPricingEnabled", result.dynamicPricingEnabled());
+        response.addProperty("dynamicDemandScore", result.dynamicDemandScore());
       if (result.remark() == null) {
         response.add("remark", JsonNull.INSTANCE);
       } else {
@@ -880,6 +1021,61 @@ class EmbeddedWebServer {
         response.add("supplyMaxStock", JsonNull.INSTANCE);
       } else {
         response.addProperty("supplyMaxStock", result.supplyMaxStock());
+      }
+      if (result.dynamicBasePrice() == null) {
+        response.add("dynamicBasePrice", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("dynamicBasePrice", result.dynamicBasePrice());
+      }
+      if (result.dynamicFloorPrice() == null) {
+        response.add("dynamicFloorPrice", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("dynamicFloorPrice", result.dynamicFloorPrice());
+      }
+      if (result.dynamicCapPrice() == null) {
+        response.add("dynamicCapPrice", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("dynamicCapPrice", result.dynamicCapPrice());
+      }
+      if (result.dynamicPriceStep() == null) {
+        response.add("dynamicPriceStep", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("dynamicPriceStep", result.dynamicPriceStep());
+      }
+      if (result.auctionStartPrice() == null) {
+        response.add("auctionStartPrice", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("auctionStartPrice", result.auctionStartPrice());
+      }
+      if (result.auctionMinIncrement() == null) {
+        response.add("auctionMinIncrement", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("auctionMinIncrement", result.auctionMinIncrement());
+      }
+      if (result.auctionEndAt() == null) {
+        response.add("auctionEndAt", JsonNull.INSTANCE);
+      } else {
+        addBusinessDateTime(response, "auctionEndAt", result.auctionEndAt());
+      }
+      if (result.auctionHighestBid() == null) {
+        response.add("auctionHighestBid", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("auctionHighestBid", result.auctionHighestBid());
+      }
+      if (result.auctionHighestBidderUserId() == null) {
+        response.add("auctionHighestBidderUserId", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("auctionHighestBidderUserId", result.auctionHighestBidderUserId());
+      }
+      if (result.auctionHighestBidId() == null) {
+        response.add("auctionHighestBidId", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("auctionHighestBidId", result.auctionHighestBidId());
+      }
+      if (result.auctionLastBidAt() == null) {
+        response.add("auctionLastBidAt", JsonNull.INSTANCE);
+      } else {
+        addBusinessDateTime(response, "auctionLastBidAt", result.auctionLastBidAt());
       }
       sendJson(exchange, 200, response);
     });

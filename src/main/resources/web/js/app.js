@@ -192,10 +192,21 @@ const ERROR_TIPS_BY_SCENE = {
     invalid_listing: "上架 ID 无效，请刷新列表后重试。",
     listing_missing: "该上架不存在，可能已被移除。",
     listing_unavailable: "该上架已下架或已售出。",
+    auction_only_bid: "该上架为拍卖模式，请使用出价竞拍。",
     invalid_trade: "不能购买自己上架的物品。",
     invalid_idempotency: "请求参数异常，请刷新后重试。",
     invalid_quantity: "购买数量需在 1-64 之间。",
     insufficient_quantity: "当前上架可购买数量不足，请刷新后重试。",
+  },
+  market_bid: {
+    invalid_listing: "上架 ID 无效，请刷新列表后重试。",
+    listing_missing: "该上架不存在，可能已被移除。",
+    listing_unavailable: "该上架当前不可竞拍。",
+    invalid_trade_mode: "该上架不是拍卖模式。",
+    invalid_bid: "出价金额必须大于 0，且不能竞拍自己的上架。",
+    bid_too_low: "出价低于当前最低有效竞价。",
+    auction_closed: "拍卖已结束，无法继续出价。",
+    idempotency_conflict: "请求参数冲突，请刷新后重试。",
   },
   market_unlist: {
     invalid_listing: "上架 ID 无效，请刷新列表后重试。",
@@ -209,6 +220,16 @@ const ERROR_TIPS_BY_SCENE = {
     listing_unavailable: "该上架已下架或已售出。",
     forbidden: "仅上架者本人可以改价。",
     invalid_price: "价格必须大于 0。",
+    invalid_trade_mode: "交易模式无效，仅支持 DIRECT 或 AUCTION。",
+    invalid_dynamic_base: "动态基准价必须大于 0。",
+    invalid_dynamic_floor: "动态地板价必须大于 0。",
+    invalid_dynamic_cap: "动态封顶价必须大于 0。",
+    invalid_dynamic_step: "动态波动系数必须大于 0。",
+    invalid_dynamic_range: "动态地板价不能高于封顶价。",
+    invalid_auction_start: "起拍价必须大于 0。",
+    invalid_auction_increment: "最小加价幅度必须大于 0。",
+    invalid_auction_end: "拍卖结束时间必须晚于当前时间。",
+    listing_empty: "拍卖模式需要有可售库存。",
   },
   market_remark: {
     invalid_listing: "上架 ID 无效，请刷新列表后重试。",
@@ -374,6 +395,12 @@ const elements = {
   confirmDetails: document.getElementById("confirmDetails"),
   confirmCancelBtn: document.getElementById("confirmCancelBtn"),
   confirmOkBtn: document.getElementById("confirmOkBtn"),
+  marketParamDialog: document.getElementById("marketParamDialog"),
+  marketParamTitle: document.getElementById("marketParamTitle"),
+  marketParamHint: document.getElementById("marketParamHint"),
+  marketParamDetails: document.getElementById("marketParamDetails"),
+  marketParamCancelBtn: document.getElementById("marketParamCancelBtn"),
+  marketParamSaveBtn: document.getElementById("marketParamSaveBtn"),
   priceDialog: document.getElementById("priceDialog"),
   priceDialogTitle: document.getElementById("priceDialogTitle"),
   priceDialogHint: document.getElementById("priceDialogHint"),
@@ -566,14 +593,20 @@ function openDeliveryConfirmDialog({
     const summaryCard = createEl("div", "checkout-summary");
     summaryCard.appendChild(createEl("p", "checkout-kicker", "结算摘要"));
     const rows = [];
+    const isCredit = !!summary.isCredit;
+    const finalLabel = summary.finalLabel || (isCredit ? "预计入账" : "最终扣款");
     rows.push(["小计", formatCurrency(summary.subtotal, summary.currency)]);
     if (Number(summary.taxAmount || 0) > 0) {
       rows.push([summary.taxLabel || "税额（买家承担）", formatCurrency(summary.taxAmount, summary.currency)]);
     }
-    rows.push(["最终扣款", formatCurrency(summary.finalAmount, summary.currency), "negative"]);
+    rows.push([
+      finalLabel,
+      formatCurrency(summary.finalAmount, summary.currency),
+      isCredit ? "balance-positive" : "negative",
+    ]);
     const hasCurrentBalance = Number.isFinite(summary.currentBalance);
     const hasRemainingBalance = Number.isFinite(summary.remainingBalance);
-    const isInsufficient = hasRemainingBalance && summary.remainingBalance < 0;
+    const isInsufficient = !isCredit && hasRemainingBalance && summary.remainingBalance < 0;
     if (hasCurrentBalance && hasRemainingBalance) {
       rows.push([
         "余额变化",
@@ -608,12 +641,13 @@ function openDeliveryConfirmDialog({
     });
     elements.confirmDetails.appendChild(summaryCard);
 
+    const noteText = summary.noteText || (isInsufficient
+      ? `余额不足，还差 ${formatCurrency(Math.abs(summary.remainingBalance), summary.currency)}。`
+      : (isCredit ? "确认后将按照以上金额入账。" : "确认后将按照以上金额结算。"));
     const note = createEl(
       "p",
       isInsufficient ? "checkout-warning negative" : "checkout-warning",
-      isInsufficient
-        ? `余额不足，还差 ${formatCurrency(Math.abs(summary.remainingBalance), summary.currency)}。`
-        : "确认后将按照以上金额结算。"
+      noteText
     );
     elements.confirmDetails.appendChild(note);
     elements.confirmOkBtn.disabled = isInsufficient;
@@ -647,6 +681,250 @@ function closeConfirmDialog(result) {
   }
 }
 
+let marketParamResolver = null;
+let marketParamSubmitHandler = null;
+
+function closeMarketParamDialog(result) {
+  if (!elements.marketParamDialog) {
+    return;
+  }
+  elements.marketParamDialog.classList.remove("show");
+  elements.marketParamDialog.setAttribute("aria-hidden", "true");
+  marketParamSubmitHandler = null;
+  if (marketParamResolver) {
+    marketParamResolver(result);
+    marketParamResolver = null;
+  }
+}
+
+function openMarketParamDialog({ title, hint, confirmText, setupForm, resolveValue }) {
+  if (!elements.marketParamDialog || !elements.marketParamDetails) {
+    return Promise.resolve(null);
+  }
+
+  if (marketParamResolver) {
+    marketParamResolver(null);
+    marketParamResolver = null;
+  }
+
+  setNodeText(elements.marketParamTitle, title || "参数设置");
+  setNodeText(elements.marketParamHint, hint || "请设置参数后保存。");
+  elements.marketParamDetails.innerHTML = "";
+  const context = setupForm(elements.marketParamDetails);
+
+  marketParamSubmitHandler = () => {
+    const value = resolveValue(context);
+    if (value === undefined) {
+      return;
+    }
+    closeMarketParamDialog(value);
+  };
+
+  setNodeText(elements.marketParamSaveBtn, confirmText || "保存参数");
+  elements.marketParamDialog.classList.add("show");
+  elements.marketParamDialog.setAttribute("aria-hidden", "false");
+
+  return new Promise((resolve) => {
+    marketParamResolver = resolve;
+  });
+}
+
+function openDynamicParamDialog(state, fallbackBasePrice) {
+  return openMarketParamDialog({
+    title: "动态定价参数",
+    hint: "先做框架：算法可切换，参数后续可扩展。",
+    confirmText: "保存动态参数",
+    setupForm: (host) => {
+      const algorithmField = createEl("label", "field dialog-select-field");
+      algorithmField.appendChild(createEl("span", "", "选择动态定价算法"));
+      const algorithmSelect = document.createElement("select");
+      [
+        { value: "LINEAR_DEMAND_V1", label: "线性需求（占位）" },
+      ].forEach((item) => {
+        const option = document.createElement("option");
+        option.value = item.value;
+        option.textContent = item.label;
+        algorithmSelect.appendChild(option);
+      });
+      algorithmSelect.value = state.dynamicAlgorithm || "LINEAR_DEMAND_V1";
+      algorithmField.appendChild(algorithmSelect);
+      host.appendChild(algorithmField);
+
+      const baseField = createEl("label", "field dialog-select-field");
+      baseField.appendChild(createEl("span", "", "动态基准价"));
+      const baseInput = document.createElement("input");
+      baseInput.type = "number";
+      baseInput.min = "1";
+      baseInput.step = "1";
+      const baseValue = state.dynamicBasePrice ?? fallbackBasePrice;
+      baseInput.value = Number.isFinite(Number(baseValue)) ? String(baseValue) : "";
+      baseField.appendChild(baseInput);
+      host.appendChild(baseField);
+
+      const floorField = createEl("label", "field dialog-select-field");
+      floorField.appendChild(createEl("span", "", "地板价（可选）"));
+      const floorInput = document.createElement("input");
+      floorInput.type = "number";
+      floorInput.min = "1";
+      floorInput.step = "1";
+      floorInput.value = Number.isFinite(Number(state.dynamicFloorPrice)) ? String(state.dynamicFloorPrice) : "";
+      floorField.appendChild(floorInput);
+      host.appendChild(floorField);
+
+      const capField = createEl("label", "field dialog-select-field");
+      capField.appendChild(createEl("span", "", "封顶价（可选）"));
+      const capInput = document.createElement("input");
+      capInput.type = "number";
+      capInput.min = "1";
+      capInput.step = "1";
+      capInput.value = Number.isFinite(Number(state.dynamicCapPrice)) ? String(state.dynamicCapPrice) : "";
+      capField.appendChild(capInput);
+      host.appendChild(capField);
+
+      const stepField = createEl("label", "field dialog-select-field");
+      stepField.appendChild(createEl("span", "", "价格波动系数（步长）"));
+      const stepInput = document.createElement("input");
+      stepInput.type = "number";
+      stepInput.min = "1";
+      stepInput.step = "1";
+      stepInput.value = Number.isFinite(Number(state.dynamicPriceStep)) ? String(state.dynamicPriceStep) : "1";
+      stepField.appendChild(stepInput);
+      host.appendChild(stepField);
+
+      return { algorithmSelect, baseInput, floorInput, capInput, stepInput };
+    },
+    resolveValue: ({ algorithmSelect, baseInput, floorInput, capInput, stepInput }) => {
+      const base = Number(baseInput.value.trim());
+      if (!Number.isFinite(base) || base <= 0) {
+        baseInput.focus();
+        return undefined;
+      }
+      const floorRaw = floorInput.value.trim();
+      const capRaw = capInput.value.trim();
+      const step = Number(stepInput.value.trim());
+      if (!Number.isFinite(step) || step <= 0) {
+        stepInput.focus();
+        return undefined;
+      }
+
+      let floor = null;
+      let cap = null;
+      if (floorRaw) {
+        floor = Number(floorRaw);
+        if (!Number.isFinite(floor) || floor <= 0) {
+          floorInput.focus();
+          return undefined;
+        }
+      }
+      if (capRaw) {
+        cap = Number(capRaw);
+        if (!Number.isFinite(cap) || cap <= 0) {
+          capInput.focus();
+          return undefined;
+        }
+      }
+      if (floor !== null && cap !== null && floor > cap) {
+        floorInput.focus();
+        return undefined;
+      }
+
+      return {
+        dynamicAlgorithm: algorithmSelect.value,
+        dynamicBasePrice: Math.floor(base),
+        dynamicFloorPrice: floor === null ? null : Math.floor(floor),
+        dynamicCapPrice: cap === null ? null : Math.floor(cap),
+        dynamicPriceStep: Math.floor(step),
+      };
+    },
+  });
+}
+
+function openAuctionParamDialog(state, fallbackPrice) {
+  return openMarketParamDialog({
+    title: "拍卖竞价参数",
+    hint: "先做框架：算法可切换，参数后续可扩展。",
+    confirmText: "保存拍卖参数",
+    setupForm: (host) => {
+      const algorithmField = createEl("label", "field dialog-select-field");
+      algorithmField.appendChild(createEl("span", "", "选择拍卖竞价算法"));
+      const algorithmSelect = document.createElement("select");
+      [
+        { value: "HIGHEST_BID_WINS_V1", label: "最高价获胜（占位）" },
+      ].forEach((item) => {
+        const option = document.createElement("option");
+        option.value = item.value;
+        option.textContent = item.label;
+        algorithmSelect.appendChild(option);
+      });
+      algorithmSelect.value = state.auctionAlgorithm || "HIGHEST_BID_WINS_V1";
+      algorithmField.appendChild(algorithmSelect);
+      host.appendChild(algorithmField);
+
+      const startField = createEl("label", "field dialog-select-field");
+      startField.appendChild(createEl("span", "", "起拍价"));
+      const startInput = document.createElement("input");
+      startInput.type = "number";
+      startInput.min = "1";
+      startInput.step = "1";
+      const startValue = state.auctionStartPrice ?? fallbackPrice;
+      startInput.value = Number.isFinite(Number(startValue)) ? String(startValue) : "";
+      startField.appendChild(startInput);
+      host.appendChild(startField);
+
+      const incrementField = createEl("label", "field dialog-select-field");
+      incrementField.appendChild(createEl("span", "", "最小加价幅度"));
+      const incrementInput = document.createElement("input");
+      incrementInput.type = "number";
+      incrementInput.min = "1";
+      incrementInput.step = "1";
+      incrementInput.value = Number.isFinite(Number(state.auctionMinIncrement))
+        ? String(state.auctionMinIncrement)
+        : "1";
+      incrementField.appendChild(incrementInput);
+      host.appendChild(incrementField);
+
+      const endField = createEl("label", "field dialog-select-field");
+      endField.appendChild(createEl("span", "", "拍卖结束时间"));
+      const endInput = document.createElement("input");
+      endInput.type = "datetime-local";
+      endInput.value = toDateTimeLocalValue(state.auctionEndAt);
+      endField.appendChild(endInput);
+      host.appendChild(endField);
+
+      return { algorithmSelect, startInput, incrementInput, endInput };
+    },
+    resolveValue: ({ algorithmSelect, startInput, incrementInput, endInput }) => {
+      const start = Number(startInput.value.trim());
+      if (!Number.isFinite(start) || start <= 0) {
+        startInput.focus();
+        return undefined;
+      }
+      const increment = Number(incrementInput.value.trim());
+      if (!Number.isFinite(increment) || increment <= 0) {
+        incrementInput.focus();
+        return undefined;
+      }
+      const endRaw = endInput.value.trim();
+      if (!endRaw) {
+        endInput.focus();
+        return undefined;
+      }
+      const endDate = new Date(endRaw);
+      if (!Number.isFinite(endDate.getTime())) {
+        endInput.focus();
+        return undefined;
+      }
+
+      return {
+        auctionAlgorithm: algorithmSelect.value,
+        auctionStartPrice: Math.floor(start),
+        auctionMinIncrement: Math.floor(increment),
+        auctionEndAt: endDate.toISOString(),
+      };
+    },
+  });
+}
+
 function openListingEditDialog({
   listingId,
   currentPrice,
@@ -655,7 +933,22 @@ function openListingEditDialog({
   sourceMode,
   currentSupplyBatchSize,
   currentSupplyMaxStock,
+  tradeMode,
+  currentDynamicPricingEnabled,
+  currentDynamicBasePrice,
+  currentDynamicFloorPrice,
+  currentDynamicCapPrice,
+  currentDynamicPriceStep,
+  currentAuctionStartPrice,
+  currentAuctionMinIncrement,
+  currentAuctionEndAt,
 }) {
+  const normalizedTradeMode = String(tradeMode || "DIRECT").toUpperCase();
+  const isSupplyListing = String(sourceMode || "").toUpperCase() === "SUPPLY";
+  const initialMode = normalizedTradeMode === "AUCTION"
+    ? "AUCTION"
+    : (currentDynamicPricingEnabled ? "DIRECT_DYNAMIC" : "DIRECT_STATIC");
+
   if (!elements.confirmDialog) {
     const rawPrice = window.prompt("请输入新的价格", String(currentPrice));
     if (rawPrice === null) {
@@ -669,34 +962,44 @@ function openListingEditDialog({
     if (rawRemark === null) {
       return Promise.resolve(null);
     }
-    const isSupplyFallback = String(sourceMode || "").toUpperCase() === "SUPPLY";
-    const rawBatch = isSupplyFallback
-      ? window.prompt("请输入单次提取量", String(currentSupplyBatchSize || 1))
-      : null;
-    if (isSupplyFallback && rawBatch === null) {
-      return Promise.resolve(null);
-    }
-    const rawMax = isSupplyFallback
-      ? window.prompt("请输入中转上限", String(currentSupplyMaxStock || 1))
-      : null;
-    if (isSupplyFallback && rawMax === null) {
-      return Promise.resolve(null);
-    }
     return Promise.resolve({
       price: Math.floor(Number(rawPrice)),
       currency: String(rawCurrency || "GAME_COIN").trim().toUpperCase(),
       remark: rawRemark.trim() || null,
-      supplyBatchSize: isSupplyFallback ? Math.floor(Number(rawBatch)) : null,
-      supplyMaxStock: isSupplyFallback ? Math.floor(Number(rawMax)) : null,
+      supplyBatchSize: null,
+      supplyMaxStock: null,
+      tradeMode: "DIRECT",
+      dynamicPricingEnabled: false,
+      dynamicBasePrice: null,
+      dynamicFloorPrice: null,
+      dynamicCapPrice: null,
+      dynamicPriceStep: null,
+      auctionStartPrice: null,
+      auctionMinIncrement: null,
+      auctionEndAt: null,
     });
   }
+
   if (confirmResolver) {
     confirmResolver(null);
     confirmResolver = null;
   }
 
+  const draft = {
+    mode: isSupplyListing && initialMode === "AUCTION" ? "DIRECT_STATIC" : initialMode,
+    dynamicAlgorithm: "LINEAR_DEMAND_V1",
+    auctionAlgorithm: "HIGHEST_BID_WINS_V1",
+    dynamicBasePrice: Number.isFinite(Number(currentDynamicBasePrice)) ? Math.floor(Number(currentDynamicBasePrice)) : Math.floor(Number(currentPrice || 1)),
+    dynamicFloorPrice: Number.isFinite(Number(currentDynamicFloorPrice)) ? Math.floor(Number(currentDynamicFloorPrice)) : null,
+    dynamicCapPrice: Number.isFinite(Number(currentDynamicCapPrice)) ? Math.floor(Number(currentDynamicCapPrice)) : null,
+    dynamicPriceStep: Number.isFinite(Number(currentDynamicPriceStep)) ? Math.floor(Number(currentDynamicPriceStep)) : 1,
+    auctionStartPrice: Number.isFinite(Number(currentAuctionStartPrice)) ? Math.floor(Number(currentAuctionStartPrice)) : Math.floor(Number(currentPrice || 1)),
+    auctionMinIncrement: Number.isFinite(Number(currentAuctionMinIncrement)) ? Math.floor(Number(currentAuctionMinIncrement)) : 1,
+    auctionEndAt: currentAuctionEndAt || null,
+  };
+
   setNodeText(elements.confirmTitle, `修改上架 #${listingId}`);
-  setNodeText(elements.confirmMessage, "可同时修改价格和备注。");
+  setNodeText(elements.confirmMessage, "先选择交易模式，再按需进入参数设置。");
   elements.confirmDetails.innerHTML = "";
 
   const priceField = createEl("label", "field dialog-select-field");
@@ -730,7 +1033,107 @@ function openListingEditDialog({
   remarkField.appendChild(remarkInput);
   elements.confirmDetails.appendChild(remarkField);
 
-  const isSupply = String(sourceMode || "").toUpperCase() === "SUPPLY";
+  const modeField = createEl("label", "field dialog-select-field");
+  modeField.appendChild(createEl("span", "", "交易模式"));
+  const modeSelect = document.createElement("select");
+  [
+    { value: "DIRECT_STATIC", label: "一口价" },
+    { value: "DIRECT_DYNAMIC", label: "动态价格" },
+    { value: "AUCTION", label: "拍卖竞价" },
+  ].forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.value;
+    option.textContent = item.label;
+    if (isSupplyListing && item.value === "AUCTION") {
+      option.disabled = true;
+    }
+    modeSelect.appendChild(option);
+  });
+  modeSelect.value = draft.mode;
+  modeField.appendChild(modeSelect);
+  elements.confirmDetails.appendChild(modeField);
+
+  const dynamicConfigRow = createEl("div", "inline-action dialog-inline-config");
+  const dynamicAlgoField = createEl("label", "field dialog-select-field");
+  dynamicAlgoField.appendChild(createEl("span", "", "选择动态定价算法"));
+  const dynamicAlgoSelect = document.createElement("select");
+  [
+    { value: "LINEAR_DEMAND_V1", label: "线性需求（占位）" },
+  ].forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.value;
+    option.textContent = item.label;
+    dynamicAlgoSelect.appendChild(option);
+  });
+  dynamicAlgoSelect.value = draft.dynamicAlgorithm;
+  dynamicAlgoField.appendChild(dynamicAlgoSelect);
+  const dynamicParamBtn = createEl("button", "btn-tonal", "参数设置");
+  dynamicParamBtn.type = "button";
+  dynamicConfigRow.appendChild(dynamicAlgoField);
+  dynamicConfigRow.appendChild(dynamicParamBtn);
+  elements.confirmDetails.appendChild(dynamicConfigRow);
+
+  const auctionConfigRow = createEl("div", "inline-action dialog-inline-config");
+  const auctionAlgoField = createEl("label", "field dialog-select-field");
+  auctionAlgoField.appendChild(createEl("span", "", "选择拍卖竞价算法"));
+  const auctionAlgoSelect = document.createElement("select");
+  [
+    { value: "HIGHEST_BID_WINS_V1", label: "最高价获胜（占位）" },
+  ].forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.value;
+    option.textContent = item.label;
+    auctionAlgoSelect.appendChild(option);
+  });
+  auctionAlgoSelect.value = draft.auctionAlgorithm;
+  auctionAlgoField.appendChild(auctionAlgoSelect);
+  const auctionParamBtn = createEl("button", "btn-tonal", "参数设置");
+  auctionParamBtn.type = "button";
+  auctionConfigRow.appendChild(auctionAlgoField);
+  auctionConfigRow.appendChild(auctionParamBtn);
+  elements.confirmDetails.appendChild(auctionConfigRow);
+
+  dynamicAlgoSelect.addEventListener("change", () => {
+    draft.dynamicAlgorithm = dynamicAlgoSelect.value;
+  });
+  auctionAlgoSelect.addEventListener("change", () => {
+    draft.auctionAlgorithm = auctionAlgoSelect.value;
+  });
+
+  dynamicParamBtn.addEventListener("click", async () => {
+    const value = await openDynamicParamDialog(draft, Number(priceInput.value || currentPrice || 1));
+    if (!value) {
+      return;
+    }
+    draft.dynamicAlgorithm = value.dynamicAlgorithm;
+    draft.dynamicBasePrice = value.dynamicBasePrice;
+    draft.dynamicFloorPrice = value.dynamicFloorPrice;
+    draft.dynamicCapPrice = value.dynamicCapPrice;
+    draft.dynamicPriceStep = value.dynamicPriceStep;
+    dynamicAlgoSelect.value = draft.dynamicAlgorithm;
+  });
+
+  auctionParamBtn.addEventListener("click", async () => {
+    const value = await openAuctionParamDialog(draft, Number(priceInput.value || currentPrice || 1));
+    if (!value) {
+      return;
+    }
+    draft.auctionAlgorithm = value.auctionAlgorithm;
+    draft.auctionStartPrice = value.auctionStartPrice;
+    draft.auctionMinIncrement = value.auctionMinIncrement;
+    draft.auctionEndAt = value.auctionEndAt;
+    auctionAlgoSelect.value = draft.auctionAlgorithm;
+  });
+
+  const refreshModeRows = () => {
+    draft.mode = modeSelect.value;
+    dynamicConfigRow.style.display = draft.mode === "DIRECT_DYNAMIC" ? "grid" : "none";
+    auctionConfigRow.style.display = draft.mode === "AUCTION" ? "grid" : "none";
+  };
+  modeSelect.addEventListener("change", refreshModeRows);
+  refreshModeRows();
+
+  const isSupply = isSupplyListing;
   let supplyBatchInput = null;
   let supplyMaxInput = null;
   if (isSupply) {
@@ -771,14 +1174,91 @@ function openListingEditDialog({
       supplyMaxInput.focus();
       return;
     }
+
+    let mappedTradeMode = "DIRECT";
+    let dynamicPricingEnabled = false;
+    let dynamicBasePrice = null;
+    let dynamicFloorPrice = null;
+    let dynamicCapPrice = null;
+    let dynamicPriceStep = null;
+    let auctionStartPrice = null;
+    let auctionMinIncrement = null;
+    let auctionEndAt = null;
+
+    if (draft.mode === "DIRECT_DYNAMIC") {
+      dynamicPricingEnabled = true;
+      const base = Number(draft.dynamicBasePrice ?? price);
+      const step = Number(draft.dynamicPriceStep ?? 1);
+      if (!Number.isFinite(base) || base <= 0) {
+        notify("动态定价参数无效：基准价必须大于 0。", "warn");
+        return;
+      }
+      if (!Number.isFinite(step) || step <= 0) {
+        notify("动态定价参数无效：波动系数必须大于 0。", "warn");
+        return;
+      }
+      const floor = draft.dynamicFloorPrice == null ? null : Number(draft.dynamicFloorPrice);
+      const cap = draft.dynamicCapPrice == null ? null : Number(draft.dynamicCapPrice);
+      if (floor != null && (!Number.isFinite(floor) || floor <= 0)) {
+        notify("动态定价参数无效：地板价必须大于 0。", "warn");
+        return;
+      }
+      if (cap != null && (!Number.isFinite(cap) || cap <= 0)) {
+        notify("动态定价参数无效：封顶价必须大于 0。", "warn");
+        return;
+      }
+      if (floor != null && cap != null && floor > cap) {
+        notify("动态定价参数无效：地板价不能高于封顶价。", "warn");
+        return;
+      }
+      dynamicBasePrice = Math.floor(base);
+      dynamicFloorPrice = floor == null ? null : Math.floor(floor);
+      dynamicCapPrice = cap == null ? null : Math.floor(cap);
+      dynamicPriceStep = Math.floor(step);
+    } else if (draft.mode === "AUCTION") {
+      mappedTradeMode = "AUCTION";
+      const start = Number(draft.auctionStartPrice ?? price);
+      const increment = Number(draft.auctionMinIncrement ?? 1);
+      if (!Number.isFinite(start) || start <= 0) {
+        notify("拍卖参数无效：起拍价必须大于 0。", "warn");
+        return;
+      }
+      if (!Number.isFinite(increment) || increment <= 0) {
+        notify("拍卖参数无效：最小加价幅度必须大于 0。", "warn");
+        return;
+      }
+      if (!draft.auctionEndAt) {
+        notify("拍卖参数无效：请设置结束时间。", "warn");
+        return;
+      }
+      const endTimestamp = Date.parse(draft.auctionEndAt);
+      if (!Number.isFinite(endTimestamp)) {
+        notify("拍卖参数无效：结束时间格式不正确。", "warn");
+        return;
+      }
+      auctionStartPrice = Math.floor(start);
+      auctionMinIncrement = Math.floor(increment);
+      auctionEndAt = new Date(endTimestamp).toISOString();
+    }
+
     closeConfirmDialog({
       price: Math.floor(price),
       currency: currencySelect.value,
       remark: remarkInput.value.trim() || null,
       supplyBatchSize: supplyBatchInput ? Math.floor(batchSize) : null,
       supplyMaxStock: supplyMaxInput ? Math.floor(maxStock) : null,
+      tradeMode: mappedTradeMode,
+      dynamicPricingEnabled,
+      dynamicBasePrice,
+      dynamicFloorPrice,
+      dynamicCapPrice,
+      dynamicPriceStep,
+      auctionStartPrice,
+      auctionMinIncrement,
+      auctionEndAt,
     });
   };
+
   elements.confirmOkBtn.disabled = false;
   setNodeText(elements.confirmOkBtn, "保存修改");
   elements.confirmDialog.classList.add("show");
@@ -1204,6 +1684,8 @@ function humanizeLedgerType(bizType, bizId) {
   if (normalized === "EXCHANGE_IN") return "货币兑换转入";
   if (normalized === "MARKET_BUY") return "市场购买";
   if (normalized === "MARKET_SELL") return "市场售出";
+  if (normalized === "MARKET_BID_HOLD") return "拍卖出价冻结";
+  if (normalized === "MARKET_BID_REFUND") return "拍卖退回";
   if (normalized === "REDEEM") return "兑换码入账";
   if (normalized === "ADMIN_ADJUST") return "管理员调整";
   return normalized || "未知变动";
@@ -1527,6 +2009,16 @@ function parseDateTimeValue(value) {
     timestamp = utcGuess - resolvedOffset * 60000;
   }
   return timestamp;
+}
+
+function toDateTimeLocalValue(value) {
+  const timestamp = parseDateTimeValue(value);
+  if (Number.isNaN(timestamp)) {
+    return "";
+  }
+  const date = new Date(timestamp);
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 16);
 }
 
 function formatInBusinessTimeZone(timestamp) {
@@ -2116,6 +2608,7 @@ function renderProducts(products) {
   for (const product of filteredProducts) {
     const card = createEl("article", "product-card market-card official-card");
     const isGroupBuyVoucher = String(product.productType || "").toUpperCase() === "GROUP_BUY_VOUCHER";
+    const isRecycleItem = String(product.productType || "").toUpperCase() === "RECYCLE_ITEM";
     const stock = resolveOfficialProductStock(product);
     const isSoldOut = stock.maxQuantity <= 0 && (stock.hasTrackedStock || stock.isPersonalLimitReached);
     const top = createEl("div", "market-top");
@@ -2190,7 +2683,11 @@ function renderProducts(products) {
         totalClassName: "market-total",
       });
 
-      const buyBtn = createEl("button", "market-action-btn product-buy-btn", "立即购买");
+      const buyBtn = createEl(
+        "button",
+        "market-action-btn product-buy-btn",
+        isRecycleItem ? "立即回收" : "立即购买"
+      );
       buyBtn.type = "button";
       buyBtn.dataset.action = "buy-product";
       buyBtn.dataset.productId = String(product.id);
@@ -2291,6 +2788,8 @@ function renderListings(listings, container = elements.marketList) {
     const isOwner = !!state.username && listing.sellerName === state.username;
     const normalizedStatus = String(listing.status || "").toUpperCase();
     const isSupply = String(listing.sourceMode || "").toUpperCase() === "SUPPLY";
+    const tradeMode = String(listing.tradeMode || "DIRECT").toUpperCase();
+    const isAuction = tradeMode === "AUCTION";
     const displayStatus = isSupply && Number(listing.quantity || 0) <= 0 && normalizedStatus === "ACTIVE"
       ? "SUPPLY_EMPTY"
       : normalizedStatus;
@@ -2311,6 +2810,9 @@ function renderListings(listings, container = elements.marketList) {
     ));
     if (isSupply) {
       top.appendChild(createEl("span", "market-chip official", "自动补货"));
+    }
+    if (isAuction) {
+      top.appendChild(createEl("span", "market-chip", "拍卖"));
     }
     top.appendChild(createEl("span", "market-time", formatAge(listing.createdAt)));
     card.appendChild(top);
@@ -2364,6 +2866,50 @@ function renderListings(listings, container = elements.marketList) {
         );
       }
     }
+    if (isAuction) {
+      const hasHighestBid = Number(listing.auctionHighestBid || 0) > 0;
+      const currentBidAmount = hasHighestBid
+        ? Number(listing.auctionHighestBid || 0)
+        : Number(listing.auctionStartPrice || listing.price || 0);
+      detail.appendChild(
+        createEl(
+          "p",
+          "market-sub",
+          `当前${hasHighestBid ? "最高出价" : "起拍价"}：${formatCurrency(currentBidAmount, listing.currency)}`
+        )
+      );
+      detail.appendChild(
+        createEl(
+          "p",
+          "market-sub",
+          `最小加价：${formatCurrency(Math.max(1, Number(listing.auctionMinIncrement || 1)), listing.currency)}`
+        )
+      );
+      detail.appendChild(
+        createEl(
+          "p",
+          "market-sub",
+          `结束时间：${listing.auctionEndAt ? formatDateTime(listing.auctionEndAt) : "未设置"}`
+        )
+      );
+    } else if (listing.dynamicPricingEnabled) {
+      const floorText = listing.dynamicFloorPrice ? formatCurrency(listing.dynamicFloorPrice, listing.currency) : "--";
+      const capText = listing.dynamicCapPrice ? formatCurrency(listing.dynamicCapPrice, listing.currency) : "--";
+      detail.appendChild(
+        createEl(
+          "p",
+          "market-sub",
+          `动态定价：需求分 ${Number(listing.dynamicDemandScore || 0)}，波动步长 ${Number(listing.dynamicPriceStep || 1)}`
+        )
+      );
+      detail.appendChild(
+        createEl(
+          "p",
+          "market-sub",
+          `地板价 ${floorText} / 封顶价 ${capText}`
+        )
+      );
+    }
     main.appendChild(detail);
     card.appendChild(main);
 
@@ -2386,8 +2932,12 @@ function renderListings(listings, container = elements.marketList) {
     }
 
     const priceRow = createEl("div", "market-price-row");
-    priceRow.appendChild(createEl("p", "market-price-label", "价格"));
-    priceRow.appendChild(createEl("p", "market-price", formatCurrency(listing.price, listing.currency)));
+    const priceLabel = isAuction ? "当前竞价" : "价格";
+    const displayPrice = isAuction && Number(listing.auctionHighestBid || 0) > 0
+      ? Number(listing.auctionHighestBid || 0)
+      : Number(listing.price || 0);
+    priceRow.appendChild(createEl("p", "market-price-label", priceLabel));
+    priceRow.appendChild(createEl("p", "market-price", formatCurrency(displayPrice, listing.currency)));
     card.appendChild(priceRow);
 
     const footer = createEl("div", "market-footer");
@@ -2408,6 +2958,15 @@ function renderListings(listings, container = elements.marketList) {
       editBtn.dataset.sourceMode = listing.sourceMode || "MANUAL";
       editBtn.dataset.currentSupplyBatchSize = String(listing.supplyBatchSize || "");
       editBtn.dataset.currentSupplyMaxStock = String(listing.supplyMaxStock || "");
+      editBtn.dataset.tradeMode = listing.tradeMode || "DIRECT";
+      editBtn.dataset.dynamicPricingEnabled = listing.dynamicPricingEnabled ? "1" : "0";
+      editBtn.dataset.dynamicBasePrice = String(listing.dynamicBasePrice || "");
+      editBtn.dataset.dynamicFloorPrice = String(listing.dynamicFloorPrice || "");
+      editBtn.dataset.dynamicCapPrice = String(listing.dynamicCapPrice || "");
+      editBtn.dataset.dynamicPriceStep = String(listing.dynamicPriceStep || "");
+      editBtn.dataset.auctionStartPrice = String(listing.auctionStartPrice || "");
+      editBtn.dataset.auctionMinIncrement = String(listing.auctionMinIncrement || "");
+      editBtn.dataset.auctionEndAt = listing.auctionEndAt || "";
       actions.appendChild(editBtn);
 
       if (isSupply && normalizedStatus !== "UNLISTED" && normalizedStatus !== "SOLD") {
@@ -2451,26 +3010,53 @@ function renderListings(listings, container = elements.marketList) {
         actions.appendChild(disabledBtn);
       }
     } else if (isActive) {
-      const quantitySelector = createQuantitySelector({
-        max: listing.quantity || 1,
-        unitPrice: Number(listing.price || 0),
-        currency: listing.currency,
-        totalClassName: "market-total",
-      });
+      if (isAuction) {
+        const hasHighestBid = Number(listing.auctionHighestBid || 0) > 0;
+        const openingBid = Number(listing.auctionStartPrice || listing.price || 0);
+        const currentBid = hasHighestBid ? Number(listing.auctionHighestBid || 0) : openingBid;
+        const minIncrement = Math.max(1, Number(listing.auctionMinIncrement || 1));
+        const minBid = hasHighestBid ? currentBid + minIncrement : Math.max(1, openingBid);
+        const bidWrap = createEl("div", "market-buy-wrap");
+        const bidInput = document.createElement("input");
+        bidInput.type = "number";
+        bidInput.className = "product-qty market-bid-input";
+        bidInput.min = String(minBid);
+        bidInput.step = "1";
+        bidInput.value = String(minBid);
+        bidWrap.appendChild(bidInput);
 
-      const buyBtn = createEl("button", "market-action-btn", "立即购买");
-      buyBtn.type = "button";
-      buyBtn.dataset.action = "buy";
-      buyBtn.dataset.listingId = String(listing.id);
-      buyBtn.dataset.currency = listing.currency;
-      buyBtn.dataset.unitPrice = String(listing.price);
-      buyBtn.dataset.maxQuantity = String(Math.max(1, Number(listing.quantity || 1)));
-      const buyWrap = createEl("div", "market-buy-wrap");
-      buyWrap.appendChild(quantitySelector.wrap);
-      buyWrap.appendChild(buyBtn);
-      actions.appendChild(buyWrap);
+        const bidBtn = createEl("button", "market-action-btn sale", "出价竞拍");
+        bidBtn.type = "button";
+        bidBtn.dataset.action = "bid";
+        bidBtn.dataset.listingId = String(listing.id);
+        bidBtn.dataset.currency = listing.currency;
+        bidBtn.dataset.minBid = String(minBid);
+        bidBtn.dataset.currentBid = String(currentBid);
+        bidBtn.dataset.minIncrement = String(minIncrement);
+        bidWrap.appendChild(bidBtn);
+        actions.appendChild(bidWrap);
+      } else {
+        const quantitySelector = createQuantitySelector({
+          max: listing.quantity || 1,
+          unitPrice: Number(listing.price || 0),
+          currency: listing.currency,
+          totalClassName: "market-total",
+        });
+
+        const buyBtn = createEl("button", "market-action-btn", "立即购买");
+        buyBtn.type = "button";
+        buyBtn.dataset.action = "buy";
+        buyBtn.dataset.listingId = String(listing.id);
+        buyBtn.dataset.currency = listing.currency;
+        buyBtn.dataset.unitPrice = String(listing.price);
+        buyBtn.dataset.maxQuantity = String(Math.max(1, Number(listing.quantity || 1)));
+        const buyWrap = createEl("div", "market-buy-wrap");
+        buyWrap.appendChild(quantitySelector.wrap);
+        buyWrap.appendChild(buyBtn);
+        actions.appendChild(buyWrap);
+      }
     } else {
-      const disabledBtn = createEl("button", "market-action-btn", "不可购买");
+      const disabledBtn = createEl("button", "market-action-btn", isAuction ? "拍卖已结束" : "不可购买");
       disabledBtn.disabled = true;
       actions.appendChild(disabledBtn);
     }
@@ -2904,10 +3490,11 @@ async function loadOrders(options = {}) {
 
 async function confirmPurchase(product, quantity) {
   const qty = Number(quantity || 1);
+  const productType = String(product.productType || "").toUpperCase();
+  const isRecycle = productType === "RECYCLE_ITEM";
   const subtotalAmount = Number(product.price || 0) * qty;
-  const total = formatCurrency(subtotalAmount, product.currency);
   const cooldown = Number(state.orderPolicy.cooldownSeconds || 0);
-  const allowClaim = String(product.productType || "").toUpperCase() !== "GROUP_BUY_VOUCHER";
+  const allowClaim = !isRecycle && productType !== "GROUP_BUY_VOUCHER";
   const currentBalance = getWalletBalanceForCurrency(product.currency);
   const details = [
     `商品：${product.title}`,
@@ -2925,8 +3512,11 @@ async function confirmPurchase(product, quantity) {
   if (product.remark) {
     details.push(`备注：${product.remark}`);
   }
-  if (String(product.productType || "").toUpperCase() === "GROUP_BUY_VOUCHER") {
+  if (productType === "GROUP_BUY_VOUCHER") {
     details.push("该商品会生成团购兑换码，需由管理员在后台核销。");
+  }
+  if (isRecycle) {
+    details.push("回收说明：系统将从背包扣除对应物品并入账。");
   }
   if (state.orderPolicy.refundUndeliveredEnabled) {
     details.push("退款说明：未发放前可退款。");
@@ -2936,10 +3526,12 @@ async function confirmPurchase(product, quantity) {
     details.push("退款说明：当前不支持未发放退款。");
   }
   return openDeliveryConfirmDialog({
-    title: "确认下单",
-    message: "请确认以下订单信息，确认后将立即扣除余额。",
+    title: isRecycle ? "确认回收" : "确认下单",
+    message: isRecycle
+      ? "请确认以下回收信息，确认后将立即入账。"
+      : "请确认以下订单信息，确认后将立即扣除余额。",
     details,
-    confirmText: "确认下单",
+    confirmText: isRecycle ? "确认回收" : "确认下单",
     initialValue: defaultDeliveryModeForProduct(product),
     allowClaim,
     summary: {
@@ -2949,9 +3541,12 @@ async function confirmPurchase(product, quantity) {
       feeAmount: 0,
       taxLabel: "税额（买家承担）",
       feeLabel: "手续费（卖家承担）",
+      finalLabel: isRecycle ? "预计入账" : "最终扣款",
       finalAmount: subtotalAmount,
       currentBalance,
-      remainingBalance: currentBalance - subtotalAmount,
+      remainingBalance: isRecycle ? currentBalance + subtotalAmount : currentBalance - subtotalAmount,
+      isCredit: isRecycle,
+      noteText: isRecycle ? "确认后将按照以上金额入账。" : undefined,
     },
   });
 }
@@ -3005,6 +3600,36 @@ async function confirmMarketBuy(listing, buyQuantity) {
   });
 }
 
+async function confirmMarketBid(listing, bidAmount) {
+  await ensureMaterialNameMap();
+  const meta = parseMeta(listing.itemMetaJson);
+  const displayName = stripColorCodes(meta.displayName || "");
+  const localizedName = displayName || getLocalizedMaterialName(listing.itemMaterial);
+  const minIncrement = Math.max(1, Number(listing.auctionMinIncrement || 1));
+  const hasHighestBid = Number(listing.auctionHighestBid || 0) > 0;
+  const currentBid = hasHighestBid
+    ? Number(listing.auctionHighestBid || 0)
+    : Number(listing.auctionStartPrice || listing.price || 0);
+  const requiredBid = hasHighestBid ? currentBid + minIncrement : Math.max(1, currentBid);
+  const currentBalance = getWalletBalanceForCurrency(listing.currency);
+  return openConfirmDialog({
+    title: "确认竞拍出价",
+    message: "出价后将先冻结该金额，若被超价系统会自动退回。",
+    details: [
+      `物品：${localizedName}`,
+      `卖家：${listing.sellerName}`,
+      `当前${hasHighestBid ? "最高出价" : "起拍价"}：${formatCurrency(currentBid, listing.currency)}`,
+      `最小加价幅度：${formatCurrency(minIncrement, listing.currency)}`,
+      `本次出价：${formatCurrency(bidAmount, listing.currency)}`,
+      `最低有效出价：${formatCurrency(requiredBid, listing.currency)}`,
+      `当前余额：${formatCurrency(currentBalance, listing.currency)}`,
+      `预计出价后余额：${formatCurrency(currentBalance - bidAmount, listing.currency)}`,
+      `拍卖截止：${listing.auctionEndAt ? formatDateTime(listing.auctionEndAt) : "未设置"}`,
+    ],
+    confirmText: "确认出价",
+  });
+}
+
 async function refundOrder(orderNo) {
   ensureToken();
   const payload = await api("/api/orders/refund", {
@@ -3017,11 +3642,14 @@ async function refundOrder(orderNo) {
   await loadProducts();
 }
 
-async function createOrder(productId, quantity, deliveryMode, productTitle) {
+async function createOrder(productId, quantity, deliveryMode, productTitle, productType) {
   ensureToken();
 
   const pid = Number(productId);
   const qty = Number(quantity || 1);
+  const isRecycle = String(productType || "").toUpperCase() === "RECYCLE_ITEM";
+  const actionVerb = isRecycle ? "回收" : "下单";
+  const actionSuccess = isRecycle ? "回收成功" : "下单成功";
   if (!Number.isFinite(pid) || pid <= 0) {
     throw new Error("商品 ID 无效。");
   }
@@ -3046,12 +3674,12 @@ async function createOrder(productId, quantity, deliveryMode, productTitle) {
   const summary = `订单 ${payload.orderNo} | ${itemText} | 总额 ${formatCurrency(payload.totalAmount, payload.currency)} | ${orderStatus}`;
   setMetaText(elements.orderView, summary, isExisting ? "warn" : "success");
   if (isExisting) {
-    log(`下单请求去重，返回历史订单：${summary}`, "WARN");
+    log(`${actionVerb}请求去重，返回历史订单：${summary}`, "WARN");
     notify(`订单已存在：${payload.orderNo}，${itemText}，总额 ${formatCurrency(payload.totalAmount, payload.currency)}。`, "warn");
   } else {
-    log(`下单成功：${summary}`, "SUCCESS");
+    log(`${actionSuccess}：${summary}`, "SUCCESS");
     const claimTip = orderStatus === "WAIT_CLAIM" ? "，请在游戏内使用 /ws claim 领取。" : "";
-    notify(`下单成功：${summary}${claimTip}`, "success");
+    notify(`${actionSuccess}：${summary}${claimTip}`, "success");
   }
   if (groupBuyVoucherCode) {
     notify(`已生成团购兑换码：${groupBuyVoucherCode}`, "success", 5200);
@@ -3141,6 +3769,42 @@ async function buyListing(listingId, buyQuantity, deliveryMode) {
   }
 }
 
+async function bidListing(listingId, bidAmount) {
+  ensureToken();
+  const amount = Number(bidAmount || 0);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("出价金额必须大于 0。 ");
+  }
+  const payload = await api("/api/market/bid", {
+    method: "POST",
+    body: JSON.stringify({
+      listingId,
+      bidAmount: Math.floor(amount),
+      idempotencyKey: createIdempotencyKey(),
+    }),
+  });
+  const isExisting = String(payload.state || "").toUpperCase() === "EXISTING";
+  if (isExisting) {
+    notify(`已识别为重复请求，沿用历史出价（#${payload.bidId}）。`, "warn");
+  } else {
+    notify(
+      `出价成功：${formatCurrency(payload.bidAmount, payload.currency)}，当前最高价 ${formatCurrency(payload.currentHighestBid, payload.currency)}。`,
+      "success"
+    );
+  }
+  log(
+    `竞拍出价完成：listingId=${payload.listingId} bidId=${payload.bidId} amount=${payload.bidAmount}`,
+    isExisting ? "WARN" : "SUCCESS"
+  );
+  try {
+    await refreshWallet();
+  } catch (refreshError) {
+    const refreshMessage = resolveErrorMessage(refreshError, "wallet_refresh");
+    log(`出价后刷新钱包失败：${refreshMessage}`, "WARN");
+  }
+  await loadMarket(state.marketMode);
+}
+
 async function unlistListing(listingId) {
   ensureToken();
   const payload = await api("/api/market/unlist", {
@@ -3225,7 +3889,23 @@ async function updateListingRemark(listingId, remark) {
   await loadMarket(state.marketMode);
 }
 
-async function updateListing(listingId, price, currency, remark, supplyBatchSize, supplyMaxStock) {
+async function updateListing(
+  listingId,
+  price,
+  currency,
+  remark,
+  supplyBatchSize,
+  supplyMaxStock,
+  tradeMode,
+  dynamicPricingEnabled,
+  dynamicBasePrice,
+  dynamicFloorPrice,
+  dynamicCapPrice,
+  dynamicPriceStep,
+  auctionStartPrice,
+  auctionMinIncrement,
+  auctionEndAt
+) {
   ensureToken();
   const payload = await api("/api/market/settings", {
     method: "POST",
@@ -3236,10 +3916,19 @@ async function updateListing(listingId, price, currency, remark, supplyBatchSize
       remark,
       supplyBatchSize,
       supplyMaxStock,
+      tradeMode,
+      dynamicPricingEnabled,
+      dynamicBasePrice,
+      dynamicFloorPrice,
+      dynamicCapPrice,
+      dynamicPriceStep,
+      auctionStartPrice,
+      auctionMinIncrement,
+      auctionEndAt,
     }),
   });
-  log(`修改成功：listingId=${listingId} price=${payload.price} currency=${payload.currency}`, "SUCCESS");
-  notify("修改成功：价格、币种与补充设置已更新。", "success");
+  log(`修改成功：listingId=${listingId} price=${payload.price} mode=${payload.tradeMode}`, "SUCCESS");
+  notify("修改成功：上架参数已更新。", "success");
   await loadMarket(state.marketMode);
 }
 
@@ -3534,6 +4223,7 @@ elements.productList.addEventListener("click", async (event) => {
     notify("商品信息异常，请刷新商品列表。", "warn");
     return;
   }
+  const isRecycle = String(product.productType || "").toUpperCase() === "RECYCLE_ITEM";
   const stock = resolveOfficialProductStock(product);
   const maxQuantity = stock.maxQuantity;
   if (maxQuantity <= 0) {
@@ -3549,20 +4239,21 @@ elements.productList.addEventListener("click", async (event) => {
   ensureToken();
   const deliveryMode = await confirmPurchase(product, qtyValue);
   if (!deliveryMode) {
-    notify("已取消下单。", "info");
+    notify(isRecycle ? "已取消回收。" : "已取消下单。", "info");
     return;
   }
 
   const originalText = button.textContent;
   button.disabled = true;
-  setNodeText(button, "下单中...");
+  setNodeText(button, isRecycle ? "回收中..." : "下单中...");
   try {
-    await createOrder(productId, qtyValue, deliveryMode, product.title);
+    await createOrder(productId, qtyValue, deliveryMode, product.title, product.productType);
   } catch (error) {
     const message = resolveErrorMessage(error, "order_create");
-    setMetaText(elements.orderView, `下单失败：${message}`, "error");
-    log(`下单失败：${message}`, "ERROR");
-    notify(`下单失败：${message}`, "error");
+    const failPrefix = isRecycle ? "回收失败" : "下单失败";
+    setMetaText(elements.orderView, `${failPrefix}：${message}`, "error");
+    log(`${failPrefix}：${message}`, "ERROR");
+    notify(`${failPrefix}：${message}`, "error");
   } finally {
     button.disabled = false;
     button.textContent = originalText;
@@ -3679,6 +4370,31 @@ elements.marketList.addEventListener("click", async (event) => {
       await buyListing(listingId, buyQty, selectedMode);
       return;
     }
+    if (button.dataset.action === "bid") {
+      const listing = state.listings.find((item) => Number(item.id) === listingId);
+      const card = button.closest(".market-card");
+      const bidInput = card ? card.querySelector(".market-bid-input") : null;
+      const bidAmount = bidInput ? Number(bidInput.value || 0) : 0;
+      const minBid = Number(button.dataset.minBid || 1);
+      if (!Number.isFinite(bidAmount) || bidAmount < Math.max(1, minBid)) {
+        throw new Error(`出价必须大于等于 ${formatCurrency(Math.max(1, minBid), button.dataset.currency || "GAME_COIN")}。`);
+      }
+      ensureToken();
+      const confirmed = listing
+        ? await confirmMarketBid(listing, bidAmount)
+        : await openConfirmDialog({
+          title: "确认竞拍出价",
+          message: "确认后将冻结本次出价金额。",
+          details: [`上架ID：${listingId}`, `出价：${formatCurrency(bidAmount, button.dataset.currency || "GAME_COIN")}`],
+          confirmText: "确认出价",
+        });
+      if (!confirmed) {
+        notify("已取消出价。", "info");
+        return;
+      }
+      await bidListing(listingId, bidAmount);
+      return;
+    }
     if (button.dataset.action === "unlist") {
       await unlistListing(listingId);
       return;
@@ -3707,6 +4423,15 @@ elements.marketList.addEventListener("click", async (event) => {
         sourceMode: button.dataset.sourceMode || "MANUAL",
         currentSupplyBatchSize: Number(button.dataset.currentSupplyBatchSize || 0) || null,
         currentSupplyMaxStock: Number(button.dataset.currentSupplyMaxStock || 0) || null,
+        tradeMode: button.dataset.tradeMode || "DIRECT",
+        currentDynamicPricingEnabled: button.dataset.dynamicPricingEnabled === "1",
+        currentDynamicBasePrice: Number(button.dataset.dynamicBasePrice || 0) || null,
+        currentDynamicFloorPrice: Number(button.dataset.dynamicFloorPrice || 0) || null,
+        currentDynamicCapPrice: Number(button.dataset.dynamicCapPrice || 0) || null,
+        currentDynamicPriceStep: Number(button.dataset.dynamicPriceStep || 0) || null,
+        currentAuctionStartPrice: Number(button.dataset.auctionStartPrice || 0) || null,
+        currentAuctionMinIncrement: Number(button.dataset.auctionMinIncrement || 0) || null,
+        currentAuctionEndAt: button.dataset.auctionEndAt || null,
       });
       if (!result) {
         notify("已取消修改。", "info");
@@ -3718,7 +4443,16 @@ elements.marketList.addEventListener("click", async (event) => {
         result.currency,
         result.remark,
         result.supplyBatchSize,
-        result.supplyMaxStock
+        result.supplyMaxStock,
+        result.tradeMode,
+        result.dynamicPricingEnabled,
+        result.dynamicBasePrice,
+        result.dynamicFloorPrice,
+        result.dynamicCapPrice,
+        result.dynamicPriceStep,
+        result.auctionStartPrice,
+        result.auctionMinIncrement,
+        result.auctionEndAt
       );
     }
   } catch (error) {
@@ -3726,6 +4460,8 @@ elements.marketList.addEventListener("click", async (event) => {
       ? "market_unlist"
       : button.dataset.action === "refreshSupply"
         ? "market_supply"
+      : button.dataset.action === "bid"
+        ? "market_bid"
       : button.dataset.action === "edit"
         ? "market_price"
         : "market_buy";
@@ -3754,6 +4490,26 @@ if (elements.confirmDialog) {
   elements.confirmDialog.addEventListener("click", (event) => {
     if (event.target === elements.confirmDialog) {
       closeConfirmDialog(false);
+    }
+  });
+}
+
+if (elements.marketParamCancelBtn) {
+  elements.marketParamCancelBtn.addEventListener("click", () => closeMarketParamDialog(null));
+}
+if (elements.marketParamSaveBtn) {
+  elements.marketParamSaveBtn.addEventListener("click", () => {
+    if (marketParamSubmitHandler) {
+      marketParamSubmitHandler();
+      return;
+    }
+    closeMarketParamDialog(null);
+  });
+}
+if (elements.marketParamDialog) {
+  elements.marketParamDialog.addEventListener("click", (event) => {
+    if (event.target === elements.marketParamDialog) {
+      closeMarketParamDialog(null);
     }
   });
 }

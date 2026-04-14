@@ -29,6 +29,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 class MarketService {
   private static final int DEFAULT_LIMIT = 100;
+  private static final int AUCTION_SETTLE_BATCH_LIMIT = 20;
+  private static final int DYNAMIC_DECAY_STEP = 1;
 
   private final JavaPlugin plugin;
   private final DatabaseManager databaseManager;
@@ -369,7 +371,12 @@ class MarketService {
                ml.quantity, ml.quantity_total, ml.item_material, ml.item_meta_json,
                ml.remark, ml.status, ml.created_at, ml.source_mode, ml.supply_batch_size,
                ml.supply_max_stock, ml.supply_loaded_total, ml.supply_sold_total,
-               ml.supply_last_loaded_amount, ml.supply_last_loaded_at
+         ml.supply_last_loaded_amount, ml.supply_last_loaded_at,
+         ml.trade_mode, ml.dynamic_pricing_enabled, ml.dynamic_base_price, ml.dynamic_floor_price,
+         ml.dynamic_cap_price, ml.dynamic_price_step, ml.dynamic_demand_score,
+         ml.auction_start_price, ml.auction_min_increment, ml.auction_end_at,
+         ml.auction_highest_bid, ml.auction_highest_bidder_user_id,
+         ml.auction_highest_bidder_uuid, ml.auction_highest_bid_id, ml.auction_last_bid_at
         FROM market_listings ml
         JOIN web_users u ON u.id = ml.seller_user_id
         WHERE 1=1
@@ -518,6 +525,32 @@ class MarketService {
             deliveryModeRaw));
   }
 
+  BidResult placeBid(long bidderUserId, long listingId, long bidAmount, String idempotencyKey) {
+    if (listingId <= 0L) {
+      throw new ServiceException("invalid_listing", "Listing id must be positive");
+    }
+    if (bidAmount <= 0L) {
+      throw new ServiceException("invalid_bid", "Bid amount must be positive");
+    }
+    String normalizedIdempotency = normalizeIdempotencyKey(idempotencyKey);
+    return databaseManager.inTransaction(
+        connection -> placeBidInTransaction(connection, bidderUserId, listingId, bidAmount, normalizedIdempotency));
+  }
+
+  void processMarketCycles() {
+    try {
+      List<AuctionSettlementNotice> notices =
+          databaseManager.inTransaction(this::settleDueAuctions);
+      notices.forEach(notice -> notifyPlayerAsync(notice.playerUuid(), notice.message()));
+      databaseManager.inTransaction(connection -> {
+        applyDynamicPriceDecay(connection);
+        return null;
+      });
+    } catch (Exception exception) {
+      plugin.getLogger().warning("Market cycle processing failed: " + exception.getMessage());
+    }
+  }
+
   UnlistResult unlist(long sellerUserId, long listingId) {
     if (listingId <= 0L) {
       throw new ServiceException("invalid_listing", "Listing id must be positive");
@@ -575,7 +608,16 @@ class MarketService {
       CurrencyType currency,
       String remark,
       Integer supplyBatchSize,
-      Integer supplyMaxStock) {
+      Integer supplyMaxStock,
+      String tradeMode,
+      Boolean dynamicPricingEnabled,
+      Long dynamicBasePrice,
+      Long dynamicFloorPrice,
+      Long dynamicCapPrice,
+      Long dynamicPriceStep,
+      Long auctionStartPrice,
+      Long auctionMinIncrement,
+      LocalDateTime auctionEndAt) {
     if (listingId <= 0L) {
       throw new ServiceException("invalid_listing", "Listing id must be positive");
     }
@@ -592,7 +634,16 @@ class MarketService {
             currency,
             normalizedRemark,
             supplyBatchSize,
-            supplyMaxStock));
+            supplyMaxStock,
+            tradeMode,
+            dynamicPricingEnabled,
+            dynamicBasePrice,
+            dynamicFloorPrice,
+            dynamicCapPrice,
+            dynamicPriceStep,
+            auctionStartPrice,
+            auctionMinIncrement,
+            auctionEndAt));
   }
 
   SupplyRefreshResult refreshSupplyListing(long sellerUserId, long listingId) {
@@ -796,6 +847,9 @@ class MarketService {
     if (!listing.status().equals("ACTIVE")) {
       throw new ServiceException("listing_unavailable", "Supply mode is not enabled for this listing");
     }
+    if (listing.isAuction()) {
+      throw new ServiceException("auction_only_bid", "This listing is in auction mode and can only be bid on");
+    }
     if (listing.sellerUserId() == buyerUserId) {
       throw new ServiceException("invalid_trade", "You cannot buy your own listing");
     }
@@ -881,6 +935,425 @@ class MarketService {
         deliveryMode == DeliveryMode.CLAIM ? 0 : cooldownSeconds);
   }
 
+  private BidResult placeBidInTransaction(
+      Connection connection,
+      long bidderUserId,
+      long listingId,
+      long bidAmount,
+      String idempotencyKey) throws SQLException {
+    ExistingBid existingBid = readExistingBid(connection, bidderUserId, idempotencyKey);
+    if (existingBid != null) {
+      if (existingBid.listingId() != listingId) {
+        throw new ServiceException("idempotency_conflict", "Idempotency key is already used by another listing");
+      }
+      MarketListing listing = readListingForUpdate(connection, listingId);
+      long currentHighestBid = listing.auctionHighestBid() == null
+          ? Math.max(1L, listing.price())
+          : listing.auctionHighestBid();
+      return new BidResult(
+          BidState.EXISTING,
+          existingBid.bidId(),
+          listing.id(),
+          listing.currency(),
+          existingBid.bidAmount(),
+          currentHighestBid,
+          null,
+          null,
+          listing.auctionEndAt());
+    }
+
+    MarketListing listing = readListingForUpdate(connection, listingId);
+    if (!"ACTIVE".equalsIgnoreCase(listing.status())) {
+      throw new ServiceException("listing_unavailable", "Listing is unavailable");
+    }
+    if (!listing.isAuction()) {
+      throw new ServiceException("invalid_trade_mode", "This listing does not accept auction bids");
+    }
+    if (listing.sellerUserId() == bidderUserId) {
+      throw new ServiceException("invalid_bid", "You cannot bid your own listing");
+    }
+    if (listing.auctionEndAt() == null || !listing.auctionEndAt().isAfter(LocalDateTime.now())) {
+      throw new ServiceException("auction_closed", "This auction has ended");
+    }
+
+    long openingBid = listing.auctionStartPrice() == null ? listing.price() : listing.auctionStartPrice();
+    long currentHighestBid = listing.auctionHighestBid() == null ? openingBid : listing.auctionHighestBid();
+    long minIncrement = listing.auctionMinIncrement() == null ? 1L : Math.max(1L, listing.auctionMinIncrement());
+    long requiredMinimum = listing.auctionHighestBid() == null ? currentHighestBid : currentHighestBid + minIncrement;
+    if (bidAmount < requiredMinimum) {
+      throw new ServiceException("bid_too_low", "Bid must be at least " + requiredMinimum);
+    }
+
+    BoundUser bidder = readBoundUserById(connection, bidderUserId, true);
+    String holdBizId = "mkt-bid-hold:" + listing.id() + ":" + idempotencyKey;
+    walletService.applyDelta(
+        connection,
+        bidder.userId(),
+        listing.currency(),
+        -bidAmount,
+        "MARKET_BID_HOLD",
+        holdBizId,
+        true);
+
+    long bidId = insertMarketBid(connection, listing, bidder, bidAmount, idempotencyKey);
+    Long previousHighestBid = listing.auctionHighestBid();
+    Long previousHighestBidderUserId = listing.auctionHighestBidderUserId();
+    UUID previousHighestBidderUuid = listing.auctionHighestBidderUuid();
+    Long previousHighestBidId = listing.auctionHighestBidId();
+
+    if (previousHighestBidId != null && previousHighestBid != null && previousHighestBid > 0L
+        && previousHighestBidderUserId != null) {
+      String refundBizId = "mkt-bid-refund:" + listing.id() + ":" + previousHighestBidId;
+      walletService.applyDelta(
+          connection,
+          previousHighestBidderUserId,
+          listing.currency(),
+          previousHighestBid,
+          "MARKET_BID_REFUND",
+          refundBizId,
+          false);
+      markBidStatus(
+          connection,
+          previousHighestBidId,
+          "OUTBID",
+          true,
+          false);
+    }
+
+    String updateSql = """
+        UPDATE market_listings
+        SET auction_highest_bid = ?,
+            auction_highest_bidder_user_id = ?,
+            auction_highest_bidder_uuid = ?,
+            auction_highest_bid_id = ?,
+            auction_last_bid_at = NOW(),
+            price = ?
+        WHERE id = ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
+      statement.setLong(1, bidAmount);
+      statement.setLong(2, bidder.userId());
+      statement.setString(3, bidder.boundUuid().toString());
+      statement.setLong(4, bidId);
+      statement.setLong(5, bidAmount);
+      statement.setLong(6, listing.id());
+      statement.executeUpdate();
+    }
+
+    if (previousHighestBidderUuid != null
+        && (previousHighestBidderUserId == null || previousHighestBidderUserId != bidder.userId())) {
+      notifyPlayerAsync(
+          previousHighestBidderUuid,
+          "你的拍卖出价已被超越，系统已自动退回 "
+              + previousHighestBid
+              + " "
+              + listing.currency().name()
+              + "。上架 #"
+              + listing.id());
+    }
+
+    return new BidResult(
+        BidState.CREATED,
+        bidId,
+        listing.id(),
+        listing.currency(),
+        bidAmount,
+        bidAmount,
+        previousHighestBid,
+        previousHighestBidderUserId,
+        listing.auctionEndAt());
+  }
+
+  private ExistingBid readExistingBid(Connection connection, long bidderUserId, String idempotencyKey)
+      throws SQLException {
+    String sql = """
+        SELECT id, listing_id, bid_amount, status
+        FROM market_bids
+        WHERE bidder_user_id = ? AND idempotency_key = ?
+        FOR UPDATE
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, bidderUserId);
+      statement.setString(2, idempotencyKey);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return null;
+        }
+        return new ExistingBid(
+            resultSet.getLong("id"),
+            resultSet.getLong("listing_id"),
+            resultSet.getLong("bid_amount"),
+            resultSet.getString("status"));
+      }
+    }
+  }
+
+  private long insertMarketBid(
+      Connection connection,
+      MarketListing listing,
+      BoundUser bidder,
+      long bidAmount,
+      String idempotencyKey) throws SQLException {
+    String sql = """
+        INSERT INTO market_bids (
+          listing_id, bidder_user_id, bidder_uuid, bid_amount, status, idempotency_key
+        )
+        VALUES (?, ?, ?, ?, 'LEADING', ?)
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+      statement.setLong(1, listing.id());
+      statement.setLong(2, bidder.userId());
+      statement.setString(3, bidder.boundUuid().toString());
+      statement.setLong(4, bidAmount);
+      statement.setString(5, idempotencyKey);
+      statement.executeUpdate();
+      try (ResultSet keyResult = statement.getGeneratedKeys()) {
+        if (!keyResult.next()) {
+          throw new IllegalStateException("Could not read generated market bid id");
+        }
+        return keyResult.getLong(1);
+      }
+    }
+  }
+
+  private void markBidStatus(
+      Connection connection,
+      long bidId,
+      String status,
+      boolean markRefunded,
+      boolean markSettled) throws SQLException {
+    String sql = """
+        UPDATE market_bids
+        SET status = ?,
+            outbid_at = CASE WHEN ? THEN NOW() ELSE outbid_at END,
+            refunded_at = CASE WHEN ? THEN NOW() ELSE refunded_at END,
+            settled_at = CASE WHEN ? THEN NOW() ELSE settled_at END
+        WHERE id = ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, status);
+      statement.setBoolean(2, "OUTBID".equalsIgnoreCase(status));
+      statement.setBoolean(3, markRefunded);
+      statement.setBoolean(4, markSettled);
+      statement.setLong(5, bidId);
+      statement.executeUpdate();
+    }
+  }
+
+  private void refundLeadingBidIfPresent(Connection connection, MarketListing listing, String reasonTag)
+      throws SQLException {
+    if (!listing.isAuction()) {
+      return;
+    }
+    if (listing.auctionHighestBidId() == null
+        || listing.auctionHighestBid() == null
+        || listing.auctionHighestBid() <= 0L
+        || listing.auctionHighestBidderUserId() == null) {
+      return;
+    }
+    String refundBizId = "mkt-bid-refund:" + listing.id() + ":" + listing.auctionHighestBidId() + ":" + reasonTag;
+    walletService.applyDelta(
+        connection,
+        listing.auctionHighestBidderUserId(),
+        listing.currency(),
+        listing.auctionHighestBid(),
+        "MARKET_BID_REFUND",
+        refundBizId,
+        false);
+    markBidStatus(connection, listing.auctionHighestBidId(), "REFUNDED", true, false);
+
+    String clearSql = """
+        UPDATE market_listings
+        SET auction_highest_bid = NULL,
+            auction_highest_bidder_user_id = NULL,
+            auction_highest_bidder_uuid = NULL,
+            auction_highest_bid_id = NULL,
+            auction_last_bid_at = NULL,
+            price = CASE WHEN auction_start_price IS NULL THEN price ELSE auction_start_price END
+        WHERE id = ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(clearSql)) {
+      statement.setLong(1, listing.id());
+      statement.executeUpdate();
+    }
+    if (listing.auctionHighestBidderUuid() != null) {
+      notifyPlayerAsync(
+          listing.auctionHighestBidderUuid(),
+          "拍卖 #" + listing.id() + " 已取消，系统已退回你的最高出价。"
+      );
+    }
+  }
+
+  private List<AuctionSettlementNotice> settleDueAuctions(Connection connection) throws SQLException {
+    List<Long> dueListingIds = new ArrayList<>();
+    String dueSql = """
+        SELECT id
+        FROM market_listings
+        WHERE trade_mode = 'AUCTION'
+          AND status = 'ACTIVE'
+          AND auction_end_at IS NOT NULL
+          AND auction_end_at <= NOW()
+        ORDER BY auction_end_at ASC
+        LIMIT ?
+        FOR UPDATE
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(dueSql)) {
+      statement.setInt(1, AUCTION_SETTLE_BATCH_LIMIT);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        while (resultSet.next()) {
+          dueListingIds.add(resultSet.getLong("id"));
+        }
+      }
+    }
+
+    List<AuctionSettlementNotice> notices = new ArrayList<>();
+    for (Long listingId : dueListingIds) {
+      MarketListing listing = readListingForUpdate(connection, listingId);
+      if (!listing.isAuction() || !"ACTIVE".equalsIgnoreCase(listing.status())) {
+        continue;
+      }
+      if (listing.auctionEndAt() == null || listing.auctionEndAt().isAfter(LocalDateTime.now())) {
+        continue;
+      }
+
+      if (listing.auctionHighestBid() == null
+          || listing.auctionHighestBid() <= 0L
+          || listing.auctionHighestBidderUserId() == null
+          || listing.auctionHighestBidId() == null) {
+        String noBidSql = """
+            UPDATE market_listings
+            SET status = 'UNLISTED', unlisted_at = NOW(), paused_at = NULL
+            WHERE id = ?
+            """;
+        try (PreparedStatement statement = connection.prepareStatement(noBidSql)) {
+          statement.setLong(1, listing.id());
+          statement.executeUpdate();
+        }
+        int returnQuantity = Math.max(0, listing.quantity());
+        if (returnQuantity > 0) {
+          enqueueMarketItemDelivery(
+              connection,
+              listing.id(),
+              null,
+              listing.sellerUserId(),
+              listing.sellerUuid(),
+              listing.rawItemBlob(),
+              returnQuantity,
+              DeliveryType.UNLIST,
+              "PENDING",
+              LocalDateTime.now());
+        }
+        notices.add(new AuctionSettlementNotice(
+            listing.sellerUuid(),
+            "拍卖 #" + listing.id() + " 已结束（无人出价），物品已退回待发放。"));
+        continue;
+      }
+
+      BoundUser winner = readBoundUserById(connection, listing.auctionHighestBidderUserId(), true);
+      long finalBid = listing.auctionHighestBid();
+      PluginSettings.MarketEconomySettings marketEconomy = settingsSupplier.get().economySettings().marketSettings();
+      long fee = calculatePercent(finalBid, marketEconomy.tradeFeePercent());
+      long sellerReceive = Math.max(0L, finalBid - fee);
+        int tradeQuantity = 1;
+        int deliveryQuantity = Math.max(0, listing.quantity());
+      String idempotencyKey = "auction-settle:" + listing.id() + ":" + listing.auctionHighestBidId();
+      long tradeId = insertTrade(
+          connection,
+          listing.id(),
+          winner.userId(),
+          listing.sellerUserId(),
+          listing.currency(),
+          finalBid,
+          tradeQuantity,
+          finalBid,
+          finalBid,
+          sellerReceive,
+          fee,
+          0L,
+          idempotencyKey,
+          "PENDING",
+          null);
+
+      String soldSql = """
+          UPDATE market_listings
+          SET quantity = 0,
+              status = 'SOLD',
+              buyer_user_id = ?,
+              buyer_uuid = ?,
+              sold_at = NOW(),
+              price = ?
+          WHERE id = ?
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(soldSql)) {
+        statement.setLong(1, winner.userId());
+        statement.setString(2, winner.boundUuid().toString());
+        statement.setLong(3, finalBid);
+        statement.setLong(4, listing.id());
+        statement.executeUpdate();
+      }
+
+      markBidStatus(connection, listing.auctionHighestBidId(), "WON", false, true);
+      String closeOthersSql = """
+          UPDATE market_bids
+          SET status = 'OUTBID', outbid_at = NOW()
+          WHERE listing_id = ?
+            AND id <> ?
+            AND status = 'LEADING'
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(closeOthersSql)) {
+        statement.setLong(1, listing.id());
+        statement.setLong(2, listing.auctionHighestBidId());
+        statement.executeUpdate();
+      }
+
+      if (deliveryQuantity > 0) {
+        enqueueMarketItemDelivery(
+            connection,
+            listing.id(),
+            tradeId,
+            winner.userId(),
+            winner.boundUuid(),
+            listing.rawItemBlob(),
+            deliveryQuantity,
+            DeliveryType.SALE,
+            "PENDING",
+            LocalDateTime.now());
+      }
+
+      notices.add(new AuctionSettlementNotice(
+          winner.boundUuid(),
+          "你已赢得拍卖 #" + listing.id() + "，成交价 " + finalBid + " " + listing.currency().name() + "。物品将尽快发放。"));
+      notices.add(new AuctionSettlementNotice(
+          listing.sellerUuid(),
+          "你的拍卖 #" + listing.id() + " 已成交，成交价 " + finalBid + " " + listing.currency().name() + "。"));
+    }
+    return notices;
+  }
+
+  private int applyDynamicPriceDecay(Connection connection) throws SQLException {
+    String sql = """
+        UPDATE market_listings
+        SET dynamic_demand_score = GREATEST(0, dynamic_demand_score - ?),
+            price = LEAST(
+              IFNULL(dynamic_cap_price, 9223372036854775807),
+              GREATEST(
+                IFNULL(dynamic_floor_price, 1),
+                IFNULL(dynamic_base_price, price)
+                  + GREATEST(0, dynamic_demand_score - ?) * IFNULL(NULLIF(dynamic_price_step, 0), 1)
+              )
+            )
+        WHERE trade_mode = 'DIRECT'
+          AND dynamic_pricing_enabled = TRUE
+          AND status = 'ACTIVE'
+          AND dynamic_demand_score > 0
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setInt(1, DYNAMIC_DECAY_STEP);
+      statement.setInt(2, DYNAMIC_DECAY_STEP);
+      return statement.executeUpdate();
+    }
+  }
+
   private UnlistResult unlistInTransaction(Connection connection, long sellerUserId, long listingId)
       throws SQLException {
     MarketListing listing = readListingForUpdate(connection, listingId);
@@ -889,6 +1362,10 @@ class MarketService {
     }
     if (listing.sellerUserId() != sellerUserId) {
       throw new ServiceException("forbidden", "Only the owner can unlist this listing");
+    }
+    if (listing.isAuction()) {
+      refundLeadingBidIfPresent(connection, listing, "seller-unlist");
+      listing = readListingForUpdate(connection, listing.id());
     }
     BoundUser seller = readBoundUserById(connection, sellerUserId, true);
 
@@ -1024,7 +1501,16 @@ class MarketService {
       CurrencyType currency,
       String remark,
       Integer supplyBatchSize,
-      Integer supplyMaxStock) throws SQLException {
+      Integer supplyMaxStock,
+      String tradeModeRaw,
+      Boolean dynamicPricingEnabled,
+      Long dynamicBasePrice,
+      Long dynamicFloorPrice,
+      Long dynamicCapPrice,
+      Long dynamicPriceStep,
+      Long auctionStartPrice,
+      Long auctionMinIncrement,
+      LocalDateTime auctionEndAt) throws SQLException {
     MarketListing listing = readListingForUpdate(connection, listingId);
     if (!"ACTIVE".equalsIgnoreCase(listing.status()) && !"PAUSED".equalsIgnoreCase(listing.status())) {
       throw new ServiceException("listing_unavailable", "Supply mode is not enabled for this listing");
@@ -1044,13 +1530,123 @@ class MarketService {
       quantityTotal = Math.max(Math.max(0, listing.quantity()), maxStock);
     }
 
+    TradeMode tradeMode = resolveTradeMode(tradeModeRaw, listing.tradeMode());
+    if (tradeMode == TradeMode.AUCTION && listing.isSupply()) {
+      throw new ServiceException("invalid_trade_mode", "Supply listings do not support auction mode");
+    }
+
+    if (tradeMode != TradeMode.AUCTION && listing.isAuction()) {
+      refundLeadingBidIfPresent(connection, listing, "mode-switch");
+      listing = readListingForUpdate(connection, listing.id());
+    }
+
+    boolean normalizedDynamicEnabled = dynamicPricingEnabled == null
+        ? listing.dynamicPricingEnabled()
+        : dynamicPricingEnabled;
+    Long normalizedDynamicBasePrice = normalizeOptionalPositive(dynamicBasePrice, "invalid_dynamic_base");
+    Long normalizedDynamicFloorPrice = normalizeOptionalPositive(dynamicFloorPrice, "invalid_dynamic_floor");
+    Long normalizedDynamicCapPrice = normalizeOptionalPositive(dynamicCapPrice, "invalid_dynamic_cap");
+    Long normalizedDynamicPriceStep = normalizeOptionalPositive(dynamicPriceStep, "invalid_dynamic_step");
+    long normalizedDynamicDemandScore = Math.max(0L, listing.dynamicDemandScore());
+
+    Long normalizedAuctionStartPrice = normalizeOptionalPositive(auctionStartPrice, "invalid_auction_start");
+    Long normalizedAuctionMinIncrement = normalizeOptionalPositive(auctionMinIncrement, "invalid_auction_increment");
+    LocalDateTime normalizedAuctionEndAt = auctionEndAt;
+    Long normalizedAuctionHighestBid = listing.auctionHighestBid();
+    Long normalizedAuctionHighestBidderUserId = listing.auctionHighestBidderUserId();
+    UUID normalizedAuctionHighestBidderUuid = listing.auctionHighestBidderUuid();
+    Long normalizedAuctionHighestBidId = listing.auctionHighestBidId();
+    LocalDateTime normalizedAuctionLastBidAt = listing.auctionLastBidAt();
+
+    long effectivePrice = price;
+    if (tradeMode == TradeMode.AUCTION) {
+      if (listing.quantity() <= 0) {
+        throw new ServiceException("listing_empty", "Auction listing must have available quantity");
+      }
+      normalizedDynamicEnabled = false;
+      normalizedDynamicBasePrice = null;
+      normalizedDynamicFloorPrice = null;
+      normalizedDynamicCapPrice = null;
+      normalizedDynamicPriceStep = null;
+      normalizedDynamicDemandScore = 0L;
+
+      if (normalizedAuctionStartPrice == null) {
+        normalizedAuctionStartPrice = listing.auctionStartPrice() != null
+            ? listing.auctionStartPrice()
+            : price;
+      }
+      if (normalizedAuctionMinIncrement == null) {
+        normalizedAuctionMinIncrement = listing.auctionMinIncrement() != null
+            ? Math.max(1L, listing.auctionMinIncrement())
+            : 1L;
+      }
+      if (normalizedAuctionEndAt == null) {
+        normalizedAuctionEndAt = listing.auctionEndAt();
+      }
+      if (normalizedAuctionStartPrice == null || normalizedAuctionStartPrice <= 0L) {
+        throw new ServiceException("invalid_auction_start", "Auction start price must be positive");
+      }
+      if (normalizedAuctionMinIncrement == null || normalizedAuctionMinIncrement <= 0L) {
+        throw new ServiceException("invalid_auction_increment", "Auction min increment must be positive");
+      }
+      if (normalizedAuctionEndAt == null || !normalizedAuctionEndAt.isAfter(LocalDateTime.now().plusSeconds(30))) {
+        throw new ServiceException("invalid_auction_end", "Auction end time must be at least 30 seconds later");
+      }
+      if (normalizedAuctionHighestBid != null && normalizedAuctionHighestBid > 0L) {
+        effectivePrice = normalizedAuctionHighestBid;
+      } else {
+        effectivePrice = normalizedAuctionStartPrice;
+      }
+    } else {
+      normalizedAuctionStartPrice = null;
+      normalizedAuctionMinIncrement = null;
+      normalizedAuctionEndAt = null;
+      normalizedAuctionHighestBid = null;
+      normalizedAuctionHighestBidderUserId = null;
+      normalizedAuctionHighestBidderUuid = null;
+      normalizedAuctionHighestBidId = null;
+      normalizedAuctionLastBidAt = null;
+
+      if (normalizedDynamicEnabled) {
+        if (normalizedDynamicBasePrice == null) {
+          normalizedDynamicBasePrice = listing.dynamicBasePrice() != null
+              ? listing.dynamicBasePrice()
+              : price;
+        }
+        if (normalizedDynamicPriceStep == null) {
+          normalizedDynamicPriceStep = listing.dynamicPriceStep() != null
+              ? Math.max(1L, listing.dynamicPriceStep())
+              : 1L;
+        }
+        if (normalizedDynamicFloorPrice != null && normalizedDynamicCapPrice != null
+            && normalizedDynamicFloorPrice > normalizedDynamicCapPrice) {
+          throw new ServiceException("invalid_dynamic_range", "Dynamic floor price cannot exceed cap price");
+        }
+        effectivePrice = applyDynamicPriceBounds(
+            normalizedDynamicBasePrice + normalizedDynamicDemandScore * normalizedDynamicPriceStep,
+            normalizedDynamicFloorPrice,
+            normalizedDynamicCapPrice);
+      } else {
+        normalizedDynamicBasePrice = null;
+        normalizedDynamicFloorPrice = null;
+        normalizedDynamicCapPrice = null;
+        normalizedDynamicPriceStep = null;
+        normalizedDynamicDemandScore = 0L;
+      }
+    }
+
     String sql = """
         UPDATE market_listings
-        SET price = ?, currency = ?, remark = ?, supply_batch_size = ?, supply_max_stock = ?, quantity_total = ?
+        SET price = ?, currency = ?, remark = ?, supply_batch_size = ?, supply_max_stock = ?, quantity_total = ?,
+            trade_mode = ?, dynamic_pricing_enabled = ?, dynamic_base_price = ?, dynamic_floor_price = ?,
+            dynamic_cap_price = ?, dynamic_price_step = ?, dynamic_demand_score = ?,
+            auction_start_price = ?, auction_min_increment = ?, auction_end_at = ?,
+            auction_highest_bid = ?, auction_highest_bidder_user_id = ?, auction_highest_bidder_uuid = ?,
+            auction_highest_bid_id = ?, auction_last_bid_at = ?
         WHERE id = ?
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
-      statement.setLong(1, price);
+      statement.setLong(1, effectivePrice);
       statement.setString(2, currency.name());
       statement.setString(3, remark);
       if (batch == null) {
@@ -1064,7 +1660,30 @@ class MarketService {
         statement.setInt(5, maxStock);
       }
       statement.setInt(6, quantityTotal);
-      statement.setLong(7, listingId);
+      statement.setString(7, tradeMode.name());
+      statement.setBoolean(8, normalizedDynamicEnabled);
+      statement.setObject(9, normalizedDynamicBasePrice);
+      statement.setObject(10, normalizedDynamicFloorPrice);
+      statement.setObject(11, normalizedDynamicCapPrice);
+      statement.setObject(12, normalizedDynamicPriceStep);
+      statement.setLong(13, normalizedDynamicDemandScore);
+      statement.setObject(14, normalizedAuctionStartPrice);
+      statement.setObject(15, normalizedAuctionMinIncrement);
+      if (normalizedAuctionEndAt == null) {
+        statement.setTimestamp(16, null);
+      } else {
+        statement.setTimestamp(16, Timestamp.valueOf(normalizedAuctionEndAt));
+      }
+      statement.setObject(17, normalizedAuctionHighestBid);
+      statement.setObject(18, normalizedAuctionHighestBidderUserId);
+      statement.setObject(19, normalizedAuctionHighestBidderUuid == null ? null : normalizedAuctionHighestBidderUuid.toString());
+      statement.setObject(20, normalizedAuctionHighestBidId);
+      if (normalizedAuctionLastBidAt == null) {
+        statement.setTimestamp(21, null);
+      } else {
+        statement.setTimestamp(21, Timestamp.valueOf(normalizedAuctionLastBidAt));
+      }
+      statement.setLong(22, listingId);
       statement.executeUpdate();
     }
     MarketListing refreshed = readListingForUpdate(connection, listingId);
@@ -1076,7 +1695,54 @@ class MarketService {
         refreshed.sourceMode(),
         refreshed.supplyBatchSize(),
         refreshed.supplyMaxStock(),
-        refreshed.quantityTotal());
+        refreshed.quantityTotal(),
+        refreshed.tradeMode(),
+        refreshed.dynamicPricingEnabled(),
+        refreshed.dynamicBasePrice(),
+        refreshed.dynamicFloorPrice(),
+        refreshed.dynamicCapPrice(),
+        refreshed.dynamicPriceStep(),
+        refreshed.dynamicDemandScore(),
+        refreshed.auctionStartPrice(),
+        refreshed.auctionMinIncrement(),
+        refreshed.auctionEndAt(),
+        refreshed.auctionHighestBid(),
+        refreshed.auctionHighestBidderUserId(),
+        refreshed.auctionHighestBidId(),
+        refreshed.auctionLastBidAt());
+  }
+
+  private TradeMode resolveTradeMode(String raw, TradeMode defaultValue) {
+    if (raw == null || raw.isBlank()) {
+      return defaultValue;
+    }
+    String normalized = raw.trim().toUpperCase(Locale.ROOT);
+    try {
+      return TradeMode.valueOf(normalized);
+    } catch (IllegalArgumentException exception) {
+      throw new ServiceException("invalid_trade_mode", "Trade mode must be DIRECT or AUCTION");
+    }
+  }
+
+  private Long normalizeOptionalPositive(Long value, String errorCode) {
+    if (value == null) {
+      return null;
+    }
+    if (value <= 0L) {
+      throw new ServiceException(errorCode, "Value must be positive");
+    }
+    return value;
+  }
+
+  private long applyDynamicPriceBounds(long price, Long floorPrice, Long capPrice) {
+    long bounded = price;
+    if (floorPrice != null) {
+      bounded = Math.max(bounded, floorPrice);
+    }
+    if (capPrice != null) {
+      bounded = Math.min(bounded, capPrice);
+    }
+    return Math.max(1L, bounded);
   }
 
   private SupplyRefreshResult refreshSupplyListingInTransaction(
@@ -1340,6 +2006,18 @@ class MarketService {
     }
   }
 
+  private void notifyPlayerAsync(UUID playerUuid, String message) {
+    if (playerUuid == null || message == null || message.isBlank()) {
+      return;
+    }
+    Bukkit.getScheduler().runTask(plugin, () -> {
+      Player player = Bukkit.getPlayer(playerUuid);
+      if (player != null && player.isOnline()) {
+        player.sendMessage(message);
+      }
+    });
+  }
+
   boolean isProtectedSupplyBlock(Block block) {
     if (block == null) {
       return false;
@@ -1587,6 +2265,26 @@ class MarketService {
       }
       statement.executeUpdate();
     }
+    if (listing.tradeMode() == TradeMode.DIRECT && listing.dynamicPricingEnabled()) {
+      long basePrice = listing.dynamicBasePrice() == null ? listing.price() : listing.dynamicBasePrice();
+      long step = listing.dynamicPriceStep() == null ? 1L : Math.max(1L, listing.dynamicPriceStep());
+      long nextDemandScore = Math.max(0L, listing.dynamicDemandScore()) + Math.max(1, buyQuantity);
+      long nextPrice = applyDynamicPriceBounds(
+          basePrice + nextDemandScore * step,
+          listing.dynamicFloorPrice(),
+          listing.dynamicCapPrice());
+      String dynamicSql = """
+          UPDATE market_listings
+          SET dynamic_demand_score = ?, price = ?
+          WHERE id = ?
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(dynamicSql)) {
+        statement.setLong(1, nextDemandScore);
+        statement.setLong(2, nextPrice);
+        statement.setLong(3, listing.id());
+        statement.executeUpdate();
+      }
+    }
     return readListingForUpdate(connection, listing.id());
   }
 
@@ -1595,6 +2293,10 @@ class MarketService {
     MarketListing listing = readListingForUpdate(connection, listingId);
     if (!"ACTIVE".equalsIgnoreCase(listing.status()) && !"PAUSED".equalsIgnoreCase(listing.status())) {
       throw new ServiceException("listing_unavailable", "Supply mode is not enabled for this listing");
+    }
+    if (listing.isAuction()) {
+      refundLeadingBidIfPresent(connection, listing, "admin-unlist");
+      listing = readListingForUpdate(connection, listing.id());
     }
 
     String updateSql = """
@@ -1674,7 +2376,12 @@ class MarketService {
                item_material, raw_item_blob,
                item_meta_json, remark, item_hash, status, source_mode,
                supply_world, supply_x, supply_y, supply_z, supply_batch_size, supply_max_stock,
-               supply_loaded_total, supply_sold_total, supply_last_loaded_amount, supply_last_loaded_at
+         supply_loaded_total, supply_sold_total, supply_last_loaded_amount, supply_last_loaded_at,
+         trade_mode, dynamic_pricing_enabled, dynamic_base_price, dynamic_floor_price,
+         dynamic_cap_price, dynamic_price_step, dynamic_demand_score,
+         auction_start_price, auction_min_increment, auction_end_at,
+         auction_highest_bid, auction_highest_bidder_user_id, auction_highest_bidder_uuid,
+         auction_highest_bid_id, auction_last_bid_at
         FROM market_listings
         WHERE id = ?
         FOR UPDATE
@@ -1711,7 +2418,28 @@ class MarketService {
             (Integer) resultSet.getObject("supply_last_loaded_amount"),
             resultSet.getTimestamp("supply_last_loaded_at") == null
                 ? null
-                : resultSet.getTimestamp("supply_last_loaded_at").toLocalDateTime());
+              : resultSet.getTimestamp("supply_last_loaded_at").toLocalDateTime(),
+            TradeMode.fromRaw(resultSet.getString("trade_mode")),
+            resultSet.getBoolean("dynamic_pricing_enabled"),
+            (Long) resultSet.getObject("dynamic_base_price"),
+            (Long) resultSet.getObject("dynamic_floor_price"),
+            (Long) resultSet.getObject("dynamic_cap_price"),
+            (Long) resultSet.getObject("dynamic_price_step"),
+            resultSet.getLong("dynamic_demand_score"),
+            (Long) resultSet.getObject("auction_start_price"),
+            (Long) resultSet.getObject("auction_min_increment"),
+            resultSet.getTimestamp("auction_end_at") == null
+              ? null
+              : resultSet.getTimestamp("auction_end_at").toLocalDateTime(),
+            (Long) resultSet.getObject("auction_highest_bid"),
+            (Long) resultSet.getObject("auction_highest_bidder_user_id"),
+            resultSet.getString("auction_highest_bidder_uuid") == null
+              ? null
+              : UUID.fromString(resultSet.getString("auction_highest_bidder_uuid")),
+            (Long) resultSet.getObject("auction_highest_bid_id"),
+            resultSet.getTimestamp("auction_last_bid_at") == null
+              ? null
+              : resultSet.getTimestamp("auction_last_bid_at").toLocalDateTime());
       }
     }
   }
@@ -1741,7 +2469,28 @@ class MarketService {
           (Integer) resultSet.getObject("supply_last_loaded_amount"),
           resultSet.getTimestamp("supply_last_loaded_at") == null
               ? null
-              : resultSet.getTimestamp("supply_last_loaded_at").toLocalDateTime()));
+              : resultSet.getTimestamp("supply_last_loaded_at").toLocalDateTime(),
+            TradeMode.fromRaw(resultSet.getString("trade_mode")),
+            resultSet.getBoolean("dynamic_pricing_enabled"),
+            (Long) resultSet.getObject("dynamic_base_price"),
+            (Long) resultSet.getObject("dynamic_floor_price"),
+            (Long) resultSet.getObject("dynamic_cap_price"),
+            (Long) resultSet.getObject("dynamic_price_step"),
+            resultSet.getLong("dynamic_demand_score"),
+            (Long) resultSet.getObject("auction_start_price"),
+            (Long) resultSet.getObject("auction_min_increment"),
+            resultSet.getTimestamp("auction_end_at") == null
+              ? null
+              : resultSet.getTimestamp("auction_end_at").toLocalDateTime(),
+            (Long) resultSet.getObject("auction_highest_bid"),
+            (Long) resultSet.getObject("auction_highest_bidder_user_id"),
+            resultSet.getString("auction_highest_bidder_uuid") == null
+              ? null
+              : UUID.fromString(resultSet.getString("auction_highest_bidder_uuid")),
+            (Long) resultSet.getObject("auction_highest_bid_id"),
+            resultSet.getTimestamp("auction_last_bid_at") == null
+              ? null
+              : resultSet.getTimestamp("auction_last_bid_at").toLocalDateTime()));
     }
     return listings;
   }
@@ -1961,6 +2710,16 @@ class MarketService {
       LocalDateTime refundDeadline) {
   }
 
+      private record ExistingBid(
+        long bidId,
+        long listingId,
+        long bidAmount,
+        String status) {
+      }
+
+      private record AuctionSettlementNotice(UUID playerUuid, String message) {
+      }
+
   private record MarketListing(
       long id,
       long sellerUserId,
@@ -1985,10 +2744,29 @@ class MarketService {
       long supplyLoadedTotal,
       long supplySoldTotal,
       Integer supplyLastLoadedAmount,
-      LocalDateTime supplyLastLoadedAt) {
+      LocalDateTime supplyLastLoadedAt,
+      TradeMode tradeMode,
+      boolean dynamicPricingEnabled,
+      Long dynamicBasePrice,
+      Long dynamicFloorPrice,
+      Long dynamicCapPrice,
+      Long dynamicPriceStep,
+      long dynamicDemandScore,
+      Long auctionStartPrice,
+      Long auctionMinIncrement,
+      LocalDateTime auctionEndAt,
+      Long auctionHighestBid,
+      Long auctionHighestBidderUserId,
+      UUID auctionHighestBidderUuid,
+      Long auctionHighestBidId,
+      LocalDateTime auctionLastBidAt) {
 
     boolean isSupply() {
       return sourceMode == SupplyMode.SUPPLY;
+    }
+
+    boolean isAuction() {
+      return tradeMode == TradeMode.AUCTION;
     }
 
     SupplySource supplySource() {
@@ -2015,7 +2793,28 @@ class MarketService {
     }
   }
 
+  enum TradeMode {
+    DIRECT,
+    AUCTION;
+
+    static TradeMode fromRaw(String raw) {
+      if (raw == null || raw.isBlank()) {
+        return DIRECT;
+      }
+      try {
+        return TradeMode.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+      } catch (IllegalArgumentException exception) {
+        return DIRECT;
+      }
+    }
+  }
+
   enum TradeState {
+    CREATED,
+    EXISTING
+  }
+
+  enum BidState {
     CREATED,
     EXISTING
   }
@@ -2071,7 +2870,22 @@ class MarketService {
       long supplyLoadedTotal,
       long supplySoldTotal,
       Integer supplyLastLoadedAmount,
-      LocalDateTime supplyLastLoadedAt) {
+        LocalDateTime supplyLastLoadedAt,
+        TradeMode tradeMode,
+        boolean dynamicPricingEnabled,
+        Long dynamicBasePrice,
+        Long dynamicFloorPrice,
+        Long dynamicCapPrice,
+        Long dynamicPriceStep,
+        long dynamicDemandScore,
+        Long auctionStartPrice,
+        Long auctionMinIncrement,
+        LocalDateTime auctionEndAt,
+        Long auctionHighestBid,
+        Long auctionHighestBidderUserId,
+        UUID auctionHighestBidderUuid,
+        Long auctionHighestBidId,
+        LocalDateTime auctionLastBidAt) {
   }
 
   record AdminListingView(
@@ -2152,7 +2966,33 @@ class MarketService {
       SupplyMode sourceMode,
       Integer supplyBatchSize,
       Integer supplyMaxStock,
-      int quantityTotal) {
+      int quantityTotal,
+      TradeMode tradeMode,
+      boolean dynamicPricingEnabled,
+      Long dynamicBasePrice,
+      Long dynamicFloorPrice,
+      Long dynamicCapPrice,
+      Long dynamicPriceStep,
+      long dynamicDemandScore,
+      Long auctionStartPrice,
+      Long auctionMinIncrement,
+      LocalDateTime auctionEndAt,
+      Long auctionHighestBid,
+      Long auctionHighestBidderUserId,
+      Long auctionHighestBidId,
+      LocalDateTime auctionLastBidAt) {
+    }
+
+    record BidResult(
+      BidState state,
+      long bidId,
+      long listingId,
+      CurrencyType currency,
+      long bidAmount,
+      long currentHighestBid,
+      Long previousHighestBid,
+      Long previousHighestBidderUserId,
+      LocalDateTime auctionEndAt) {
   }
 
   record SupplyRefreshResult(

@@ -37,14 +37,25 @@ class MarketGuiListener implements Listener {
     if (!(event.getWhoClicked() instanceof Player player)) {
       return;
     }
-    if (!(event.getView().getTopInventory().getHolder() instanceof MarketGuiService.GuiHolder)) {
+    if (!(event.getView().getTopInventory().getHolder() instanceof MarketGuiService.GuiHolder holder)) {
       return;
     }
+    int topSize = event.getView().getTopInventory().getSize();
     int rawSlot = event.getRawSlot();
-    if (rawSlot >= event.getView().getTopInventory().getSize()) {
-      return;
+    boolean isTopInventorySlot = rawSlot >= 0 && rawSlot < topSize;
+    boolean isInputContentSlot =
+        holder.kind() == MarketGuiService.GuiKind.INPUT && rawSlot >= 0 && rawSlot < 45;
+
+    if (isTopInventorySlot && !isInputContentSlot) {
+      event.setCancelled(true);
     }
-    event.setCancelled(rawSlot >= 45 && rawSlot < event.getView().getTopInventory().getSize());
+
+    // Non-input menus are read-only; prevent shift-injecting items into top inventory.
+    if (!isTopInventorySlot
+        && holder.kind() != MarketGuiService.GuiKind.INPUT
+        && event.isShiftClick()) {
+      event.setCancelled(true);
+    }
     try {
       marketGuiService.handleInventoryClick(player, event);
     } catch (ServiceException exception) {
@@ -59,11 +70,15 @@ class MarketGuiListener implements Listener {
 
   @EventHandler
   public void onInventoryDrag(InventoryDragEvent event) {
-    if (!(event.getView().getTopInventory().getHolder() instanceof MarketGuiService.GuiHolder)) {
+    if (!(event.getView().getTopInventory().getHolder() instanceof MarketGuiService.GuiHolder holder)) {
       return;
     }
+    int topSize = event.getView().getTopInventory().getSize();
     for (int slot : event.getRawSlots()) {
-      if (slot >= 45) {
+      boolean draggingIntoTop = slot >= 0 && slot < topSize;
+      boolean editableInputSlot =
+          holder.kind() == MarketGuiService.GuiKind.INPUT && slot >= 0 && slot < 45;
+      if (draggingIntoTop && !editableInputSlot) {
         event.setCancelled(true);
         return;
       }

@@ -82,26 +82,36 @@ class DeliveryService {
     int failed = 0;
 
     if (filters.includeCommands()) {
-      List<CommandDeliveryTask> commandTasks = databaseManager.withConnection(
-          connection -> readClaimCommandTasks(connection, filters.commandOwnerUuid(), filters.orderNoFilter()));
-      for (CommandDeliveryTask task : commandTasks) {
-        if (handleCommandTask(task, true, player)) {
-          success++;
-        } else {
-          failed++;
+      try {
+        List<CommandDeliveryTask> commandTasks = databaseManager.withConnection(
+            connection -> readClaimCommandTasks(connection, filters.commandOwnerUuid(), filters.orderNoFilter()));
+        for (CommandDeliveryTask task : commandTasks) {
+          if (handleCommandTask(task, true, player)) {
+            success++;
+          } else {
+            failed++;
+          }
         }
+      } catch (DatabaseManager.DataAccessException exception) {
+        failed++;
+        databaseManager.logFailure("Failed to query command claim tasks", exception);
       }
     }
 
     if (filters.includeMarket()) {
-      List<MarketItemDeliveryTask> marketTasks = databaseManager.withConnection(
-          connection -> readClaimMarketTasks(connection, filters.marketOwnerUuid(), filters.tradeIdFilter()));
-      for (MarketItemDeliveryTask task : marketTasks) {
-        if (handleMarketTask(task, true, player)) {
-          success++;
-        } else {
-          failed++;
+      try {
+        List<MarketItemDeliveryTask> marketTasks = databaseManager.withConnection(
+            connection -> readClaimMarketTasks(connection, filters.marketOwnerUuid(), filters.tradeIdFilter()));
+        for (MarketItemDeliveryTask task : marketTasks) {
+          if (handleMarketTask(task, true, player)) {
+            success++;
+          } else {
+            failed++;
+          }
         }
+      } catch (DatabaseManager.DataAccessException exception) {
+        failed++;
+        databaseManager.logFailure("Failed to query market claim tasks", exception);
       }
     }
 
@@ -327,15 +337,19 @@ class DeliveryService {
     if (targetUuid == null && tradeIdFilter == null) {
       return List.of();
     }
-    String targetFilter = targetUuid == null ? "" : "md.target_uuid = ? AND ";
-    String filterByTrade = tradeIdFilter == null ? "" : " AND md.trade_id = ?";
+    List<String> whereClauses = new ArrayList<>();
+    if (targetUuid != null) {
+      whereClauses.add("md.target_uuid = ?");
+    }
+    whereClauses.add("md.status = 'WAIT_CLAIM'");
+    if (tradeIdFilter != null) {
+      whereClauses.add("md.trade_id = ?");
+    }
     String sql = """
-        SELECT md.id, md.listing_id, md.trade_id, md.target_user_id, md.target_uuid, md.item_blob, md.quantity,
-               md.delivery_type, md.retry_count
-        FROM market_item_deliveries md
-        WHERE """ + targetFilter + """
-          AND md.status = 'WAIT_CLAIM'
-        """ + filterByTrade + " ORDER BY md.id ASC";
+      SELECT md.id, md.listing_id, md.trade_id, md.target_user_id, md.target_uuid, md.item_blob, md.quantity,
+           md.delivery_type, md.retry_count
+      FROM market_item_deliveries md
+      """ + "WHERE " + String.join(" AND ", whereClauses) + " ORDER BY md.id ASC";
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       int parameterIndex = 1;
       if (targetUuid != null) {

@@ -1520,6 +1520,10 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .dialog-inline-config {
+    grid-template-columns: 1fr;
+  }
+
   .profile-main {
     grid-template-columns: 1fr;
   }
@@ -1542,9 +1546,10 @@ pre {
   inset: 0;
   background: var(--app-dialog-scrim);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 16px;
+  overflow-y: auto;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
@@ -1561,6 +1566,8 @@ pre {
   padding: 18px;
   display: grid;
   gap: 10px;
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
 }
 
 .dialog-card h3 {
@@ -1684,6 +1691,19 @@ pre {
   gap: 6px;
   font-size: 13px;
   color: var(--md-sys-color-on-surface-variant);
+  max-height: min(50vh, 420px);
+  overflow-y: auto;
+}
+
+.dialog-inline-config {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.dialog-inline-config button {
+  white-space: nowrap;
 }
 
 .dialog-select-field textarea,

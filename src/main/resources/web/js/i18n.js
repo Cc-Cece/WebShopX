@@ -321,8 +321,11 @@
     "长期供应": "Always available",
     "单价": "Unit Price",
     "购买后生成团购兑换码，需由管理员核销": "Purchasing this item creates a voucher code that must be consumed by an admin.",
+    "回收说明：系统将从背包扣除对应物品并入账。":
+      "Recycle note: required items will be removed from your inventory and credited to your wallet.",
     "你已达到该商品的限购上限": "You have reached the purchase limit for this product.",
     "立即购买": "Buy Now",
+    "立即回收": "Recycle Now",
     "当前没有可显示的市场上架。 ": "No market listings to display.",
     "自动补货": "Auto Refill",
     "公开市场": "Public Market",
@@ -364,8 +367,16 @@
     "强制下架": "Force Unlist",
     "全选": "Select All",
     "下单中...": "Ordering...",
+    "回收中...": "Recycling...",
     "退款中...": "Refunding...",
     "处理中...": "Processing...",
+    "确认回收": "Confirm Recycle",
+    "请确认以下回收信息，确认后将立即入账。":
+      "Please review the recycle details below. Confirm to credit your wallet immediately.",
+    "预计入账": "Estimated Credit",
+    "确认后将按照以上金额入账。":
+      "Your wallet will be credited with the amount above after confirmation.",
+    "已取消回收。": "Recycle canceled.",
     "PENDING": "Pending Delivery",
     "WAIT_CLAIM": "Awaiting Claim",
     "DELIVERED": "Delivered",

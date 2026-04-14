@@ -31,6 +31,7 @@ public class WebShopPlugin extends JavaPlugin {
   private PluginLogService pluginLogService;
   private BukkitTask deliveryTask;
   private BukkitTask maintenanceTask;
+  private BukkitTask marketCycleTask;
 
   @Override
   public void onEnable() {
@@ -85,6 +86,7 @@ public class WebShopPlugin extends JavaPlugin {
           this);
       startDeliveryLoop();
       startMaintenanceLoop();
+      startMarketCycleLoop();
       restartWebRuntime();
 
       getLogger().info("WebShopX enabled successfully.");
@@ -107,6 +109,10 @@ public class WebShopPlugin extends JavaPlugin {
     if (maintenanceTask != null) {
       maintenanceTask.cancel();
       maintenanceTask = null;
+    }
+    if (marketCycleTask != null) {
+      marketCycleTask.cancel();
+      marketCycleTask = null;
     }
     if (embeddedWebServer != null) {
       embeddedWebServer.stop();
@@ -133,6 +139,7 @@ public class WebShopPlugin extends JavaPlugin {
       adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());
     }
     startMaintenanceLoop();
+    startMarketCycleLoop();
     restartWebRuntime();
   }
 
@@ -182,6 +189,21 @@ public class WebShopPlugin extends JavaPlugin {
         maintenanceService::runCleanup,
         200L,
         intervalTicks);
+  }
+
+  private void startMarketCycleLoop() {
+    if (marketCycleTask != null) {
+      marketCycleTask.cancel();
+      marketCycleTask = null;
+    }
+    if (marketService == null) {
+      return;
+    }
+    marketCycleTask = getServer().getScheduler().runTaskTimerAsynchronously(
+        this,
+        marketService::processMarketCycles,
+        200L,
+        6000L);
   }
 
   private void restartWebRuntime() {
