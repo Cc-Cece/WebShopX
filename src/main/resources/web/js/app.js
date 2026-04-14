@@ -4,6 +4,7 @@
   boundUuid: null,
   activeTab: "auth",
   marketMode: "public",
+  marketTradeScope: "DIRECT",
   marketStore: {
     sellerKey: null,
     sellerName: null,
@@ -361,6 +362,7 @@ if (I18N) {
 const elements = {
   logBox: document.getElementById("logBox"),
   statusChip: document.getElementById("statusChip"),
+  headerAccountBackBtn: document.getElementById("headerAccountBackBtn"),
   themeToggleBtn: document.getElementById("themeToggleBtn"),
 
   authEntryCard: document.getElementById("authEntryCard"),
@@ -412,6 +414,8 @@ const elements = {
   marketClearBtn: document.getElementById("marketClearBtn"),
   marketStoreBtn: document.getElementById("marketStoreBtn"),
   marketHideOwnToggle: document.getElementById("marketHideOwnToggle"),
+  marketSectionTitle: document.getElementById("marketSectionTitle"),
+  marketSectionDesc: document.getElementById("marketSectionDesc"),
   snackbarHost: document.getElementById("snackbarHost"),
   confirmDialog: document.getElementById("confirmDialog"),
   confirmTitle: document.getElementById("confirmTitle"),
@@ -440,6 +444,75 @@ const elements = {
 
 const tabs = Array.from(document.querySelectorAll(".top-tab"));
 const panels = Array.from(document.querySelectorAll(".tab-panel"));
+const accountEntryButtons = Array.from(document.querySelectorAll("[data-account-tab]"));
+const accountBackButtons = Array.from(document.querySelectorAll("[data-account-back]"));
+const ACCOUNT_CHILD_TABS = new Set(["wallet", "orders", "guide", "logs"]);
+
+function getMarketTradeScopeByTab(tabName) {
+  return tabName === "auction" ? "AUCTION" : "DIRECT";
+}
+
+function isAuctionScope() {
+  return String(state.marketTradeScope || "DIRECT").toUpperCase() === "AUCTION";
+}
+
+function normalizeListingTradeMode(listing) {
+  return String(listing?.tradeMode || "DIRECT").toUpperCase();
+}
+
+function filterListingsByTradeScope(listings, tradeScope) {
+  const normalizedScope = String(tradeScope || "DIRECT").toUpperCase();
+  return (listings || []).filter((listing) => {
+    const tradeMode = normalizeListingTradeMode(listing);
+    if (normalizedScope === "AUCTION") {
+      return tradeMode === "AUCTION";
+    }
+    return tradeMode !== "AUCTION";
+  });
+}
+
+function getMarketModeLabel(mode) {
+  const normalizedMode = mode === "stores" ? "stores" : (mode === "mine" ? "mine" : "public");
+  if (normalizedMode === "stores") {
+    return isAuctionScope() ? "拍卖店铺" : "玩家店铺";
+  }
+  if (normalizedMode === "mine") {
+    return isAuctionScope() ? "我的拍卖" : "我的上架";
+  }
+  return isAuctionScope() ? "拍卖在售" : "市场在售";
+}
+
+function getMarketEmptyStateText(kind = "listing") {
+  if (kind === "store") {
+    return isAuctionScope() ? "当前没有可显示的拍卖店铺。" : "当前没有可显示的玩家店铺。";
+  }
+  return isAuctionScope() ? "当前没有可显示的拍卖上架。" : "当前没有可显示的市场上架。";
+}
+
+function updateMarketSectionContext() {
+  if (!elements.marketSectionTitle || !elements.marketSectionDesc) {
+    return;
+  }
+
+  if (isAuctionScope()) {
+    setNodeText(elements.marketSectionTitle, "拍卖行（C2C）");
+    setNodeText(elements.marketSectionDesc, "仅显示拍卖模式上架，可直接出价或买断。其他商品请前往玩家市场。");
+    setNodeText(document.getElementById("marketListBtn"), "拍卖在售");
+    if (elements.marketStoreBtn) {
+      setNodeText(elements.marketStoreBtn, "拍卖店铺");
+    }
+    setNodeText(document.getElementById("marketMineBtn"), "我的拍卖");
+    return;
+  }
+
+  setNodeText(elements.marketSectionTitle, "玩家市场（C2C）");
+  setNodeText(elements.marketSectionDesc, "可在游戏内执行 /webshopx market 打开 GUI；价格与备注继续在网页端管理。");
+  setNodeText(document.getElementById("marketListBtn"), "市场在售");
+  if (elements.marketStoreBtn) {
+    setNodeText(elements.marketStoreBtn, "玩家店铺");
+  }
+  setNodeText(document.getElementById("marketMineBtn"), "我的上架");
+}
 
 function localizeDisplayText(text) {
   return I18N ? I18N.localizeText(text) : text;
@@ -805,7 +878,10 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       floorInput.type = "number";
       floorInput.min = "1";
       floorInput.step = "1";
-      floorInput.value = Number.isFinite(Number(state.dynamicFloorPrice)) ? String(state.dynamicFloorPrice) : "";
+      const normalizedFloorValue = Number(state.dynamicFloorPrice);
+      floorInput.value = Number.isFinite(normalizedFloorValue) && normalizedFloorValue > 0
+        ? String(Math.floor(normalizedFloorValue))
+        : "";
       floorField.appendChild(floorInput);
       host.appendChild(floorField);
 
@@ -815,7 +891,10 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       capInput.type = "number";
       capInput.min = "1";
       capInput.step = "1";
-      capInput.value = Number.isFinite(Number(state.dynamicCapPrice)) ? String(state.dynamicCapPrice) : "";
+      const normalizedCapValue = Number(state.dynamicCapPrice);
+      capInput.value = Number.isFinite(normalizedCapValue) && normalizedCapValue > 0
+        ? String(Math.floor(normalizedCapValue))
+        : "";
       capField.appendChild(capInput);
       host.appendChild(capField);
 
@@ -865,16 +944,22 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       let cap = null;
       if (floorRaw) {
         floor = Number(floorRaw);
-        if (!Number.isFinite(floor) || floor <= 0) {
+        if (!Number.isFinite(floor)) {
           floorInput.focus();
           return undefined;
+        }
+        if (floor <= 0) {
+          floor = null;
         }
       }
       if (capRaw) {
         cap = Number(capRaw);
-        if (!Number.isFinite(cap) || cap <= 0) {
+        if (!Number.isFinite(cap)) {
           capInput.focus();
           return undefined;
+        }
+        if (cap <= 0) {
+          cap = null;
         }
       }
       if (floor !== null && cap !== null && floor > cap) {
@@ -1122,8 +1207,12 @@ async function openListingEditDialog({
     auctionAlgorithm: String(currentAuctionAlgorithm || defaultAuctionAlgorithm).toUpperCase(),
     auctionParamsJson: currentAuctionParamsJson || null,
     dynamicBasePrice: Number.isFinite(Number(currentDynamicBasePrice)) ? Math.floor(Number(currentDynamicBasePrice)) : Math.floor(Number(currentPrice || 1)),
-    dynamicFloorPrice: Number.isFinite(Number(currentDynamicFloorPrice)) ? Math.floor(Number(currentDynamicFloorPrice)) : null,
-    dynamicCapPrice: Number.isFinite(Number(currentDynamicCapPrice)) ? Math.floor(Number(currentDynamicCapPrice)) : null,
+    dynamicFloorPrice: Number.isFinite(Number(currentDynamicFloorPrice)) && Number(currentDynamicFloorPrice) > 0
+      ? Math.floor(Number(currentDynamicFloorPrice))
+      : null,
+    dynamicCapPrice: Number.isFinite(Number(currentDynamicCapPrice)) && Number(currentDynamicCapPrice) > 0
+      ? Math.floor(Number(currentDynamicCapPrice))
+      : null,
     dynamicPriceStep: Number.isFinite(Number(currentDynamicPriceStep)) ? Math.floor(Number(currentDynamicPriceStep)) : 1,
     auctionStartPrice: Number.isFinite(Number(currentAuctionStartPrice)) ? Math.floor(Number(currentAuctionStartPrice)) : Math.floor(Number(currentPrice || 1)),
     auctionMinIncrement: Number.isFinite(Number(currentAuctionMinIncrement)) ? Math.floor(Number(currentAuctionMinIncrement)) : 1,
@@ -1535,6 +1624,14 @@ function setStatus(text, stateName) {
   elements.statusChip.dataset.state = stateName;
 }
 
+function updateAccountBackButtonVisibility() {
+  if (!elements.headerAccountBackBtn) {
+    return;
+  }
+  const shouldShow = !!state.token && ACCOUNT_CHILD_TABS.has(state.activeTab);
+  elements.headerAccountBackBtn.classList.toggle("hidden", !shouldShow);
+}
+
 function switchTab(tabName) {
   if (tabName === "guide") {
     const locale = I18N ? I18N.getLocale() : "zh-CN";
@@ -1546,15 +1643,19 @@ function switchTab(tabName) {
     return;
   }
 
+  const panelTab = tabName === "auction" ? "market" : tabName;
+  const activeTopTab = ACCOUNT_CHILD_TABS.has(tabName) ? "auth" : tabName;
+
   state.activeTab = tabName;
 
   tabs.forEach((tab) => {
-    tab.classList.toggle("active", tab.dataset.tabTarget === tabName);
+    tab.classList.toggle("active", tab.dataset.tabTarget === activeTopTab);
   });
 
   panels.forEach((panel) => {
-    panel.classList.toggle("active", panel.dataset.tabPanel === tabName);
+    panel.classList.toggle("active", panel.dataset.tabPanel === panelTab);
   });
+  updateAccountBackButtonVisibility();
 
   if (tabName === "wallet") {
     if (state.token) {
@@ -1576,13 +1677,34 @@ function switchTab(tabName) {
       setMetaText(elements.orderView, "请先登录后查看订单。", "warn");
     }
   }
-  if (tabName === "market") {
-    loadMarket(state.marketMode || "public");
+  if (tabName === "market" || tabName === "auction") {
+    state.marketTradeScope = getMarketTradeScopeByTab(tabName);
+    updateMarketSectionContext();
+    loadMarket("public");
   }
 }
 
 tabs.forEach((tab) => {
   tab.addEventListener("click", () => switchTab(tab.dataset.tabTarget));
+});
+
+accountEntryButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const targetTab = button.dataset.accountTab;
+    if (!targetTab) {
+      return;
+    }
+    if (!state.token) {
+      switchTab("auth");
+      notify("请先登录后访问账户功能。", "warn");
+      return;
+    }
+    switchTab(targetTab);
+  });
+});
+
+accountBackButtons.forEach((button) => {
+  button.addEventListener("click", () => switchTab("auth"));
 });
 
 function createIdempotencyKey() {
@@ -2808,10 +2930,12 @@ function updateAuthLayout() {
 
   if (!loggedIn) {
     setStatus("未登录", "offline");
+    updateAccountBackButtonVisibility();
     return;
   }
 
   setStatus(`已登录：${state.username || "-"}`, "online");
+  updateAccountBackButtonVisibility();
   renderProfile();
 }
 
@@ -2947,10 +3071,10 @@ async function pollRealtimeSync() {
       state.orders = ordersPayload.orders || [];
       renderOrders(state.orders);
     }
-    if (state.activeTab === "market" && state.marketMode === "mine") {
-      state.listings = listingsPayload.listings || [];
+    if ((state.activeTab === "market" || state.activeTab === "auction") && state.marketMode === "mine") {
+      state.listings = filterListingsByTradeScope(listingsPayload.listings || [], state.marketTradeScope);
       renderListings(state.listings);
-      setMetaText(elements.marketView, `我的上架：${state.listings.length} 条`, "info");
+      setMetaText(elements.marketView, `${getMarketModeLabel("mine")}：${state.listings.length} 条`, "info");
     }
   } catch (error) {
     if (String(error?.message || "").toLowerCase().includes("auth")) {
@@ -3198,15 +3322,16 @@ function filterProducts(products) {
 
 function renderListings(listings, container = elements.marketList) {
   container.innerHTML = "";
+  const scopedListings = filterListingsByTradeScope(listings, state.marketTradeScope);
   const visibleListings = container === elements.marketList
     && state.marketMode === "public"
     && state.hideOwnMarketListings
     && state.username
-    ? (listings || []).filter((listing) => listing.sellerName !== state.username)
-    : (listings || []);
+    ? scopedListings.filter((listing) => listing.sellerName !== state.username)
+    : scopedListings;
 
   if (!visibleListings || visibleListings.length === 0) {
-    const empty = createEl("div", "empty-state", "当前没有可显示的市场上架。 ");
+    const empty = createEl("div", "empty-state", getMarketEmptyStateText("listing"));
     container.appendChild(empty);
     return;
   }
@@ -3580,9 +3705,10 @@ function renderListings(listings, container = elements.marketList) {
 function renderStorefronts(listings) {
   elements.marketList.classList.add("storefront-grid");
   elements.marketList.innerHTML = "";
-  const activeListings = (listings || []).filter((listing) => listing.status === "ACTIVE");
+  const activeListings = filterListingsByTradeScope(listings, state.marketTradeScope)
+    .filter((listing) => listing.status === "ACTIVE");
   if (activeListings.length === 0) {
-    elements.marketList.appendChild(createEl("div", "empty-state", "当前没有可显示的玩家店铺。"));
+    elements.marketList.appendChild(createEl("div", "empty-state", getMarketEmptyStateText("store")));
     return;
   }
 
@@ -3653,7 +3779,8 @@ function renderSelectedStore(listings) {
     return;
   }
   elements.marketList.classList.remove("storefront-grid");
-  const sellerListings = (listings || []).filter((listing) => createStoreKey(listing) === key);
+  const sellerListings = filterListingsByTradeScope(listings, state.marketTradeScope)
+    .filter((listing) => createStoreKey(listing) === key);
   elements.marketList.innerHTML = "";
 
   const header = createEl("article", "store-detail-card");
@@ -3754,9 +3881,10 @@ async function loadMarket(mode, options = {}) {
 
     const query = `/api/market/listings?${params.toString()}`;
     const payload = await api(query, { method: "GET" });
+    const scopedListings = filterListingsByTradeScope(payload.listings || [], state.marketTradeScope);
 
     state.marketMode = normalizedMode;
-    state.listings = payload.listings || [];
+    state.listings = scopedListings;
     state.hasLoadedMarket = true;
 
     if (normalizedMode !== "stores") {
@@ -3770,22 +3898,18 @@ async function loadMarket(mode, options = {}) {
       } else {
         renderStorefronts(state.listings);
         const storeCount = new Set(state.listings.filter((listing) => listing.status === "ACTIVE").map(createStoreKey)).size;
-        setMetaText(elements.marketView, `玩家店铺：${storeCount} 家`, "info");
+        setMetaText(elements.marketView, `${getMarketModeLabel("stores")}：${storeCount} 家`, "info");
       }
     } else {
       renderListings(state.listings);
-      const label = normalizedMode === "mine" ? "我的上架" : "市场在售";
+      const label = getMarketModeLabel(normalizedMode);
       const visibleCount = normalizedMode === "public" && state.hideOwnMarketListings && state.username
         ? state.listings.filter((listing) => listing.sellerName !== state.username).length
         : state.listings.length;
       setMetaText(elements.marketView, `${label}：${visibleCount} 条`, "info");
     }
 
-    const label = normalizedMode === "mine"
-      ? "我的上架"
-      : normalizedMode === "stores"
-        ? "玩家店铺"
-        : "市场在售";
+    const label = getMarketModeLabel(normalizedMode);
     const displayCount = normalizedMode === "stores"
       ? new Set(state.listings.filter((listing) => listing.status === "ACTIVE").map(createStoreKey)).size
       : state.listings.length;
@@ -4492,7 +4616,6 @@ if (elements.loginBtn) {
       const productMessage = resolveErrorMessage(productError, "products_load");
       log(`登录后刷新商品失败：${productMessage}`, "WARN");
     }
-    switchTab("wallet");
     log("登录成功。", "SUCCESS");
     notify("登录成功。", "success");
   } catch (error) {
@@ -5094,12 +5217,13 @@ if (elements.marketHideOwnToggle) {
       const visibleCount = state.hideOwnMarketListings && state.username
         ? state.listings.filter((listing) => listing.sellerName !== state.username).length
         : state.listings.length;
-      setMetaText(elements.marketView, `市场在售：${visibleCount} 条`, "info");
+      setMetaText(elements.marketView, `${getMarketModeLabel("public")}：${visibleCount} 条`, "info");
     }
   });
 }
 setAuthMode("login");
 updateAuthLayout();
+updateMarketSectionContext();
 setMetaText(elements.walletView, "等待刷新余额", "info");
 setMetaText(elements.walletLedgerView, "等待加载记录", "info");
 setMetaText(elements.redeemView, "等待兑换操作", "info");

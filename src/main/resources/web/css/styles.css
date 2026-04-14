@@ -391,6 +391,16 @@ button:disabled {
   background: var(--app-tonal-hover);
 }
 
+.btn-return {
+  background: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+  border-color: color-mix(in srgb, var(--md-sys-color-tertiary) 46%, var(--md-sys-color-outline-variant));
+}
+
+.btn-return:hover {
+  background: color-mix(in srgb, var(--md-sys-color-tertiary-container) 72%, var(--md-sys-color-tertiary));
+}
+
 .btn-segment {
   background: var(--app-segment-bg);
   color: var(--md-sys-color-on-surface-variant);

@@ -32,6 +32,7 @@
         <!-- <p class="app-subtitle">致力于实现更完善的官方商城和玩家市场。</p> -->
       </div>
       <div class="header-controls">
+        <button id="headerAccountBackBtn" class="btn-tonal btn-return hidden" type="button" data-account-back>返回账户</button>
         <select id="localeSelect" class="header-locale-select" aria-label="Language"></select>
         <button id="themeToggleBtn" class="btn-tonal theme-toggle-btn" type="button">切换暗色</button>
         <div class="status-chip" id="statusChip" data-state="offline">未登录</div>
@@ -39,19 +40,16 @@
     </header>
 
     <nav class="top-tabs" role="tablist" aria-label="功能标签">
-      <button class="top-tab active" data-tab-target="auth" type="button">账号登录</button>
-      <button class="top-tab" data-tab-target="wallet" type="button">钱包资产</button>
+      <button class="top-tab active" data-tab-target="auth" type="button">账户</button>
       <button class="top-tab" data-tab-target="shop" type="button">官方商城</button>
       <button class="top-tab" data-tab-target="market" type="button">玩家市场</button>
-      <button class="top-tab" data-tab-target="orders" type="button">订单记录</button>
-      <button class="top-tab" data-tab-target="guide" type="button">使用教程</button>
-      <button class="top-tab" data-tab-target="logs" type="button">操作日志</button>
+      <button class="top-tab" data-tab-target="auction" type="button">拍卖行</button>
     </nav>
 
     <section class="tab-panel active" data-tab-panel="auth">
       <div class="grid two-col">
         <article class="md-card section-card" id="authEntryCard">
-          <h2>账号登录</h2>
+          <h2>账户登录</h2>
           <div class="md-tip md-tip-info">
             <strong>登录前准备</strong>
             <p>请先在游戏内执行 <code>/webshopx password &lt;新密码&gt;</code>（或 <code>/ws password &lt;新密码&gt;</code>）设置网页登录密码。</p>
@@ -94,6 +92,18 @@
             </div>
           </div>
 
+          <div class="md-tip md-tip-info">
+            <strong>账户入口</strong>
+            <p>以下入口仅在登录后可见：钱包资产、订单记录、使用教程、操作日志。</p>
+          </div>
+
+          <div class="actions">
+            <button class="btn-tonal" type="button" data-account-tab="wallet">钱包资产</button>
+            <button class="btn-tonal" type="button" data-account-tab="orders">订单记录</button>
+            <button class="btn-tonal" type="button" data-account-tab="guide">使用教程</button>
+            <button class="btn-tonal" type="button" data-account-tab="logs">操作日志</button>
+          </div>
+
           <div class="actions">
             <button id="logoutBtn" class="btn-tonal" type="button">退出登录</button>
           </div>
@@ -104,8 +114,12 @@
     <section class="tab-panel" data-tab-panel="wallet">
       <div class="grid two-col">
         <article class="md-card section-card">
-          <h2>钱包资产</h2>
-          <p class="card-desc"><span id="walletDescShopCoin">网页币</span> 用于网页支付，<span id="walletDescGameCoin">游戏币</span> 用于游戏内资产流转。</p>
+          <div class="section-head">
+            <div>
+              <h2>钱包资产</h2>
+              <p class="card-desc"><span id="walletDescShopCoin">网页币</span> 用于网页支付，<span id="walletDescGameCoin">游戏币</span> 用于游戏内资产流转。</p>
+            </div>
+          </div>
           <div class="wallet-overview">
             <div class="wallet-pill">
               <span id="walletShopLabel">网页币</span>
@@ -275,8 +289,8 @@
       <article class="md-card section-card">
         <div class="section-head">
           <div>
-            <h2>玩家市场（C2C）</h2>
-            <p class="card-desc">可在游戏内执行 <code>/webshopx market</code> 打开 GUI；价格与备注继续在网页端管理。</p>
+            <h2 id="marketSectionTitle">玩家市场（C2C）</h2>
+            <p id="marketSectionDesc" class="card-desc">可在游戏内执行 <code>/webshopx market</code> 打开 GUI；价格与备注继续在网页端管理。</p>
           </div>
         </div>
         <!-- <div class="md-tip md-tip-info">
