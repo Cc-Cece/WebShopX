@@ -30,7 +30,6 @@
     themeBtn: document.getElementById("helpThemeToggleBtn"),
     modeBtn: document.getElementById("helpModeToggleBtn"),
     reloadBtn: document.getElementById("helpReloadBtn"),
-    langBtn: document.getElementById("helpLanguageBtn"),
     docSelect: document.getElementById("helpDocSelect"),
     searchInput: document.getElementById("helpSearchInput"),
     searchResults: document.getElementById("helpSearchResults"),
@@ -243,35 +242,6 @@
     return localeLess || candidates[0];
   }
 
-  function getDefaultDocLocale() {
-    return String(runtimeConfig.defaultLocale || "zh-CN").trim() || "zh-CN";
-  }
-
-  function findDocByKeyAndLocale(key, locale) {
-    const normalizedKey = String(key || "").toLowerCase();
-    const normalizedLocale = String(locale || "").toLowerCase();
-    const defaultLocale = getDefaultDocLocale().toLowerCase();
-
-    const exact = state.docs.find(
-      (doc) => doc.key.toLowerCase() === normalizedKey && doc.locale.toLowerCase() === normalizedLocale
-    );
-    if (exact) {
-      return exact;
-    }
-
-    if (normalizedLocale === defaultLocale) {
-      const localeLess = state.docs.find(
-        (doc) => doc.key.toLowerCase() === normalizedKey && !doc.locale
-      );
-      if (localeLess) {
-        return localeLess;
-      }
-    }
-
-    const fallback = state.docs.find((doc) => doc.key.toLowerCase() === normalizedKey);
-    return fallback || null;
-  }
-
   function resolveInitialDoc() {
     const tokenDoc = pickDocByToken(requestedDocToken);
     if (tokenDoc) {
@@ -294,21 +264,6 @@
     return state.docs[0] || null;
   }
 
-  function getLocalesForCurrentKey() {
-    if (!state.doc) {
-      return [];
-    }
-    const locales = new Set();
-    const defaultLocale = getDefaultDocLocale();
-    for (const doc of state.docs) {
-      if (doc.key !== state.doc.key) {
-        continue;
-      }
-      locales.add(doc.locale || defaultLocale);
-    }
-    return Array.from(locales);
-  }
-
   function refreshDocControls() {
     elements.docSelect.innerHTML = "";
     for (const doc of state.docs) {
@@ -321,24 +276,6 @@
       }
       elements.docSelect.appendChild(option);
     }
-
-    const locales = getLocalesForCurrentKey();
-    if (!state.doc) {
-      elements.langBtn.disabled = true;
-      elements.langBtn.textContent = "语言: -";
-      return;
-    }
-
-    if (locales.length <= 1) {
-      const display = state.doc.locale || state.lang || "默认";
-      elements.langBtn.disabled = true;
-      elements.langBtn.textContent = `语言: ${display}`;
-      return;
-    }
-
-    const display = state.doc.locale || state.lang || locales[0];
-    elements.langBtn.disabled = false;
-    elements.langBtn.textContent = `语言: ${display}`;
   }
 
   function resetDocumentModel() {
@@ -410,11 +347,40 @@
     window.renderMathInElement(elements.content, {
       delimiters: [
         { left: "$$", right: "$$", display: true },
+        { left: "$", right: "$", display: false },
         { left: "\\(", right: "\\)", display: false },
       ],
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"],
+      processEscapes: true,
       throwOnError: false,
       strict: "ignore",
     });
+  }
+
+  // Marked 会把 "\(" 里的反斜杠当作转义吞掉；先转成 $...$ 再交给 KaTeX。
+  function normalizeMarkdownMath(markdown) {
+    const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+    let inFence = false;
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      const trimmed = line.trim();
+
+      if (/^```/.test(trimmed)) {
+        inFence = !inFence;
+        continue;
+      }
+
+      if (inFence) {
+        continue;
+      }
+
+      lines[index] = line
+        .replace(/\\\((.+?)\\\)/g, (_, expression) => `$${expression}$`)
+        .replace(/\\\[(.+?)\\\]/g, (_, expression) => `$$${expression}$$`);
+    }
+
+    return lines.join("\n");
   }
 
   function renderMarkdown(markdown) {
@@ -426,7 +392,9 @@
       return;
     }
 
-    const html = window.marked.parse(markdown, {
+    const normalizedMarkdown = normalizeMarkdownMath(markdown);
+
+    const html = window.marked.parse(normalizedMarkdown, {
       gfm: true,
       breaks: false,
     });
@@ -1023,28 +991,6 @@
     loadCurrentDocument();
   }
 
-  function cycleLanguage() {
-    if (!state.doc) {
-      return;
-    }
-
-    const locales = getLocalesForCurrentKey();
-    if (locales.length <= 1) {
-      return;
-    }
-
-    const current = state.doc.locale || locales[0];
-    const currentIndex = locales.findIndex((locale) => locale === current);
-    const nextLocale = locales[(currentIndex + 1) % locales.length];
-
-    const target = findDocByKeyAndLocale(state.doc.key, nextLocale);
-    if (!target) {
-      return;
-    }
-
-    switchToDoc(target, nextLocale, true);
-  }
-
   function bindEvents() {
     elements.homeBtn.addEventListener("click", () => {
       window.location.href = "index.html";
@@ -1056,8 +1002,6 @@
     elements.reloadBtn.addEventListener("click", () => {
       loadCurrentDocument();
     });
-
-    elements.langBtn.addEventListener("click", cycleLanguage);
 
     elements.docSelect.addEventListener("change", () => {
       const target = findDocById(elements.docSelect.value);

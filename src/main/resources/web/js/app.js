@@ -1536,6 +1536,16 @@ function setStatus(text, stateName) {
 }
 
 function switchTab(tabName) {
+  if (tabName === "guide") {
+    const locale = I18N ? I18N.getLocale() : "zh-CN";
+    const query = new URLSearchParams();
+    query.set("mode", "single");
+    query.set("doc", "manual");
+    query.set("lang", locale);
+    window.location.href = `help.html?${query.toString()}`;
+    return;
+  }
+
   state.activeTab = tabName;
 
   tabs.forEach((tab) => {
