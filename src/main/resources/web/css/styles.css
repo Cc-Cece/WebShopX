@@ -1564,6 +1564,7 @@ pre {
   pointer-events: none;
   transition: opacity 0.2s ease;
   z-index: 1200;
+  align-items: center;
 }
 
 .dialog-backdrop.show {

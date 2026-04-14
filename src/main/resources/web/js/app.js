@@ -4165,8 +4165,8 @@ async function confirmPurchase(product, quantity) {
   }
   if (isRecycle) {
     details.push("回收说明：系统将从背包扣除对应物品并入账。");
-  }
-  if (state.orderPolicy.refundUndeliveredEnabled) {
+    details.push("退款说明：回收订单即时结算，不支持退款。");
+  } else if (state.orderPolicy.refundUndeliveredEnabled) {
     details.push("退款说明：未发放前可退款。");
   } else if (cooldown > 0) {
     details.push(`冷静期：${cooldown} 秒（仅冷静期内可退款）`);
