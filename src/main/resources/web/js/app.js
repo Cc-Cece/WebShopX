@@ -936,7 +936,8 @@ function buildParamTabContainers(host) {
   advancedPanel.style.display = "none";
 
   const advancedDetails = createEl("details", "dialog-advanced-details");
-  const advancedSummary = createEl("summary", "", "高级参数（查看文档|谨慎修改）");
+  advancedDetails.open = true;
+  const advancedSummary = createEl("summary", "", "高级参数（查看文档 | 谨慎修改）");
   advancedDetails.appendChild(advancedSummary);
   advancedDetails.appendChild(createEl("p", "field-hint", "留空将自动回退到默认值。"));
   const advancedParamHost = createEl("div", "dialog-algo-params");
@@ -979,7 +980,7 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       for (const item of catalog) {
         const option = document.createElement("option");
         option.value = item.id;
-        option.textContent = item.label === item.id ? item.label : `${item.label} (${item.id})`;
+        option.textContent = item.label || item.id;
         algorithmSelect.appendChild(option);
       }
       algorithmSelect.value = String(state.dynamicAlgorithm || fallbackAlgorithm).toUpperCase();
@@ -988,7 +989,7 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       }
       algorithmField.appendChild(algorithmSelect);
       algorithmRow.appendChild(algorithmField);
-      const helpBtn = createEl("button", "btn-tonal", "[!]");
+      const helpBtn = createEl("button", "btn-tonal", "文档");
       helpBtn.type = "button";
       helpBtn.title = "查看算法帮助";
       helpBtn.addEventListener("click", () => openAlgorithmHelpPage("dynamic", algorithmSelect.value));
@@ -1070,7 +1071,6 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
           values,
           { advancedOnly: true, emptyMessage: "当前算法暂无高级参数。" }
         );
-        tabLayout.advancedDetails.open = false;
       };
       algorithmSelect.addEventListener("change", renderParams);
       renderParams();
@@ -1161,7 +1161,7 @@ async function openAuctionParamDialog(state, fallbackPrice) {
       for (const item of catalog) {
         const option = document.createElement("option");
         option.value = item.id;
-        option.textContent = item.label === item.id ? item.label : `${item.label} (${item.id})`;
+        option.textContent = item.label || item.id;
         algorithmSelect.appendChild(option);
       }
       algorithmSelect.value = String(state.auctionAlgorithm || fallbackAlgorithm).toUpperCase();
@@ -1170,7 +1170,7 @@ async function openAuctionParamDialog(state, fallbackPrice) {
       }
       algorithmField.appendChild(algorithmSelect);
       algorithmRow.appendChild(algorithmField);
-      const helpBtn = createEl("button", "btn-tonal", "[!]");
+      const helpBtn = createEl("button", "btn-tonal", "文档");
       helpBtn.type = "button";
       helpBtn.title = "查看算法帮助";
       helpBtn.addEventListener("click", () => openAlgorithmHelpPage("auction", algorithmSelect.value));
@@ -1239,7 +1239,6 @@ async function openAuctionParamDialog(state, fallbackPrice) {
           values,
           { advancedOnly: true, emptyMessage: "当前算法暂无高级参数。" }
         );
-        tabLayout.advancedDetails.open = false;
       };
       algorithmSelect.addEventListener("change", renderByAlgorithm);
       renderByAlgorithm();
@@ -1456,7 +1455,7 @@ async function openListingEditDialog({
   dynamicCatalog.forEach((item) => {
     const option = document.createElement("option");
     option.value = item.id;
-    option.textContent = item.label === item.id ? item.label : `${item.label} (${item.id})`;
+    option.textContent = item.label || item.id;
     dynamicAlgoSelect.appendChild(option);
   });
   if (!dynamicCatalog.some((item) => item.id === draft.dynamicAlgorithm)) {
@@ -1477,7 +1476,7 @@ async function openListingEditDialog({
   auctionCatalog.forEach((item) => {
     const option = document.createElement("option");
     option.value = item.id;
-    option.textContent = item.label === item.id ? item.label : `${item.label} (${item.id})`;
+    option.textContent = item.label || item.id;
     auctionAlgoSelect.appendChild(option);
   });
   if (!auctionCatalog.some((item) => item.id === draft.auctionAlgorithm)) {
