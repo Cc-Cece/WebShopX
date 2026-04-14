@@ -3147,6 +3147,10 @@ async function refreshWallet() {
   return payload;
 }
 
+function resolveOfficialProductUnitPrice(product) {
+  return Number(product?.price || 0);
+}
+
 function renderProducts(products) {
   const filteredProducts = filterProducts(products);
   elements.productList.innerHTML = "";
@@ -3161,10 +3165,15 @@ function renderProducts(products) {
     const card = createEl("article", "product-card market-card official-card");
     const isGroupBuyVoucher = String(product.productType || "").toUpperCase() === "GROUP_BUY_VOUCHER";
     const isRecycleItem = String(product.productType || "").toUpperCase() === "RECYCLE_ITEM";
+    const dynamicEnabled = !!product.dynamicPricingEnabled;
+    const unitPrice = resolveOfficialProductUnitPrice(product);
     const stock = resolveOfficialProductStock(product);
     const isSoldOut = stock.maxQuantity <= 0 && (stock.hasTrackedStock || stock.isPersonalLimitReached);
     const top = createEl("div", "market-top");
     top.appendChild(createEl("span", "market-chip official", productTypeLabel(product.productType)));
+    if (dynamicEnabled) {
+      top.appendChild(createEl("span", "market-chip accent", "动态价格"));
+    }
     top.appendChild(createEl("span", "market-time", product.unpublishAt ? `下架：${formatDateTime(product.unpublishAt)}` : "长期供应"));
     card.appendChild(top);
 
@@ -3193,6 +3202,15 @@ function renderProducts(products) {
     if (product.remark) {
       detail.appendChild(createEl("p", "market-remark", product.remark));
     }
+    if (dynamicEnabled) {
+      detail.appendChild(
+        createEl(
+          "p",
+          "market-sub",
+          `算法：${getAlgorithmLabel("dynamic", product.dynamicAlgorithm || "LINEAR_DEMAND_V1")} | 热度 ${Math.max(0, Number(product.dynamicDemandScore || 0))}`
+        )
+      );
+    }
     main.appendChild(detail);
     card.appendChild(main);
 
@@ -3206,8 +3224,8 @@ function renderProducts(products) {
     card.appendChild(stockProgress.wrap);
 
     const priceRow = createEl("div", "market-price-row");
-    priceRow.appendChild(createEl("p", "market-price-label", "单价"));
-    priceRow.appendChild(createEl("p", "market-price", formatCurrency(product.price, product.currency)));
+    priceRow.appendChild(createEl("p", "market-price-label", isRecycleItem ? "回收单价" : "单价"));
+    priceRow.appendChild(createEl("p", "market-price", formatCurrency(unitPrice, product.currency)));
     card.appendChild(priceRow);
 
     const footer = createEl("div", "market-footer");
@@ -3230,7 +3248,7 @@ function renderProducts(products) {
     } else {
       const quantitySelector = createQuantitySelector({
         max: stock.maxQuantity,
-        unitPrice: Number(product.price || 0),
+        unitPrice,
         currency: product.currency,
         totalClassName: "market-total",
       });
@@ -4120,7 +4138,8 @@ async function confirmPurchase(product, quantity) {
   const qty = Number(quantity || 1);
   const productType = String(product.productType || "").toUpperCase();
   const isRecycle = productType === "RECYCLE_ITEM";
-  const subtotalAmount = Number(product.price || 0) * qty;
+  const unitPrice = resolveOfficialProductUnitPrice(product);
+  const subtotalAmount = unitPrice * qty;
   const cooldown = Number(state.orderPolicy.cooldownSeconds || 0);
   const allowClaim = !isRecycle && productType !== "GROUP_BUY_VOUCHER";
   const currentBalance = getWalletBalanceForCurrency(product.currency);
@@ -4128,6 +4147,7 @@ async function confirmPurchase(product, quantity) {
     `商品：${product.title}`,
     `SKU：${product.sku}`,
     `数量：x${qty}`,
+    `${isRecycle ? "回收单价" : "单价"}：${formatCurrency(unitPrice, product.currency)}`,
   ];
   const perUserLimit = Number(product?.perUserLimit);
   const personalRemaining = Number(product?.personalLimitRemaining);

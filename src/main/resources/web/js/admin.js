@@ -159,6 +159,13 @@ const elements = {
   productTitle: document.getElementById("productTitle"),
   productCurrency: document.getElementById("productCurrency"),
   productPrice: document.getElementById("productPrice"),
+  productDynamicEnabled: document.getElementById("productDynamicEnabled"),
+  productDynamicAlgorithm: document.getElementById("productDynamicAlgorithm"),
+  productDynamicBasePrice: document.getElementById("productDynamicBasePrice"),
+  productDynamicFloorPrice: document.getElementById("productDynamicFloorPrice"),
+  productDynamicCapPrice: document.getElementById("productDynamicCapPrice"),
+  productDynamicPriceStep: document.getElementById("productDynamicPriceStep"),
+  productDynamicParamsJson: document.getElementById("productDynamicParamsJson"),
   productPublishAt: document.getElementById("productPublishAt"),
   productUnpublishAt: document.getElementById("productUnpublishAt"),
   productType: document.getElementById("productType"),
@@ -1222,12 +1229,35 @@ function updateProductTypeFieldsVisibility(typeRaw) {
   const commandVisible = type === "COMMAND";
   const itemVisible = type === "GIVE_ITEM" || type === "RECYCLE_ITEM";
   const effectVisible = type === "POTION_EFFECT";
+  const dynamicVisible = itemVisible;
   setProductFieldVisible(elements.productCommand, commandVisible);
   setProductFieldVisible(elements.productItemMaterial, itemVisible);
   setProductFieldVisible(elements.productItemAmount, true);
   setProductFieldVisible(elements.productEffectType, effectVisible);
   setProductFieldVisible(elements.productEffectSeconds, effectVisible);
   setProductFieldVisible(elements.productEffectAmplifier, effectVisible);
+  setProductFieldVisible(elements.productDynamicEnabled, dynamicVisible);
+  setProductFieldVisible(elements.productDynamicAlgorithm, dynamicVisible);
+  setProductFieldVisible(elements.productDynamicBasePrice, dynamicVisible);
+  setProductFieldVisible(elements.productDynamicFloorPrice, dynamicVisible);
+  setProductFieldVisible(elements.productDynamicCapPrice, dynamicVisible);
+  setProductFieldVisible(elements.productDynamicPriceStep, dynamicVisible);
+  setProductFieldVisible(elements.productDynamicParamsJson, dynamicVisible);
+  if (!dynamicVisible && elements.productDynamicEnabled) {
+    elements.productDynamicEnabled.value = "false";
+  }
+}
+
+function parseOptionalPositiveWhole(raw) {
+  const text = String(raw || "").trim();
+  if (!text) {
+    return null;
+  }
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return Math.floor(parsed);
 }
 
 async function createRedeemCode() {
@@ -1285,6 +1315,8 @@ function getProductInput() {
   const parsedItemAmount = rawItemAmount ? Number(rawItemAmount) : null;
   const rawPerUserLimit = String(elements.productPerUserLimit?.value || "").trim();
   const parsedPerUserLimit = rawPerUserLimit ? Number(rawPerUserLimit) : null;
+  const dynamicEnabled = String(elements.productDynamicEnabled?.value || "false") === "true";
+  const dynamicParamsJsonRaw = String(elements.productDynamicParamsJson?.value || "").trim();
   return {
     sku: elements.productSku.value.trim(),
     title: elements.productTitle.value.trim(),
@@ -1309,6 +1341,13 @@ function getProductInput() {
     effectType: elements.productEffectType.value.trim(),
     effectSeconds: Number(elements.productEffectSeconds.value || 0),
     effectAmplifier: Number(elements.productEffectAmplifier.value || 0),
+    dynamicPricingEnabled: dynamicEnabled,
+    dynamicAlgorithm: String(elements.productDynamicAlgorithm?.value || "LINEAR_DEMAND_V1").trim(),
+    dynamicParamsJson: dynamicParamsJsonRaw || null,
+    dynamicBasePrice: parseOptionalPositiveWhole(elements.productDynamicBasePrice?.value),
+    dynamicFloorPrice: parseOptionalPositiveWhole(elements.productDynamicFloorPrice?.value),
+    dynamicCapPrice: parseOptionalPositiveWhole(elements.productDynamicCapPrice?.value),
+    dynamicPriceStep: parseOptionalPositiveWhole(elements.productDynamicPriceStep?.value),
     active: elements.productActive.value === "true",
   };
 }
@@ -1416,6 +1455,27 @@ function renderProducts() {
       }
       elements.productCurrency.value = product.currency;
       elements.productPrice.value = product.price;
+      if (elements.productDynamicEnabled) {
+        elements.productDynamicEnabled.value = product.dynamicPricingEnabled ? "true" : "false";
+      }
+      if (elements.productDynamicAlgorithm) {
+        elements.productDynamicAlgorithm.value = product.dynamicAlgorithm || "LINEAR_DEMAND_V1";
+      }
+      if (elements.productDynamicBasePrice) {
+        elements.productDynamicBasePrice.value = product.dynamicBasePrice ?? "";
+      }
+      if (elements.productDynamicFloorPrice) {
+        elements.productDynamicFloorPrice.value = product.dynamicFloorPrice ?? "";
+      }
+      if (elements.productDynamicCapPrice) {
+        elements.productDynamicCapPrice.value = product.dynamicCapPrice ?? "";
+      }
+      if (elements.productDynamicPriceStep) {
+        elements.productDynamicPriceStep.value = product.dynamicPriceStep ?? "";
+      }
+      if (elements.productDynamicParamsJson) {
+        elements.productDynamicParamsJson.value = product.dynamicParamsJson || "";
+      }
       elements.productPublishAt.value = toLocalInput(product.publishAt);
       elements.productUnpublishAt.value = toLocalInput(product.unpublishAt);
       elements.productType.value = product.productType;
@@ -1471,6 +1531,9 @@ function renderProducts() {
         { label: "剩余库存", value: product.stockRemaining != null ? `x${product.stockRemaining}` : "长期供应" },
         { label: "单玩家限购", value: product.perUserLimit != null ? `x${product.perUserLimit}` : "不限购" },
         { label: "币种/价格", value: `${currencyName(product.currency)} / ${formatCurrency(product.price, product.currency)}` },
+        { label: "动态价格", value: product.dynamicPricingEnabled ? "启用" : "关闭" },
+        { label: "动态算法", value: product.dynamicPricingEnabled ? (product.dynamicAlgorithm || "-") : "-" },
+        { label: "热度分数", value: product.dynamicPricingEnabled ? Number(product.dynamicDemandScore || 0) : "-" },
         { label: "备注", value: product.remark || "-" },
         { label: "上架时间", value: product.publishAt ? formatDateTime(product.publishAt) : "立即" },
         { label: "下架时间", value: product.unpublishAt ? formatDateTime(product.unpublishAt) : "不自动下架" },
@@ -2544,6 +2607,11 @@ localizeOrderStatusOptions();
 if (elements.productType) {
   elements.productType.addEventListener("change", () => {
     updateProductTypeFieldsVisibility(elements.productType.value);
+  });
+}
+if (elements.productDynamicEnabled) {
+  elements.productDynamicEnabled.addEventListener("change", () => {
+    updateProductTypeFieldsVisibility(elements.productType ? elements.productType.value : "COMMAND");
   });
 }
 if (elements.productItemMaterial) {

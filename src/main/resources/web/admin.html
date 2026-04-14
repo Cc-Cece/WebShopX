@@ -186,6 +186,51 @@
           </div>
           <p class="meta" id="productScheduleHint">商品上下架时间按配置时区处理。</p>
           <div>
+            <h4>动态价格（出售/回收）</h4>
+          </div>
+          <div class="field-grid three-col">
+            <label class="field">
+              <span>启用动态价格</span>
+              <select id="productDynamicEnabled">
+                <option value="false">关闭</option>
+                <option value="true">启用</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>动态算法</span>
+              <select id="productDynamicAlgorithm">
+                <option value="LINEAR_DEMAND_V1">线性需求</option>
+                <option value="DIMINISHING_RETURN_V1">边际递减</option>
+                <option value="LOG_SMOOTH_V1">对数平滑</option>
+                <option value="EXPONENTIAL_DEFENSE_V1">指数防御</option>
+                <option value="THRESHOLD_STEP_V1">阈值阶梯</option>
+                <option value="ELASTICITY_V1">弹性模型</option>
+                <option value="PANIC_BUYING_V1">抢购模式</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>基础价（可空，默认=当前价格）</span>
+              <input id="productDynamicBasePrice" type="number" min="1" step="1" placeholder="留空=跟随价格" />
+            </label>
+            <label class="field">
+              <span>最低价（可空）</span>
+              <input id="productDynamicFloorPrice" type="number" min="1" step="1" placeholder="留空=不限" />
+            </label>
+            <label class="field">
+              <span>最高价（可空）</span>
+              <input id="productDynamicCapPrice" type="number" min="1" step="1" placeholder="留空=不限" />
+            </label>
+            <label class="field">
+              <span>价格步长（可空，默认 1）</span>
+              <input id="productDynamicPriceStep" type="number" min="1" step="1" placeholder="留空=1" />
+            </label>
+            <label class="field product-remark-field">
+              <span>算法参数 JSON（可空）</span>
+              <textarea id="productDynamicParamsJson" rows="3" placeholder='例如 {"elasticity": 1.2}'></textarea>
+            </label>
+          </div>
+          <p class="meta">仅 GIVE_ITEM / RECYCLE_ITEM 支持动态价格；回收会降低热度，购买会提升热度。</p>
+          <div>
             <h4>商品信息</h4>
           </div>
           <div class="field-grid three-col">

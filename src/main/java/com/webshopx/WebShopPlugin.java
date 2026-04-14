@@ -206,7 +206,16 @@ public class WebShopPlugin extends JavaPlugin {
     }
     marketCycleTask = getServer().getScheduler().runTaskTimerAsynchronously(
         this,
-        marketService::processMarketCycles,
+        () -> {
+          marketService.processMarketCycles();
+          if (productService != null) {
+            try {
+              productService.processDynamicPriceCycles();
+            } catch (Exception exception) {
+              getLogger().warning("Official dynamic price cycle failed: " + exception.getMessage());
+            }
+          }
+        },
         200L,
         6000L);
   }

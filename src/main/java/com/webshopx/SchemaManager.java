@@ -312,6 +312,14 @@ class SchemaManager {
           effect_type VARCHAR(64) NULL,
           effect_seconds INT NULL,
           effect_amplifier INT NULL,
+          dynamic_pricing_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+          dynamic_algorithm VARCHAR(64) NOT NULL DEFAULT 'LINEAR_DEMAND_V1',
+          dynamic_params_json JSON NULL,
+          dynamic_base_price BIGINT NULL,
+          dynamic_floor_price BIGINT NULL,
+          dynamic_cap_price BIGINT NULL,
+          dynamic_price_step BIGINT NULL,
+          dynamic_demand_score BIGINT NOT NULL DEFAULT 0,
           publish_at DATETIME NULL,
           unpublish_at DATETIME NULL,
           active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -386,6 +394,55 @@ class SchemaManager {
           "ALTER TABLE products "
               + "ADD COLUMN effect_amplifier INT NULL AFTER effect_seconds");
     }
+    if (!columnExists(connection, "products", "dynamic_pricing_enabled")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN dynamic_pricing_enabled BOOLEAN NOT NULL DEFAULT FALSE AFTER effect_amplifier");
+    }
+    if (!columnExists(connection, "products", "dynamic_algorithm")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN dynamic_algorithm VARCHAR(64) NOT NULL DEFAULT 'LINEAR_DEMAND_V1' "
+              + "AFTER dynamic_pricing_enabled");
+    }
+    if (!columnExists(connection, "products", "dynamic_params_json")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN dynamic_params_json JSON NULL AFTER dynamic_algorithm");
+    }
+    if (!columnExists(connection, "products", "dynamic_base_price")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN dynamic_base_price BIGINT NULL AFTER dynamic_params_json");
+    }
+    if (!columnExists(connection, "products", "dynamic_floor_price")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN dynamic_floor_price BIGINT NULL AFTER dynamic_base_price");
+    }
+    if (!columnExists(connection, "products", "dynamic_cap_price")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN dynamic_cap_price BIGINT NULL AFTER dynamic_floor_price");
+    }
+    if (!columnExists(connection, "products", "dynamic_price_step")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN dynamic_price_step BIGINT NULL AFTER dynamic_cap_price");
+    }
+    if (!columnExists(connection, "products", "dynamic_demand_score")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN dynamic_demand_score BIGINT NOT NULL DEFAULT 0 AFTER dynamic_price_step");
+    }
     if (!columnExists(connection, "products", "publish_at")) {
       execute(
           connection,
@@ -402,6 +459,52 @@ class SchemaManager {
         connection,
         "UPDATE products SET product_type = 'COMMAND' "
             + "WHERE product_type IS NULL OR product_type = ''");
+    execute(
+      connection,
+      "UPDATE products SET dynamic_algorithm = 'LINEAR_DEMAND_V1' "
+        + "WHERE dynamic_algorithm IS NULL OR dynamic_algorithm = ''");
+    execute(
+      connection,
+      "UPDATE products SET dynamic_demand_score = 0 "
+        + "WHERE dynamic_demand_score IS NULL OR dynamic_demand_score < 0");
+    execute(
+      connection,
+      "UPDATE products SET dynamic_base_price = NULL "
+        + "WHERE dynamic_base_price IS NOT NULL AND dynamic_base_price <= 0");
+    execute(
+      connection,
+      "UPDATE products SET dynamic_floor_price = NULL "
+        + "WHERE dynamic_floor_price IS NOT NULL AND dynamic_floor_price <= 0");
+    execute(
+      connection,
+      "UPDATE products SET dynamic_cap_price = NULL "
+        + "WHERE dynamic_cap_price IS NOT NULL AND dynamic_cap_price <= 0");
+    execute(
+      connection,
+      "UPDATE products SET dynamic_price_step = NULL "
+        + "WHERE dynamic_price_step IS NOT NULL AND dynamic_price_step <= 0");
+    execute(
+      connection,
+      "UPDATE products SET dynamic_cap_price = dynamic_floor_price "
+        + "WHERE dynamic_floor_price IS NOT NULL "
+        + "AND dynamic_cap_price IS NOT NULL "
+        + "AND dynamic_cap_price < dynamic_floor_price");
+    execute(
+      connection,
+      "UPDATE products SET dynamic_pricing_enabled = FALSE "
+        + "WHERE dynamic_pricing_enabled = TRUE "
+        + "AND product_type NOT IN ('GIVE_ITEM', 'RECYCLE_ITEM')");
+    execute(
+      connection,
+      "UPDATE products SET dynamic_base_price = price "
+        + "WHERE dynamic_pricing_enabled = TRUE "
+        + "AND dynamic_base_price IS NULL "
+        + "AND price > 0");
+    execute(
+      connection,
+      "UPDATE products SET dynamic_pricing_enabled = FALSE "
+        + "WHERE dynamic_pricing_enabled = TRUE "
+        + "AND (COALESCE(dynamic_base_price, 0) <= 0)");
   }
 
   private void createOrders(Connection connection) throws SQLException {

@@ -57,7 +57,7 @@ class OrderService {
     if (product.productType() == ProductService.ProductType.RECYCLE_ITEM) {
       int maxQuantity = resolveProductMaxQuantity(product);
       validatePurchaseQuantity(quantity, maxQuantity);
-      return runSync(() -> placeRecycleOrder(userId, product, quantity, maxQuantity, idempotencyKey));
+      return runSync(() -> placeRecycleOrder(userId, product.id(), quantity, maxQuantity, idempotencyKey));
     }
 
     int cooldownSeconds = normalizedOrderCooldownSeconds();
@@ -104,7 +104,8 @@ class OrderService {
     DeliveryMode deliveryMode = resolveDeliveryMode(deliveryModeRaw, product.productType());
     UUID playerUuid = readBoundUuidForUpdate(connection, userId);
     consumePersonalLimitQuota(connection, userId, product, quantity);
-    long totalAmount = Math.multiplyExact(product.price(), quantity);
+    long unitPrice = productService.resolveOrderUnitPrice(product);
+    long totalAmount = Math.multiplyExact(unitPrice, quantity);
     String orderNo = newOrderNo();
     boolean isGroupBuyVoucher = product.productType() == ProductService.ProductType.GROUP_BUY_VOUCHER;
     LocalDateTime now = LocalDateTime.now();
@@ -137,7 +138,7 @@ class OrderService {
         orderStatus,
         idempotencyKey,
         refundDeadline);
-    long itemId = insertOrderItem(connection, orderId, product.id(), quantity, product.price());
+    long itemId = insertOrderItem(connection, orderId, product.id(), quantity, unitPrice);
     String groupBuyVoucherCode = null;
     String groupBuyVoucherStatus = null;
     LocalDateTime groupBuyVoucherConsumedAt = null;
@@ -145,6 +146,11 @@ class OrderService {
       groupBuyVoucherCode = insertGroupBuyVoucher(connection, orderId, userId, product.id());
       groupBuyVoucherStatus = "ISSUED";
     } else {
+      productService.applyDynamicPriceEvent(
+          connection,
+          product,
+          quantity,
+          ProductService.DynamicPriceEvent.PURCHASE);
       DeliveryTaskSpec taskSpec = buildDeliveryTaskSpec(product, quantity);
       LocalDateTime deliveryAt = refundDeadline == null ? now : refundDeadline;
       insertDelivery(
@@ -172,16 +178,10 @@ class OrderService {
 
   private OrderPlacementResult placeRecycleOrder(
       long userId,
-      ProductService.ProductView product,
+      long productId,
       int quantity,
       int maxQuantity,
       String idempotencyKey) {
-    if (product.productType() != ProductService.ProductType.RECYCLE_ITEM) {
-      throw new ServiceException("invalid_product_type", "Product type is not recyclable");
-    }
-    if (product.itemMaterial() == null) {
-      throw new ServiceException("invalid_product", "Recycle material is missing");
-    }
     int requiredAmount = quantity;
     if (requiredAmount <= 0) {
       throw new ServiceException("invalid_quantity", "Recycle amount must be positive");
@@ -191,10 +191,6 @@ class OrderService {
     }
 
     String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
-    Material material = Material.matchMaterial(product.itemMaterial());
-    if (material == null || material == Material.AIR) {
-      throw new ServiceException("invalid_product", "Recycle material is invalid");
-    }
 
     return databaseManager.inTransaction(connection -> {
       ExistingOrder existingOrder = readExistingOrder(connection, userId, normalizedKey);
@@ -212,18 +208,37 @@ class OrderService {
             existingOrder.groupBuyVoucherConsumedAt());
       }
 
+      ProductService.ProductView product = productService.readActiveProduct(connection, productId, true);
+      if (product.productType() != ProductService.ProductType.RECYCLE_ITEM) {
+        throw new ServiceException("invalid_product_type", "Product type is not recyclable");
+      }
+      if (product.itemMaterial() == null) {
+        throw new ServiceException("invalid_product", "Recycle material is missing");
+      }
+
+      int resolvedMaxQuantity = resolveProductMaxQuantity(product);
+      int clampedMaxQuantity = maxQuantity > 0
+          ? Math.min(maxQuantity, resolvedMaxQuantity)
+          : resolvedMaxQuantity;
+      validatePurchaseQuantity(quantity, clampedMaxQuantity);
+
       UUID playerUuid = readBoundUuidForUpdate(connection, userId);
       Player player = Bukkit.getPlayer(playerUuid);
       if (player == null || !player.isOnline()) {
         throw new ServiceException("player_offline", "Player must be online for recycle orders");
       }
 
+      Material material = Material.matchMaterial(product.itemMaterial());
+      if (material == null || material == Material.AIR) {
+        throw new ServiceException("invalid_product", "Recycle material is invalid");
+      }
       if (!hasEnoughItem(player, material, requiredAmount)) {
         throw new ServiceException("insufficient_item", "Not enough items to recycle");
       }
 
       String orderNo = newOrderNo();
-      long totalAmount = Math.multiplyExact(product.price(), quantity);
+      long unitPrice = productService.resolveOrderUnitPrice(product);
+      long totalAmount = Math.multiplyExact(unitPrice, quantity);
       boolean removed = removeItems(player, material, requiredAmount);
       if (!removed) {
         throw new ServiceException("insufficient_item", "Failed to remove recycle items");
@@ -249,7 +264,12 @@ class OrderService {
             "RECYCLED",
             normalizedKey,
             null);
-        insertOrderItem(connection, orderId, product.id(), quantity, product.price());
+        insertOrderItem(connection, orderId, product.id(), quantity, unitPrice);
+        productService.applyDynamicPriceEvent(
+            connection,
+            product,
+            quantity,
+            ProductService.DynamicPriceEvent.RECYCLE);
         return new OrderPlacementResult(
             PlacementState.CREATED,
             orderNo,

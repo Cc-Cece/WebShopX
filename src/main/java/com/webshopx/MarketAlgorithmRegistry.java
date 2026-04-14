@@ -92,6 +92,18 @@ final class MarketAlgorithmRegistry {
     return safeAdd(Math.max(0L, currentDemand), delta);
   }
 
+  static long computeDemandAfterRecycle(
+      DynamicAlgorithmType algorithm,
+      long currentDemand,
+      int recycleQuantity,
+      JsonObject params) {
+    DynamicPricingStrategy strategy = DYNAMIC_STRATEGIES.getOrDefault(
+        algorithm,
+        DYNAMIC_STRATEGIES.get(DynamicAlgorithmType.LINEAR_DEMAND_V1));
+    long delta = Math.max(0L, strategy.demandDelta(Math.max(0L, currentDemand), Math.max(1, recycleQuantity), params));
+    return Math.max(0L, Math.max(0L, currentDemand) - delta);
+  }
+
   static long computeDemandAfterDecay(long currentDemand, int decayStep) {
     return Math.max(0L, currentDemand - Math.max(1, decayStep));
   }

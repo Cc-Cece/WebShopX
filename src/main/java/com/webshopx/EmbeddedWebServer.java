@@ -1362,6 +1362,31 @@ class EmbeddedWebServer {
       JsonObject payload = readJson(exchange);
       AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.PRODUCT_MANAGE);
       boolean allowZeroPrice = admin.allows(AdminPermission.PRODUCT_ZERO_PRICE);
+      Boolean dynamicPricingEnabled = payload.has("dynamicPricingEnabled")
+        && !payload.get("dynamicPricingEnabled").isJsonNull()
+        ? payload.get("dynamicPricingEnabled").getAsBoolean()
+        : null;
+      String dynamicAlgorithm = getOptionalString(payload, "dynamicAlgorithm").orElse(null);
+      String dynamicParamsJson = null;
+      if (payload.has("dynamicParamsJson") && !payload.get("dynamicParamsJson").isJsonNull()) {
+      JsonElement dynamicParamsElement = payload.get("dynamicParamsJson");
+      dynamicParamsJson = dynamicParamsElement.isJsonPrimitive()
+        && dynamicParamsElement.getAsJsonPrimitive().isString()
+        ? dynamicParamsElement.getAsString()
+        : dynamicParamsElement.toString();
+      }
+      Long dynamicBasePrice = payload.has("dynamicBasePrice") && !payload.get("dynamicBasePrice").isJsonNull()
+        ? getLong(payload, "dynamicBasePrice", 0L)
+        : null;
+      Long dynamicFloorPrice = payload.has("dynamicFloorPrice") && !payload.get("dynamicFloorPrice").isJsonNull()
+        ? getLong(payload, "dynamicFloorPrice", 0L)
+        : null;
+      Long dynamicCapPrice = payload.has("dynamicCapPrice") && !payload.get("dynamicCapPrice").isJsonNull()
+        ? getLong(payload, "dynamicCapPrice", 0L)
+        : null;
+      Long dynamicPriceStep = payload.has("dynamicPriceStep") && !payload.get("dynamicPriceStep").isJsonNull()
+        ? getLong(payload, "dynamicPriceStep", 0L)
+        : null;
       ProductService.AdminProductInput input = new ProductService.AdminProductInput(
           getString(payload, "sku"),
           getString(payload, "title"),
@@ -1384,6 +1409,13 @@ class EmbeddedWebServer {
           payload.has("effectAmplifier") && !payload.get("effectAmplifier").isJsonNull()
               ? (int) getLong(payload, "effectAmplifier", 0L)
               : null,
+            dynamicPricingEnabled,
+            dynamicAlgorithm,
+            dynamicParamsJson,
+            dynamicBasePrice,
+            dynamicFloorPrice,
+            dynamicCapPrice,
+            dynamicPriceStep,
           getOptionalDateTime(payload, "publishAt"),
           getOptionalDateTime(payload, "unpublishAt"),
           payload.has("active") ? payload.get("active").getAsBoolean() : true);
@@ -2327,6 +2359,34 @@ class EmbeddedWebServer {
     row.addProperty("currency", product.currency().name());
     row.addProperty("price", product.price());
     row.addProperty("productType", product.productType().name());
+    row.addProperty("dynamicPricingEnabled", product.dynamicPricingEnabled());
+    row.addProperty("dynamicAlgorithm", product.dynamicAlgorithm());
+    if (product.dynamicParamsJson() == null) {
+      row.add("dynamicParamsJson", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("dynamicParamsJson", product.dynamicParamsJson());
+    }
+    if (product.dynamicBasePrice() == null) {
+      row.add("dynamicBasePrice", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("dynamicBasePrice", product.dynamicBasePrice());
+    }
+    if (product.dynamicFloorPrice() == null) {
+      row.add("dynamicFloorPrice", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("dynamicFloorPrice", product.dynamicFloorPrice());
+    }
+    if (product.dynamicCapPrice() == null) {
+      row.add("dynamicCapPrice", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("dynamicCapPrice", product.dynamicCapPrice());
+    }
+    if (product.dynamicPriceStep() == null) {
+      row.add("dynamicPriceStep", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("dynamicPriceStep", product.dynamicPriceStep());
+    }
+    row.addProperty("dynamicDemandScore", product.dynamicDemandScore());
     addBusinessDateTime(row, "publishAt", product.publishAt());
     addBusinessDateTime(row, "unpublishAt", product.unpublishAt());
     if (product.itemMaterial() == null) {
