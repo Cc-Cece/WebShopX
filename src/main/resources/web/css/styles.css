@@ -1717,6 +1717,62 @@ pre {
   white-space: nowrap;
 }
 
+.dialog-param-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialog-param-tab {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface-variant);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dialog-param-tab.is-active {
+  border-color: var(--md-sys-color-primary);
+  background: color-mix(in srgb, var(--md-sys-color-primary) 16%, var(--md-sys-color-surface-container-low));
+  color: var(--md-sys-color-on-surface);
+}
+
+.dialog-param-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.dialog-advanced-details {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--radius-small);
+  background: var(--md-sys-color-surface-container-low);
+  padding: 8px 10px;
+}
+
+.dialog-advanced-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--md-sys-color-on-surface);
+  list-style: none;
+}
+
+.dialog-advanced-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.dialog-advanced-details summary::after {
+  content: "▾";
+  float: right;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.dialog-advanced-details[open] summary::after {
+  transform: rotate(180deg);
+}
+
 .dialog-select-field textarea,
 .dialog-select-field input,
 .dialog-select-field select {

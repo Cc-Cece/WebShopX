@@ -29,7 +29,7 @@ class StaticAssetInstaller {
       Pattern.compile("^(?<key>.+?)(?:\\.(?<locale>[A-Za-z]{2}(?:-[A-Za-z]{2})?))?$");
 
   private static final Map<String, Set<String>> LEGACY_EMBEDDED_HASHES = Map.of(
-      "web/docs/manual.md", Set.of(BUILTIN_MANUAL_MD5));
+      "web/docs/manual.zh-CN.md", Set.of(BUILTIN_MANUAL_MD5));
 
   private static final List<String> ASSETS = List.of(
       "web/index.html",
@@ -55,7 +55,7 @@ class StaticAssetInstaller {
       "web/help.html",
       "web/docs/help.zh-CN.md",
       "web/docs/help.en-US.md",
-      "web/docs/manual.md",
+      "web/docs/manual.zh-CN.md",
       "web/docs/manual.en-US.md");
 
   private final JavaPlugin plugin;

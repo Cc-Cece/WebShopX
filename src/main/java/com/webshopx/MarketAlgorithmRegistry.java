@@ -12,7 +12,15 @@ import java.util.concurrent.ThreadLocalRandom;
 
 final class MarketAlgorithmRegistry {
   private static final long MAX_SAFE_PRICE = Long.MAX_VALUE;
-  private static final long DEFAULT_THRESHOLD_K = 4L;
+  private static final double DEFAULT_DIMINISHING_B = 0.1D;
+  private static final double DEFAULT_LOG_ALPHA = 0.05D;
+  private static final double DEFAULT_EXPONENTIAL_BETA = 0.01D;
+  private static final long DEFAULT_THRESHOLD_DEMAND = 20L;
+  private static final double DEFAULT_THRESHOLD_K2_MULTIPLIER = 3.0D;
+  private static final double DEFAULT_ELASTICITY_EPSILON = 1.0D;
+  private static final double DEFAULT_ELASTICITY_D0 = 1.0D;
+  private static final double DEFAULT_ELASTICITY_ETA = 1.0D;
+  private static final double DEFAULT_PANIC_GAMMA = 1.0D;
   private static final long DEFAULT_PANIC_THRESHOLD = 20L;
 
   private static final Map<DynamicAlgorithmType, DynamicPricingStrategy> DYNAMIC_STRATEGIES =
@@ -200,6 +208,40 @@ final class MarketAlgorithmRegistry {
     }
   }
 
+  private static long getLongParamWithAliases(JsonObject params, long defaultValue, String... keys) {
+    if (params == null || keys == null) {
+      return defaultValue;
+    }
+    for (String key : keys) {
+      if (key == null || key.isBlank() || !params.has(key) || params.get(key).isJsonNull()) {
+        continue;
+      }
+      try {
+        return params.get(key).getAsLong();
+      } catch (Exception ignored) {
+        continue;
+      }
+    }
+    return defaultValue;
+  }
+
+  private static double getDoubleParamWithAliases(JsonObject params, double defaultValue, String... keys) {
+    if (params == null || keys == null) {
+      return defaultValue;
+    }
+    for (String key : keys) {
+      if (key == null || key.isBlank() || !params.has(key) || params.get(key).isJsonNull()) {
+        continue;
+      }
+      try {
+        return params.get(key).getAsDouble();
+      } catch (Exception ignored) {
+        continue;
+      }
+    }
+    return defaultValue;
+  }
+
   private static long applyBounds(long rawPrice, Long floorPrice, Long capPrice) {
     long bounded = Math.max(1L, rawPrice);
     if (floorPrice != null) {
@@ -221,14 +263,14 @@ final class MarketAlgorithmRegistry {
     return left + right;
   }
 
-  private static long safeMultiply(long left, long right) {
-    if (left <= 0 || right <= 0) {
-      return 0L;
+  private static long toLongPrice(double value) {
+    if (!Double.isFinite(value) || value <= 0D) {
+      return 1L;
     }
-    if (left > Long.MAX_VALUE / right) {
-      return Long.MAX_VALUE;
+    if (value >= (double) MAX_SAFE_PRICE) {
+      return MAX_SAFE_PRICE;
     }
-    return left * right;
+    return Math.max(1L, (long) Math.floor(value));
   }
 
   private static Map<DynamicAlgorithmType, DynamicPricingStrategy> initDynamicStrategies() {
@@ -239,12 +281,14 @@ final class MarketAlgorithmRegistry {
         new DynamicPricingStrategy() {
           @Override
           public long demandDelta(long currentDemand, int buyQuantity, JsonObject params) {
-            return Math.max(1, buyQuantity);
+            return Math.max(1L, buyQuantity);
           }
 
           @Override
           public long computeRawPrice(long basePrice, long demandHeat, long step, JsonObject params) {
-            return safeAdd(basePrice, safeMultiply(demandHeat, step));
+            double k = Math.max(0D, getDoubleParamWithAliases(params, (double) step, "k"));
+            double rawPrice = (double) basePrice + (k * (double) demandHeat);
+            return toLongPrice(rawPrice);
           }
         });
 
@@ -253,12 +297,19 @@ final class MarketAlgorithmRegistry {
         new DynamicPricingStrategy() {
           @Override
           public long demandDelta(long currentDemand, int buyQuantity, JsonObject params) {
-            return Math.max(1L, Math.round(Math.sqrt(Math.max(1, buyQuantity))));
+            return Math.max(1L, buyQuantity);
           }
 
           @Override
           public long computeRawPrice(long basePrice, long demandHeat, long step, JsonObject params) {
-            return safeAdd(basePrice, safeMultiply(demandHeat, step));
+            double a = Math.max(0D, getDoubleParamWithAliases(params, (double) step, "a"));
+            double b = Math.max(0D, getDoubleParamWithAliases(params, DEFAULT_DIMINISHING_B, "b"));
+            double demand = (double) demandHeat;
+            double rawPrice = (double) basePrice;
+            if (demand > 0D) {
+              rawPrice += a * (demand / (1D + (b * demand)));
+            }
+            return toLongPrice(rawPrice);
           }
         });
 
@@ -267,13 +318,14 @@ final class MarketAlgorithmRegistry {
         new DynamicPricingStrategy() {
           @Override
           public long demandDelta(long currentDemand, int buyQuantity, JsonObject params) {
-            double delta = Math.log(Math.max(1, buyQuantity) + 1D);
-            return Math.max(1L, Math.round(delta));
+            return Math.max(1L, buyQuantity);
           }
 
           @Override
           public long computeRawPrice(long basePrice, long demandHeat, long step, JsonObject params) {
-            return safeAdd(basePrice, safeMultiply(demandHeat, step));
+            double alpha = Math.max(0D, getDoubleParamWithAliases(params, DEFAULT_LOG_ALPHA, "alpha"));
+            double rawPrice = (double) basePrice * (1D + (alpha * Math.log1p((double) demandHeat)));
+            return toLongPrice(rawPrice);
           }
         });
 
@@ -282,13 +334,15 @@ final class MarketAlgorithmRegistry {
         new DynamicPricingStrategy() {
           @Override
           public long demandDelta(long currentDemand, int buyQuantity, JsonObject params) {
-            double delta = Math.pow(Math.max(1, buyQuantity), 1.5D);
-            return Math.max(1L, Math.round(delta));
+            return Math.max(1L, buyQuantity);
           }
 
           @Override
           public long computeRawPrice(long basePrice, long demandHeat, long step, JsonObject params) {
-            return safeAdd(basePrice, safeMultiply(demandHeat, step));
+            double beta = Math.max(0D, getDoubleParamWithAliases(params, DEFAULT_EXPONENTIAL_BETA, "beta"));
+            double exponent = Math.min(40D, beta * (double) demandHeat);
+            double rawPrice = (double) basePrice * Math.exp(exponent);
+            return toLongPrice(rawPrice);
           }
         });
 
@@ -297,13 +351,28 @@ final class MarketAlgorithmRegistry {
         new DynamicPricingStrategy() {
           @Override
           public long demandDelta(long currentDemand, int buyQuantity, JsonObject params) {
-            long threshold = Math.max(0L, getLongParam(params, "thresholdK", DEFAULT_THRESHOLD_K));
-            return Math.max(0L, Math.max(1, buyQuantity) - threshold);
+            return Math.max(1L, buyQuantity);
           }
 
           @Override
           public long computeRawPrice(long basePrice, long demandHeat, long step, JsonObject params) {
-            return safeAdd(basePrice, safeMultiply(demandHeat, step));
+            long threshold = Math.max(
+                0L,
+                getLongParamWithAliases(params, DEFAULT_THRESHOLD_DEMAND, "threshold", "thresholdK"));
+            double k1 = Math.max(0D, getDoubleParamWithAliases(params, (double) step, "k1", "k"));
+            double defaultK2 = Math.max(k1, k1 * DEFAULT_THRESHOLD_K2_MULTIPLIER);
+            double k2 = Math.max(k1, getDoubleParamWithAliases(params, defaultK2, "k2"));
+
+            double demand = (double) demandHeat;
+            double rawPrice;
+            if (demandHeat <= threshold) {
+              rawPrice = (double) basePrice + (k1 * demand);
+            } else {
+              rawPrice = (double) basePrice
+                  + (k1 * (double) threshold)
+                  + (k2 * (demand - (double) threshold));
+            }
+            return toLongPrice(rawPrice);
           }
         });
 
@@ -312,18 +381,33 @@ final class MarketAlgorithmRegistry {
         new DynamicPricingStrategy() {
           @Override
           public long demandDelta(long currentDemand, int buyQuantity, JsonObject params) {
-            return Math.max(1, buyQuantity);
+            return Math.max(1L, buyQuantity);
           }
 
           @Override
           public long computeRawPrice(long basePrice, long demandHeat, long step, JsonObject params) {
-            double epsilon = getDoubleParam(params, "elasticity", 1.0D);
-            if (epsilon <= 0D) {
-              epsilon = 1.0D;
+            double eta = getDoubleParamWithAliases(params, DEFAULT_ELASTICITY_ETA, "eta", "elasticity");
+            if (!Double.isFinite(eta)) {
+              eta = DEFAULT_ELASTICITY_ETA;
             }
-            double delta = ((double) demandHeat * (double) step) / epsilon;
-            long increment = (long) Math.floor(Math.max(0D, delta));
-            return safeAdd(basePrice, Math.min(increment, MAX_SAFE_PRICE));
+            eta = Math.max(0D, eta);
+
+            double epsilon = getDoubleParamWithAliases(params, DEFAULT_ELASTICITY_EPSILON, "epsilon");
+            if (!Double.isFinite(epsilon) || epsilon <= 0D) {
+              epsilon = DEFAULT_ELASTICITY_EPSILON;
+            }
+            double d0 = getDoubleParamWithAliases(params, DEFAULT_ELASTICITY_D0, "d0");
+            if (!Double.isFinite(d0) || d0 < 0D) {
+              d0 = DEFAULT_ELASTICITY_D0;
+            }
+
+            double denominator = d0 + epsilon;
+            if (denominator <= 0D) {
+              denominator = epsilon;
+            }
+            double ratio = Math.max(0D, ((double) demandHeat + epsilon) / denominator);
+            double rawPrice = (double) basePrice * Math.pow(ratio, eta);
+            return toLongPrice(rawPrice);
           }
         });
 
@@ -332,18 +416,21 @@ final class MarketAlgorithmRegistry {
         new DynamicPricingStrategy() {
           @Override
           public long demandDelta(long currentDemand, int buyQuantity, JsonObject params) {
-            return Math.max(1, buyQuantity);
+            return Math.max(1L, buyQuantity);
           }
 
           @Override
           public long computeRawPrice(long basePrice, long demandHeat, long step, JsonObject params) {
-            long threshold = Math.max(0L, getLongParam(params, "panicThreshold", DEFAULT_PANIC_THRESHOLD));
-            long linear = safeAdd(basePrice, safeMultiply(demandHeat, step));
-            if (demandHeat <= threshold) {
-              return linear;
-            }
-            long extra = safeMultiply(demandHeat - threshold, demandHeat - threshold);
-            return safeAdd(linear, extra);
+            double k = Math.max(0D, getDoubleParamWithAliases(params, (double) step, "k"));
+            long threshold = Math.max(
+                0L,
+                getLongParamWithAliases(params, DEFAULT_PANIC_THRESHOLD, "threshold", "panicThreshold"));
+            double gamma = Math.max(0D, getDoubleParamWithAliases(params, DEFAULT_PANIC_GAMMA, "gamma"));
+            double excess = Math.max(0D, (double) demandHeat - (double) threshold);
+            double rawPrice = (double) basePrice
+                + (k * (double) demandHeat)
+                + (gamma * excess * excess);
+            return toLongPrice(rawPrice);
           }
         });
 

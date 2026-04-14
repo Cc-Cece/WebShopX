@@ -33,6 +33,10 @@ class MarketService {
   private static final int AUCTION_SETTLE_BATCH_LIMIT = 20;
   private static final int DYNAMIC_DECAY_STEP = 1;
   private static final int MIN_AUCTION_DURATION_SECONDS = 30;
+  private static final long DEFAULT_ANTI_SNIPING_WINDOW_SECONDS = 30L;
+  private static final long DEFAULT_ANTI_SNIPING_EXTEND_SECONDS = 30L;
+  private static final String ANTI_SNIPING_WINDOW_KEY = "antiSnipingWindowSeconds";
+  private static final String ANTI_SNIPING_EXTEND_KEY = "antiSnipingExtendSeconds";
 
   private final JavaPlugin plugin;
   private final DatabaseManager databaseManager;
@@ -1176,6 +1180,7 @@ class MarketService {
     Long previousHighestBidderUserId = listing.auctionHighestBidderUserId();
     UUID previousHighestBidderUuid = listing.auctionHighestBidderUuid();
     Long previousHighestBidId = listing.auctionHighestBidId();
+    LocalDateTime resolvedAuctionEndAt = listing.auctionEndAt();
 
     if (!sealedBid) {
       if (previousHighestBidId != null && previousHighestBid != null && previousHighestBid > 0L
@@ -1197,6 +1202,18 @@ class MarketService {
             false);
       }
 
+      LocalDateTime updatedAuctionPublicEndAt = listing.auctionPublicEndAt();
+      LocalDateTime updatedAuctionEndAt = listing.auctionEndAt();
+      if (algorithmType == MarketAlgorithmRegistry.AuctionAlgorithmType.ENGLISH_AUCTION_V1) {
+        JsonObject auctionParams = MarketAlgorithmRegistry.parseParams(listing.auctionParamsJson());
+        updatedAuctionEndAt = maybeApplyAntiSnipingExtension(
+            listing.auctionEndAt(),
+            auctionParams,
+            LocalDateTime.now());
+        updatedAuctionPublicEndAt = updatedAuctionEndAt;
+      }
+      resolvedAuctionEndAt = updatedAuctionEndAt;
+
       String updateSql = """
           UPDATE market_listings
           SET auction_highest_bid = ?,
@@ -1204,6 +1221,8 @@ class MarketService {
               auction_highest_bidder_uuid = ?,
               auction_highest_bid_id = ?,
               auction_last_bid_at = NOW(),
+              auction_public_end_at = ?,
+              auction_end_at = ?,
               price = ?
           WHERE id = ?
           """;
@@ -1212,8 +1231,18 @@ class MarketService {
         statement.setLong(2, bidder.userId());
         statement.setString(3, bidder.boundUuid().toString());
         statement.setLong(4, bidId);
-        statement.setLong(5, bidAmount);
-        statement.setLong(6, listing.id());
+        if (updatedAuctionPublicEndAt == null) {
+          statement.setTimestamp(5, null);
+        } else {
+          statement.setTimestamp(5, Timestamp.valueOf(updatedAuctionPublicEndAt));
+        }
+        if (updatedAuctionEndAt == null) {
+          statement.setTimestamp(6, null);
+        } else {
+          statement.setTimestamp(6, Timestamp.valueOf(updatedAuctionEndAt));
+        }
+        statement.setLong(7, bidAmount);
+        statement.setLong(8, listing.id());
         statement.executeUpdate();
       }
 
@@ -1240,6 +1269,7 @@ class MarketService {
       }
       previousHighestBid = null;
       previousHighestBidderUserId = null;
+      resolvedAuctionEndAt = listing.auctionEndAt();
     }
 
     return new BidResult(
@@ -1251,10 +1281,44 @@ class MarketService {
         sealedBid ? currentHighestBid : bidAmount,
         previousHighestBid,
         previousHighestBidderUserId,
-        listing.auctionEndAt(),
+        resolvedAuctionEndAt,
         algorithmType.name(),
         sealedBid,
         requiredMinimum);
+  }
+
+  private LocalDateTime maybeApplyAntiSnipingExtension(
+      LocalDateTime auctionEndAt,
+      JsonObject auctionParams,
+      LocalDateTime now) {
+    if (auctionEndAt == null) {
+      return null;
+    }
+    LocalDateTime referenceNow = now == null ? LocalDateTime.now() : now;
+    if (!auctionEndAt.isAfter(referenceNow)) {
+      return auctionEndAt;
+    }
+    long antiSnipingWindowSeconds = Math.max(
+        0L,
+        MarketAlgorithmRegistry.getLongParam(
+            auctionParams,
+            ANTI_SNIPING_WINDOW_KEY,
+            DEFAULT_ANTI_SNIPING_WINDOW_SECONDS));
+    long antiSnipingExtendSeconds = Math.max(
+        0L,
+        MarketAlgorithmRegistry.getLongParam(
+            auctionParams,
+            ANTI_SNIPING_EXTEND_KEY,
+            DEFAULT_ANTI_SNIPING_EXTEND_SECONDS));
+    if (antiSnipingWindowSeconds <= 0L || antiSnipingExtendSeconds <= 0L) {
+      return auctionEndAt;
+    }
+
+    LocalDateTime triggerTime = auctionEndAt.minusSeconds(antiSnipingWindowSeconds);
+    if (referenceNow.isBefore(triggerTime)) {
+      return auctionEndAt;
+    }
+    return auctionEndAt.plusSeconds(antiSnipingExtendSeconds);
   }
 
   private ExistingBid readExistingBid(Connection connection, long bidderUserId, String idempotencyKey)
@@ -2160,6 +2224,20 @@ class MarketService {
           if (normalizedAuctionEndAt == null || !normalizedAuctionEndAt.isAfter(now.plusSeconds(MIN_AUCTION_DURATION_SECONDS))) {
             throw new ServiceException("invalid_auction_end", "Auction end time must be at least 30 seconds later");
           }
+          long antiSnipingWindowSeconds = Math.max(
+              0L,
+              MarketAlgorithmRegistry.getLongParam(
+                  normalizedAuctionParams,
+                  ANTI_SNIPING_WINDOW_KEY,
+                  DEFAULT_ANTI_SNIPING_WINDOW_SECONDS));
+          long antiSnipingExtendSeconds = Math.max(
+              0L,
+              MarketAlgorithmRegistry.getLongParam(
+                  normalizedAuctionParams,
+                  ANTI_SNIPING_EXTEND_KEY,
+                  DEFAULT_ANTI_SNIPING_EXTEND_SECONDS));
+          normalizedAuctionParams.addProperty(ANTI_SNIPING_WINDOW_KEY, antiSnipingWindowSeconds);
+          normalizedAuctionParams.addProperty(ANTI_SNIPING_EXTEND_KEY, antiSnipingExtendSeconds);
           normalizedAuctionPublicEndAt = normalizedAuctionEndAt;
           if (normalizedAuctionStartedAt == null || !listing.isAuction()) {
             normalizedAuctionStartedAt = now;

@@ -1,4 +1,4 @@
-# 📊 WebShopX Advanced User Manual {#top}
+# WebShopX Advanced User Manual {#top}
 
 > **Document Nature**: Deep Manual ⚙️
 > **Target Audience**: Server Administrators, Advanced Players

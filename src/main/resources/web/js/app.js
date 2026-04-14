@@ -86,6 +86,11 @@ const FALLBACK_MARKET_ALGORITHM_GLOSSARY = Object.freeze({
   ],
 });
 
+const PARAM_KEY_ALIAS_MAP = Object.freeze({
+  threshold: ["thresholdK", "panicThreshold"],
+  eta: ["elasticity"],
+});
+
 const LOCAL_TEXTURE_BASE = "/textures";
 const REMOTE_TEXTURE_BASES = [
   "https://mcasset.cloud/1.21/assets/minecraft/textures",
@@ -382,6 +387,7 @@ const elements = {
   profileName: document.getElementById("profileName"),
   profileUuid: document.getElementById("profileUuid"),
   logoutBtn: document.getElementById("logoutBtn"),
+  accountHelpBtn: document.getElementById("accountHelpBtn"),
 
   walletView: document.getElementById("walletView"),
   walletLedgerView: document.getElementById("walletLedgerView"),
@@ -812,8 +818,8 @@ function openExchangeConfirmDialog({
     ["当前比例", `1 ${fromMeta.short} = ${formatRatioValue(ratio)} ${toMeta.short}`],
     ["扣除", formatCurrency(amount, fromCurrency), "negative"],
     ["预计入账", formatCurrency(convertedAmount, toCurrency), "balance-positive"],
-    ["转出后余额", formatCurrency(fromRemaining, fromCurrency), isInsufficient ? "balance-negative" : "balance-positive"],
-    ["转入后余额", formatCurrency(toRemaining, toCurrency), "balance-positive"],
+    [`结算后${fromMeta.label}余额`, formatCurrency(fromRemaining, fromCurrency), isInsufficient ? "balance-negative" : "balance-positive"],
+    [`结算后${toMeta.label}余额`, formatCurrency(toRemaining, toCurrency), "balance-positive"],
   ];
 
   rows.forEach(([label, value, tone]) => {
@@ -915,6 +921,45 @@ function openMarketParamDialog({ title, hint, confirmText, setupForm, resolveVal
   });
 }
 
+function buildParamTabContainers(host) {
+  const tabRow = createEl("div", "dialog-param-tabs");
+  const basicTabBtn = createEl("button", "dialog-param-tab is-active", "基础参数");
+  basicTabBtn.type = "button";
+  const advancedTabBtn = createEl("button", "dialog-param-tab", "高级参数");
+  advancedTabBtn.type = "button";
+  tabRow.appendChild(basicTabBtn);
+  tabRow.appendChild(advancedTabBtn);
+  host.appendChild(tabRow);
+
+  const basicPanel = createEl("div", "dialog-param-panel");
+  const advancedPanel = createEl("div", "dialog-param-panel");
+  advancedPanel.style.display = "none";
+
+  const advancedDetails = createEl("details", "dialog-advanced-details");
+  const advancedSummary = createEl("summary", "", "高级参数（默认折叠）");
+  advancedDetails.appendChild(advancedSummary);
+  advancedDetails.appendChild(createEl("p", "field-hint", "留空将自动回退到默认值。"));
+  const advancedParamHost = createEl("div", "dialog-algo-params");
+  advancedDetails.appendChild(advancedParamHost);
+  advancedPanel.appendChild(advancedDetails);
+
+  host.appendChild(basicPanel);
+  host.appendChild(advancedPanel);
+
+  const switchTab = (target) => {
+    const showAdvanced = target === "advanced";
+    basicTabBtn.classList.toggle("is-active", !showAdvanced);
+    advancedTabBtn.classList.toggle("is-active", showAdvanced);
+    basicPanel.style.display = showAdvanced ? "none" : "grid";
+    advancedPanel.style.display = showAdvanced ? "grid" : "none";
+  };
+
+  basicTabBtn.addEventListener("click", () => switchTab("basic"));
+  advancedTabBtn.addEventListener("click", () => switchTab("advanced"));
+
+  return { basicPanel, advancedParamHost, advancedDetails, switchTab };
+}
+
 async function openDynamicParamDialog(state, fallbackBasePrice) {
   await ensureMarketAlgorithmGlossary();
   const catalog = getAlgorithmCatalog("dynamic");
@@ -924,6 +969,9 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
     hint: "参数与说明来自外部配置文件，修改后可扩展新算法。",
     confirmText: "保存动态参数",
     setupForm: (host) => {
+      const tabLayout = buildParamTabContainers(host);
+      const basicHost = tabLayout.basicPanel;
+
       const algorithmRow = createEl("div", "dialog-inline-config");
       const algorithmField = createEl("label", "field dialog-select-field");
       algorithmField.appendChild(createEl("span", "", "选择动态定价算法"));
@@ -945,10 +993,10 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       helpBtn.title = "查看算法帮助";
       helpBtn.addEventListener("click", () => openAlgorithmHelpPage("dynamic", algorithmSelect.value));
       algorithmRow.appendChild(helpBtn);
-      host.appendChild(algorithmRow);
+      basicHost.appendChild(algorithmRow);
 
       const summary = createEl("p", "field-hint", "");
-      host.appendChild(summary);
+      basicHost.appendChild(summary);
 
       const baseField = createEl("label", "field dialog-select-field");
       baseField.appendChild(createEl("span", "", "动态基准价"));
@@ -959,7 +1007,7 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       const baseValue = state.dynamicBasePrice ?? fallbackBasePrice;
       baseInput.value = Number.isFinite(Number(baseValue)) ? String(baseValue) : "";
       baseField.appendChild(baseInput);
-      host.appendChild(baseField);
+      basicHost.appendChild(baseField);
 
       const floorField = createEl("label", "field dialog-select-field");
       floorField.appendChild(createEl("span", "", "地板价（可选）"));
@@ -972,7 +1020,7 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
         ? String(Math.floor(normalizedFloorValue))
         : "";
       floorField.appendChild(floorInput);
-      host.appendChild(floorField);
+      basicHost.appendChild(floorField);
 
       const capField = createEl("label", "field dialog-select-field");
       capField.appendChild(createEl("span", "", "封顶价（可选）"));
@@ -985,7 +1033,7 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
         ? String(Math.floor(normalizedCapValue))
         : "";
       capField.appendChild(capInput);
-      host.appendChild(capField);
+      basicHost.appendChild(capField);
 
       const stepField = createEl("label", "field dialog-select-field");
       stepField.appendChild(createEl("span", "", "价格波动系数（步长）"));
@@ -995,25 +1043,46 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       stepInput.step = "1";
       stepInput.value = Number.isFinite(Number(state.dynamicPriceStep)) ? String(state.dynamicPriceStep) : "1";
       stepField.appendChild(stepInput);
-      host.appendChild(stepField);
+      basicHost.appendChild(stepField);
 
       const paramHost = createEl("div", "dialog-algo-params");
-      host.appendChild(paramHost);
+      basicHost.appendChild(paramHost);
+      const advancedParamHost = tabLayout.advancedParamHost;
 
       const initialParamValues = parseAlgorithmParamsJson(state.dynamicParamsJson);
-      let paramEntries = [];
+      let basicParamEntries = [];
+      let advancedParamEntries = [];
       const renderParams = () => {
         const definition = getAlgorithmDefinition("dynamic", algorithmSelect.value);
         summary.textContent = definition?.summary || "";
         const values = definition && String(definition.id || "").toUpperCase() === String(state.dynamicAlgorithm || "").toUpperCase()
           ? initialParamValues
           : {};
-        paramEntries = renderAlgorithmParamEditors(paramHost, definition?.params || [], values);
+        basicParamEntries = renderAlgorithmParamEditors(
+          paramHost,
+          definition?.params || [],
+          values,
+          { advancedOnly: false, emptyMessage: "当前算法无基础参数。" }
+        );
+        advancedParamEntries = renderAlgorithmParamEditors(
+          advancedParamHost,
+          definition?.params || [],
+          values,
+          { advancedOnly: true, emptyMessage: "当前算法暂无高级参数。" }
+        );
+        tabLayout.advancedDetails.open = false;
       };
       algorithmSelect.addEventListener("change", renderParams);
       renderParams();
 
-      return { algorithmSelect, baseInput, floorInput, capInput, stepInput, getParamEntries: () => paramEntries };
+      return {
+        algorithmSelect,
+        baseInput,
+        floorInput,
+        capInput,
+        stepInput,
+        getParamEntries: () => basicParamEntries.concat(advancedParamEntries),
+      };
     },
     resolveValue: ({ algorithmSelect, baseInput, floorInput, capInput, stepInput, getParamEntries }) => {
       const base = Number(baseInput.value.trim());
@@ -1082,6 +1151,9 @@ async function openAuctionParamDialog(state, fallbackPrice) {
     hint: "根据算法类型展示对应参数；帮助页可查看详细说明。",
     confirmText: "保存拍卖参数",
     setupForm: (host) => {
+      const tabLayout = buildParamTabContainers(host);
+      const basicHost = tabLayout.basicPanel;
+
       const algorithmRow = createEl("div", "dialog-inline-config");
       const algorithmField = createEl("label", "field dialog-select-field");
       algorithmField.appendChild(createEl("span", "", "选择拍卖竞价算法"));
@@ -1103,10 +1175,10 @@ async function openAuctionParamDialog(state, fallbackPrice) {
       helpBtn.title = "查看算法帮助";
       helpBtn.addEventListener("click", () => openAlgorithmHelpPage("auction", algorithmSelect.value));
       algorithmRow.appendChild(helpBtn);
-      host.appendChild(algorithmRow);
+      basicHost.appendChild(algorithmRow);
 
       const summary = createEl("p", "field-hint", "");
-      host.appendChild(summary);
+      basicHost.appendChild(summary);
 
       const startField = createEl("label", "field dialog-select-field");
       startField.appendChild(createEl("span", "", "起拍价"));
@@ -1117,7 +1189,7 @@ async function openAuctionParamDialog(state, fallbackPrice) {
       const startValue = state.auctionStartPrice ?? fallbackPrice;
       startInput.value = Number.isFinite(Number(startValue)) ? String(startValue) : "";
       startField.appendChild(startInput);
-      host.appendChild(startField);
+      basicHost.appendChild(startField);
 
       const incrementField = createEl("label", "field dialog-select-field");
       incrementField.appendChild(createEl("span", "", "最小加价幅度"));
@@ -1129,7 +1201,7 @@ async function openAuctionParamDialog(state, fallbackPrice) {
         ? String(state.auctionMinIncrement)
         : "1";
       incrementField.appendChild(incrementInput);
-      host.appendChild(incrementField);
+      basicHost.appendChild(incrementField);
 
       const endField = createEl("label", "field dialog-select-field");
       endField.appendChild(createEl("span", "", "拍卖结束时间"));
@@ -1137,13 +1209,15 @@ async function openAuctionParamDialog(state, fallbackPrice) {
       endInput.type = "datetime-local";
       endInput.value = toDateTimeLocalValue(state.auctionEndAt);
       endField.appendChild(endInput);
-      host.appendChild(endField);
+      basicHost.appendChild(endField);
 
       const paramHost = createEl("div", "dialog-algo-params");
-      host.appendChild(paramHost);
+      basicHost.appendChild(paramHost);
+      const advancedParamHost = tabLayout.advancedParamHost;
 
       const initialParamValues = parseAlgorithmParamsJson(state.auctionParamsJson);
-      let paramEntries = [];
+      let basicParamEntries = [];
+      let advancedParamEntries = [];
       let currentDefinition = null;
       const renderByAlgorithm = () => {
         currentDefinition = getAlgorithmDefinition("auction", algorithmSelect.value);
@@ -1153,7 +1227,19 @@ async function openAuctionParamDialog(state, fallbackPrice) {
         const values = currentDefinition && String(currentDefinition.id || "").toUpperCase() === String(state.auctionAlgorithm || "").toUpperCase()
           ? initialParamValues
           : {};
-        paramEntries = renderAlgorithmParamEditors(paramHost, currentDefinition?.params || [], values);
+        basicParamEntries = renderAlgorithmParamEditors(
+          paramHost,
+          currentDefinition?.params || [],
+          values,
+          { advancedOnly: false, emptyMessage: "当前算法无基础参数。" }
+        );
+        advancedParamEntries = renderAlgorithmParamEditors(
+          advancedParamHost,
+          currentDefinition?.params || [],
+          values,
+          { advancedOnly: true, emptyMessage: "当前算法暂无高级参数。" }
+        );
+        tabLayout.advancedDetails.open = false;
       };
       algorithmSelect.addEventListener("change", renderByAlgorithm);
       renderByAlgorithm();
@@ -1164,7 +1250,7 @@ async function openAuctionParamDialog(state, fallbackPrice) {
         incrementInput,
         endInput,
         getCurrentDefinition: () => currentDefinition,
-        getParamEntries: () => paramEntries,
+        getParamEntries: () => basicParamEntries.concat(advancedParamEntries),
       };
     },
     resolveValue: ({ algorithmSelect, startInput, incrementInput, endInput, getCurrentDefinition, getParamEntries }) => {
@@ -1786,6 +1872,12 @@ accountBackButtons.forEach((button) => {
   button.addEventListener("click", () => switchTab("auth"));
 });
 
+if (elements.accountHelpBtn) {
+  elements.accountHelpBtn.addEventListener("click", () => {
+    window.location.href = "help.html";
+  });
+}
+
 function createIdempotencyKey() {
   if (window.crypto && typeof window.crypto.randomUUID === "function") {
     return window.crypto.randomUUID();
@@ -2315,10 +2407,12 @@ function normalizeAlgorithmParamSchema(raw, index) {
     return null;
   }
   const type = String(raw?.type || "number").trim().toLowerCase();
+  const tier = String(raw?.tier || raw?.group || "").trim().toLowerCase();
   return {
     key,
     label: String(raw?.label || key),
     type: type === "text" ? "text" : "number",
+    advanced: Boolean(raw?.advanced) || tier === "advanced",
     required: Boolean(raw?.required),
     min: Number.isFinite(Number(raw?.min)) ? Number(raw.min) : null,
     max: Number.isFinite(Number(raw?.max)) ? Number(raw.max) : null,
@@ -2452,15 +2546,39 @@ function parseAlgorithmParamsJson(raw) {
   }
 }
 
-function renderAlgorithmParamEditors(host, paramSchemas, paramValues) {
+function resolveAlgorithmParamInitialValue(paramValues, schemaKey) {
+  if (!paramValues || typeof paramValues !== "object") {
+    return undefined;
+  }
+  if (Object.prototype.hasOwnProperty.call(paramValues, schemaKey)) {
+    return paramValues[schemaKey];
+  }
+  const aliases = PARAM_KEY_ALIAS_MAP[schemaKey];
+  if (!Array.isArray(aliases)) {
+    return undefined;
+  }
+  for (const alias of aliases) {
+    if (Object.prototype.hasOwnProperty.call(paramValues, alias)) {
+      return paramValues[alias];
+    }
+  }
+  return undefined;
+}
+
+function renderAlgorithmParamEditors(host, paramSchemas, paramValues, options = {}) {
   const entries = [];
+  const advancedOnly = Boolean(options.advancedOnly);
+  const emptyMessage = options.emptyMessage || "当前算法无额外参数。";
+  const filteredSchemas = Array.isArray(paramSchemas)
+    ? paramSchemas.filter((schema) => Boolean(schema?.advanced) === advancedOnly)
+    : [];
   host.innerHTML = "";
-  if (!Array.isArray(paramSchemas) || paramSchemas.length === 0) {
-    host.appendChild(createEl("p", "field-hint", "当前算法无额外参数。"));
+  if (filteredSchemas.length === 0) {
+    host.appendChild(createEl("p", "field-hint", emptyMessage));
     return entries;
   }
 
-  for (const schema of paramSchemas) {
+  for (const schema of filteredSchemas) {
     const field = createEl("label", "field dialog-select-field");
     const requiredSuffix = schema.required ? " *" : "";
     field.appendChild(createEl("span", "", `${schema.label}${requiredSuffix}`));
@@ -2479,9 +2597,8 @@ function renderAlgorithmParamEditors(host, paramSchemas, paramValues) {
         input.step = "1";
       }
     }
-    const initialValue = paramValues && Object.prototype.hasOwnProperty.call(paramValues, schema.key)
-      ? paramValues[schema.key]
-      : schema.defaultValue;
+    const mappedValue = resolveAlgorithmParamInitialValue(paramValues, schema.key);
+    const initialValue = mappedValue !== undefined ? mappedValue : schema.defaultValue;
     if (initialValue !== undefined && initialValue !== null) {
       input.value = String(initialValue);
     }
@@ -2499,7 +2616,11 @@ function collectAlgorithmParamValues(entries) {
   const payload = {};
   for (const entry of entries) {
     const rawValue = String(entry.input.value || "").trim();
-    if (!rawValue) {
+    const fallbackValue = entry.schema.defaultValue === undefined || entry.schema.defaultValue === null
+      ? ""
+      : String(entry.schema.defaultValue).trim();
+    const effectiveValue = rawValue || fallbackValue;
+    if (!effectiveValue) {
       if (entry.schema.required) {
         entry.input.focus();
         return undefined;
@@ -2507,7 +2628,7 @@ function collectAlgorithmParamValues(entries) {
       continue;
     }
     if (entry.schema.type === "number") {
-      const numericValue = Number(rawValue);
+      const numericValue = Number(effectiveValue);
       if (!Number.isFinite(numericValue)) {
         entry.input.focus();
         return undefined;
@@ -2524,7 +2645,7 @@ function collectAlgorithmParamValues(entries) {
         ? Math.trunc(numericValue)
         : numericValue;
     } else {
-      payload[entry.schema.key] = rawValue;
+      payload[entry.schema.key] = effectiveValue;
     }
   }
   return payload;

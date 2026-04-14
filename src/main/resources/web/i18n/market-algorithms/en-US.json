@@ -3,89 +3,212 @@
     {
       "id": "LINEAR_DEMAND_V1",
       "label": "Linear Demand",
-      "summary": "Demand heat increases linearly and price follows the configured step.",
+      "summary": "Price rises linearly with demand heat.",
       "helpSlug": "dynamic-linear-demand-v1",
       "sortOrder": 10,
-      "params": []
+      "params": [
+        {
+          "key": "k",
+          "label": "Slope k",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.1,
+          "description": "Price increase per 1 demand heat. Falls back to Step when empty."
+        }
+      ]
     },
     {
       "id": "DIMINISHING_RETURN_V1",
       "label": "Diminishing Return",
-      "summary": "Demand growth scales with square root to dampen sudden spikes.",
+      "summary": "Rises quickly early, then gradually approaches a ceiling.",
       "helpSlug": "dynamic-diminishing-return-v1",
       "sortOrder": 20,
-      "params": []
+      "params": [
+        {
+          "key": "a",
+          "label": "Amplitude a",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.1,
+          "description": "Controls early-stage premium. Falls back to Step when empty."
+        },
+        {
+          "key": "b",
+          "label": "Damping b",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.01,
+          "default": 0.1,
+          "description": "Higher values flatten the curve sooner."
+        }
+      ]
     },
     {
       "id": "LOG_SMOOTH_V1",
       "label": "Log Smoothing",
-      "summary": "Demand growth follows a log curve for high-frequency small trades.",
+      "summary": "Uses a logarithmic curve for smooth growth in high-frequency trades.",
       "helpSlug": "dynamic-log-smooth-v1",
       "sortOrder": 30,
-      "params": []
+      "params": [
+        {
+          "key": "alpha",
+          "label": "Smoothing α",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.01,
+          "default": 0.05,
+          "description": "Controls logarithmic sensitivity."
+        }
+      ]
     },
     {
       "id": "EXPONENTIAL_DEFENSE_V1",
       "label": "Exponential Defense",
-      "summary": "Large purchases get heavier demand weight to protect scarce stock.",
+      "summary": "Grows faster as demand increases, suited for scarcity protection.",
       "helpSlug": "dynamic-exponential-defense-v1",
       "sortOrder": 40,
-      "params": []
+      "params": [
+        {
+          "key": "beta",
+          "label": "Exponent β",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.001,
+          "default": 0.01,
+          "description": "Typical range: 0.01 to 0.05."
+        }
+      ]
     },
     {
       "id": "THRESHOLD_STEP_V1",
       "label": "Threshold Step",
-      "summary": "Demand heat only grows after quantity exceeds the configured threshold.",
+      "summary": "Gentle growth before threshold, faster growth after threshold.",
       "helpSlug": "dynamic-threshold-step-v1",
       "sortOrder": 50,
       "params": [
         {
-          "key": "thresholdK",
-          "label": "Threshold K",
+          "key": "threshold",
+          "label": "Threshold T",
           "type": "number",
           "required": false,
+          "advanced": true,
           "min": 0,
           "step": 1,
-          "default": 4,
-          "description": "Extra demand only starts when buy quantity is above this value."
+          "default": 20,
+          "description": "Switches to k2 when demand exceeds this value."
+        },
+        {
+          "key": "k1",
+          "label": "Slope k1",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.1,
+          "description": "Used when D_t <= T. Falls back to Step when empty."
+        },
+        {
+          "key": "k2",
+          "label": "Slope k2",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.1,
+          "description": "Used when D_t > T, recommended larger than k1."
         }
       ]
     },
     {
       "id": "ELASTICITY_V1",
       "label": "Elasticity",
-      "summary": "Elasticity controls how sensitive price is to demand changes.",
+      "summary": "Elastic parameters control how sensitive price is to demand shifts.",
       "helpSlug": "dynamic-elasticity-v1",
       "sortOrder": 60,
       "params": [
         {
-          "key": "elasticity",
-          "label": "Elasticity",
+          "key": "eta",
+          "label": "Elasticity η",
           "type": "number",
           "required": false,
-          "min": 0.1,
+          "advanced": true,
+          "min": 0,
           "step": 0.1,
           "default": 1,
-          "description": "Higher values make price movement smoother."
+          "description": "η<1 smooths movement, η>1 increases sensitivity."
+        },
+        {
+          "key": "epsilon",
+          "label": "Smoothing ε",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0.0001,
+          "step": 0.1,
+          "default": 1,
+          "description": "Prevents zero division and softens low-demand noise."
+        },
+        {
+          "key": "d0",
+          "label": "Reference demand D0",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 1,
+          "default": 1,
+          "description": "Anchor point of the elasticity curve."
         }
       ]
     },
     {
       "id": "PANIC_BUYING_V1",
       "label": "Panic Buying",
-      "summary": "After threshold, price enters accelerated growth for scarcity events.",
+      "summary": "After threshold, price enters accelerated growth to model panic buying.",
       "helpSlug": "dynamic-panic-buying-v1",
       "sortOrder": 70,
       "params": [
         {
-          "key": "panicThreshold",
-          "label": "Panic Threshold",
+          "key": "threshold",
+          "label": "Panic threshold T",
           "type": "number",
           "required": false,
-          "min": 1,
+          "advanced": true,
+          "min": 0,
           "step": 1,
           "default": 20,
-          "description": "When demand heat exceeds this value, extra growth is applied."
+          "description": "Quadratic acceleration starts after this threshold."
+        },
+        {
+          "key": "k",
+          "label": "Linear slope k",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.1,
+          "description": "Base linear component. Falls back to Step when empty."
+        },
+        {
+          "key": "gamma",
+          "label": "Quadratic gain γ",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.1,
+          "default": 1,
+          "description": "Controls post-threshold quadratic acceleration."
         }
       ]
     }
@@ -94,7 +217,7 @@
     {
       "id": "ENGLISH_AUCTION_V1",
       "label": "English Auction",
-      "summary": "Open ascending bids with realtime highest bid visibility.",
+      "summary": "Open ascending bids with anti-sniping auto extension.",
       "helpSlug": "auction-english-v1",
       "requiresMinIncrement": true,
       "requiresEndAt": true,
@@ -108,6 +231,28 @@
           "min": 1,
           "step": 1,
           "description": "Optional. Auction fails if reserve is not reached."
+        },
+        {
+          "key": "antiSnipingWindowSeconds",
+          "label": "Anti-sniping trigger window (sec)",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 1,
+          "default": 30,
+          "description": "If a bid arrives in the last N seconds, extension is triggered."
+        },
+        {
+          "key": "antiSnipingExtendSeconds",
+          "label": "Single extension length (sec)",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 1,
+          "default": 30,
+          "description": "Adds M seconds to the deadline per trigger."
         }
       ]
     },
@@ -186,6 +331,7 @@
           "label": "Max Random Extension (seconds)",
           "type": "number",
           "required": false,
+          "advanced": true,
           "min": 0,
           "step": 1,
           "default": 1800,

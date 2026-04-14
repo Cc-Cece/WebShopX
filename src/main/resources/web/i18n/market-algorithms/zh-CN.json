@@ -3,89 +3,212 @@
     {
       "id": "LINEAR_DEMAND_V1",
       "label": "线性需求",
-      "summary": "需求热度每增加 1，价格按步长线性上升。",
+      "summary": "需求热度越高，价格按固定斜率线性上升。",
       "helpSlug": "dynamic-linear-demand-v1",
       "sortOrder": 10,
-      "params": []
+      "params": [
+        {
+          "key": "k",
+          "label": "线性斜率 k",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.1,
+          "description": "每 1 点需求热度的价格增量。留空时使用“步长”。"
+        }
+      ]
     },
     {
       "id": "DIMINISHING_RETURN_V1",
       "label": "边际递减",
-      "summary": "需求增量随购买数量的平方根增长，抑制短时暴涨。",
+      "summary": "前期涨价明显，后期逐步趋缓并接近上限。",
       "helpSlug": "dynamic-diminishing-return-v1",
       "sortOrder": 20,
-      "params": []
+      "params": [
+        {
+          "key": "a",
+          "label": "边际振幅 a",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.1,
+          "description": "控制早期涨幅强度。留空时使用“步长”。"
+        },
+        {
+          "key": "b",
+          "label": "抑制系数 b",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.01,
+          "default": 0.1,
+          "description": "越大越早进入平缓区。"
+        }
+      ]
     },
     {
       "id": "LOG_SMOOTH_V1",
       "label": "对数平滑",
-      "summary": "需求增量采用对数曲线，适合高频小额交易场景。",
+      "summary": "采用对数曲线平滑涨价，适合高频小额交易。",
       "helpSlug": "dynamic-log-smooth-v1",
       "sortOrder": 30,
-      "params": []
+      "params": [
+        {
+          "key": "alpha",
+          "label": "平滑系数 α",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.01,
+          "default": 0.05,
+          "description": "控制对数曲线敏感度。"
+        }
+      ]
     },
     {
       "id": "EXPONENTIAL_DEFENSE_V1",
       "label": "指数防护",
-      "summary": "大额扫货会获得更高需求权重，用于防止库存瞬时被清空。",
+      "summary": "需求升高时价格会更快增长，适合稀缺资源防护。",
       "helpSlug": "dynamic-exponential-defense-v1",
       "sortOrder": 40,
-      "params": []
+      "params": [
+        {
+          "key": "beta",
+          "label": "指数倍率 β",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.001,
+          "default": 0.01,
+          "description": "常用范围 0.01~0.05。"
+        }
+      ]
     },
     {
       "id": "THRESHOLD_STEP_V1",
       "label": "阈值分段",
-      "summary": "仅当购买数量超过阈值后，才提升需求热度。",
+      "summary": "阈值前平缓、阈值后加速的分段涨价模型。",
       "helpSlug": "dynamic-threshold-step-v1",
       "sortOrder": 50,
       "params": [
         {
-          "key": "thresholdK",
-          "label": "阈值 K",
+          "key": "threshold",
+          "label": "阈值 T",
           "type": "number",
           "required": false,
+          "advanced": true,
           "min": 0,
           "step": 1,
-          "default": 4,
-          "description": "购买数量超过该值后才计入额外需求。"
+          "default": 20,
+          "description": "当需求热度超过该值后切换到 k2 段。"
+        },
+        {
+          "key": "k1",
+          "label": "前段斜率 k1",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.1,
+          "description": "D_t <= T 时使用。留空时使用“步长”。"
+        },
+        {
+          "key": "k2",
+          "label": "后段斜率 k2",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.1,
+          "description": "D_t > T 时使用，建议大于 k1。"
         }
       ]
     },
     {
       "id": "ELASTICITY_V1",
       "label": "弹性模型",
-      "summary": "通过弹性系数控制需求对价格的敏感度。",
+      "summary": "通过弹性参数控制市场对需求变化的敏感程度。",
       "helpSlug": "dynamic-elasticity-v1",
       "sortOrder": 60,
       "params": [
         {
-          "key": "elasticity",
-          "label": "弹性系数",
+          "key": "eta",
+          "label": "弹性指数 η",
           "type": "number",
           "required": false,
-          "min": 0.1,
+          "advanced": true,
+          "min": 0,
           "step": 0.1,
           "default": 1,
-          "description": "值越大，价格变化越平缓。"
+          "description": "η<1 更平滑，η>1 更敏感。"
+        },
+        {
+          "key": "epsilon",
+          "label": "平滑项 ε",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0.0001,
+          "step": 0.1,
+          "default": 1,
+          "description": "避免分母为 0，并抑制低热度抖动。"
+        },
+        {
+          "key": "d0",
+          "label": "参考热度 D0",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 1,
+          "default": 1,
+          "description": "定义弹性曲线的参考点。"
         }
       ]
     },
     {
       "id": "PANIC_BUYING_V1",
       "label": "恐慌抢购",
-      "summary": "超过阈值后进入二次加速涨价，适合稀缺商品活动。",
+      "summary": "超过阈值后进入二次加速上涨，模拟抢购效应。",
       "helpSlug": "dynamic-panic-buying-v1",
       "sortOrder": 70,
       "params": [
         {
-          "key": "panicThreshold",
-          "label": "恐慌阈值",
+          "key": "threshold",
+          "label": "恐慌阈值 T",
           "type": "number",
           "required": false,
-          "min": 1,
+          "advanced": true,
+          "min": 0,
           "step": 1,
           "default": 20,
-          "description": "需求热度超过阈值后触发额外涨幅。"
+          "description": "超过阈值后触发二次项加速。"
+        },
+        {
+          "key": "k",
+          "label": "线性斜率 k",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.1,
+          "description": "基础线性涨幅。留空时使用“步长”。"
+        },
+        {
+          "key": "gamma",
+          "label": "二次增幅 γ",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 0.1,
+          "default": 1,
+          "description": "控制阈值后的抛物线加速强度。"
         }
       ]
     }
@@ -94,7 +217,7 @@
     {
       "id": "ENGLISH_AUCTION_V1",
       "label": "英式拍卖",
-      "summary": "公开加价，系统实时显示当前最高价。",
+      "summary": "公开加价，支持防狙击自动延时。",
       "helpSlug": "auction-english-v1",
       "requiresMinIncrement": true,
       "requiresEndAt": true,
@@ -108,6 +231,28 @@
           "min": 1,
           "step": 1,
           "description": "可选。未达到保留价则流拍。"
+        },
+        {
+          "key": "antiSnipingWindowSeconds",
+          "label": "防狙击触发窗口（秒）",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 1,
+          "default": 30,
+          "description": "结束前 N 秒内有新出价时触发自动延时。"
+        },
+        {
+          "key": "antiSnipingExtendSeconds",
+          "label": "单次延长时长（秒）",
+          "type": "number",
+          "required": false,
+          "advanced": true,
+          "min": 0,
+          "step": 1,
+          "default": 30,
+          "description": "触发防狙击后，截止时间追加 M 秒。"
         }
       ]
     },
@@ -186,6 +331,7 @@
           "label": "随机延长上限（秒）",
           "type": "number",
           "required": false,
+          "advanced": true,
           "min": 0,
           "step": 1,
           "default": 1800,

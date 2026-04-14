@@ -161,7 +161,7 @@
 
   async function loadDocsManifest() {
     const fallback = [
-      { file: "manual.md", title: "WebShopX 使用文档" },
+      { file: "manual.zh-CN.md", title: "WebShopX 使用文档" },
       { file: "help.zh-CN.md", title: "WebShopX 使用文档 (zh-CN)" },
       { file: "help.en-US.md", title: "WebShopX Help (en-US)" },
     ].map(normalizeDocEntry);
