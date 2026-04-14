@@ -95,7 +95,6 @@
           <div class="actions">
             <button class="btn-tonal" type="button" data-account-tab="wallet">钱包资产</button>
             <button class="btn-tonal" type="button" data-account-tab="orders">订单记录</button>
-            <button class="btn-tonal" type="button" data-account-tab="guide">使用教程</button>
             <button class="btn-tonal" type="button" data-account-tab="logs">操作日志</button>
           </div>
 
@@ -176,6 +175,7 @@
           <div class="actions">
             <button id="exchangeBtn" type="button">执行兑换</button>
           </div>
+          <p class="meta" id="exchangeRateHint">等待加载兑换比例</p>
           <p class="meta" id="exchangeView">等待兑换操作</p>
         </article>
 
@@ -358,45 +358,6 @@
 
         <p class="meta" id="marketView">暂无市场数据</p>
         <div id="marketList" class="market-grid"></div>
-      </article>
-    </section>
-
-    <section class="tab-panel" data-tab-panel="guide">
-      <article class="md-card section-card">
-        <h2>使用教程</h2>
-        <p class="card-desc">按顺序完成下面几个步骤即可开始使用。</p>
-        <div class="md-tip md-tip-info">
-          <strong>1. 注册与登录</strong>
-          <p>先在游戏内执行 <code>/webshopx password &lt;新密码&gt;</code>（或 <code>/ws password &lt;新密码&gt;</code>）设置网页登录密码，再回到网页使用 Minecraft 用户名登录。</p>
-        </div>
-        <div class="md-tip md-tip-info">
-          <strong>2. 钱包与兑换</strong>
-          <p>登录后先查看“钱包资产”。兑换码、货币互换、商城购买、市场交易都会在这里反映余额变化；“最近变动”只记录网页系统相关流水。</p>
-        </div>
-        <div class="md-tip md-tip-info">
-          <strong>3. 官方商城购买</strong>
-          <p>在“官方商城”选择商品后确认下单。若服务器开启冷静期，订单会延迟发放，并在冷静期内支持退款。若管理员配置的是指令类商品，可在命令模板里使用 <code>%amount%</code> 表示购买数量。</p>
-        </div>
-        <div class="md-tip md-tip-info">
-          <strong>4. 普通市场上架</strong>
-          <p>在游戏内执行 <code>/webshopx market</code>（或 <code>/ws market</code>）打开市场 GUI，选择普通上架，把要卖的物品放入箱子界面，点击下一步后在聊天栏输入单价即可创建。币种默认使用 <code>GAME_COIN</code>，后续可在网页修改。</p>
-        </div>
-        <div class="md-tip md-tip-info">
-          <strong>5. 供货箱上架</strong>
-          <p>在市场 GUI 选择供货箱上架，先右键绑定供货箱（支持大箱子、箱子、木桶、潜影盒），再放入 1 个模板物品，点击下一步后在聊天栏输入单价即可创建。单次提取量、中转上限、备注等补充设置请到网页修改。</p>
-        </div>
-        <div class="md-tip md-tip-info">
-          <strong>6. 市场管理</strong>
-          <p>“我的上架”可查看并管理自己的商品。普通上架和供货箱上架都支持暂停、恢复、下架；供货箱商品还支持手动刷新补货。价格、币种、备注与供货参数统一在网页端调整。</p>
-        </div>
-        <div class="md-tip md-tip-warn">
-          <strong>7. 订单与发货</strong>
-          <p>所有购买都会进入订单记录。若角色离线，物品会在下次上线时自动投递；若订单处于待领取状态，可在游戏内使用 <code>/ws claim</code> 领取。</p>
-        </div>
-        <div class="md-tip md-tip-warn">
-          <strong>8. 注意事项</strong>
-          <p>供货箱在上架期间会被市场保护，破坏前请先停止上架或解除绑定；若供货箱损坏或失效，系统会自动暂停对应供货商品。团购券商品购买后会生成兑换码，需由管理员核销。</p>
-        </div>
       </article>
     </section>
 

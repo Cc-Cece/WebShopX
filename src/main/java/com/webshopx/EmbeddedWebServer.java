@@ -239,6 +239,7 @@ class EmbeddedWebServer {
       response.addProperty("shopCoin", balance.shopCoin());
       response.addProperty("gameCoin", balance.gameCoin());
       response.addProperty("boundUuid", user.boundUuid() == null ? null : user.boundUuid().toString());
+      response.add("exchange", buildExchangeMetaJson());
       sendJson(exchange, 200, response);
     });
   }
@@ -566,9 +567,25 @@ class EmbeddedWebServer {
       JsonObject response = new JsonObject();
       response.add("shopCoin", shop);
       response.add("gameCoin", game);
+      response.add("exchange", buildExchangeMetaJson());
       response.addProperty("timeZone", settingsSupplier.get().timeZone().getId());
       sendJson(exchange, 200, response);
     });
+  }
+
+  private JsonObject buildExchangeMetaJson() {
+    PluginSettings.ExchangeSettings settings = settingsSupplier.get().exchangeSettings();
+    JsonObject shopToGame = new JsonObject();
+    shopToGame.addProperty("enabled", settings.shopToGame().enabled());
+    shopToGame.addProperty("ratio", settings.shopToGame().ratio());
+    JsonObject gameToShop = new JsonObject();
+    gameToShop.addProperty("enabled", settings.gameToShop().enabled());
+    gameToShop.addProperty("ratio", settings.gameToShop().ratio());
+
+    JsonObject exchange = new JsonObject();
+    exchange.add("shopToGame", shopToGame);
+    exchange.add("gameToShop", gameToShop);
+    return exchange;
   }
 
   private void handleMaterialMeta(HttpExchange exchange) throws IOException {

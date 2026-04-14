@@ -49,6 +49,11 @@
     shopCoin: 0,
     gameCoin: 0,
   },
+  exchangeMetaLoaded: false,
+  exchangeSettings: {
+    shopToGame: { enabled: true, ratio: 1.0 },
+    gameToShop: { enabled: false, ratio: 1.0 },
+  },
   timeZone: "Asia/Shanghai",
 };
 
@@ -382,7 +387,11 @@ const elements = {
   walletLedgerView: document.getElementById("walletLedgerView"),
   walletLedgerList: document.getElementById("walletLedgerList"),
   redeemView: document.getElementById("redeemView"),
+  exchangeRateHint: document.getElementById("exchangeRateHint"),
   exchangeView: document.getElementById("exchangeView"),
+  exchangeFrom: document.getElementById("exchangeFrom"),
+  exchangeTo: document.getElementById("exchangeTo"),
+  exchangeAmount: document.getElementById("exchangeAmount"),
   orderView: document.getElementById("orderView"),
   ordersBtn: document.getElementById("ordersBtn"),
   orderList: document.getElementById("orderList"),
@@ -446,7 +455,7 @@ const tabs = Array.from(document.querySelectorAll(".top-tab"));
 const panels = Array.from(document.querySelectorAll(".tab-panel"));
 const accountEntryButtons = Array.from(document.querySelectorAll("[data-account-tab]"));
 const accountBackButtons = Array.from(document.querySelectorAll("[data-account-back]"));
-const ACCOUNT_CHILD_TABS = new Set(["wallet", "orders", "guide", "logs"]);
+const ACCOUNT_CHILD_TABS = new Set(["wallet", "orders", "logs"]);
 
 function getMarketTradeScopeByTab(tabName) {
   return tabName === "auction" ? "AUCTION" : "DIRECT";
@@ -754,6 +763,86 @@ function openDeliveryConfirmDialog({
 
   confirmSubmitHandler = () => closeConfirmDialog(select.value);
   setNodeText(elements.confirmOkBtn, confirmText);
+  elements.confirmDialog.classList.add("show");
+  elements.confirmDialog.setAttribute("aria-hidden", "false");
+
+  return new Promise((resolve) => {
+    confirmResolver = resolve;
+  });
+}
+
+function openExchangeConfirmDialog({
+  fromCurrency,
+  toCurrency,
+  amount,
+  convertedAmount,
+  ratio,
+  fromBalance,
+  toBalance,
+}) {
+  if (!elements.confirmDialog) {
+    const fromMeta = CURRENCY_META[fromCurrency] || { label: fromCurrency };
+    const toMeta = CURRENCY_META[toCurrency] || { label: toCurrency };
+    return Promise.resolve(
+      window.confirm(
+        `确认兑换\n${fromMeta.label} -> ${toMeta.label}\n${formatCurrency(amount, fromCurrency)} -> ${formatCurrency(convertedAmount, toCurrency)}`
+      )
+    );
+  }
+  if (confirmResolver) {
+    confirmResolver(false);
+    confirmResolver = null;
+  }
+
+  const fromMeta = CURRENCY_META[fromCurrency] || { label: fromCurrency, short: fromCurrency };
+  const toMeta = CURRENCY_META[toCurrency] || { label: toCurrency, short: toCurrency };
+  const fromRemaining = Number(fromBalance || 0) - Number(amount || 0);
+  const toRemaining = Number(toBalance || 0) + Number(convertedAmount || 0);
+  const isInsufficient = fromRemaining < 0;
+
+  setNodeText(elements.confirmTitle, "确认兑换");
+  setNodeText(elements.confirmMessage, "请确认本次兑换信息，确认后将立即结算。");
+  elements.confirmDetails.innerHTML = "";
+  confirmSubmitHandler = null;
+
+  const summaryCard = createEl("div", "checkout-summary");
+  summaryCard.appendChild(createEl("p", "checkout-kicker", "结算摘要"));
+  const rows = [
+    ["兑换方向", `${fromMeta.label} → ${toMeta.label}`],
+    ["当前比例", `1 ${fromMeta.short} = ${formatRatioValue(ratio)} ${toMeta.short}`],
+    ["扣除", formatCurrency(amount, fromCurrency), "negative"],
+    ["预计入账", formatCurrency(convertedAmount, toCurrency), "balance-positive"],
+    ["转出后余额", formatCurrency(fromRemaining, fromCurrency), isInsufficient ? "balance-negative" : "balance-positive"],
+    ["转入后余额", formatCurrency(toRemaining, toCurrency), "balance-positive"],
+  ];
+
+  rows.forEach(([label, value, tone]) => {
+    const row = createEl("div", "checkout-row");
+    row.appendChild(createEl("span", "", label));
+    const valueNode = createEl("strong", "checkout-value", value);
+    row.appendChild(valueNode);
+    if (tone === "negative") {
+      row.classList.add("negative");
+    }
+    if (tone === "balance-positive") {
+      valueNode.classList.add("checkout-pill", "checkout-pill-positive");
+    }
+    if (tone === "balance-negative") {
+      valueNode.classList.add("checkout-pill", "checkout-pill-negative");
+    }
+    summaryCard.appendChild(row);
+  });
+  elements.confirmDetails.appendChild(summaryCard);
+
+  const noteText = isInsufficient
+    ? `余额不足，还差 ${formatCurrency(Math.abs(fromRemaining), fromCurrency)}。`
+    : "确认后将按以上信息完成兑换。";
+  const note = createEl("p", isInsufficient ? "checkout-warning negative" : "checkout-warning", noteText);
+  elements.confirmDetails.appendChild(note);
+
+  elements.confirmOkBtn.disabled = isInsufficient;
+  confirmSubmitHandler = () => closeConfirmDialog(true);
+  setNodeText(elements.confirmOkBtn, "确认兑换");
   elements.confirmDialog.classList.add("show");
   elements.confirmDialog.setAttribute("aria-hidden", "false");
 
@@ -1633,16 +1722,6 @@ function updateAccountBackButtonVisibility() {
 }
 
 function switchTab(tabName) {
-  if (tabName === "guide") {
-    const locale = I18N ? I18N.getLocale() : "zh-CN";
-    const query = new URLSearchParams();
-    query.set("mode", "single");
-    query.set("doc", "manual");
-    query.set("lang", locale);
-    window.location.href = `help.html?${query.toString()}`;
-    return;
-  }
-
   const panelTab = tabName === "auction" ? "market" : tabName;
   const activeTopTab = ACCOUNT_CHILD_TABS.has(tabName) ? "auth" : tabName;
 
@@ -1715,6 +1794,7 @@ function createIdempotencyKey() {
 }
 
 const formatNumber = new Intl.NumberFormat(I18N ? I18N.getIntlLocale() : "zh-CN", { maximumFractionDigits: 2 });
+const formatRatioNumber = new Intl.NumberFormat(I18N ? I18N.getIntlLocale() : "zh-CN", { maximumFractionDigits: 6 });
 
 function formatAmount(amount) {
   const value = Number(amount);
@@ -1727,6 +1807,81 @@ function formatAmount(amount) {
 function formatCurrency(amount, currency) {
   const meta = CURRENCY_META[currency] || { short: String(currency || "--") };
   return `${meta.short} ${formatAmount(amount)}`;
+}
+
+function formatRatioValue(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    return "0";
+  }
+  return formatRatioNumber.format(number);
+}
+
+function normalizeExchangeDirection(rawDirection, fallbackDirection) {
+  const source = rawDirection || {};
+  const fallback = fallbackDirection || { enabled: false, ratio: 1.0 };
+  const enabled = Object.prototype.hasOwnProperty.call(source, "enabled")
+    ? !!source.enabled
+    : !!fallback.enabled;
+  const ratioRaw = Number(source.ratio);
+  const ratio = Number.isFinite(ratioRaw) && ratioRaw >= 0 ? ratioRaw : Number(fallback.ratio || 0);
+  return {
+    enabled,
+    ratio: Number.isFinite(ratio) ? ratio : 0,
+  };
+}
+
+function resolveExchangeDirectionSettings(fromCurrency, toCurrency) {
+  if (fromCurrency === "SHOP_COIN" && toCurrency === "GAME_COIN") {
+    return state.exchangeSettings.shopToGame;
+  }
+  if (fromCurrency === "GAME_COIN" && toCurrency === "SHOP_COIN") {
+    return state.exchangeSettings.gameToShop;
+  }
+  return null;
+}
+
+function updateExchangeRateHint() {
+  if (!elements.exchangeRateHint || !elements.exchangeFrom || !elements.exchangeTo) {
+    return;
+  }
+  const fromCurrency = String(elements.exchangeFrom.value || "").trim();
+  const toCurrency = String(elements.exchangeTo.value || "").trim();
+  if (!fromCurrency || !toCurrency || fromCurrency === toCurrency) {
+    setMetaText(elements.exchangeRateHint, "请选择有效的兑换方向。", "warn");
+    return;
+  }
+
+  const direction = resolveExchangeDirectionSettings(fromCurrency, toCurrency);
+  if (!direction) {
+    setMetaText(elements.exchangeRateHint, "请选择有效的兑换方向。", "warn");
+    return;
+  }
+
+  const fromMeta = CURRENCY_META[fromCurrency] || { short: fromCurrency };
+  const toMeta = CURRENCY_META[toCurrency] || { short: toCurrency };
+  const ratioText = `1 ${fromMeta.short} = ${formatRatioValue(direction.ratio)} ${toMeta.short}`;
+  if (!direction.enabled) {
+    setMetaText(elements.exchangeRateHint, `当前方向已关闭：${ratioText}`, "warn");
+    return;
+  }
+  setMetaText(elements.exchangeRateHint, `当前比例：${ratioText}`, "info");
+}
+
+function applyExchangeMeta(meta) {
+  if (!meta || typeof meta !== "object") {
+    return;
+  }
+  state.exchangeSettings.shopToGame = normalizeExchangeDirection(
+    meta.shopToGame,
+    state.exchangeSettings.shopToGame
+  );
+  state.exchangeSettings.gameToShop = normalizeExchangeDirection(
+    meta.gameToShop,
+    state.exchangeSettings.gameToShop
+  );
+  state.exchangeMetaLoaded = true;
+  updateExchangeRateHint();
 }
 
 function calculatePercentAmount(baseAmount, percent) {
@@ -1951,9 +2106,9 @@ function applyCurrencyMeta(meta) {
       }
     });
   };
-  updateSelect(document.getElementById("exchangeFrom"));
-  updateSelect(document.getElementById("exchangeTo"));
-  updateSelect(document.getElementById("marketCurrency"));
+  updateSelect(elements.exchangeFrom);
+  updateSelect(elements.exchangeTo);
+  updateSelect(elements.marketCurrency);
 
   const applyText = (id, text) => {
     const node = document.getElementById(id);
@@ -1968,6 +2123,9 @@ function applyCurrencyMeta(meta) {
   applyText("walletDescGameCoin", CURRENCY_META.GAME_COIN.label);
   applyText("exchangeDescShopCoin", CURRENCY_META.SHOP_COIN.label);
   applyText("exchangeDescGameCoin", CURRENCY_META.GAME_COIN.label);
+
+  applyExchangeMeta(meta.exchange);
+  updateExchangeRateHint();
 }
 
 async function loadCurrencyMeta() {
@@ -1977,8 +2135,10 @@ async function loadCurrencyMeta() {
     if (payload && payload.timeZone) {
       state.timeZone = String(payload.timeZone).trim() || state.timeZone;
     }
+    return true;
   } catch (error) {
     // Ignore if metadata endpoint is unavailable.
+    return false;
   }
 }
 
@@ -3130,6 +3290,7 @@ function updateWalletView(payload) {
   elements.gameCoinValue.textContent = formatAmount(payload.gameCoin || 0);
   state.walletBalance.shopCoin = Number(payload.shopCoin || 0);
   state.walletBalance.gameCoin = Number(payload.gameCoin || 0);
+  applyExchangeMeta(payload.exchange);
   setMetaText(
     elements.walletView,
     formatWalletInline(payload.shopCoin || 0, payload.gameCoin || 0),
@@ -4722,15 +4883,47 @@ document.getElementById("exchangeBtn").addEventListener("click", async () => {
   try {
     ensureToken();
 
-    const fromCurrency = document.getElementById("exchangeFrom").value.trim();
-    const toCurrency = document.getElementById("exchangeTo").value.trim();
-    const amount = Number(document.getElementById("exchangeAmount").value.trim());
+    const fromCurrency = String(elements.exchangeFrom?.value || "").trim();
+    const toCurrency = String(elements.exchangeTo?.value || "").trim();
+    const amount = Number(String(elements.exchangeAmount?.value || "").trim());
 
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new Error("兑换数量必须大于 0。");
     }
     if (fromCurrency === toCurrency) {
       throw new Error("兑换方向不能相同。");
+    }
+
+    if (!state.exchangeMetaLoaded) {
+      await loadCurrencyMeta();
+    }
+    const direction = resolveExchangeDirectionSettings(fromCurrency, toCurrency);
+    if (!direction) {
+      throw new Error("兑换方向无效，请重新选择。");
+    }
+    if (!direction.enabled) {
+      throw new Error("当前服务器未开放该兑换方向。");
+    }
+
+    const convertedAmount = Math.floor(amount * Number(direction.ratio || 0));
+    if (!Number.isFinite(convertedAmount) || convertedAmount <= 0) {
+      throw new Error("兑换比例导致结果为 0，请增大兑换数量。");
+    }
+
+    const fromBalance = getWalletBalanceForCurrency(fromCurrency);
+    const toBalance = getWalletBalanceForCurrency(toCurrency);
+    const confirmed = await openExchangeConfirmDialog({
+      fromCurrency,
+      toCurrency,
+      amount,
+      convertedAmount,
+      ratio: direction.ratio,
+      fromBalance,
+      toBalance,
+    });
+    if (!confirmed) {
+      setMetaText(elements.exchangeView, "已取消兑换。", "warn");
+      return;
     }
 
     const previousWallet = {
@@ -4749,10 +4942,9 @@ document.getElementById("exchangeBtn").addEventListener("click", async () => {
 
     updateWalletView(payload);
     await loadWalletLedger();
-    const toMeta = CURRENCY_META[toCurrency] || { label: toCurrency };
     const deltaText = summarizeWalletDelta(payload, previousWallet);
     const balanceText = formatWalletInline(payload.shopCoin, payload.gameCoin);
-    const successText = `兑换成功：${formatCurrency(amount, fromCurrency)} -> ${toMeta.label}${deltaText ? `，余额变动 ${deltaText}` : ""}。当前余额：${balanceText}。`;
+    const successText = `兑换成功：${formatCurrency(amount, fromCurrency)} -> ${formatCurrency(convertedAmount, toCurrency)}${deltaText ? `，余额变动 ${deltaText}` : ""}。当前余额：${balanceText}。`;
     setMetaText(
       elements.exchangeView,
       successText,
@@ -4767,6 +4959,13 @@ document.getElementById("exchangeBtn").addEventListener("click", async () => {
     notify(`兑换失败：${message}`, "error");
   }
 });
+
+if (elements.exchangeFrom) {
+  elements.exchangeFrom.addEventListener("change", updateExchangeRateHint);
+}
+if (elements.exchangeTo) {
+  elements.exchangeTo.addEventListener("change", updateExchangeRateHint);
+}
 
 document.getElementById("productsBtn").addEventListener("click", () => {
   loadProducts({ announce: true });
@@ -5247,6 +5446,7 @@ updateMarketSectionContext();
 setMetaText(elements.walletView, "等待刷新余额", "info");
 setMetaText(elements.walletLedgerView, "等待加载记录", "info");
 setMetaText(elements.redeemView, "等待兑换操作", "info");
+setMetaText(elements.exchangeRateHint, "等待加载兑换比例", "info");
 setMetaText(elements.exchangeView, "等待兑换操作", "info");
 setMetaText(elements.orderView, "暂无订单", "info");
 setMetaText(elements.marketView, "暂无市场数据", "info");
