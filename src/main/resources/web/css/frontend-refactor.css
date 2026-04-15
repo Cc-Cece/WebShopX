@@ -1,0 +1,630 @@
+/*
+ * WebShopX adaptation layer based on pure-admin-thin upstream layout semantics.
+ * Upstream reference: pure-admin/pure-admin-thin@f0ff132 (2025-10-30)
+ * Keep styles.css as primary visual language and adapt structural shells only.
+ */
+
+:root {
+  --pure-transition-duration: 0.3s;
+  --pure-border-color: rgb(5 5 5 / 6%);
+  --pure-theme-sub-menu-active-text: #000000d9;
+  --pure-theme-menu-bg: #fff;
+  --pure-theme-menu-hover: #f6f6f6;
+  --pure-theme-sub-menu-bg: #fff;
+  --pure-theme-menu-text: rgb(0 0 0 / 60%);
+  --pure-theme-sidebar-logo: #fff;
+  --pure-theme-menu-title-hover: #000;
+  --pure-theme-menu-active-before: #4091f7;
+  --pa-sidebar-width: 246px;
+  --pa-shell-gap: 12px;
+  --pa-shell-radius: 16px;
+  --pa-shell-bg: color-mix(in srgb, var(--app-card-raised-bg) 90%, transparent);
+  --pa-shell-border: var(--md-sys-color-outline-variant);
+}
+
+html[data-theme="default"],
+html.dark {
+  --pure-theme-sub-menu-active-text: #fff;
+  --pure-theme-menu-bg: #001529;
+  --pure-theme-menu-hover: rgb(64 145 247 / 15%);
+  --pure-theme-sub-menu-bg: #0f0303;
+  --pure-theme-menu-text: rgb(254 254 254 / 65%);
+  --pure-theme-sidebar-logo: #002140;
+  --pure-theme-menu-title-hover: #fff;
+  --pure-theme-menu-active-before: #4091f7;
+}
+
+html[data-theme="light"],
+html.light {
+  --pure-theme-sub-menu-active-text: #000000d9;
+  --pure-theme-menu-bg: #fff;
+  --pure-theme-menu-hover: #f6f6f6;
+  --pure-theme-sub-menu-bg: #fff;
+  --pure-theme-menu-text: rgb(0 0 0 / 60%);
+  --pure-theme-sidebar-logo: #fff;
+  --pure-theme-menu-title-hover: #000;
+  --pure-theme-menu-active-before: #4091f7;
+}
+
+.app-wrapper.pure-layout,
+.pure-layout {
+  width: min(1480px, calc(100vw - 18px));
+  margin: 12px auto 28px;
+  display: grid;
+  grid-template-columns: var(--pa-sidebar-width) minmax(0, 1fr);
+  gap: var(--pa-shell-gap);
+  align-items: start;
+}
+
+.sidebar-container.pure-sidebar,
+.pure-sidebar {
+  position: sticky;
+  top: 12px;
+  align-self: start;
+  height: calc(100vh - 24px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 10px;
+  border-radius: var(--pa-shell-radius);
+  border: 1px solid var(--pure-border-color);
+  background: var(--pure-theme-menu-bg);
+  transition: width var(--pure-transition-duration);
+}
+
+.pure-brand {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--pure-theme-menu-active-before) 16%, transparent);
+  background: color-mix(in srgb, var(--pure-theme-sidebar-logo) 90%, transparent);
+}
+
+.pure-brand-kicker {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--md-sys-color-primary);
+  font-weight: 700;
+}
+
+.pure-brand h2 {
+  margin: 6px 0 0;
+  font-size: 17px;
+  line-height: 1.25;
+  color: var(--pure-theme-sub-menu-active-text);
+}
+
+.pure-sidebar .top-tabs {
+  display: grid;
+  grid-auto-rows: minmax(0, auto);
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-content: start;
+}
+
+.pure-sidebar .top-tab {
+  min-height: 40px;
+  border-radius: 10px;
+  justify-content: flex-start;
+  text-align: left;
+  padding-inline: 12px;
+  color: var(--pure-theme-menu-text);
+}
+
+.pure-sidebar .top-tab:hover {
+  background: var(--pure-theme-menu-hover);
+  color: var(--pure-theme-menu-title-hover);
+}
+
+.pure-sidebar .top-tab.active {
+  color: var(--pure-theme-sub-menu-active-text);
+  background: color-mix(in srgb, var(--pure-theme-menu-active-before) 20%, transparent);
+  box-shadow: inset 3px 0 0 var(--md-sys-color-primary);
+}
+
+.pure-sidebar-foot {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--app-card-quiet-bg);
+}
+
+.pure-sidebar-foot p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--pure-theme-menu-text);
+}
+
+.main-container.pure-main.app-shell,
+.pure-main.app-shell {
+  width: 100%;
+  margin: 0;
+}
+
+body[data-page="player"] .fixed-header.app-header,
+body[data-page="admin"] .fixed-header.app-header {
+  position: sticky;
+  top: 12px;
+  z-index: 30;
+}
+
+body[data-page="help"] .help-shell {
+  width: min(1460px, calc(100vw - 18px));
+  margin: 10px auto 14px;
+  display: grid;
+  gap: 10px;
+}
+
+body[data-page="help"] .help-header {
+  position: sticky;
+  top: 10px;
+  z-index: 36;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+body[data-page="help"] .help-header h1 {
+  margin: 0;
+  font-size: clamp(18px, 2vw, 26px);
+}
+
+body[data-page="help"] .help-menu-btn {
+  display: none;
+}
+
+body[data-page="help"] .help-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+body[data-page="help"] .help-doc-select {
+  min-width: 200px;
+  max-width: 360px;
+  width: min(360px, 100%);
+}
+
+body[data-page="help"] .help-layout {
+  display: grid;
+  grid-template-columns: minmax(230px, 300px) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+body[data-page="help"] .help-nav {
+  position: sticky;
+  top: 90px;
+  max-height: calc(100vh - 104px);
+  overflow: auto;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+body[data-page="help"] .help-nav h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+body[data-page="help"] .help-nav-tools {
+  display: grid;
+  gap: 8px;
+}
+
+body[data-page="help"] .help-search-input {
+  width: 100%;
+}
+
+body[data-page="help"] .help-search-results {
+  display: grid;
+  gap: 4px;
+  max-height: 224px;
+  overflow: auto;
+}
+
+body[data-page="help"] .search-result-item {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 9px;
+  padding: 7px 9px;
+  background: var(--app-card-soft-bg);
+  color: var(--md-sys-color-on-surface);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+body[data-page="help"] .search-result-item:hover {
+  border-color: var(--md-sys-color-primary);
+}
+
+body[data-page="help"] .search-result-main {
+  font-weight: 700;
+}
+
+body[data-page="help"] .search-result-sub,
+body[data-page="help"] .help-search-empty {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 11px;
+}
+
+body[data-page="help"] .toc {
+  display: grid;
+  gap: 2px;
+}
+
+body[data-page="help"] .toc-link {
+  display: block;
+  color: var(--md-sys-color-on-surface-variant);
+  text-decoration: none;
+  font-size: 13px;
+  border-left: 2px solid transparent;
+  padding: 6px 8px;
+  border-radius: 6px;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+body[data-page="help"] .toc-link:hover {
+  color: var(--md-sys-color-on-surface);
+  background: var(--app-card-quiet-bg);
+}
+
+body[data-page="help"] .toc-link.level-3 {
+  padding-left: 16px;
+  font-size: 12px;
+}
+
+body[data-page="help"] .toc-link.level-4 {
+  padding-left: 24px;
+  font-size: 12px;
+}
+
+body[data-page="help"] .toc-link.active {
+  color: var(--md-sys-color-primary);
+  border-color: var(--md-sys-color-primary);
+  background: color-mix(in srgb, var(--md-sys-color-primary-container) 42%, transparent);
+  font-weight: 700;
+}
+
+body[data-page="help"] .help-doc {
+  min-height: calc(100vh - 120px);
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+body[data-page="help"] .help-content {
+  min-width: 0;
+}
+
+body[data-page="help"] .help-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+}
+
+body[data-page="help"] .help-content h1,
+body[data-page="help"] .help-content h2,
+body[data-page="help"] .help-content h3,
+body[data-page="help"] .help-content h4,
+body[data-page="help"] .help-content h5,
+body[data-page="help"] .help-content h6 {
+  line-height: 1.32;
+  margin: 16px 0 8px;
+  scroll-margin-top: 100px;
+}
+
+body[data-page="help"] .help-content h1 {
+  margin-top: 0;
+  font-size: 30px;
+}
+
+body[data-page="help"] .help-content h2 {
+  font-size: 24px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  padding-bottom: 5px;
+}
+
+body[data-page="help"] .help-content h3 {
+  font-size: 19px;
+}
+
+body[data-page="help"] .help-content h4 {
+  font-size: 17px;
+}
+
+body[data-page="help"] .help-content p,
+body[data-page="help"] .help-content li,
+body[data-page="help"] .help-content blockquote,
+body[data-page="help"] .help-content td,
+body[data-page="help"] .help-content th {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+body[data-page="help"] .help-content ul,
+body[data-page="help"] .help-content ol {
+  margin: 8px 0 14px;
+  padding-left: 22px;
+}
+
+body[data-page="help"] .help-content code {
+  background: color-mix(in srgb, var(--md-sys-color-primary-container) 24%, transparent);
+  color: var(--md-sys-color-primary);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 12px;
+}
+
+body[data-page="help"] .help-content pre {
+  margin: 10px 0 14px;
+  max-height: 360px;
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--app-card-soft-bg);
+  padding: 12px;
+}
+
+body[data-page="help"] .help-content pre code {
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+body[data-page="help"] .help-content blockquote {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--md-sys-color-primary);
+  background: color-mix(in srgb, var(--md-sys-color-primary-container) 24%, transparent);
+  border-radius: 6px;
+}
+
+body[data-page="help"] .help-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0 14px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+body[data-page="help"] .help-content th,
+body[data-page="help"] .help-content td {
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+body[data-page="help"] .help-content tr:last-child td {
+  border-bottom: none;
+}
+
+body[data-page="help"] .help-content a {
+  color: var(--md-sys-color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+body[data-page="help"] .help-empty {
+  margin: 12px 0;
+  color: var(--app-danger-fg);
+  font-size: 13px;
+}
+
+body[data-page="help"] .doc-section[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 1320px) {
+  .pure-layout {
+    width: calc(100vw - 12px);
+    gap: 10px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .pure-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .pure-sidebar {
+    position: static;
+    height: auto;
+    grid-template-rows: auto auto;
+  }
+
+  .pure-sidebar-foot {
+    display: none;
+  }
+
+  .pure-sidebar .top-tabs {
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    padding-bottom: 2px;
+  }
+
+  body[data-page="player"] .app-header,
+  body[data-page="admin"] .app-header,
+  body[data-page="help"] .help-header,
+  body[data-page="help"] .help-nav {
+    position: static;
+  }
+
+  body[data-page="help"] .help-shell {
+    width: calc(100vw - 12px);
+  }
+
+  body[data-page="help"] .help-layout {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  body[data-page="help"] .help-nav {
+    max-height: none;
+    order: 2;
+  }
+
+  body[data-page="help"] .help-doc {
+    order: 1;
+    min-height: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  body[data-page="player"],
+  body[data-page="admin"] {
+    padding-bottom: calc(78px + env(safe-area-inset-bottom));
+  }
+
+  .pure-layout {
+    width: calc(100vw - 8px);
+    margin-top: 6px;
+    gap: 8px;
+  }
+
+  .pure-sidebar {
+    padding: 8px;
+  }
+
+  .pure-brand {
+    padding: 10px;
+  }
+
+  .pure-brand h2 {
+    font-size: 15px;
+  }
+
+  .pure-sidebar .top-tabs {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    z-index: 1200;
+    padding: 6px;
+    background: color-mix(in srgb, var(--app-card-raised-bg) 94%, transparent);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: 14px;
+    box-shadow: var(--md-elevation-2);
+  }
+
+  .pure-sidebar .top-tab {
+    min-height: 36px;
+    font-size: 12px;
+    border-radius: 8px;
+    padding-inline: 11px;
+  }
+
+  body[data-page="player"] .header-controls,
+  body[data-page="admin"] .header-controls {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  body[data-page="help"] .help-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    top: 0;
+    padding: 10px 12px;
+  }
+
+  body[data-page="help"] .help-header h1 {
+    font-size: clamp(17px, 5.3vw, 22px);
+  }
+
+  body[data-page="help"] .help-menu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  body[data-page="help"] .help-header-actions {
+    display: none;
+    grid-column: 1 / -1;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  body[data-page="help"] .help-shell.menu-open .help-header-actions {
+    display: grid;
+  }
+
+  body[data-page="help"] .help-header-actions > * {
+    width: 100%;
+  }
+
+  body[data-page="help"] .help-nav {
+    order: 1;
+    padding: 10px;
+  }
+
+  body[data-page="help"] .help-nav h2,
+  body[data-page="help"] .help-nav .toc {
+    display: none;
+  }
+
+  body[data-page="help"] .help-doc {
+    order: 2;
+    padding: 12px;
+  }
+
+  body[data-page="help"] .help-content h1 {
+    font-size: 24px;
+  }
+
+  body[data-page="help"] .help-content h2 {
+    font-size: 20px;
+  }
+
+  body[data-page="help"] .help-content h3 {
+    font-size: 17px;
+  }
+
+  body[data-page="help"] .help-content p,
+  body[data-page="help"] .help-content li,
+  body[data-page="help"] .help-content blockquote,
+  body[data-page="help"] .help-content td,
+  body[data-page="help"] .help-content th {
+    font-size: 13px;
+    line-height: 1.65;
+  }
+}
+
+@media (max-width: 520px) {
+  body[data-page="help"] .help-shell {
+    width: calc(100vw - 8px);
+  }
+
+  body[data-page="help"] .help-meta {
+    font-size: 11px;
+  }
+
+  body[data-page="help"] .toc-link {
+    font-size: 12px;
+    padding: 8px 8px;
+  }
+}

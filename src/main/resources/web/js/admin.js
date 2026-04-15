@@ -357,6 +357,7 @@ function applyTheme(theme) {
   state.theme = normalized;
   document.documentElement.classList.remove("light", "dark");
   document.documentElement.classList.add(normalized);
+  document.documentElement.setAttribute("data-theme", normalized === "dark" ? "default" : "light");
   window.localStorage.setItem(THEME_STORAGE_KEY, normalized);
   if (elements.adminThemeToggleBtn) {
     elements.adminThemeToggleBtn.textContent = I18N

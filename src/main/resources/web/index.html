@@ -13,19 +13,39 @@
           : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
         document.documentElement.classList.remove("light", "dark");
         document.documentElement.classList.add(theme);
+        document.documentElement.setAttribute("data-theme", theme === "dark" ? "default" : "light");
       } catch (error) {
         document.documentElement.classList.remove("dark");
         document.documentElement.classList.add("light");
+        document.documentElement.setAttribute("data-theme", "light");
       }
     })();
   </script>
   <link rel="stylesheet" href="css/light.css" />
   <link rel="stylesheet" href="css/dark.css" />
   <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/frontend-refactor.css" />
 </head>
-<body>
-  <main class="app-shell">
-    <header class="app-header md-card">
+<body data-page="player">
+  <div class="app-wrapper pure-layout" data-layout="player">
+    <aside class="sidebar-container pure-sidebar md-card" aria-label="玩家导航">
+      <div class="pure-brand">
+        <p class="pure-brand-kicker">WebShopX</p>
+        <h2>玩家控制台</h2>
+      </div>
+      <nav class="top-tabs" role="tablist" aria-label="功能标签">
+        <button class="top-tab active" data-tab-target="auth" type="button">账户</button>
+        <button class="top-tab" data-tab-target="shop" type="button">官方商城</button>
+        <button class="top-tab" data-tab-target="market" type="button">玩家市场</button>
+        <button class="top-tab" data-tab-target="auction" type="button">拍卖行</button>
+      </nav>
+      <div class="pure-sidebar-foot">
+        <p>Player Portal</p>
+      </div>
+    </aside>
+
+    <main class="main-container app-shell pure-main">
+      <header class="fixed-header app-header md-card">
       <div>
         <!-- <p class="app-kicker">WebShopX Dashboard</p> -->
         <h1>WebShopX 仪表盘</h1>
@@ -37,14 +57,7 @@
         <button id="themeToggleBtn" class="btn-tonal theme-toggle-btn" type="button">切换暗色</button>
         <div class="status-chip" id="statusChip" data-state="offline">未登录</div>
       </div>
-    </header>
-
-    <nav class="top-tabs" role="tablist" aria-label="功能标签">
-      <button class="top-tab active" data-tab-target="auth" type="button">账户</button>
-      <button class="top-tab" data-tab-target="shop" type="button">官方商城</button>
-      <button class="top-tab" data-tab-target="market" type="button">玩家市场</button>
-      <button class="top-tab" data-tab-target="auction" type="button">拍卖行</button>
-    </nav>
+      </header>
 
     <section class="tab-panel active" data-tab-panel="auth">
       <div class="grid two-col">
@@ -372,7 +385,8 @@
         <pre id="logBox"></pre>
       </article>
     </section>
-  </main>
+    </main>
+  </div>
 
   <div id="confirmDialog" class="dialog-backdrop" aria-hidden="true">
     <div class="dialog-card md-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">

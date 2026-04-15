@@ -37,6 +37,7 @@ class StaticAssetInstaller {
       "web/css/light.css",
       "web/css/dark.css",
       "web/css/styles.css",
+      "web/css/frontend-refactor.css",
       "web/js/i18n.js",
       "web/js/app.js",
       "web/js/admin.js",

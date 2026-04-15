@@ -29,6 +29,7 @@
     shell: document.querySelector(".help-shell"),
     menuBtn: document.getElementById("helpMenuBtn"),
     headerActions: document.getElementById("helpHeaderActions"),
+    navPanel: document.querySelector(".help-nav"),
     homeBtn: document.getElementById("helpHomeBtn"),
     themeBtn: document.getElementById("helpThemeToggleBtn"),
     modeBtn: document.getElementById("helpModeToggleBtn"),
@@ -110,6 +111,7 @@
     const next = isDark ? "light" : "dark";
     document.documentElement.classList.remove("light", "dark");
     document.documentElement.classList.add(next);
+    document.documentElement.setAttribute("data-theme", next === "dark" ? "default" : "light");
     try {
       window.localStorage.setItem("webshopx_theme", next);
     } catch (error) {
@@ -1049,7 +1051,8 @@
         return;
       }
       if ((elements.menuBtn && elements.menuBtn.contains(target))
-        || (elements.headerActions && elements.headerActions.contains(target))) {
+        || (elements.headerActions && elements.headerActions.contains(target))
+        || (elements.navPanel && elements.navPanel.contains(target))) {
         return;
       }
       closeMobileMenu();

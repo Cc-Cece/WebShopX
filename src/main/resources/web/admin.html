@@ -13,19 +13,44 @@
           : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
         document.documentElement.classList.remove("light", "dark");
         document.documentElement.classList.add(theme);
+        document.documentElement.setAttribute("data-theme", theme === "dark" ? "default" : "light");
       } catch (error) {
         document.documentElement.classList.remove("dark");
         document.documentElement.classList.add("light");
+        document.documentElement.setAttribute("data-theme", "light");
       }
     })();
   </script>
   <link rel="stylesheet" href="css/light.css" />
   <link rel="stylesheet" href="css/dark.css" />
   <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/frontend-refactor.css" />
 </head>
-<body>
-  <main class="app-shell">
-    <header class="app-header md-card">
+<body data-page="admin">
+  <div class="app-wrapper pure-layout" data-layout="admin">
+    <aside class="sidebar-container pure-sidebar md-card" aria-label="管理导航">
+      <div class="pure-brand">
+        <p class="pure-brand-kicker">WebShopX</p>
+        <h2>管理后台</h2>
+      </div>
+      <nav class="top-tabs" role="tablist" aria-label="管理功能">
+        <button class="top-tab active" data-tab-target="login" type="button">管理员登录</button>
+        <button class="top-tab" data-tab-target="products" type="button">官方商品</button>
+        <button class="top-tab" data-tab-target="market" type="button">玩家市场</button>
+        <button class="top-tab" data-tab-target="orders" type="button">订单</button>
+        <button class="top-tab" data-tab-target="redeem" type="button">兑换码</button>
+        <button class="top-tab" data-tab-target="economy" type="button">经济设置</button>
+        <button class="top-tab" data-tab-target="users" type="button">账号管理</button>
+        <button class="top-tab" data-tab-target="admins" type="button">管理员</button>
+        <button class="top-tab" data-tab-target="audit" type="button">审计日志</button>
+      </nav>
+      <div class="pure-sidebar-foot">
+        <p>Admin Panel</p>
+      </div>
+    </aside>
+
+    <main class="main-container app-shell pure-main">
+      <header class="fixed-header app-header md-card">
       <div>
         <!-- <p class="app-kicker">WebShopX Admin</p> -->
         <h1>WebShopX 控制台</h1>
@@ -36,19 +61,7 @@
         <button id="adminThemeToggleBtn" class="btn-tonal theme-toggle-btn" type="button">切换暗色</button>
         <div class="status-chip" id="adminStatusChip" data-state="offline">未登录</div>
       </div>
-    </header>
-
-    <nav class="top-tabs" role="tablist" aria-label="管理功能">
-      <button class="top-tab active" data-tab-target="login" type="button">管理员登录</button>
-      <button class="top-tab" data-tab-target="products" type="button">官方商品</button>
-      <button class="top-tab" data-tab-target="market" type="button">玩家市场</button>      
-      <button class="top-tab" data-tab-target="orders" type="button">订单</button>
-      <button class="top-tab" data-tab-target="redeem" type="button">兑换码</button>
-      <button class="top-tab" data-tab-target="economy" type="button">经济设置</button>
-      <button class="top-tab" data-tab-target="users" type="button">账号管理</button>
-      <button class="top-tab" data-tab-target="admins" type="button">管理员</button>
-      <button class="top-tab" data-tab-target="audit" type="button">审计日志</button>
-    </nav>
+      </header>
 
     <section class="tab-panel active" data-tab-panel="login">
       <div class="grid two-col">
@@ -708,7 +721,8 @@
         <div class="admin-list" id="auditList"></div>
       </article>
     </section>
-  </main>
+    </main>
+  </div>
 
   <div id="snackbarHost" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
   <datalist id="materialSuggestList"></datalist>
