@@ -403,10 +403,42 @@ function setMetaText(element, text, tone = "info") {
   element.classList.add(`meta-${normalized}`);
 }
 
-function switchTab(tabName) {
+const ADMIN_TAB_PATH_MAP = {
+  login: "/admin/login",
+  products: "/admin/products",
+  market: "/admin/market",
+  orders: "/admin/orders",
+  redeem: "/admin/redeem",
+  economy: "/admin/economy",
+  users: "/admin/users",
+  admins: "/admin/admins",
+  audit: "/admin/audit"
+};
+
+const ADMIN_PATH_TAB_MAP = {
+  "/admin": "login",
+  "/admin/login": "login",
+  "/admin/products": "products",
+  "/admin/market": "market",
+  "/admin/orders": "orders",
+  "/admin/redeem": "redeem",
+  "/admin/economy": "economy",
+  "/admin/users": "users",
+  "/admin/admins": "admins",
+  "/admin/audit": "audit"
+};
+
+function switchTab(tabName, skipHistory = false) {
   state.activeTab = tabName;
   tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tabTarget === tabName));
   panels.forEach((panel) => panel.classList.toggle("active", panel.dataset.tabPanel === tabName));
+
+  if (!skipHistory && ADMIN_TAB_PATH_MAP[tabName]) {
+    const newPath = ADMIN_TAB_PATH_MAP[tabName];
+    if (window.location.pathname !== newPath) {
+      window.history.pushState({ tab: tabName }, "", newPath);
+    }
+  }
   if (tabName === "products" && state.token) {
     loadProducts();
   }
@@ -425,6 +457,24 @@ function switchTab(tabName) {
 }
 
 tabs.forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tabTarget)));
+
+window.addEventListener("popstate", (event) => {
+  if (event.state && event.state.tab) {
+    switchTab(event.state.tab, true);
+  } else {
+    // Fallback if no state
+    const path = window.location.pathname;
+    const tabName = ADMIN_PATH_TAB_MAP[path] || "login";
+    switchTab(tabName, true);
+  }
+});
+
+// Initialize routing based on URL
+window.addEventListener("load", () => {
+  const path = window.location.pathname;
+  const tabName = ADMIN_PATH_TAB_MAP[path] || "login";
+  switchTab(tabName, true);
+});
 
 async function runAutoSyncTick() {
   if (!state.token || state.autoSyncBusy) {
@@ -1438,16 +1488,18 @@ function renderAlgorithmParamEditors(host, paramSchemas, paramValues, options = 
     return entries;
   }
   const advancedOnly = Boolean(options.advancedOnly);
-  const emptyMessage = options.emptyMessage || "当前算法无额外参数。";
+  const emptyMessage = options.emptyMessage !== undefined ? options.emptyMessage : "当前算法无额外参数。";
   const filteredSchemas = Array.isArray(paramSchemas)
     ? paramSchemas.filter((schema) => Boolean(schema?.advanced) === advancedOnly)
     : [];
   host.innerHTML = "";
   if (filteredSchemas.length === 0) {
-    const hint = document.createElement("p");
-    hint.className = "field-hint";
-    setNodeText(hint, emptyMessage);
-    host.appendChild(hint);
+    if (emptyMessage) {
+      const hint = document.createElement("p");
+      hint.className = "field-hint";
+      setNodeText(hint, emptyMessage);
+      host.appendChild(hint);
+    }
     return entries;
   }
 
@@ -1600,7 +1652,7 @@ function renderProductDynamicParamEditors() {
     elements.productDynamicBasicParams,
     definition?.params || [],
     paramValues,
-    { advancedOnly: false, emptyMessage: "当前算法无基础参数。" }
+    { advancedOnly: false, emptyMessage: "" }
   );
   productDynamicAdvancedParamEntries = renderAlgorithmParamEditors(
     elements.productDynamicAdvancedParams,

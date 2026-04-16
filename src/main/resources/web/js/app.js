@@ -377,6 +377,7 @@ const elements = {
 
   authEntryCard: document.getElementById("authEntryCard"),
   authProfileCard: document.getElementById("authProfileCard"),
+  authFunctionsCard: document.getElementById("authFunctionsCard"),
   authLoginPanel: document.getElementById("authLoginPanel"),
 
   loginIdentifier: document.getElementById("loginIdentifier"),
@@ -1051,7 +1052,7 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
           paramHost,
           definition?.params || [],
           values,
-          { advancedOnly: false, emptyMessage: "当前算法无基础参数。" }
+          { advancedOnly: false, emptyMessage: "" }
         );
         advancedParamEntries = renderAlgorithmParamEditors(
           advancedParamHost,
@@ -1211,7 +1212,7 @@ async function openAuctionParamDialog(state, fallbackPrice) {
           paramHost,
           currentDefinition?.params || [],
           values,
-          { advancedOnly: false, emptyMessage: "当前算法无基础参数。" }
+          { advancedOnly: false, emptyMessage: "" }
         );
         advancedParamEntries = renderAlgorithmParamEditors(
           advancedParamHost,
@@ -1770,11 +1771,33 @@ function updateAccountBackButtonVisibility() {
   elements.headerAccountBackBtn.classList.toggle("hidden", !shouldShow);
 }
 
-function switchTab(tabName) {
+const PATH_TAB_MAP = {
+  "/": "auth",
+  "/account": "auth",
+  "/b2c": "shop",
+  "/c2c": "market",
+  "/auction": "auction"
+};
+
+const TAB_PATH_MAP = {
+  "auth": "/account",
+  "shop": "/b2c",
+  "market": "/c2c",
+  "auction": "/auction"
+};
+
+function switchTab(tabName, skipHistory = false) {
   const panelTab = tabName === "auction" ? "market" : tabName;
   const activeTopTab = ACCOUNT_CHILD_TABS.has(tabName) ? "auth" : tabName;
 
   state.activeTab = tabName;
+
+  if (!skipHistory && TAB_PATH_MAP[activeTopTab]) {
+    const newPath = TAB_PATH_MAP[activeTopTab];
+    if (window.location.pathname !== newPath) {
+      window.history.pushState({ tab: tabName }, "", newPath);
+    }
+  }
 
   tabs.forEach((tab) => {
     tab.classList.toggle("active", tab.dataset.tabTarget === activeTopTab);
@@ -1840,6 +1863,24 @@ if (elements.accountHelpBtn) {
     window.location.href = "help.html";
   });
 }
+
+window.addEventListener("popstate", (event) => {
+  if (event.state && event.state.tab) {
+    switchTab(event.state.tab, true);
+  } else {
+    // Fallback if no state
+    const path = window.location.pathname;
+    const tabName = PATH_TAB_MAP[path] || "auth";
+    switchTab(tabName, true);
+  }
+});
+
+// Initialize routing based on URL
+window.addEventListener("load", () => {
+  const path = window.location.pathname;
+  const tabName = PATH_TAB_MAP[path] || "auth";
+  switchTab(tabName, true);
+});
 
 function createIdempotencyKey() {
   if (window.crypto && typeof window.crypto.randomUUID === "function") {
@@ -2531,13 +2572,15 @@ function resolveAlgorithmParamInitialValue(paramValues, schemaKey) {
 function renderAlgorithmParamEditors(host, paramSchemas, paramValues, options = {}) {
   const entries = [];
   const advancedOnly = Boolean(options.advancedOnly);
-  const emptyMessage = options.emptyMessage || "当前算法无额外参数。";
+  const emptyMessage = options.emptyMessage !== undefined ? options.emptyMessage : "当前算法无额外参数。";
   const filteredSchemas = Array.isArray(paramSchemas)
     ? paramSchemas.filter((schema) => Boolean(schema?.advanced) === advancedOnly)
     : [];
   host.innerHTML = "";
   if (filteredSchemas.length === 0) {
-    host.appendChild(createEl("p", "field-hint", emptyMessage));
+    if (emptyMessage) {
+      host.appendChild(createEl("p", "field-hint", emptyMessage));
+    }
     return entries;
   }
 
@@ -3201,6 +3244,9 @@ function updateAuthLayout() {
   const loggedIn = !!state.token;
   elements.authEntryCard.classList.toggle("hidden", loggedIn);
   elements.authProfileCard.classList.toggle("hidden", !loggedIn);
+  if (elements.authFunctionsCard) {
+    elements.authFunctionsCard.classList.toggle("hidden", !loggedIn);
+  }
 
   if (!loggedIn) {
     setStatus("未登录", "offline");
@@ -3631,7 +3677,20 @@ function renderListings(listings, container = elements.marketList) {
     const quantityTotal = Number(listing.quantityTotal || listing.quantity || 0);
 
     if (!isOwner && !isAuction) {
-      const card = createEl("article", "market-card market-compact-four");
+      const card = createEl("article", "market-card");
+
+      const top = createEl("div", "market-top");
+      const statusClass = displayStatus === "ACTIVE" ? "sale" : displayStatus === "SUPPLY_EMPTY" || isPaused ? "paused" : "inactive";
+      top.appendChild(createEl(
+        "span",
+        `market-chip ${statusClass}`,
+        formatListingStatus(displayStatus)
+      ));
+      if (isSupply) {
+        top.appendChild(createEl("span", "market-chip official", "自动补货"));
+      }
+      top.appendChild(createEl("span", "market-time", formatAge(listing.createdAt)));
+      card.appendChild(top);
 
       const infoRow = createEl("div", "product-info-row");
       const icon = createEl("div", "product-icon");
@@ -3646,10 +3705,7 @@ function renderListings(listings, container = elements.marketList) {
       if (listing.remark) {
         compactRemarkParts.push(String(listing.remark));
       }
-      compactRemarkParts.push(`单价：${formatCurrency(Number(listing.price || 0), listing.currency)} · 卖家：${listing.sellerName}`);
-      if (isSupply) {
-        compactRemarkParts.push("自动补货");
-      }
+      compactRemarkParts.push(`卖家：${listing.sellerName}`);
       infoMain.appendChild(createEl("p", "product-remark", compactRemarkParts.join(" ")));
       infoRow.appendChild(infoMain);
       card.appendChild(infoRow);
@@ -3661,6 +3717,11 @@ function renderListings(listings, container = elements.marketList) {
       );
       stockProgress.wrap.classList.add("product-stock-row");
       card.appendChild(stockProgress.wrap);
+
+      const priceRow = createEl("div", "market-price-row");
+      priceRow.appendChild(createEl("p", "market-price-label", "单价"));
+      priceRow.appendChild(createEl("p", "market-price", formatCurrency(Number(listing.price || 0), listing.currency)));
+      card.appendChild(priceRow);
 
       const quantitySelector = createQuantitySelector({
         max: Math.max(1, Number(listing.quantity || 1)),

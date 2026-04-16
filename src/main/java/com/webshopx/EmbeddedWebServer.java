@@ -2229,6 +2229,15 @@ class EmbeddedWebServer {
     }
 
     String relativePath = path.equals("/") ? "index.html" : path.substring(1);
+
+    if (!relativePath.contains(".")) {
+      if (relativePath.startsWith("admin")) {
+        relativePath = "admin.html";
+      } else {
+        relativePath = "index.html";
+      }
+    }
+
     if (relativePath.contains("..")) {
       sendJson(exchange, 400, errorJson("bad_request", "Invalid static path"));
       return;

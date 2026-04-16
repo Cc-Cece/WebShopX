@@ -894,6 +894,31 @@ code {
   gap: 12px;
 }
 
+.market-card .progress-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.market-card .progress-track {
+  flex: 1;
+}
+
+.market-card .quantity-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.market-card .product-qty {
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.market-card .range-input {
+  flex: 1;
+}
+
 .order-card {
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--radius-medium);
