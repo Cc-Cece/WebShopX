@@ -23,7 +23,7 @@
   <link rel="stylesheet" href="css/dark.css" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
-<body>
+<body class="page-index">
   <main class="app-shell">
     <header class="app-header md-card">
       <div>
@@ -58,12 +58,12 @@
           <div id="authLoginPanel" class="auth-pane active">
             <div class="field-grid two-col">
               <label class="field">
-                <span>用户名</span>
                 <input id="loginIdentifier" placeholder="输入 Minecraft 用户名" autocomplete="username" />
+                <span class="field-label">用户名</span>
               </label>
               <label class="field">
-                <span>密码</span>
                 <input id="loginPassword" type="password" placeholder="输入游戏内设置的密码" autocomplete="current-password" />
+                <span class="field-label">密码</span>
               </label>
             </div>
             <div class="actions">
@@ -140,8 +140,8 @@
           </div>
           <div class="field-grid">
             <label class="field">
-              <span>兑换码</span>
               <input id="redeemCode" placeholder="请输入兑换码" />
+              <span class="field-label">兑换码</span>
             </label>
           </div>
           <div class="actions">
@@ -153,24 +153,24 @@
         <article class="md-card section-card">
           <h2>货币互换</h2>
           <p class="card-desc">按服务器配置的兑换比例在 <span id="exchangeDescShopCoin">网页币</span> 与 <span id="exchangeDescGameCoin">游戏币</span> 之间转换。</p>
-          <div class="field-grid three-col compact">
-            <label class="field">
-              <span>从</span>
+          <div class="field-grid three-col compact field-grid-smart">
+            <label class="field field-select field-pair">
               <select id="exchangeFrom">
                 <option value="SHOP_COIN">网页币</option>
                 <option value="GAME_COIN">游戏币</option>
               </select>
+              <span class="field-label">从</span>
             </label>
-            <label class="field">
-              <span>到</span>
+            <label class="field field-select field-pair">
               <select id="exchangeTo">
                 <option value="GAME_COIN">游戏币</option>
                 <option value="SHOP_COIN">网页币</option>
               </select>
+              <span class="field-label">到</span>
             </label>
             <label class="field">
-              <span>数量</span>
-              <input id="exchangeAmount" type="number" min="1" step="1" value="1" />
+              <input id="exchangeAmount" type="number" min="1" step="1" value="1" placeholder="数量" />
+              <span class="field-label">数量</span>
             </label>
           </div>
           <div class="actions">
@@ -201,16 +201,15 @@
           </div>
         </div>
         <div class="field-grid two-col">
-          <label class="field">
-            <span>关键词</span>
-            <div class="inline-action">
+          <label class="field field-inline">
+            <div class="inline-action has-floating-label">
               <input id="productKeyword" placeholder="商品标题 / SKU / 备注 / 物品关键词" />
+              <span class="field-label">关键词</span>
               <button id="productSearchBtn" class="btn-tonal" type="button">搜索</button>
               <button id="productKeywordClearBtn" class="btn-tonal" type="button">清空</button>
             </div>
           </label>
-          <label class="field">
-            <span>排序</span>
+          <label class="field field-select">
             <select id="productSort">
               <option value="default">默认排序</option>
               <option value="price_asc">价格从低到高</option>
@@ -219,13 +218,13 @@
               <option value="title_desc">标题 Z-A</option>
               <option value="stock_desc">库存从多到少</option>
             </select>
+            <span class="field-label">排序</span>
           </label>
         </div>
         <details class="advanced-filter">
           <summary>高级筛选</summary>
-          <div class="field-grid three-col">
-            <label class="field">
-              <span>商品类型</span>
+          <div class="field-grid three-col field-grid-smart">
+            <label class="field field-select">
               <select id="productFilterType">
                 <option value="">全部</option>
                 <option value="COMMAND">指令</option>
@@ -234,26 +233,27 @@
                 <option value="RECYCLE_ITEM">回收物品</option>
                 <option value="GROUP_BUY_VOUCHER">团购券</option>
               </select>
+              <span class="field-label">商品类型</span>
             </label>
-            <label class="field">
-              <span>币种</span>
+            <label class="field field-select">
               <select id="productFilterCurrency">
                 <option value="">全部</option>
                 <option value="SHOP_COIN">网页币</option>
                 <option value="GAME_COIN">游戏币</option>
               </select>
+              <span class="field-label">币种</span>
             </label>
             <label class="field">
-              <span>物品 ID</span>
               <input id="productFilterMaterial" placeholder="例如 DIAMOND" />
+              <span class="field-label">物品 ID</span>
             </label>
-            <label class="field">
-              <span>最低价</span>
-              <input id="productMinPrice" type="number" min="0" step="1" />
+            <label class="field field-pair">
+              <input id="productMinPrice" type="number" min="0" step="1" placeholder="最低价" />
+              <span class="field-label">最低价</span>
             </label>
-            <label class="field">
-              <span>最高价</span>
-              <input id="productMaxPrice" type="number" min="0" step="1" />
+            <label class="field field-pair">
+              <input id="productMaxPrice" type="number" min="0" step="1" placeholder="最高价" />
+              <span class="field-label">最高价</span>
             </label>
           </div>
           <div class="actions compact-actions">
@@ -295,16 +295,15 @@
         </div> -->
 
         <div class="field-grid two-col">
-          <label class="field">
-            <span>关键词</span>
-            <div class="inline-action">
+          <label class="field field-inline">
+            <div class="inline-action has-floating-label">
               <input id="marketKeyword" placeholder="物品/卖家关键词" />
+              <span class="field-label">关键词</span>
               <button id="marketSearchBtn" class="btn-tonal" type="button">搜索</button>
               <button id="marketKeywordClearBtn" class="btn-tonal" type="button">清空</button>
             </div>
           </label>
-          <label class="field">
-            <span>排序</span>
+          <label class="field field-select">
             <select id="marketSort">
               <option value="created_desc">最新</option>
               <option value="created_asc">最早</option>
@@ -313,31 +312,32 @@
               <option value="quantity_desc">数量从多到少</option>
               <option value="quantity_asc">数量从少到多</option>
             </select>
+            <span class="field-label">排序</span>
           </label>
         </div>
 
         <details class="advanced-filter">
           <summary>高级筛选</summary>
-          <div class="field-grid three-col">
+          <div class="field-grid three-col field-grid-smart">
             <label class="field">
-              <span>物品 ID</span>
               <input id="marketMaterial" placeholder="例如 DIAMOND" />
+              <span class="field-label">物品 ID</span>
             </label>
-            <label class="field">
-              <span>币种</span>
+            <label class="field field-select">
               <select id="marketCurrency">
                 <option value="">全部</option>
                 <option value="SHOP_COIN">网页币</option>
                 <option value="GAME_COIN">游戏币</option>
               </select>
+              <span class="field-label">币种</span>
             </label>
-            <label class="field">
-              <span>最低价</span>
-              <input id="marketMinPrice" type="number" min="0" step="1" />
+            <label class="field field-pair">
+              <input id="marketMinPrice" type="number" min="0" step="1" placeholder="最低价" />
+              <span class="field-label">最低价</span>
             </label>
-            <label class="field">
-              <span>最高价</span>
-              <input id="marketMaxPrice" type="number" min="0" step="1" />
+            <label class="field field-pair">
+              <input id="marketMaxPrice" type="number" min="0" step="1" placeholder="最高价" />
+              <span class="field-label">最高价</span>
             </label>
           </div>
           <div class="actions compact-actions">
@@ -418,12 +418,12 @@
           <strong id="priceDialogCurrency">--</strong>
         </div>
       </div>
-      <label class="field price-dialog-field">
-        <span>新价格</span>
+      <label class="field field-static price-dialog-field">
         <div class="price-input-wrap">
           <span class="price-input-prefix" id="priceDialogPrefix">SC</span>
-          <input id="priceDialogInput" type="number" min="1" step="1" />
+          <input id="priceDialogInput" type="number" min="1" step="1" placeholder="新价格" />
         </div>
+        <span class="field-label">新价格</span>
       </label>
       <p class="meta meta-warn" id="priceDialogError"></p>
       <div class="actions dialog-actions">
