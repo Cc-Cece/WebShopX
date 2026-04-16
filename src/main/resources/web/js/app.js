@@ -112,6 +112,7 @@ const PRODUCT_TYPE_TEXTURE_MAP = {
 const DEFAULT_TEXTURE_FALLBACK_MATERIAL = "BUNDLE";
 const RUNTIME_CONFIG = window.WEBSHOPX_CONFIG || {};
 const API_BASE_URL = normalizeApiBaseUrl(RUNTIME_CONFIG.apiBaseUrl || "");
+const LEGACY_ASSET_BASE = normalizeLegacyAssetBase(window.WEBSHOPX_LEGACY_BASE || "");
 
 function normalizeApiBaseUrl(value) {
   let normalized = String(value || "").trim();
@@ -133,6 +134,29 @@ function resolveApiUrl(path) {
     return text;
   }
   return API_BASE_URL ? `${API_BASE_URL}${text}` : text;
+}
+
+function normalizeLegacyAssetBase(value) {
+  let normalized = String(value || "").trim();
+  while (normalized.endsWith("/")) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
+function resolveAssetUrl(path) {
+  const text = String(path || "").trim();
+  if (!text) {
+    return text;
+  }
+  if (/^[a-z]+:\/\//i.test(text) || text.startsWith("//")) {
+    return text;
+  }
+  const normalizedPath = text.startsWith("/") ? text.slice(1) : text;
+  if (!LEGACY_ASSET_BASE) {
+    return normalizedPath;
+  }
+  return `${LEGACY_ASSET_BASE}/${normalizedPath}`;
 }
 
 function readThemeColor(tokenName, fallback) {
@@ -1874,7 +1898,7 @@ accountBackButtons.forEach((button) => {
 
 if (elements.accountHelpBtn) {
   elements.accountHelpBtn.addEventListener("click", () => {
-    window.location.href = "help.html";
+    window.location.href = resolveAssetUrl("help.html");
   });
 }
 
@@ -2380,7 +2404,7 @@ async function ensureMaterialNameMap() {
     state.materialNameMapReady = true;
     return;
   }
-  state.materialNameMapPromise = fetch(`i18n/materials/${I18N.getLocale()}.json`)
+  state.materialNameMapPromise = fetch(resolveAssetUrl(`i18n/materials/${I18N.getLocale()}.json`))
     .then((response) => {
       if (!response.ok) {
         throw new Error(`material glossary load failed: ${response.status}`);
@@ -2475,9 +2499,9 @@ async function ensureMarketAlgorithmGlossary() {
 
   const locale = I18N ? I18N.getLocale() : "zh-CN";
   const candidates = [
-    `i18n/market-algorithms/${locale}.json`,
-    "i18n/market-algorithms/zh-CN.json",
-    "i18n/market-algorithms/en-US.json",
+    resolveAssetUrl(`i18n/market-algorithms/${locale}.json`),
+    resolveAssetUrl("i18n/market-algorithms/zh-CN.json"),
+    resolveAssetUrl("i18n/market-algorithms/en-US.json"),
   ];
 
   state.marketAlgorithmGlossaryPromise = (async () => {
@@ -2666,7 +2690,8 @@ function openAlgorithmHelpPage(category, algorithmId) {
   query.set("locale", locale);
   const fallbackAnchor = normalizedCategory === "auction" ? "market-auction" : "dynamic-algorithms";
   const anchor = normalizedAlgorithm || fallbackAnchor;
-  window.open(`help.html?${query.toString()}#${encodeURIComponent(anchor)}`, "_blank", "noopener");
+  const helpUrl = resolveAssetUrl(`help.html?${query.toString()}#${encodeURIComponent(anchor)}`);
+  window.open(helpUrl, "_blank", "noopener");
 }
 
 function buildTextureAliases(material) {

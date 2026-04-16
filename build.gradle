@@ -101,6 +101,60 @@ processResources {
     }
 }
 
+def frontendDir = layout.projectDirectory.dir("pure-admin-thin")
+def frontendDistDir = frontendDir.dir("dist")
+def frontendTargetDir = layout.projectDirectory.dir("src/main/resources/web/app")
+def windowsShell = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('windows')
+def pnpmInstallCommand = windowsShell
+    ? ['cmd', '/c', 'corepack pnpm install --frozen-lockfile']
+    : ['sh', '-lc', 'corepack pnpm install --frozen-lockfile']
+def pnpmBuildCommand = windowsShell
+    ? ['cmd', '/c', 'corepack pnpm build']
+    : ['sh', '-lc', 'corepack pnpm build']
+
+tasks.register('frontendInstall', Exec) {
+    group = 'build'
+    description = 'Install pure-admin-thin dependencies via pnpm.'
+    workingDir frontendDir.asFile
+    commandLine pnpmInstallCommand
+    inputs.file(frontendDir.file('package.json'))
+    inputs.file(frontendDir.file('pnpm-lock.yaml'))
+    outputs.dir(frontendDir.dir('node_modules'))
+}
+
+tasks.register('frontendBuild', Exec) {
+    group = 'build'
+    description = 'Build pure-admin-thin production assets.'
+    dependsOn tasks.named('frontendInstall')
+    workingDir frontendDir.asFile
+    commandLine pnpmBuildCommand
+    inputs.files(fileTree(frontendDir) {
+        include 'src/**'
+        include 'public/**'
+        include 'build/**'
+        include 'types/**'
+        include 'index.html'
+        include 'vite.config.ts'
+        include 'tsconfig.json'
+        include '.env*'
+        include 'package.json'
+        include 'pnpm-lock.yaml'
+        exclude 'dist/**'
+        exclude 'node_modules/**'
+    })
+    outputs.dir(frontendDistDir)
+}
+
+tasks.register('syncFrontendDist', Sync) {
+    group = 'build'
+    description = 'Sync pure-admin-thin build output into plugin resources.'
+    dependsOn tasks.named('frontendBuild')
+    from(frontendDistDir)
+    into(frontendTargetDir)
+}
+
+processResources.dependsOn(tasks.named('syncFrontendDist'))
+
 checkstyle {
     toolVersion = '12.3.0'
     maxWarnings = 100  // 临时允许警告以完成编译

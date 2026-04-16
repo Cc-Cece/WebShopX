@@ -3,6 +3,7 @@ package com.webshopx;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,6 +17,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import java.util.logging.Level;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -34,6 +37,10 @@ class StaticAssetInstaller {
   private static final List<String> ASSETS = List.of(
       "web/index.html",
       "web/admin.html",
+      "web/help.html",
+      "web/index.legacy.html",
+      "web/admin.legacy.html",
+      "web/help.legacy.html",
       "web/css/light.css",
       "web/css/dark.css",
       "web/css/styles.css",
@@ -52,8 +59,10 @@ class StaticAssetInstaller {
       "web/vendor/auto-render.min.js",
       "web/vendor/katex.min.css");
 
+  private static final List<String> ASSET_DIRECTORIES = List.of(
+      "web/app/");
+
   private static final List<String> CUSTOMIZABLE_ASSETS = List.of(
-      "web/help.html",
       "web/docs/help.zh-CN.md",
       "web/docs/help.en-US.md",
       "web/docs/manual.zh-CN.md",
@@ -73,6 +82,9 @@ class StaticAssetInstaller {
       Properties managedHashes = loadManagedHashes(managedHashFile);
       for (String assetPath : ASSETS) {
         copyAsset(assetPath, outputRoot);
+      }
+      for (String assetDirectory : ASSET_DIRECTORIES) {
+        copyAssetDirectory(assetDirectory, outputRoot);
       }
       for (String assetPath : CUSTOMIZABLE_ASSETS) {
         syncCustomizableAsset(assetPath, outputRoot, managedHashes);
@@ -100,6 +112,90 @@ class StaticAssetInstaller {
         return;
       }
       Files.copy(inputStream, outputFile, StandardCopyOption.REPLACE_EXISTING);
+    }
+  }
+
+  private void copyAssetDirectory(String assetDirectory, Path outputRoot) throws IOException {
+    String normalizedDirectory = normalizeAssetDirectory(assetDirectory);
+    Path codeSourcePath = resolveCodeSourcePath();
+    if (codeSourcePath == null) {
+      plugin.getLogger().log(Level.WARNING, "Skip embedded directory copy, unresolved code source: {0}", normalizedDirectory);
+      return;
+    }
+
+    if (Files.isRegularFile(codeSourcePath)) {
+      copyDirectoryFromJar(codeSourcePath, normalizedDirectory, outputRoot);
+      return;
+    }
+
+    if (Files.isDirectory(codeSourcePath)) {
+      copyDirectoryFromDirectory(codeSourcePath, normalizedDirectory, outputRoot);
+      return;
+    }
+
+    plugin.getLogger().log(Level.WARNING, "Skip embedded directory copy, unsupported code source: {0}", codeSourcePath);
+  }
+
+  private String normalizeAssetDirectory(String assetDirectory) {
+    String normalized = assetDirectory == null ? "" : assetDirectory.trim().replace('\\', '/');
+    if (normalized.isEmpty()) {
+      return "web/";
+    }
+    return normalized.endsWith("/") ? normalized : normalized + "/";
+  }
+
+  private Path resolveCodeSourcePath() {
+    try {
+      return Path.of(plugin.getClass().getProtectionDomain().getCodeSource().getLocation().toURI()).normalize();
+    } catch (Exception exception) {
+      plugin.getLogger().log(Level.WARNING, "Failed to resolve plugin code source", exception);
+      return null;
+    }
+  }
+
+  private void copyDirectoryFromJar(Path jarPath, String assetDirectory, Path outputRoot) throws IOException {
+    try (JarFile jarFile = new JarFile(jarPath.toFile())) {
+      boolean copied = false;
+      for (JarEntry entry : java.util.Collections.list(jarFile.entries())) {
+        String entryName = entry.getName();
+        if (entry.isDirectory() || !entryName.startsWith(assetDirectory)) {
+          continue;
+        }
+        String relative = entryName.substring("web/".length());
+        Path outputFile = outputRoot.resolve(relative);
+        Path parent = outputFile.getParent();
+        if (parent != null) {
+          Files.createDirectories(parent);
+        }
+        try (InputStream inputStream = jarFile.getInputStream(entry)) {
+          Files.copy(inputStream, outputFile, StandardCopyOption.REPLACE_EXISTING);
+        }
+        copied = true;
+      }
+      if (!copied) {
+        plugin.getLogger().log(Level.WARNING, "No embedded assets found for directory: {0}", assetDirectory);
+      }
+    }
+  }
+
+  private void copyDirectoryFromDirectory(Path codeSourcePath, String assetDirectory, Path outputRoot) throws IOException {
+    Path sourceRoot = codeSourcePath.resolve(assetDirectory).normalize();
+    if (!Files.isDirectory(sourceRoot)) {
+      return;
+    }
+    Path outputDirectory = outputRoot.resolve(assetDirectory.substring("web/".length(), assetDirectory.length() - 1));
+    try (Stream<Path> stream = Files.walk(sourceRoot)) {
+      for (Path sourceFile : stream.filter(Files::isRegularFile).toList()) {
+        Path relative = sourceRoot.relativize(sourceFile);
+        Path outputFile = outputDirectory.resolve(relative);
+        Path parent = outputFile.getParent();
+        if (parent != null) {
+          Files.createDirectories(parent);
+        }
+        Files.copy(sourceFile, outputFile, StandardCopyOption.REPLACE_EXISTING);
+      }
+    } catch (UncheckedIOException exception) {
+      throw exception.getCause();
     }
   }
 

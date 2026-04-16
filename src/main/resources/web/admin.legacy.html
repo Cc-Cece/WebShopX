@@ -1,0 +1,735 @@
+﻿<!doctype html>
+<html lang="zh-CN" class="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebShopX 控制台</title>
+  <script>
+    (function() {
+      try {
+        var saved = window.localStorage.getItem("webshopx_theme");
+        var theme = saved === "dark" || saved === "light"
+          ? saved
+          : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.classList.remove("light", "dark");
+        document.documentElement.classList.add(theme);
+        document.documentElement.setAttribute("data-theme", theme === "dark" ? "default" : "light");
+      } catch (error) {
+        document.documentElement.classList.remove("dark");
+        document.documentElement.classList.add("light");
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="css/light.css" />
+  <link rel="stylesheet" href="css/dark.css" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/frontend-refactor.css" />
+</head>
+<body data-page="admin">
+  <div class="app-wrapper pure-layout" data-layout="admin">
+    <aside class="sidebar-container pure-sidebar md-card" aria-label="管理导航">
+      <div class="pure-brand">
+        <p class="pure-brand-kicker">WebShopX</p>
+        <h2>管理后台</h2>
+      </div>
+      <nav class="top-tabs" role="tablist" aria-label="管理功能">
+        <button class="top-tab active" data-tab-target="login" type="button">管理员登录</button>
+        <button class="top-tab" data-tab-target="products" type="button">官方商品</button>
+        <button class="top-tab" data-tab-target="market" type="button">玩家市场</button>
+        <button class="top-tab" data-tab-target="orders" type="button">订单</button>
+        <button class="top-tab" data-tab-target="redeem" type="button">兑换码</button>
+        <button class="top-tab" data-tab-target="economy" type="button">经济设置</button>
+        <button class="top-tab" data-tab-target="users" type="button">账号管理</button>
+        <button class="top-tab" data-tab-target="admins" type="button">管理员</button>
+        <button class="top-tab" data-tab-target="audit" type="button">审计日志</button>
+      </nav>
+      <div class="pure-sidebar-foot">
+        <p>Admin Panel</p>
+      </div>
+    </aside>
+
+    <main class="main-container app-shell pure-main">
+      <header class="fixed-header app-header md-card">
+      <div>
+        <!-- <p class="app-kicker">WebShopX Admin</p> -->
+        <h1>WebShopX 控制台</h1>
+        <!-- <p class="app-subtitle">统一管理兑换码、官方商品、玩家市场与账号支持。</p> -->
+      </div>
+      <div class="header-controls">
+        <select id="adminLocaleSelect" class="header-locale-select" aria-label="Language"></select>
+        <button id="adminThemeToggleBtn" class="btn-tonal theme-toggle-btn" type="button">切换暗色</button>
+        <div class="status-chip" id="adminStatusChip" data-state="offline">未登录</div>
+      </div>
+      </header>
+
+    <section class="tab-panel active" data-tab-panel="login">
+      <div class="grid two-col">
+        <article class="md-card section-card">
+          <h2>管理员登录</h2>
+          <p class="card-desc">请使用管理员账号进入后台。</p>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>账号</span>
+              <input id="adminIdentifier" placeholder="用户名或 UUID" />
+            </label>
+            <label class="field">
+              <span>密码</span>
+              <input id="adminPassword" type="password" placeholder="输入密码" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="adminLoginBtn" type="button">登录</button>
+            <button id="adminLogoutBtn" class="btn-tonal" type="button">退出</button>
+          </div>
+          <p class="meta" id="adminLoginStatus">等待登录</p>
+          <div class="md-tip md-tip-info">
+            <strong>安全提醒</strong>
+            <p>不要在公共环境暴露管理员凭据。</p>
+          </div>
+        </article>
+
+        <article class="md-card section-card">
+          <h2>当前管理员</h2>
+          <p class="card-desc">显示当前会话的角色与权限。</p>
+          <div class="md-tip md-tip-success">
+            <strong>权限控制</strong>
+            <p>不同管理员角色可访问不同模块，权限不足时会提示拒绝。</p>
+          </div>
+          <p class="meta" id="adminProfileView">未登录</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="redeem">
+      <article class="md-card section-card">
+        <div class="section-head">
+          <div>
+            <h2>兑换码管理</h2>
+            <p class="card-desc">生成兑换码并查看最近记录。</p>
+          </div>
+          <button id="redeemRefreshBtn" type="button">刷新列表</button>
+        </div>
+        <div class="field-grid three-col">
+          <label class="field">
+            <span id="adminRedeemShopCoinLabel">网页币</span>
+            <input id="redeemShopCoin" type="number" min="0" step="1" value="0" />
+          </label>
+          <label class="field">
+            <span id="adminRedeemGameCoinLabel">游戏币</span>
+            <input id="redeemGameCoin" type="number" min="0" step="1" value="0" />
+          </label>
+          <label class="field">
+            <span>最大使用次数</span>
+            <input id="redeemMaxUses" type="number" min="1" step="1" value="1" />
+          </label>
+          <label class="field">
+            <span>单账号最大使用次数</span>
+            <input id="redeemPerUserMaxUses" type="number" min="1" step="1" value="1" />
+          </label>
+          <label class="field">
+            <span>有效期（分钟，可空）</span>
+            <input id="redeemExpires" type="number" min="0" step="30" placeholder="留空=永久" />
+          </label>
+          <label class="field">
+            <span>自定义兑换码（可空）</span>
+            <input id="redeemCustomCode" placeholder="可选自定义 code" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="redeemCreateBtn" type="button">生成兑换码</button>
+          <button id="redeemCopyBtn" class="btn-tonal" type="button">复制最新兑换码</button>
+        </div>
+        <p class="meta" id="redeemCreateResult">等待生成</p>
+        <div class="md-tip md-tip-info">
+          <strong>提示</strong>
+          <p>兑换码默认一次性。若开启多次使用，请注意有效期与发放对象。</p>
+        </div>
+        <div class="admin-list" id="redeemList"></div>
+      </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="products">
+      <article class="md-card section-card">
+        <div class="section-head">
+          <div>
+            <h2>官方商品管理</h2>
+            <p class="card-desc">通过子标签拆分商品编辑、商品列表与团购券核销。</p>
+          </div>
+          <button id="productRefreshBtn" type="button">刷新商品</button>
+        </div>
+        <div class="sub-tabs product-sub-tabs" role="tablist" aria-label="官方商品管理子标签">
+          <button id="productEditorTabBtn" class="btn-segment active" type="button">新增/编辑商品</button>
+          <button id="productListTabBtn" class="btn-segment" type="button">商品列表</button>
+          <button id="productVoucherTabBtn" class="btn-segment" type="button">团购券核销</button>
+        </div>
+
+        <div class="sub-panel active" data-product-panel="editor">
+          <div>
+            <h4>基础信息</h4>
+          </div>
+          <div class="field-grid three-col">
+            <label class="field">
+              <span>SKU（唯一标识）</span>
+              <input id="productSku" placeholder="例如 vip_week" />
+            </label>
+            <label class="field">
+              <span>标题（玩家端展示）</span>
+              <input id="productTitle" placeholder="商品标题" />
+            </label>
+            <label class="field">
+              <span>价格</span>
+              <input id="productPrice" type="number" min="1" step="1" value="1" />
+            </label>
+            <label class="field">
+              <span>交易币种</span>
+              <select id="productCurrency">
+                <option value="SHOP_COIN">网页币</option>
+                <option value="GAME_COIN">游戏币</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>上架时间</span>
+              <input id="productPublishAt" type="datetime-local" />
+            </label>
+            <label class="field">
+              <span>下架时间</span>
+              <input id="productUnpublishAt" type="datetime-local" />
+            </label>
+          </div>
+          <p class="meta" id="productScheduleHint">商品上下架时间按配置时区处理。</p>
+          <div>
+            <h4>动态价格（出售/回收）</h4>
+          </div>
+          <div class="field-grid three-col">
+            <label class="field">
+              <span>启用动态价格</span>
+              <select id="productDynamicEnabled">
+                <option value="false">关闭</option>
+                <option value="true">启用</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>动态算法</span>
+              <select id="productDynamicAlgorithm">
+                <option value="LINEAR_DEMAND_V1">线性需求</option>
+                <option value="DIMINISHING_RETURN_V1">边际递减</option>
+                <option value="LOG_SMOOTH_V1">对数平滑</option>
+                <option value="EXPONENTIAL_DEFENSE_V1">指数防御</option>
+                <option value="THRESHOLD_STEP_V1">阈值阶梯</option>
+                <option value="ELASTICITY_V1">弹性模型</option>
+                <option value="PANIC_BUYING_V1">抢购模式</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>基础价（可空，默认=当前价格）</span>
+              <input id="productDynamicBasePrice" type="number" min="1" step="1" placeholder="留空=跟随价格" />
+            </label>
+            <label class="field">
+              <span>最低价（可空）</span>
+              <input id="productDynamicFloorPrice" type="number" min="1" step="1" placeholder="留空=不限" />
+            </label>
+            <label class="field">
+              <span>最高价（可空）</span>
+              <input id="productDynamicCapPrice" type="number" min="1" step="1" placeholder="留空=不限" />
+            </label>
+            <label class="field">
+              <span>价格步长（可空，默认 1）</span>
+              <input id="productDynamicPriceStep" type="number" min="1" step="1" placeholder="留空=1" />
+            </label>
+            <label class="field product-remark-field" id="productDynamicParamEditor">
+              <span>算法参数编辑器</span>
+              <p class="field-hint" id="productDynamicSummary">参数说明加载中…</p>
+              <div class="dialog-inline-config">
+                <div></div>
+                <button id="productDynamicHelpBtn" class="btn-tonal" type="button">查看算法文档</button>
+              </div>
+              <div class="dialog-param-tabs">
+                <button id="productDynamicParamBasicTabBtn" class="dialog-param-tab is-active" type="button">基础参数</button>
+                <button id="productDynamicParamAdvancedTabBtn" class="dialog-param-tab" type="button">高级参数</button>
+              </div>
+              <div id="productDynamicParamBasicPanel" class="dialog-param-panel">
+                <div id="productDynamicBasicParams" class="dialog-algo-params"></div>
+              </div>
+              <div id="productDynamicParamAdvancedPanel" class="dialog-param-panel" style="display: none;">
+                <details id="productDynamicAdvancedDetails" class="dialog-advanced-details" open>
+                  <summary>高级参数（查看文档 | 谨慎修改）</summary>
+                  <p class="field-hint">留空将自动回退到默认值。</p>
+                  <div id="productDynamicAdvancedParams" class="dialog-algo-params"></div>
+                </details>
+              </div>
+            </label>
+            <label class="field product-remark-field">
+              <span>算法参数 JSON（可空，兼容手动覆盖）</span>
+              <textarea id="productDynamicParamsJson" rows="3" placeholder='例如 {"elasticity": 1.2}'></textarea>
+              <p class="field-hint">通常可通过上方可视化编辑器配置；手动填写 JSON 时请使用对象格式。</p>
+            </label>
+          </div>
+            <p class="meta">
+                仅 出售/回收物品 支持动态价格；具体规则及算法查看
+                <a href="./help.html?mode=single&doc=manual.zh-CN&lang=zh-CN">帮助文档</a>
+            </p>          
+          <div>
+            <h4>商品信息</h4>
+          </div>
+          <div class="field-grid three-col">
+            <label class="field">
+              <span>类型</span>
+              <select id="productType">
+                <option value="COMMAND">指令</option>
+                <option value="GIVE_ITEM">出售物品</option>
+                <option value="POTION_EFFECT">药水效果</option>
+                <option value="RECYCLE_ITEM">回收物品</option>
+                <option value="GROUP_BUY_VOUCHER">团购券（线下核销）</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>启用</span>
+              <select id="productActive">
+                <option value="true">启用</option>
+                <option value="false">停用</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>命令模板（指令类）</span>
+              <input id="productCommand" placeholder="例如 give %player% minecraft:diamond %amount%" />
+            </label>
+            <label class="field">
+              <span>物品材质（出售/回收）</span>
+              <input id="productItemMaterial" list="materialSuggestList" placeholder="例如 DIAMOND / 钻石" />
+            </label>
+            <label class="field">
+              <span>药水效果（POTION）</span>
+              <input id="productEffectType" list="potionEffectSuggestList" placeholder="例如 speed" />
+            </label>
+            <label class="field">
+              <span>药水时长（秒）</span>
+              <input id="productEffectSeconds" type="number" min="1" step="1" value="30" />
+            </label>
+            <label class="field">
+              <span>药水等级（0=I）</span>
+              <input id="productEffectAmplifier" type="number" min="0" step="1" value="0" />
+            </label>
+            <label class="field product-remark-field">
+              <span>商品备注（玩家端展示）</span>
+              <textarea id="productRemark" rows="3" placeholder="可填写用途说明、注意事项、团购兑换说明等"></textarea>
+            </label>
+          </div>
+          <div class="field-grid three-col product-range-grid">
+            <label class="field">
+              <span>库存模式</span>
+              <select id="productStockMode">
+                <option value="FINITE">有限库存</option>
+                <option value="UNLIMITED">无限库存</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>总库存</span>
+              <input id="productItemAmount" type="number" min="1" step="1" value="64" />
+            </label>
+            <label class="field">
+              <span>单玩家限购</span>
+              <input id="productPerUserLimit" type="number" min="1" step="1" placeholder="留空 = 不限购" />
+            </label>
+            <div class="range-summary-card">
+              <p class="range-summary-kicker">库存预览</p>
+              <input id="productItemAmountSlider" class="range-input" type="range" min="1" max="256" step="1" value="64" />
+              <div class="range-summary-row">
+                <span>当前状态</span>
+                <strong id="productAmountPreview">x64</strong>
+              </div>
+              <div class="range-summary-row">
+                <span>库存货值预览</span>
+                <strong id="productTotalPreview">待计算</strong>
+              </div>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="productSaveBtn" type="button">保存商品</button>
+            <p class="meta" id="productStatus">等待操作</p>
+          </div>
+        </div>
+
+        <div class="sub-panel" data-product-panel="list">
+          <div>
+            <h4>商品列表</h4>
+          </div>
+          <div class="field-grid three-col">
+            <label class="field">
+              <span>商品检索</span>
+              <input id="productSearchKeyword" placeholder="标题 / SKU / 材质 / 备注" />
+            </label>
+            <label class="field">
+              <span>类型筛选</span>
+              <select id="productSearchType">
+                <option value="">全部</option>
+                <option value="COMMAND">指令</option>
+                <option value="GIVE_ITEM">出售物品</option>
+                <option value="POTION_EFFECT">药水效果</option>
+                <option value="RECYCLE_ITEM">回收物品</option>
+                <option value="GROUP_BUY_VOUCHER">团购券</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>启用筛选</span>
+              <select id="productSearchActive">
+                <option value="">全部</option>
+                <option value="true">启用</option>
+                <option value="false">停用</option>
+              </select>
+            </label>
+          </div>
+          <p class="meta" id="productListStatus">等待加载商品列表</p>
+          <div class="admin-list" id="productList"></div>
+        </div>
+
+        <div class="sub-panel" data-product-panel="voucher">
+          <div>
+            <h4>团购券核销</h4>
+          </div>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>核销团购兑换码</span>
+              <input id="groupBuyConsumeCode" placeholder="例如 GB-XXXXXXXXXXXX" />
+            </label>
+            <div class="actions">
+              <button id="groupBuyConsumeBtn" type="button">核销团购兑换码</button>
+              <p class="meta" id="groupBuyConsumeStatus">等待核销</p>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="orders">
+      <article class="md-card section-card">
+        <div class="section-head">
+          <div>
+            <h2>订单列表</h2>
+            <p class="card-desc">查看最近订单与状态。</p>
+          </div>
+          <button id="orderRefreshBtn" type="button">刷新订单</button>
+        </div>
+        <div class="field-grid three-col">
+          <label class="field">
+            <span>状态</span>
+            <select id="orderStatus">
+              <option value="">全部</option>
+              <option value="PENDING">待发放</option>
+              <option value="WAIT_CLAIM">待领取</option>
+              <option value="DELIVERED">已发放</option>
+              <option value="REFUNDED">已退款</option>
+              <option value="FAILED">失败</option>
+              <option value="RECYCLED">已回收</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>用户ID</span>
+            <input id="orderUserId" placeholder="User ID" />
+          </label>
+          <label class="field">
+            <span>订单号</span>
+            <input id="orderNo" placeholder="ODR-..." />
+          </label>
+          <label class="field">
+            <span>用户名</span>
+            <input id="orderUsername" placeholder="用户昵称（模糊搜索）" />
+          </label>
+          <label class="field">
+            <span>币种</span>
+            <select id="orderCurrency">
+              <option value="">全部</option>
+              <option value="SHOP_COIN">网页币</option>
+              <option value="GAME_COIN">游戏币</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>商品类型</span>
+            <select id="orderProductType">
+              <option value="">全部</option>
+              <option value="COMMAND">指令</option>
+              <option value="GIVE_ITEM">出售物品</option>
+              <option value="POTION_EFFECT">药水效果</option>
+              <option value="RECYCLE_ITEM">回收物品</option>
+              <option value="GROUP_BUY_VOUCHER">团购券</option>
+              <option value="MARKET">玩家市场</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>综合关键词</span>
+            <input id="orderKeyword" placeholder="订单号 / SKU / 标题" />
+          </label>
+        </div>
+        <p class="meta" id="orderStatusView">等待刷新</p>
+        <div class="admin-list" id="adminOrderList"></div>
+      </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="economy">
+      <div class="grid two-col">
+        <article class="md-card section-card">
+          <h2>兑换方向与比例</h2>
+          <p class="card-desc">配置 <span id="economyShopCoinName">网页币</span> 与 <span id="economyGameCoinName">游戏币</span> 的兑换方向与比例。</p>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span><span id="exchangeShopToGameNameA">网页币</span> -> <span id="exchangeShopToGameNameB">游戏币</span> 开关</span>
+              <select id="exchangeShopToGameEnabled">
+                <option value="true">启用</option>
+                <option value="false">禁用</option>
+              </select>
+            </label>
+            <label class="field">
+              <span><span id="exchangeShopToGameNameC">网页币</span> -> <span id="exchangeShopToGameNameD">游戏币</span> 比例</span>
+              <input id="exchangeShopToGameRatio" type="number" min="0" step="0.01" value="1.0" />
+            </label>
+            <label class="field">
+              <span><span id="exchangeGameToShopNameA">游戏币</span> -> <span id="exchangeGameToShopNameB">网页币</span> 开关</span>
+              <select id="exchangeGameToShopEnabled">
+                <option value="true">启用</option>
+                <option value="false">禁用</option>
+              </select>
+            </label>
+            <label class="field">
+              <span><span id="exchangeGameToShopNameC">游戏币</span> -> <span id="exchangeGameToShopNameD">网页币</span> 比例</span>
+              <input id="exchangeGameToShopRatio" type="number" min="0" step="0.01" value="1.0" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="exchangeSaveBtn" type="button">保存兑换配置</button>
+          </div>
+          <p class="meta" id="exchangeStatusView">等待操作</p>
+        </article>
+
+        <article class="md-card section-card">
+          <h2>交易手续费与税率</h2>
+          <p class="card-desc">买家支付税率，卖家扣除手续费。</p>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>交易手续费（%）</span>
+              <input id="marketFeePercent" type="number" min="0" max="100" step="0.01" value="0.0" />
+            </label>
+            <label class="field">
+              <span>交易税率（%）</span>
+              <input id="marketTaxPercent" type="number" min="0" max="100" step="0.01" value="0.0" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="marketEconomySaveBtn" type="button">保存手续费/税率</button>
+          </div>
+          <p class="meta" id="marketEconomyStatusView">等待操作</p>
+        </article>
+
+        <article class="md-card section-card">
+          <h2>Vault 对接状态</h2>
+          <p class="card-desc"><span id="vaultGameCoinName">游戏币</span> 与 Vault 经济系统的连接状态。</p>
+          <p class="meta" id="vaultStatusView">等待加载</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="market">
+      <article class="md-card section-card">
+        <div class="section-head">
+          <div>
+            <h2>玩家市场管理</h2>
+            <p class="card-desc">查看全部上架并支持强制下架。</p>
+          </div>
+          <button id="marketRefreshBtn" type="button">刷新列表</button>
+        </div>
+        <div class="field-grid three-col">
+          <label class="field">
+            <span>状态筛选</span>
+            <select id="marketStatus">
+              <option value="">全部</option>
+              <option value="ACTIVE">在售</option>
+              <option value="SOLD">已售</option>
+              <option value="UNLISTED">已下架</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>卖家</span>
+            <input id="marketSeller" placeholder="卖家昵称（模糊）" />
+          </label>
+          <label class="field">
+            <span>买家</span>
+            <input id="marketBuyer" placeholder="买家昵称（模糊）" />
+          </label>
+          <label class="field">
+            <span>材质</span>
+            <input id="marketMaterial" list="materialSuggestList" placeholder="材质英文或中文名" />
+          </label>
+          <label class="field">
+            <span>币种</span>
+            <select id="marketCurrency">
+              <option value="">全部</option>
+              <option value="SHOP_COIN">网页币</option>
+              <option value="GAME_COIN">游戏币</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>综合关键词</span>
+            <input id="marketKeyword" placeholder="ID / 材质 / 备注 / 用户名" />
+          </label>
+        </div>
+        <p class="meta" id="marketStatusView">等待加载</p>
+        <div class="admin-list" id="adminMarketList"></div>
+      </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="users">
+      <div class="grid two-col">
+        <article class="md-card section-card">
+          <h2>账号查询</h2>
+          <p class="card-desc">输入昵称或 UUID 查询账号。</p>
+          <div class="field-grid">
+            <label class="field">
+              <span>用户名 / UUID</span>
+              <input id="userIdentifier" placeholder="例如 玩家名或 UUID" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="userSearchBtn" type="button">查询账号</button>
+          </div>
+          <p class="meta" id="userLookupStatus">等待查询</p>
+          <div class="admin-list" id="userInfoBox"></div>
+        </article>
+
+        <article class="md-card section-card">
+          <h2>账号支持操作</h2>
+          <p class="card-desc">对已查询的账号执行支持操作。</p>
+          <div class="field-grid">
+            <label class="field">
+              <span>新密码</span>
+              <input id="userNewPassword" type="password" placeholder="8-64 位" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="userResetPasswordBtn" type="button">重置密码</button>
+            <button id="userUnbindBtn" class="btn-tonal" type="button">解绑</button>
+            <button id="userForceLogoutBtn" class="btn-tonal" type="button">强制下线</button>
+          </div>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>调整币种</span>
+              <select id="walletCurrency">
+                <option value="SHOP_COIN">网页币</option>
+                <option value="GAME_COIN">游戏币</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>调整数量（可负数）</span>
+              <input id="walletDelta" type="number" step="1" value="0" />
+            </label>
+            <label class="field">
+              <span>原因</span>
+              <input id="walletReason" placeholder="例如 补偿/退款" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="walletAdjustBtn" type="button">调整余额</button>
+          </div>
+          <p class="meta" id="userActionStatus">等待操作</p>
+        </article>
+      </div>
+      &nbsp;
+      <article class="md-card section-card">
+        <div class="section-head">
+          <div>
+            <h2>已注册用户列表</h2>
+            <p class="card-desc">支持按关键词筛选，并可直接载入到操作区进行编辑。</p>
+          </div>
+          <button id="userListRefreshBtn" type="button">刷新列表</button>
+        </div>
+        <div class="field-grid two-col">
+          <label class="field">
+            <span>关键词</span>
+            <input id="userListKeyword" placeholder="用户名 / UUID / 用户ID" />
+          </label>
+          <label class="market-toggle">
+            <input id="userListHideInactiveToggle" type="checkbox" checked />
+            <span>隐藏已停用、未绑定或无用卡片</span>
+          </label>
+        </div>
+        <p class="meta" id="userListStatus">等待加载列表</p>
+        <div class="admin-list" id="userList"></div>
+      </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="admins">
+      <div class="grid two-col">
+        <article class="md-card section-card">
+          <div class="section-head">
+            <div>
+              <h2>管理员编辑</h2>
+              <p class="card-desc">超级管理员可创建子级管理员，并精确分配权限。</p>
+            </div>
+            <button id="adminManagerClearBtn" class="btn-tonal" type="button">清空表单</button>
+          </div>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>用户标识</span>
+              <input id="adminManagerIdentifier" placeholder="用户名 / UUID / 用户ID" />
+            </label>
+            <label class="field">
+              <span>模板</span>
+              <select id="adminManagerTemplate">
+                <option value="">自定义</option>
+              </select>
+            </label>
+          </div>
+          <div class="md-tip md-tip-info">
+            <strong>快速模板</strong>
+            <p id="adminManagerTemplateHint">先选择一个模板，再按需要微调权限。</p>
+          </div>
+          <label class="field admin-manager-super">
+            <span>管理员类型</span>
+            <select id="adminManagerType">
+              <option value="custom">子级管理员</option>
+              <option value="super">超级管理员</option>
+            </select>
+          </label>
+          <div id="adminPermissionGroups" class="admin-permission-groups"></div>
+          <div class="actions">
+            <button id="adminManagerSaveBtn" type="button">保存管理员</button>
+            <p class="meta" id="adminManagerStatus">等待操作</p>
+          </div>
+        </article>
+
+        <article class="md-card section-card">
+          <div class="section-head">
+            <div>
+              <h2>管理员列表</h2>
+              <p class="card-desc">支持载入编辑、启用和禁用管理员。</p>
+            </div>
+            <button id="adminManagerRefreshBtn" type="button">刷新列表</button>
+          </div>
+          <p class="meta" id="adminManagerListStatus">等待加载管理员列表</p>
+          <div class="admin-list" id="adminManagerList"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="audit">
+      <article class="md-card section-card">
+        <div class="section-head">
+          <div>
+            <h2>审计日志</h2>
+            <p class="card-desc">记录所有管理员操作。</p>
+          </div>
+          <button id="auditRefreshBtn" type="button">刷新日志</button>
+        </div>
+        <div class="admin-list" id="auditList"></div>
+      </article>
+    </section>
+    </main>
+  </div>
+
+  <div id="snackbarHost" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
+  <datalist id="materialSuggestList"></datalist>
+  <datalist id="potionEffectSuggestList"></datalist>
+
+  <script src="config.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>

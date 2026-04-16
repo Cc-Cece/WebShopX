@@ -2,7 +2,8 @@
   "use strict";
 
   const runtimeConfig = window.WEBSHOPX_CONFIG || {};
-  const query = new URLSearchParams(window.location.search);
+  const LEGACY_ASSET_BASE = normalizeLegacyAssetBase(window.WEBSHOPX_LEGACY_BASE || "");
+  const query = getRouteQueryParams();
 
   const requestedCategory = String(query.get("category") || "").trim().toLowerCase();
   const requestedAlgorithm = String(query.get("algorithm") || "").trim();
@@ -61,6 +62,66 @@
   };
 
   const mobileMenuMedia = window.matchMedia("(max-width: 760px)");
+
+  function normalizeLegacyAssetBase(value) {
+    let normalized = String(value || "").trim();
+    while (normalized.endsWith("/")) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized;
+  }
+
+  function resolveAssetUrl(path) {
+    const text = String(path || "").trim();
+    if (!text) {
+      return text;
+    }
+    if (/^[a-z]+:\/\//i.test(text) || text.startsWith("//")) {
+      return text;
+    }
+    const normalizedPath = text.startsWith("/") ? text.slice(1) : text;
+    if (!LEGACY_ASSET_BASE) {
+      return normalizedPath;
+    }
+    return `${LEGACY_ASSET_BASE}/${normalizedPath}`;
+  }
+
+  function getHashRouterState() {
+    const hashText = String(window.location.hash || "");
+    const raw = hashText.startsWith("#") ? hashText.slice(1) : hashText;
+    if (!raw.startsWith("/")) {
+      return null;
+    }
+
+    const queryIndex = raw.indexOf("?");
+    const routePath = (queryIndex >= 0 ? raw.slice(0, queryIndex) : raw) || "/webshopx/help";
+    const queryText = queryIndex >= 0 ? raw.slice(queryIndex + 1) : "";
+
+    return {
+      routePath,
+      searchParams: new URLSearchParams(queryText),
+    };
+  }
+
+  function isHashRouterContext() {
+    return Boolean(getHashRouterState());
+  }
+
+  function isHashHelpRoute() {
+    const hashState = getHashRouterState();
+    if (!hashState) {
+      return false;
+    }
+    return String(hashState.routePath || "").toLowerCase().includes("/webshopx/help");
+  }
+
+  function getRouteQueryParams() {
+    const hashState = getHashRouterState();
+    if (hashState) {
+      return hashState.searchParams;
+    }
+    return new URLSearchParams(window.location.search);
+  }
 
   function isMobileMenuMode() {
     return Boolean(mobileMenuMedia && mobileMenuMedia.matches);
@@ -122,38 +183,55 @@
 
   function buildHelpUrl(docId, lang, mode, hashId) {
     const url = new URL(window.location.href);
-    url.searchParams.set("doc", docId);
+    const hashState = getHashRouterState();
+    const params = hashState ? hashState.searchParams : url.searchParams;
+
+    params.set("doc", docId);
     if (lang) {
-      url.searchParams.set("lang", lang);
+      params.set("lang", lang);
     } else {
-      url.searchParams.delete("lang");
+      params.delete("lang");
     }
 
     if (mode === "single") {
-      url.searchParams.set("mode", "single");
+      params.set("mode", "single");
     } else {
-      url.searchParams.delete("mode");
+      params.delete("mode");
     }
 
     if (requestedCategory) {
-      url.searchParams.set("category", requestedCategory);
+      params.set("category", requestedCategory);
     } else {
-      url.searchParams.delete("category");
+      params.delete("category");
     }
 
     if (requestedAlgorithm) {
-      url.searchParams.set("algorithm", requestedAlgorithm);
+      params.set("algorithm", requestedAlgorithm);
     } else {
-      url.searchParams.delete("algorithm");
+      params.delete("algorithm");
     }
 
-    url.searchParams.delete("locale");
+    params.delete("locale");
 
     if (hashId) {
-      url.hash = encodeURIComponent(hashId);
+      if (hashState) {
+        params.set("section", hashId);
+      } else {
+        url.hash = encodeURIComponent(hashId);
+      }
     } else {
-      url.hash = "";
+      if (hashState) {
+        params.delete("section");
+      } else {
+        url.hash = "";
+      }
     }
+
+    if (hashState) {
+      const queryText = params.toString();
+      url.hash = `${hashState.routePath}${queryText ? `?${queryText}` : ""}`;
+    }
+
     return url.toString();
   }
 
@@ -208,7 +286,9 @@
       { file: "help.en-US.md", title: "WebShopX Help (en-US)" },
     ].map(normalizeDocEntry);
 
-    const manifestPath = String(runtimeConfig.docsManifest || "docs/index.json").trim() || "docs/index.json";
+    const manifestPath = resolveAssetUrl(
+      String(runtimeConfig.docsManifest || "docs/index.json").trim() || "docs/index.json"
+    );
     try {
       const response = await fetch(manifestPath, { cache: "no-cache" });
       if (!response.ok) {
@@ -349,6 +429,10 @@
   }
 
   function getCurrentHashId() {
+    if (isHashRouterContext()) {
+      const section = getRouteQueryParams().get("section") || "";
+      return sanitizeHashId(section);
+    }
     return sanitizeHashId(window.location.hash || "");
   }
 
@@ -572,11 +656,7 @@
       link.textContent = heading.text;
       link.addEventListener("click", (event) => {
         event.preventDefault();
-        if (window.location.hash === `#${encodeURIComponent(heading.id)}` || window.location.hash === `#${heading.id}`) {
-          navigateTo(heading.id, { smooth: true, scroll: true, updateHash: false });
-          return;
-        }
-        window.location.hash = encodeURIComponent(heading.id);
+        navigateTo(heading.id, { smooth: true, scroll: true, updateHash: true });
       });
       elements.toc.appendChild(link);
     }
@@ -710,9 +790,11 @@
     }
 
     if (options.updateHash) {
-      const url = new URL(window.location.href);
-      url.hash = encodeURIComponent(resolved);
-      window.history.replaceState(null, "", url.toString());
+      window.history.replaceState(
+        null,
+        "",
+        buildHelpUrl(state.doc.id, state.lang, state.mode, resolved)
+      );
     }
 
     if (options.scroll !== false) {
@@ -748,9 +830,11 @@
       updateHash: false,
     });
 
-    const url = new URL(window.location.href);
-    url.hash = encodeURIComponent(fallback);
-    window.history.replaceState(null, "", url.toString());
+    window.history.replaceState(
+      null,
+      "",
+      buildHelpUrl(state.doc.id, state.lang, state.mode, fallback)
+    );
   }
 
   function updateActiveByScrollNow() {
@@ -876,16 +960,11 @@
       button.appendChild(sub);
 
       button.addEventListener("click", () => {
-        const encoded = encodeURIComponent(result.item.id);
-        if (window.location.hash === `#${encoded}` || window.location.hash === `#${result.item.id}`) {
-          navigateTo(result.item.id, {
-            smooth: true,
-            scroll: true,
-            updateHash: false,
-          });
-        } else {
-          window.location.hash = encoded;
-        }
+        navigateTo(result.item.id, {
+          smooth: true,
+          scroll: true,
+          updateHash: true,
+        });
         elements.searchInput.value = "";
         elements.searchResults.innerHTML = "";
       });
@@ -910,15 +989,11 @@
         anchor.href = `#${encodeURIComponent(id)}`;
         anchor.addEventListener("click", (event) => {
           event.preventDefault();
-          if (window.location.hash === `#${encodeURIComponent(id)}` || window.location.hash === `#${id}`) {
-            navigateTo(id, {
-              smooth: true,
-              scroll: true,
-              updateHash: false,
-            });
-            return;
-          }
-          window.location.hash = encodeURIComponent(id);
+          navigateTo(id, {
+            smooth: true,
+            scroll: true,
+            updateHash: true,
+          });
         });
         continue;
       }
@@ -979,7 +1054,7 @@
   }
 
   async function fetchDocumentText(doc) {
-    const response = await fetch(doc.path, { cache: "no-cache" });
+    const response = await fetch(resolveAssetUrl(doc.path), { cache: "no-cache" });
     if (!response.ok) {
       throw new Error(`无法加载 ${doc.file}`);
     }
@@ -1060,7 +1135,7 @@
 
     elements.homeBtn.addEventListener("click", () => {
       closeMobileMenu();
-      window.location.href = "index.html";
+      window.location.assign(resolveAssetUrl("index.html"));
     });
 
     elements.themeBtn.addEventListener("click", () => {
@@ -1112,6 +1187,9 @@
     });
 
     window.addEventListener("hashchange", () => {
+      if (isHashRouterContext() && !isHashHelpRoute()) {
+        return;
+      }
       applyHashRoute(false);
     });
 

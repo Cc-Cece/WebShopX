@@ -47,6 +47,7 @@ html.light {
 }
 
 .app-wrapper.pure-layout,
+.wsx-layout.pure-layout,
 .pure-layout {
   width: min(1480px, calc(100vw - 18px));
   margin: 12px auto 28px;
@@ -57,6 +58,7 @@ html.light {
 }
 
 .sidebar-container.pure-sidebar,
+.wsx-sidebar.pure-sidebar,
 .pure-sidebar {
   position: sticky;
   top: 12px;
@@ -143,13 +145,16 @@ html.light {
 }
 
 .main-container.pure-main.app-shell,
+.wsx-main.pure-main.app-shell,
 .pure-main.app-shell {
   width: 100%;
   margin: 0;
 }
 
 body[data-page="player"] .fixed-header.app-header,
-body[data-page="admin"] .fixed-header.app-header {
+body[data-page="admin"] .fixed-header.app-header,
+body[data-page="player"] .wsx-header.app-header,
+body[data-page="admin"] .wsx-header.app-header {
   position: sticky;
   top: 12px;
   z-index: 30;

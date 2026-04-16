@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN" class="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebShopX 帮助文档</title>
+  <script>
+    (function () {
+      try {
+        var saved = window.localStorage.getItem("webshopx_theme");
+        var theme = saved === "dark" || saved === "light"
+          ? saved
+          : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.classList.remove("light", "dark");
+        document.documentElement.classList.add(theme);
+        document.documentElement.setAttribute("data-theme", theme === "dark" ? "default" : "light");
+      } catch (error) {
+        document.documentElement.classList.remove("dark");
+        document.documentElement.classList.add("light");
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
+  <script src="config.js"></script>
+  <link rel="stylesheet" href="css/light.css" />
+  <link rel="stylesheet" href="css/dark.css" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/frontend-refactor.css" />
+  <link rel="stylesheet" href="vendor/katex.min.css" />
+</head>
+<body data-page="help">
+  <main class="help-shell">
+    <header class="md-card help-header">
+      <div>
+        <h1>WebShopX 帮助中心</h1>
+      </div>
+      <button
+        id="helpMenuBtn"
+        class="btn-tonal help-menu-btn"
+        type="button"
+        aria-label="展开菜单"
+        aria-expanded="false"
+        aria-controls="helpHeaderActions"
+      >菜单</button>
+      <div id="helpHeaderActions" class="help-header-actions">
+        <button id="helpHomeBtn" class="btn-tonal btn-return" type="button">返回首页</button>
+        <select id="helpDocSelect" class="help-doc-select" title="文档切换"></select>
+        <button id="helpModeToggleBtn" class="btn-tonal" type="button">单页模式</button>
+        <button id="helpThemeToggleBtn" class="btn-tonal" type="button">切换主题</button>
+        <button id="helpReloadBtn" class="btn-tonal" type="button">重新加载</button>
+      </div>
+    </header>
+
+    <div class="help-layout">
+      <aside class="md-card help-nav">
+        <h2>目录</h2>
+        <div class="help-nav-tools">
+          <input
+            id="helpSearchInput"
+            class="help-search-input"
+            type="search"
+            placeholder="搜索标题/内容（本地）"
+            autocomplete="off"
+          />
+          <div id="helpSearchResults" class="help-search-results" aria-live="polite"></div>
+        </div>
+        <nav id="helpToc" class="toc" aria-label="帮助目录"></nav>
+      </aside>
+
+      <article class="md-card help-doc">
+        <div id="helpMeta" class="help-meta"></div>
+        <div id="helpContent" class="help-content"></div>
+      </article>
+    </div>
+  </main>
+
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/purify.min.js"></script>
+  <script src="vendor/katex.min.js"></script>
+  <script src="vendor/auto-render.min.js"></script>
+  <script src="js/help.js"></script>
+</body>
+</html>
