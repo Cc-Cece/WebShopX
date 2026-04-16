@@ -68,6 +68,7 @@
             </div>
             <div class="actions">
               <button id="loginBtn" type="button">立即登录</button>
+              <button id="accountHelpBtn" class="btn-tonal" type="button">使用教程</button>
             </div>
             <div class="md-tip md-tip-warn">
               <strong>密码说明</strong>
@@ -93,14 +94,17 @@
           </div>
 
           <div class="actions">
+            <button id="logoutBtn" class="btn-tonal" type="button">退出登录</button>
+          </div>
+        </article>
+        <article class="md-card section-card profile-card hidden" id="authProfileCard">
+          <h2>账户功能</h2>
+          <p class="card-desc">已完成身份认证，可直接访问钱包、商城和玩家市场。</p>
+          <div class="actions">
             <button class="btn-tonal" type="button" data-account-tab="wallet">钱包资产</button>
             <button class="btn-tonal" type="button" data-account-tab="orders">订单记录</button>
             <button class="btn-tonal" type="button" data-account-tab="logs">操作日志</button>
             <button id="accountHelpBtn" class="btn-tonal" type="button">使用教程</button>
-          </div>
-
-          <div class="actions">
-            <button id="logoutBtn" class="btn-tonal" type="button">退出登录</button>
           </div>
         </article>
       </div>
@@ -341,6 +345,10 @@
             </label>
           </div>
           <div class="actions compact-actions">
+            <label class="market-toggle market-filter-toggle">
+              <input id="marketHideOwnToggle" type="checkbox" checked />
+              <span>隐藏本人商品</span>
+            </label>
             <button id="marketApplyBtn" class="btn-tonal" type="button">应用筛选</button>
             <button id="marketClearBtn" class="btn-tonal" type="button">重置筛选</button>
           </div>
@@ -350,10 +358,6 @@
           <button id="marketListBtn" class="btn-segment active" type="button">市场在售</button>
           <button id="marketStoreBtn" class="btn-segment" type="button">玩家店铺</button>
           <button id="marketMineBtn" class="btn-segment" type="button">我的上架</button>
-          <label class="market-toggle">
-            <input id="marketHideOwnToggle" type="checkbox" checked />
-            <span>隐藏本人商品</span>
-          </label>
           <button id="marketRefreshBtn" class="btn-tonal" type="button">刷新</button>
         </div>
 

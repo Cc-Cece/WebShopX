@@ -957,8 +957,8 @@
 
     const fields = [
       `doc: ${state.doc.id}`,
-      `file: ${state.doc.file}`,
-      `lang: ${state.lang}`,
+      // `file: ${state.doc.file}`,
+      // `lang: ${state.lang}`,
       `mode: ${state.mode}`,
     ];
 

@@ -25,7 +25,7 @@ You might see two different types of money in the store (exact names depend on t
 
 ### Step 3: Buy Items {#player-buy}
 
-1. **Official Shop**: Supplied infinitely by the server. Prices are usually stable, and sometimes it supports official item buybacks.
+1. **Official Shop**: Supplied by the server. Prices are usually stable, and sometimes it supports official item buybacks.
 2. **Player Market**: Items listed by other players. Prices and stock depend entirely on the market—first come, first served!
 3. **Claiming**: After placing an order, check its status in the "Orders" tab. If it says "Pending Claim", go back to the game and type `/ws claim all` to receive all your purchased items at once.
 

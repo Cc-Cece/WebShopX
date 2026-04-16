@@ -521,7 +521,7 @@ function updateMarketSectionContext() {
   }
 
   setNodeText(elements.marketSectionTitle, "玩家市场（C2C）");
-  setNodeText(elements.marketSectionDesc, "可在游戏内执行 /webshopx market 打开 GUI；价格与备注继续在网页端管理。");
+  setNodeText(elements.marketSectionDesc, "玩家自行上架的商品。");
   setNodeText(document.getElementById("marketListBtn"), "市场在售");
   if (elements.marketStoreBtn) {
     setNodeText(elements.marketStoreBtn, "玩家店铺");
@@ -686,8 +686,6 @@ function openDeliveryConfirmDialog({
     elements.confirmDetails.appendChild(createEl("div", "", line));
   });
 
-  const field = createEl("label", "field dialog-select-field");
-  field.appendChild(createEl("span", "", "领取方式"));
   const select = document.createElement("select");
   select.innerHTML = `
     <option value="IMMEDIATE">即时到账</option>
@@ -698,7 +696,7 @@ function openDeliveryConfirmDialog({
     select.value = "IMMEDIATE";
     select.disabled = true;
   }
-  field.appendChild(select);
+  const field = createDialogSelectField("领取方式", select);
   elements.confirmDetails.appendChild(field);
 
   if (summary) {
@@ -974,8 +972,6 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       const basicHost = tabLayout.basicPanel;
 
       const algorithmRow = createEl("div", "dialog-inline-config");
-      const algorithmField = createEl("label", "field dialog-select-field");
-      algorithmField.appendChild(createEl("span", "", "选择动态定价算法"));
       const algorithmSelect = document.createElement("select");
       for (const item of catalog) {
         const option = document.createElement("option");
@@ -987,7 +983,7 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       if (!algorithmSelect.value) {
         algorithmSelect.value = fallbackAlgorithm;
       }
-      algorithmField.appendChild(algorithmSelect);
+      const algorithmField = createDialogSelectField("选择动态定价算法", algorithmSelect);
       algorithmRow.appendChild(algorithmField);
       const helpBtn = createEl("button", "btn-tonal", "文档");
       helpBtn.type = "button";
@@ -999,19 +995,15 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       const summary = createEl("p", "field-hint", "");
       basicHost.appendChild(summary);
 
-      const baseField = createEl("label", "field dialog-select-field");
-      baseField.appendChild(createEl("span", "", "动态基准价"));
       const baseInput = document.createElement("input");
       baseInput.type = "number";
       baseInput.min = "1";
       baseInput.step = "1";
       const baseValue = state.dynamicBasePrice ?? fallbackBasePrice;
       baseInput.value = Number.isFinite(Number(baseValue)) ? String(baseValue) : "";
-      baseField.appendChild(baseInput);
+      const baseField = createDialogSelectField("动态基准价", baseInput);
       basicHost.appendChild(baseField);
 
-      const floorField = createEl("label", "field dialog-select-field");
-      floorField.appendChild(createEl("span", "", "地板价（可选）"));
       const floorInput = document.createElement("input");
       floorInput.type = "number";
       floorInput.min = "1";
@@ -1020,11 +1012,9 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       floorInput.value = Number.isFinite(normalizedFloorValue) && normalizedFloorValue > 0
         ? String(Math.floor(normalizedFloorValue))
         : "";
-      floorField.appendChild(floorInput);
+      const floorField = createDialogSelectField("地板价（可选）", floorInput);
       basicHost.appendChild(floorField);
 
-      const capField = createEl("label", "field dialog-select-field");
-      capField.appendChild(createEl("span", "", "封顶价（可选）"));
       const capInput = document.createElement("input");
       capInput.type = "number";
       capInput.min = "1";
@@ -1033,17 +1023,15 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       capInput.value = Number.isFinite(normalizedCapValue) && normalizedCapValue > 0
         ? String(Math.floor(normalizedCapValue))
         : "";
-      capField.appendChild(capInput);
+      const capField = createDialogSelectField("封顶价（可选）", capInput);
       basicHost.appendChild(capField);
 
-      const stepField = createEl("label", "field dialog-select-field");
-      stepField.appendChild(createEl("span", "", "价格波动系数（步长）"));
       const stepInput = document.createElement("input");
       stepInput.type = "number";
       stepInput.min = "1";
       stepInput.step = "1";
       stepInput.value = Number.isFinite(Number(state.dynamicPriceStep)) ? String(state.dynamicPriceStep) : "1";
-      stepField.appendChild(stepInput);
+      const stepField = createDialogSelectField("价格波动系数（步长）", stepInput);
       basicHost.appendChild(stepField);
 
       const paramHost = createEl("div", "dialog-algo-params");
@@ -1155,8 +1143,6 @@ async function openAuctionParamDialog(state, fallbackPrice) {
       const basicHost = tabLayout.basicPanel;
 
       const algorithmRow = createEl("div", "dialog-inline-config");
-      const algorithmField = createEl("label", "field dialog-select-field");
-      algorithmField.appendChild(createEl("span", "", "选择拍卖竞价算法"));
       const algorithmSelect = document.createElement("select");
       for (const item of catalog) {
         const option = document.createElement("option");
@@ -1168,7 +1154,7 @@ async function openAuctionParamDialog(state, fallbackPrice) {
       if (!algorithmSelect.value) {
         algorithmSelect.value = fallbackAlgorithm;
       }
-      algorithmField.appendChild(algorithmSelect);
+      const algorithmField = createDialogSelectField("选择拍卖竞价算法", algorithmSelect);
       algorithmRow.appendChild(algorithmField);
       const helpBtn = createEl("button", "btn-tonal", "文档");
       helpBtn.type = "button";
@@ -1180,19 +1166,15 @@ async function openAuctionParamDialog(state, fallbackPrice) {
       const summary = createEl("p", "field-hint", "");
       basicHost.appendChild(summary);
 
-      const startField = createEl("label", "field dialog-select-field");
-      startField.appendChild(createEl("span", "", "起拍价"));
       const startInput = document.createElement("input");
       startInput.type = "number";
       startInput.min = "1";
       startInput.step = "1";
       const startValue = state.auctionStartPrice ?? fallbackPrice;
       startInput.value = Number.isFinite(Number(startValue)) ? String(startValue) : "";
-      startField.appendChild(startInput);
+      const startField = createDialogSelectField("起拍价", startInput);
       basicHost.appendChild(startField);
 
-      const incrementField = createEl("label", "field dialog-select-field");
-      incrementField.appendChild(createEl("span", "", "最小加价幅度"));
       const incrementInput = document.createElement("input");
       incrementInput.type = "number";
       incrementInput.min = "1";
@@ -1200,15 +1182,13 @@ async function openAuctionParamDialog(state, fallbackPrice) {
       incrementInput.value = Number.isFinite(Number(state.auctionMinIncrement))
         ? String(state.auctionMinIncrement)
         : "1";
-      incrementField.appendChild(incrementInput);
+      const incrementField = createDialogSelectField("最小加价幅度", incrementInput);
       basicHost.appendChild(incrementField);
 
-      const endField = createEl("label", "field dialog-select-field");
-      endField.appendChild(createEl("span", "", "拍卖结束时间"));
       const endInput = document.createElement("input");
       endInput.type = "datetime-local";
       endInput.value = toDateTimeLocalValue(state.auctionEndAt);
-      endField.appendChild(endInput);
+      const endField = createDialogSelectField("拍卖结束时间", endInput);
       basicHost.appendChild(endField);
 
       const paramHost = createEl("div", "dialog-algo-params");
@@ -1397,18 +1377,14 @@ async function openListingEditDialog({
   setNodeText(elements.confirmMessage, "先选择交易模式，再按需进入参数设置。");
   elements.confirmDetails.innerHTML = "";
 
-  const priceField = createEl("label", "field dialog-select-field");
-  priceField.appendChild(createEl("span", "", "新价格"));
   const priceInput = document.createElement("input");
   priceInput.type = "number";
   priceInput.min = "1";
   priceInput.step = "1";
   priceInput.value = String(currentPrice || "");
-  priceField.appendChild(priceInput);
+  const priceField = createDialogSelectField("新价格", priceInput);
   elements.confirmDetails.appendChild(priceField);
 
-  const currencyField = createEl("label", "field dialog-select-field");
-  currencyField.appendChild(createEl("span", "", "币种"));
   const currencySelect = document.createElement("select");
   ["SHOP_COIN", "GAME_COIN"].forEach((value) => {
     const option = document.createElement("option");
@@ -1417,19 +1393,15 @@ async function openListingEditDialog({
     currencySelect.appendChild(option);
   });
   currencySelect.value = currency || "GAME_COIN";
-  currencyField.appendChild(currencySelect);
+  const currencyField = createDialogSelectField("币种", currencySelect);
   elements.confirmDetails.appendChild(currencyField);
 
-  const remarkField = createEl("label", "field dialog-select-field");
-  remarkField.appendChild(createEl("span", "", "备注"));
   const remarkInput = document.createElement("textarea");
   remarkInput.rows = 3;
   remarkInput.value = currentRemark || "";
-  remarkField.appendChild(remarkInput);
+  const remarkField = createDialogSelectField("备注", remarkInput);
   elements.confirmDetails.appendChild(remarkField);
 
-  const modeField = createEl("label", "field dialog-select-field");
-  modeField.appendChild(createEl("span", "", "交易模式"));
   const modeSelect = document.createElement("select");
   [
     { value: "DIRECT_STATIC", label: "一口价" },
@@ -1445,12 +1417,10 @@ async function openListingEditDialog({
     modeSelect.appendChild(option);
   });
   modeSelect.value = draft.mode;
-  modeField.appendChild(modeSelect);
+  const modeField = createDialogSelectField("交易模式", modeSelect);
   elements.confirmDetails.appendChild(modeField);
 
   const dynamicConfigRow = createEl("div", "inline-action dialog-inline-config");
-  const dynamicAlgoField = createEl("label", "field dialog-select-field");
-  dynamicAlgoField.appendChild(createEl("span", "", "选择动态定价算法"));
   const dynamicAlgoSelect = document.createElement("select");
   dynamicCatalog.forEach((item) => {
     const option = document.createElement("option");
@@ -1462,7 +1432,7 @@ async function openListingEditDialog({
     draft.dynamicAlgorithm = defaultDynamicAlgorithm;
   }
   dynamicAlgoSelect.value = draft.dynamicAlgorithm;
-  dynamicAlgoField.appendChild(dynamicAlgoSelect);
+  const dynamicAlgoField = createDialogSelectField("选择动态定价算法", dynamicAlgoSelect);
   const dynamicParamBtn = createEl("button", "btn-tonal", "参数设置");
   dynamicParamBtn.type = "button";
   dynamicConfigRow.appendChild(dynamicAlgoField);
@@ -1470,8 +1440,6 @@ async function openListingEditDialog({
   elements.confirmDetails.appendChild(dynamicConfigRow);
 
   const auctionConfigRow = createEl("div", "inline-action dialog-inline-config");
-  const auctionAlgoField = createEl("label", "field dialog-select-field");
-  auctionAlgoField.appendChild(createEl("span", "", "选择拍卖竞价算法"));
   const auctionAlgoSelect = document.createElement("select");
   auctionCatalog.forEach((item) => {
     const option = document.createElement("option");
@@ -1483,7 +1451,7 @@ async function openListingEditDialog({
     draft.auctionAlgorithm = defaultAuctionAlgorithm;
   }
   auctionAlgoSelect.value = draft.auctionAlgorithm;
-  auctionAlgoField.appendChild(auctionAlgoSelect);
+  const auctionAlgoField = createDialogSelectField("选择拍卖竞价算法", auctionAlgoSelect);
   const auctionParamBtn = createEl("button", "btn-tonal", "参数设置");
   auctionParamBtn.type = "button";
   auctionConfigRow.appendChild(auctionAlgoField);
@@ -1536,24 +1504,20 @@ async function openListingEditDialog({
   let supplyBatchInput = null;
   let supplyMaxInput = null;
   if (isSupply) {
-    const batchField = createEl("label", "field dialog-select-field");
-    batchField.appendChild(createEl("span", "", "单次提取量"));
     supplyBatchInput = document.createElement("input");
     supplyBatchInput.type = "number";
     supplyBatchInput.min = "1";
     supplyBatchInput.step = "1";
     supplyBatchInput.value = String(currentSupplyBatchSize || "");
-    batchField.appendChild(supplyBatchInput);
+    const batchField = createDialogSelectField("单次提取量", supplyBatchInput);
     elements.confirmDetails.appendChild(batchField);
 
-    const maxField = createEl("label", "field dialog-select-field");
-    maxField.appendChild(createEl("span", "", "中转上限"));
     supplyMaxInput = document.createElement("input");
     supplyMaxInput.type = "number";
     supplyMaxInput.min = "1";
     supplyMaxInput.step = "1";
     supplyMaxInput.value = String(currentSupplyMaxStock || "");
-    maxField.appendChild(supplyMaxInput);
+    const maxField = createDialogSelectField("中转上限", supplyMaxInput);
     elements.confirmDetails.appendChild(maxField);
   }
 
@@ -2578,9 +2542,9 @@ function renderAlgorithmParamEditors(host, paramSchemas, paramValues, options = 
   }
 
   for (const schema of filteredSchemas) {
-    const field = createEl("label", "field dialog-select-field");
+    const field = createEl("div", "dialog-select-field");
     const requiredSuffix = schema.required ? " *" : "";
-    field.appendChild(createEl("span", "", `${schema.label}${requiredSuffix}`));
+    field.appendChild(createEl("span", "dialog-select-label", `${schema.label}${requiredSuffix}`));
     const input = document.createElement("input");
     input.type = schema.type === "text" ? "text" : "number";
     if (schema.type === "number") {
@@ -3019,6 +2983,13 @@ function createEl(tag, className, text) {
   return el;
 }
 
+function createDialogSelectField(labelText, control) {
+  const field = createEl("div", "dialog-select-field");
+  field.appendChild(createEl("span", "dialog-select-label", labelText));
+  field.appendChild(control);
+  return field;
+}
+
 function createStoreKey(listing) {
   return `${listing.sellerUuid || ""}::${listing.sellerName || ""}`;
 }
@@ -3075,20 +3046,43 @@ function createQuantitySelector({
   const total = createEl("p", totalClassName, `总价：${formatCurrency(unitPrice, currency)}`);
   wrap.appendChild(total);
 
-  const sync = (source) => {
-    const rawValue = Number(source.value || 1);
-    const clamped = Math.min(normalizedMax, Math.max(1, Math.floor(Number.isFinite(rawValue) ? rawValue : 1)));
+  const sync = (rawValue) => {
+    const parsed = Number(rawValue);
+    const normalized = Number.isFinite(parsed) ? Math.floor(parsed) : 1;
+    const clamped = Math.min(normalizedMax, Math.max(1, normalized));
     numberInput.value = String(clamped);
     rangeInput.value = String(clamped);
     setNodeText(total, `总价：${formatCurrency(unitPrice * clamped, currency)}`);
+    return clamped;
   };
 
-  numberInput.addEventListener("input", () => sync(numberInput));
-  rangeInput.addEventListener("input", () => sync(rangeInput));
-  sync(numberInput);
+  // Focus-select avoids the "1" default blocking direct overwrite on mobile/desktop keyboards.
+  numberInput.addEventListener("focus", () => {
+    numberInput.select();
+  });
+  numberInput.addEventListener("input", () => {
+    if (numberInput.value === "") {
+      return;
+    }
+    const parsed = Number(numberInput.value);
+    if (!Number.isFinite(parsed)) {
+      return;
+    }
+    const clamped = Math.min(normalizedMax, Math.max(1, Math.floor(parsed)));
+    rangeInput.value = String(clamped);
+    setNodeText(total, `总价：${formatCurrency(unitPrice * clamped, currency)}`);
+  });
+  numberInput.addEventListener("blur", () => {
+    sync(numberInput.value || 1);
+  });
+  rangeInput.addEventListener("input", () => {
+    sync(rangeInput.value);
+  });
+  sync(1);
 
   return {
     wrap,
+    inputs,
     numberInput,
     rangeInput,
     total,
@@ -3443,114 +3437,92 @@ function renderProducts(products) {
   }
 
   for (const product of filteredProducts) {
-    const card = createEl("article", "product-card market-card official-card");
+    const card = createEl("article", "product-card official-card");
     const isGroupBuyVoucher = String(product.productType || "").toUpperCase() === "GROUP_BUY_VOUCHER";
     const isRecycleItem = String(product.productType || "").toUpperCase() === "RECYCLE_ITEM";
     const dynamicEnabled = !!product.dynamicPricingEnabled;
     const unitPrice = resolveOfficialProductUnitPrice(product);
     const stock = resolveOfficialProductStock(product);
     const isSoldOut = stock.maxQuantity <= 0 && (stock.hasTrackedStock || stock.isPersonalLimitReached);
-    const top = createEl("div", "market-top");
-    top.appendChild(createEl("span", "market-chip official", productTypeLabel(product.productType)));
-    if (dynamicEnabled) {
-      top.appendChild(createEl("span", "market-chip accent", "动态价格"));
-    }
-    top.appendChild(createEl("span", "market-time", product.unpublishAt ? `下架：${formatDateTime(product.unpublishAt)}` : "长期供应"));
-    card.appendChild(top);
 
-    const main = createEl("div", "market-main");
-    const icon = createEl("div", "market-icon");
+    const infoRow = createEl("div", "product-info-row");
+    const icon = createEl("div", "product-icon");
     icon.appendChild(buildTextureImage(resolveProductTextureMaterial(product), product.title));
-    main.appendChild(icon);
+    infoRow.appendChild(icon);
 
-    const detail = createEl("div", "market-detail");
-    const title = createEl("h3", "market-title", product.title);
+    const infoMain = createEl("div", "product-info-main");
+    const title = createEl("h3", "product-title", product.title);
     title.title = product.title;
-    detail.appendChild(title);
-    detail.appendChild(createEl("p", "market-sub", `币种 ${(CURRENCY_META[product.currency] || { label: product.currency }).label}`));
-    if (product.itemMaterial) {
-      detail.appendChild(createEl("p", "market-sub", `物品：${getLocalizedMaterialName(product.itemMaterial)}`));
+    infoMain.appendChild(title);
+
+    const currencyLabel = (CURRENCY_META[product.currency] || { label: product.currency }).label;
+    const metaParts = [productTypeLabel(product.productType), `币种 ${currencyLabel}`];
+    if (dynamicEnabled) {
+      metaParts.push("动态价格");
     }
     if (stock.hasPerUserLimit) {
-      detail.appendChild(createEl("p", "market-sub", `限购：每人 x${stock.perUserLimit}`));
+      metaParts.push(`限购 x${stock.perUserLimit}`);
       if (stock.hasPersonalLimitRemaining) {
-        detail.appendChild(createEl("p", "market-sub", `你还可购买：x${stock.personalLimitRemaining}`));
-      } else {
-        detail.appendChild(createEl("p", "market-sub", "登录后可查看你的限购剩余额度"));
+        metaParts.push(`可购 x${stock.personalLimitRemaining}`);
       }
     }
-    detail.appendChild(createEl("p", "market-code", String(product.sku || "")));
-    if (product.remark) {
-      detail.appendChild(createEl("p", "market-remark", product.remark));
+
+    const remarkParts = [];
+    
+    if (metaParts.length > 0) {
+      remarkParts.push(metaParts.join(" · "));
     }
-    if (dynamicEnabled) {
-      detail.appendChild(
-        createEl(
-          "p",
-          "market-sub",
-          `算法：${getAlgorithmLabel("dynamic", product.dynamicAlgorithm || "LINEAR_DEMAND_V1")} | 热度 ${Math.max(0, Number(product.dynamicDemandScore || 0))}`
-        )
-      );
-    }
-    main.appendChild(detail);
-    card.appendChild(main);
+    infoMain.appendChild(createEl("p", "product-remark", remarkParts.join(" ")));
+    infoRow.appendChild(infoMain);
+    card.appendChild(infoRow);
 
     const stockProgress = stock.hasTrackedStock
       ? createProgressIndicator(
           stock.remainingStock,
           stock.totalStock,
-          (current, total) => `剩余 x${current} / 总量 x${total}`
+          (current, total) => `剩余 ${current}`
         )
-      : createProgressIndicator(1, 1, () => "库存：长期供应");
+      : createProgressIndicator(1, 1, () => "长期供应");
+    stockProgress.wrap.classList.add("product-stock-row");
     card.appendChild(stockProgress.wrap);
 
-    const priceRow = createEl("div", "market-price-row");
-    priceRow.appendChild(createEl("p", "market-price-label", isRecycleItem ? "回收单价" : "单价"));
-    priceRow.appendChild(createEl("p", "market-price", formatCurrency(unitPrice, product.currency)));
-    card.appendChild(priceRow);
+    const quantitySelector = createQuantitySelector({
+      max: stock.maxQuantity,
+      unitPrice,
+      currency: product.currency,
+      totalClassName: "product-total",
+    });
+    quantitySelector.inputs.classList.add("product-quantity-row");
+    quantitySelector.inputs.appendChild(quantitySelector.rangeInput);
+    quantitySelector.inputs.appendChild(quantitySelector.numberInput);
 
-    const footer = createEl("div", "market-footer");
-    if (isGroupBuyVoucher) {
-      footer.appendChild(createEl("p", "market-sub", "购买后生成团购兑换码，需由管理员核销"));
-    } else if (stock.isPersonalLimitReached) {
-      footer.appendChild(createEl("p", "market-sub", "你已达到该商品的限购上限"));
-    }
-
-    const actions = createEl("div", "market-actions-row");
     if (isSoldOut) {
-      const soldOutBtn = createEl(
-        "button",
-        "market-action-btn",
-        stock.isPersonalLimitReached ? "已达限购" : "已售罄"
-      );
-      soldOutBtn.type = "button";
-      soldOutBtn.disabled = true;
-      actions.appendChild(soldOutBtn);
-    } else {
-      const quantitySelector = createQuantitySelector({
-        max: stock.maxQuantity,
-        unitPrice,
-        currency: product.currency,
-        totalClassName: "market-total",
-      });
-
-      const buyBtn = createEl(
-        "button",
-        "market-action-btn product-buy-btn",
-        isRecycleItem ? "立即回收" : "立即购买"
-      );
-      buyBtn.type = "button";
-      buyBtn.dataset.action = "buy-product";
-      buyBtn.dataset.productId = String(product.id);
-      buyBtn.dataset.maxQuantity = String(stock.maxQuantity);
-      const buyWrap = createEl("div", "market-buy-wrap");
-      buyWrap.appendChild(quantitySelector.wrap);
-      buyWrap.appendChild(buyBtn);
-      actions.appendChild(buyWrap);
+      quantitySelector.numberInput.disabled = true;
+      quantitySelector.rangeInput.disabled = true;
     }
-    footer.appendChild(actions);
+    card.appendChild(quantitySelector.inputs);
 
-    card.appendChild(footer);
+    const actionRow = createEl("div", "product-action-row");
+    if (stock.isPersonalLimitReached) {
+      actionRow.appendChild(createEl("p", "product-state-tip", "你已达到该商品的限购上限"));
+    } else if (isGroupBuyVoucher) {
+      actionRow.appendChild(createEl("p", "product-state-tip", "购买后生成团购兑换码，需由管理员核销"));
+    }
+    actionRow.appendChild(quantitySelector.total);
+
+    const buyBtn = createEl(
+      "button",
+      "product-buy-btn",
+      isSoldOut ? (stock.isPersonalLimitReached ? "已达限购" : "已售罄") : (isRecycleItem ? "立即回收" : "立即购买")
+    );
+    buyBtn.type = "button";
+    buyBtn.dataset.action = "buy-product";
+    buyBtn.dataset.productId = String(product.id);
+    buyBtn.dataset.maxQuantity = String(stock.maxQuantity);
+    buyBtn.disabled = isSoldOut;
+    actionRow.appendChild(buyBtn);
+
+    card.appendChild(actionRow);
     elements.productList.appendChild(card);
   }
 }
@@ -3620,6 +3592,9 @@ function filterProducts(products) {
 }
 
 function renderListings(listings, container = elements.marketList) {
+  if (container === elements.marketList) {
+    container.classList.remove("storefront-grid");
+  }
   container.innerHTML = "";
   const scopedListings = filterListingsByTradeScope(listings, state.marketTradeScope);
   const visibleListings = container === elements.marketList
@@ -3653,6 +3628,75 @@ function renderListings(listings, container = elements.marketList) {
 
     const displayName = stripColorCodes(meta.displayName || "");
     const localizedName = displayName || getLocalizedMaterialName(listing.itemMaterial);
+    const quantityTotal = Number(listing.quantityTotal || listing.quantity || 0);
+
+    if (!isOwner && !isAuction) {
+      const card = createEl("article", "market-card market-compact-four");
+
+      const infoRow = createEl("div", "product-info-row");
+      const icon = createEl("div", "product-icon");
+      icon.appendChild(buildTextureImage(listing.itemMaterial, localizedName));
+      infoRow.appendChild(icon);
+
+      const infoMain = createEl("div", "product-info-main");
+      const title = createEl("h3", "product-title", localizedName);
+      title.title = localizedName;
+      infoMain.appendChild(title);
+      const compactRemarkParts = [];
+      if (listing.remark) {
+        compactRemarkParts.push(String(listing.remark));
+      }
+      compactRemarkParts.push(`单价：${formatCurrency(Number(listing.price || 0), listing.currency)} · 卖家：${listing.sellerName}`);
+      if (isSupply) {
+        compactRemarkParts.push("自动补货");
+      }
+      infoMain.appendChild(createEl("p", "product-remark", compactRemarkParts.join(" ")));
+      infoRow.appendChild(infoMain);
+      card.appendChild(infoRow);
+
+      const stockProgress = createProgressIndicator(
+        Number(listing.quantity || 0),
+        quantityTotal > 0 ? quantityTotal : Math.max(1, Number(listing.quantity || 0)),
+        (current, total) => `剩余${current}`
+      );
+      stockProgress.wrap.classList.add("product-stock-row");
+      card.appendChild(stockProgress.wrap);
+
+      const quantitySelector = createQuantitySelector({
+        max: Math.max(1, Number(listing.quantity || 1)),
+        unitPrice: Number(listing.price || 0),
+        currency: listing.currency,
+        totalClassName: "product-total",
+      });
+      quantitySelector.inputs.classList.add("product-quantity-row");
+      quantitySelector.inputs.appendChild(quantitySelector.rangeInput);
+      quantitySelector.inputs.appendChild(quantitySelector.numberInput);
+      if (!isActive) {
+        quantitySelector.numberInput.disabled = true;
+        quantitySelector.rangeInput.disabled = true;
+      }
+      card.appendChild(quantitySelector.inputs);
+
+      const actionRow = createEl("div", "product-action-row");
+      if (!isActive) {
+        actionRow.appendChild(createEl("p", "product-state-tip", `状态：${formatListingStatus(displayStatus)}`));
+      }
+      actionRow.appendChild(quantitySelector.total);
+
+      const buyBtn = createEl("button", "market-action-btn product-buy-btn", isActive ? "立即购买" : "不可购买");
+      buyBtn.type = "button";
+      buyBtn.disabled = !isActive;
+      buyBtn.dataset.action = "buy";
+      buyBtn.dataset.listingId = String(listing.id);
+      buyBtn.dataset.currency = listing.currency;
+      buyBtn.dataset.unitPrice = String(listing.price);
+      buyBtn.dataset.maxQuantity = String(Math.max(1, Number(listing.quantity || 1)));
+      actionRow.appendChild(buyBtn);
+
+      card.appendChild(actionRow);
+      container.appendChild(card);
+      continue;
+    }
 
     const card = createEl("article", "market-card");
 
@@ -3684,7 +3728,6 @@ function renderListings(listings, container = elements.marketList) {
     const code = createEl("p", "market-code", String(listing.itemMaterial));
     code.title = String(listing.itemMaterial);
     detail.appendChild(code);
-    const quantityTotal = Number(listing.quantityTotal || listing.quantity || 0);
     if (listing.remark) {
       detail.appendChild(createEl("p", "market-remark", listing.remark));
     }
@@ -3820,7 +3863,7 @@ function renderListings(listings, container = elements.marketList) {
     const stockProgress = createProgressIndicator(
       Number(listing.quantity || 0),
       quantityTotal > 0 ? quantityTotal : Math.max(1, Number(listing.quantity || 0)),
-      (current, total) => `剩余 x${current} / 总量 x${total}`
+      (current, total) => `剩余 ${current}`
     );
     card.appendChild(stockProgress.wrap);
 
@@ -5196,6 +5239,11 @@ if (elements.marketClearBtn) {
     if (elements.marketMinPrice) elements.marketMinPrice.value = "";
     if (elements.marketMaxPrice) elements.marketMaxPrice.value = "";
     if (elements.marketSort) elements.marketSort.value = "created_desc";
+    if (elements.marketHideOwnToggle) {
+      elements.marketHideOwnToggle.checked = true;
+      state.hideOwnMarketListings = true;
+      window.localStorage.setItem(MARKET_HIDE_OWN_STORAGE_KEY, "1");
+    }
     loadMarket(state.marketMode || "public", { announce: true });
   });
 }
