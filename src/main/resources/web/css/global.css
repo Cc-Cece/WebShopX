@@ -22,6 +22,12 @@ body {
   min-height: 100vh;
 }
 
+.wsx-page mdui-linear-progress {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
 .wsx-main {
   padding: var(--wsx-space-4);
 }
@@ -46,6 +52,14 @@ body {
 
 .wsx-panel.is-active {
   display: block;
+}
+
+.sub-panel {
+  display: none;
+}
+
+.sub-panel.active {
+  display: grid;
 }
 
 .wsx-grid {
@@ -154,6 +168,10 @@ body {
   color: var(--mdui-color-on-surface);
 }
 
+#productItemAmountSlider {
+  width: 100%;
+}
+
 .wsx-log {
   padding: var(--wsx-space-2);
   border-radius: var(--wsx-radius);
@@ -195,6 +213,78 @@ body {
 .wsx-help-content td {
   border: 1px solid var(--mdui-color-outline-variant);
   padding: var(--wsx-space-1) var(--wsx-space-2);
+}
+
+.admin-card {
+  border: 1px solid var(--mdui-color-outline-variant);
+  border-radius: var(--mdui-shape-corner-medium, 12px);
+  background: var(--mdui-color-surface-container-low);
+  padding: var(--wsx-space-2);
+  display: grid;
+  gap: var(--wsx-space-1);
+}
+
+.admin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--wsx-space-2);
+  flex-wrap: wrap;
+}
+
+.admin-actions {
+  display: flex;
+  gap: var(--wsx-space-1);
+  flex-wrap: wrap;
+}
+
+.admin-key,
+.admin-value,
+.empty-state {
+  color: var(--mdui-color-on-surface-variant);
+}
+
+.search-result-item {
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--mdui-color-outline-variant);
+  border-radius: var(--mdui-shape-corner-small, 8px);
+  padding: var(--wsx-space-1) var(--wsx-space-2);
+  background: var(--mdui-color-surface-container-low);
+  cursor: pointer;
+}
+
+.search-result-main {
+  color: var(--mdui-color-on-surface);
+  font-weight: 600;
+}
+
+.search-result-sub,
+.help-search-empty {
+  color: var(--mdui-color-on-surface-variant);
+}
+
+.toc {
+  display: grid;
+  gap: 2px;
+}
+
+.toc-link {
+  display: block;
+  padding: 6px 8px;
+  border-radius: var(--mdui-shape-corner-small, 8px);
+  color: var(--mdui-color-on-surface-variant);
+  text-decoration: none;
+}
+
+.toc-link.active,
+.toc-link:hover {
+  color: var(--mdui-color-on-surface);
+  background: color-mix(in srgb, var(--mdui-color-primary-container) 40%, transparent);
+}
+
+.doc-section[hidden] {
+  display: none !important;
 }
 
 @media (max-width: 900px) {
