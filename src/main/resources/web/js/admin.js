@@ -1677,7 +1677,7 @@ function openAlgorithmHelpPage(category, algorithmId) {
   query.set("locale", locale);
   const fallbackAnchor = normalizedCategory === "auction" ? "market-auction" : "dynamic-algorithms";
   const anchor = normalizedAlgorithm || fallbackAnchor;
-  window.open(`help.html?${query.toString()}#${encodeURIComponent(anchor)}`, "_blank", "noopener");
+  window.open(`/help.html?${query.toString()}#${encodeURIComponent(anchor)}`, "_blank", "noopener");
 }
 
 function setProductFieldVisible(inputElement, visible) {

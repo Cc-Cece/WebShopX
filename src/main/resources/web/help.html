@@ -27,7 +27,9 @@
     <mdui-top-app-bar>
       <mdui-top-app-bar-title>WebShopX 帮助中心</mdui-top-app-bar-title>
       <div class="wsx-toolbar" id="helpHeaderActions" slot="end-icon">
-        <mdui-button id="helpMenuBtn" variant="tonal" style="display: none;">目录</mdui-button>
+        <mdui-select id="helpDocSelect" label="文档" class="help-header-select"></mdui-select>
+        <mdui-text-field id="helpSearchInput" label="搜索" clearable class="help-header-search"></mdui-text-field>
+        <mdui-button id="helpMenuBtn" variant="tonal" icon="menu" style="display: none;"></mdui-button>
         <mdui-button id="helpHomeBtn" href="index.html">返回商城</mdui-button>
         <mdui-button id="helpThemeToggleBtn" variant="tonal">切换主题</mdui-button>
         <mdui-button id="helpModeToggleBtn" variant="tonal">单页模式</mdui-button>
@@ -39,19 +41,26 @@
 
     <mdui-layout-main class="wsx-main">
       <div class="wsx-help-layout">
-        <mdui-card class="wsx-card help-nav">
-          <h2>文档导航</h2>
-          <mdui-select id="helpDocSelect" label="文档"></mdui-select>
-          <mdui-text-field id="helpSearchInput" label="搜索文档" clearable></mdui-text-field>
-          <div id="helpSearchResults" class="wsx-list-scroll"></div>
+        <nav class="help-toc-container">
+          <div class="help-mobile-actions">
+            <mdui-select id="helpMenuDocSelect" label="文档"></mdui-select>
+            <div class="wsx-action-row">
+              <mdui-button id="helpMenuHomeBtn" variant="tonal">返回商城</mdui-button>
+              <mdui-button id="helpMenuThemeBtn" variant="tonal">切换主题</mdui-button>
+              <mdui-button id="helpMenuModeBtn" variant="tonal">单页模式</mdui-button>
+              <mdui-button id="helpMenuReloadBtn" variant="outlined">重新加载</mdui-button>
+            </div>
+          </div>
           <div id="helpToc" class="wsx-stack"></div>
-        </mdui-card>
+        </nav>
 
         <mdui-card class="wsx-card help-doc">
           <div id="helpMeta" class="wsx-muted"></div>
           <article id="helpContent" class="wsx-help-content"></article>
         </mdui-card>
       </div>
+
+      <div id="helpSearchResults" class="help-search-popup" style="display: none;"></div>
     </mdui-layout-main>
   </mdui-layout>
 

@@ -38,29 +38,84 @@
     <mdui-linear-progress id="adminProgress" style="display: none;"></mdui-linear-progress>
 
     <mdui-navigation-rail id="adminRail" contained value="login">
-      <mdui-navigation-rail-item value="login" data-tab-target="login">登录</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item value="products" data-tab-target="products">官方商品</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item value="market" data-tab-target="market">玩家市场</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item value="orders" data-tab-target="orders">订单</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item value="redeem" data-tab-target="redeem">兑换码</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item value="economy" data-tab-target="economy">经济</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item value="users" data-tab-target="users">账号</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item value="admins" data-tab-target="admins">管理员</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item value="audit" data-tab-target="audit">审计</mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="login" data-tab-target="login">
+        <span slot="icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+            <path d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5Zm0 2c-4.42 0-8 1.79-8 4v2h16v-2c0-2.21-3.58-4-8-4Z"/>
+          </svg>
+        </span>
+        登录
+      </mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="products" data-tab-target="products">
+        <span slot="icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+            <path d="M7 18a2 2 0 1 0 2 2 2 2 0 0 0-2-2Zm10 0a2 2 0 1 0 2 2 2 2 0 0 0-2-2ZM7.17 14h9.92a2 2 0 0 0 1.94-1.5L21 5H6.21l-.43-2H2v2h2.2l2.27 10.59A2 2 0 0 0 8.42 17H19v-2H8.42Z"/>
+          </svg>
+        </span>
+        官方商品
+      </mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="market" data-tab-target="market">
+        <span slot="icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+            <path d="M7 7h10v2H7zm0 4h10v2H7zm0 4h7v2H7zm12-8h-2V5a1 1 0 1 0-2 0v2h-2V5a1 1 0 1 0-2 0v2h-2V5a1 1 0 0 0-2 0v2H3a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zm-6 14H3V9h15v12z"/>
+          </svg>
+        </span>
+        玩家市场
+      </mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="orders" data-tab-target="orders">
+        <span slot="icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+            <path d="M20 2H4c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 18H5V5h14v15zm-8-5.5c-1.38 0-2.5 1.12-2.5 2.5s1.12 2.5 2.5 2.5 2.5-1.12 2.5-2.5-1.12-2.5-2.5-2.5z"/>
+          </svg>
+        </span>
+        订单
+      </mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="redeem" data-tab-target="redeem">
+        <span slot="icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2Zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8Zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5Zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11Zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5Z"/>
+          </svg>
+        </span>
+        兑换码
+      </mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="economy" data-tab-target="economy">
+        <span slot="icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2Zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8Zm0-13c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5Zm0 8c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3Z"/>
+          </svg>
+        </span>
+        经济
+      </mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="users" data-tab-target="users">
+        <span slot="icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+            <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3Zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3Zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5Zm8 0c-.29 0-.62.02-.97.05 1.5 1.1 2.97 2.3 2.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5Z"/>
+          </svg>
+        </span>
+        账号
+      </mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="admins" data-tab-target="admins">
+        <span slot="icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+            <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4Zm0 10.99h7c-.53 4.12-3.28 7.72-7 8.77V12Z"/>
+          </svg>
+        </span>
+        管理员
+      </mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="audit" data-tab-target="audit">
+        <span slot="icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2Zm0 16H5V5h14v14Zm-5.04-6.71l-2.75 3.54-2.08-2.76c-.3-.38-.83-.41-1.24-.08-.41.34-.47.88-.15 1.26l2.65 3.5c.25.33.62.52 1.02.52.4 0 .77-.19 1.02-.52l3.54-4.63c.31-.41.24-.95-.15-1.28-.4-.32-.94-.27-1.25.07Z"/>
+          </svg>
+        </span>
+        审计
+      </mdui-navigation-rail-item>
     </mdui-navigation-rail>
 
     <mdui-layout-main class="wsx-main">
-      <nav class="wsx-top-tabs" role="tablist" aria-label="管理功能">
-        <mdui-button class="top-tab" data-tab-target="login" variant="filled">管理员登录</mdui-button>
-        <mdui-button class="top-tab" data-tab-target="products" variant="tonal">官方商品</mdui-button>
-        <mdui-button class="top-tab" data-tab-target="market" variant="tonal">玩家市场</mdui-button>
-        <mdui-button class="top-tab" data-tab-target="orders" variant="tonal">订单</mdui-button>
-        <mdui-button class="top-tab" data-tab-target="redeem" variant="tonal">兑换码</mdui-button>
-      </nav>
-
       <section class="wsx-panel tab-panel is-active" data-tab-panel="login">
-        <div class="wsx-grid wsx-grid-2">
-          <mdui-card class="wsx-card">
+        <div class="wsx-grid wsx-grid-2 auth-cards-grid">
+          <mdui-card class="wsx-card" id="adminCardLoginSection">
             <h2>管理员登录</h2>
             <mdui-text-field id="adminIdentifier" label="用户名或 UUID" clearable></mdui-text-field>
             <mdui-text-field id="adminPassword" label="密码" type="password" clearable toggle-password></mdui-text-field>
@@ -71,7 +126,7 @@
             <p id="adminLoginStatus" class="wsx-muted">等待登录</p>
           </mdui-card>
 
-          <mdui-card class="wsx-card">
+          <mdui-card class="wsx-card" id="adminCardProfileSection" style="display: none;">
             <h2>当前管理员</h2>
             <p id="adminProfileView" class="wsx-muted">未登录</p>
           </mdui-card>

@@ -46,25 +46,52 @@
         </span>
         账户
       </mdui-navigation-rail-item>
-      <mdui-navigation-rail-item value="wallet" data-tab-target="wallet">钱包</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item value="shop" data-tab-target="shop">商城</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item value="orders" data-tab-target="orders">订单</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item value="market" data-tab-target="market">市场</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item value="auction" data-tab-target="auction">拍卖</mdui-navigation-rail-item>
-      <mdui-navigation-rail-item value="logs" data-tab-target="logs">日志</mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="shop" data-tab-target="shop">
+        <span slot="icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+            <path d="M7 18a2 2 0 1 0 2 2 2 2 0 0 0-2-2Zm10 0a2 2 0 1 0 2 2 2 2 0 0 0-2-2ZM7.17 14h9.92a2 2 0 0 0 1.94-1.5L21 5H6.21l-.43-2H2v2h2.2l2.27 10.59A2 2 0 0 0 8.42 17H19v-2H8.42Z"/>
+          </svg>
+        </span>
+        商城
+      </mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="orders" data-tab-target="orders">
+        <span slot="icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+            <path d="M20 2H4c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 18H5V5h14v15zm-8-5.5c-1.38 0-2.5 1.12-2.5 2.5s1.12 2.5 2.5 2.5 2.5-1.12 2.5-2.5-1.12-2.5-2.5-2.5z"/>
+          </svg>
+        </span>
+        订单
+      </mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="market" data-tab-target="market">
+        <span slot="icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+            <path d="M7 7h10v2H7zm0 4h10v2H7zm0 4h7v2H7zm12-8h-2V5a1 1 0 1 0-2 0v2h-2V5a1 1 0 1 0-2 0v2h-2V5a1 1 0 0 0-2 0v2H3a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zm-6 14H3V9h15v12z"/>
+          </svg>
+        </span>
+        市场
+      </mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="auction" data-tab-target="auction">
+        <span slot="icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+            <path d="M20 2H4c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2ZM8 20H4v-8h4v8Zm6 0h-4V4h4v16Zm6 0h-4v-4h4v4Z"/>
+          </svg>
+        </span>
+        拍卖
+      </mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="logs" data-tab-target="logs">
+        <span slot="icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2Zm0 16H5V5h14v14Z"/>
+          </svg>
+        </span>
+        日志
+      </mdui-navigation-rail-item>
     </mdui-navigation-rail>
 
     <mdui-layout-main class="wsx-main">
-      <nav class="wsx-top-tabs" role="tablist" aria-label="功能标签">
-        <mdui-button class="top-tab" data-tab-target="auth" variant="filled">账户</mdui-button>
-        <mdui-button class="top-tab" data-tab-target="shop" variant="tonal">官方商城</mdui-button>
-        <mdui-button class="top-tab" data-tab-target="market" variant="tonal">玩家市场</mdui-button>
-        <mdui-button class="top-tab" data-tab-target="auction" variant="tonal">拍卖行</mdui-button>
-      </nav>
-
       <section class="wsx-panel is-active" data-tab-panel="auth">
-        <div class="wsx-grid wsx-grid-2">
-          <mdui-card class="wsx-card">
+        <div class="wsx-grid wsx-grid-2 auth-cards-grid">
+          <mdui-card class="wsx-card" id="authCardLoginSection">
             <h2>账户登录</h2>
             <mdui-text-field id="loginIdentifier" label="用户名 / UUID" clearable></mdui-text-field>
             <mdui-text-field id="loginPassword" label="密码" type="password" clearable toggle-password></mdui-text-field>
@@ -75,7 +102,7 @@
             <p id="authView" class="wsx-muted">请先登录后访问钱包、商城和市场功能。</p>
           </mdui-card>
 
-          <mdui-card class="wsx-card">
+          <mdui-card class="wsx-card" id="authCardProfileSection" style="display: none;">
             <h2>当前玩家</h2>
             <div class="wsx-action-row">
               <img id="profileAvatar" class="wsx-avatar" src="" alt="玩家头像" />
@@ -85,22 +112,17 @@
               </div>
             </div>
             <div class="wsx-action-row">
-              <mdui-button variant="outlined" data-tab-target="wallet">钱包资产</mdui-button>
               <mdui-button variant="outlined" data-tab-target="orders">订单记录</mdui-button>
               <mdui-button variant="outlined" data-tab-target="logs">操作日志</mdui-button>
               <mdui-button id="accountHelpBtn" href="help.html" target="_blank" variant="text">使用帮助</mdui-button>
             </div>
           </mdui-card>
-        </div>
-      </section>
 
-      <section class="wsx-panel" data-tab-panel="wallet">
-        <div class="wsx-grid wsx-grid-2">
-          <mdui-card class="wsx-card">
+          <mdui-card class="wsx-card" data-wallet style="display: none;">
             <h2>钱包资产</h2>
             <div class="wsx-chip-row">
-              <mdui-chip>网页币: <b id="shopCoinValue">0</b></mdui-chip>
-              <mdui-chip>游戏币: <b id="gameCoinValue">0</b></mdui-chip>
+              <mdui-chip><span id="shopCoinLabel">网页币</span>: <b id="shopCoinValue">0</b></mdui-chip>
+              <mdui-chip><span id="gameCoinLabel">游戏币</span>: <b id="gameCoinValue">0</b></mdui-chip>
             </div>
             <div class="wsx-action-row">
               <mdui-button id="walletBtn" variant="filled">刷新余额</mdui-button>
@@ -108,7 +130,7 @@
             <p id="walletView" class="wsx-muted">等待刷新余额</p>
           </mdui-card>
 
-          <mdui-card class="wsx-card">
+          <mdui-card class="wsx-card" data-wallet style="display: none;">
             <h2>兑换码</h2>
             <mdui-text-field id="redeemCode" label="输入兑换码" clearable></mdui-text-field>
             <div class="wsx-action-row">
@@ -117,7 +139,7 @@
             <p id="redeemView" class="wsx-muted">等待兑换操作</p>
           </mdui-card>
 
-          <mdui-card class="wsx-card">
+          <mdui-card class="wsx-card" data-wallet style="display: none;">
             <h2>货币互换</h2>
             <div class="wsx-filter-row">
               <mdui-select id="exchangeFrom" label="从" value="SHOP_COIN">
@@ -137,7 +159,7 @@
             <p id="exchangeView" class="wsx-muted">等待兑换操作</p>
           </mdui-card>
 
-          <mdui-card class="wsx-card">
+          <mdui-card class="wsx-card" data-wallet style="display: none;">
             <h2>最近钱包流水</h2>
             <p id="walletLedgerView" class="wsx-muted">等待加载记录</p>
             <div id="walletLedgerList" class="wsx-list-scroll"></div>

@@ -54,7 +54,6 @@ const PATH_TO_TAB = Object.freeze({
 
 const TAB_TO_PATH = Object.freeze({
   auth: "/account",
-  wallet: "/account",
   shop: "/b2c",
   orders: "/account",
   market: "/c2c",
@@ -74,6 +73,8 @@ const elements = {
   loginBtn: document.getElementById("loginBtn"),
   logoutBtn: document.getElementById("logoutBtn"),
   authView: document.getElementById("authView"),
+  authCardLoginSection: document.getElementById("authCardLoginSection"),
+  authCardProfileSection: document.getElementById("authCardProfileSection"),
   profileAvatar: document.getElementById("profileAvatar"),
   profileName: document.getElementById("profileName"),
   profileUuid: document.getElementById("profileUuid"),
@@ -84,6 +85,8 @@ const elements = {
   walletLedgerList: document.getElementById("walletLedgerList"),
   shopCoinValue: document.getElementById("shopCoinValue"),
   gameCoinValue: document.getElementById("gameCoinValue"),
+  shopCoinLabel: document.getElementById("shopCoinLabel"),
+  gameCoinLabel: document.getElementById("gameCoinLabel"),
 
   redeemCode: document.getElementById("redeemCode"),
   redeemBtn: document.getElementById("redeemBtn"),
@@ -536,7 +539,7 @@ function syncRoute(tab) {
 }
 
 function activateTab(tab, syncHistory = true) {
-  const allowed = new Set(["auth", "wallet", "shop", "orders", "market", "auction", "logs"]);
+  const allowed = new Set(["auth", "shop", "orders", "market", "auction", "logs"]);
   const normalized = allowed.has(tab) ? tab : "auth";
   state.activeTab = normalized;
   state.marketTradeScope = normalized === "auction" ? "AUCTION" : "DIRECT";
@@ -561,9 +564,7 @@ function activateTab(tab, syncHistory = true) {
     syncRoute(normalized);
   }
 
-  if (normalized === "wallet") {
-    void Promise.all([loadWallet(), loadWalletLedger()]);
-  } else if (normalized === "shop") {
+  if (normalized === "shop") {
     void loadProducts();
   } else if (normalized === "orders") {
     void loadOrders();
@@ -577,6 +578,22 @@ function activateTab(tab, syncHistory = true) {
 function updateAuthView() {
   const loggedIn = Boolean(state.token);
   setStatusChip(loggedIn ? `已登录: ${state.username || "玩家"}` : "未登录", loggedIn);
+  
+  if (elements.authCardLoginSection && elements.authCardProfileSection) {
+    if (loggedIn) {
+      elements.authCardLoginSection.style.display = "none";
+      elements.authCardProfileSection.style.display = "";
+    } else {
+      elements.authCardLoginSection.style.display = "";
+      elements.authCardProfileSection.style.display = "none";
+    }
+  }
+  
+  // Control wallet cards visibility
+  document.querySelectorAll('[data-wallet]').forEach(card => {
+    card.style.display = loggedIn ? "" : "none";
+  });
+  
   if (elements.profileName) {
     elements.profileName.textContent = state.username || "-";
   }
@@ -590,10 +607,10 @@ function updateAuthView() {
   }
 
   if (elements.profileAvatar) {
-    const uuid = String(state.boundUuid || "").trim();
-    if (uuid) {
-      elements.profileAvatar.src = `https://nmsr.nickac.dev/face/${encodeURIComponent(uuid)}`;
-      elements.profileAvatar.alt = `${state.username || "玩家"} 头像`;
+    const username = String(state.username || "").trim();
+    if (username) {
+      elements.profileAvatar.src = `https://nmsr.nickac.dev/face/${encodeURIComponent(username)}`;
+      elements.profileAvatar.alt = `${username} 头像`;
       elements.profileAvatar.onerror = () => {
         elements.profileAvatar.src = FALLBACK_TEXTURE_DATA_URL;
       };
@@ -706,6 +723,14 @@ function setCurrencyMetaFromPayload(payload) {
       short: String(gameCoin.short || DEFAULT_CURRENCY_META.GAME_COIN.short || "GC"),
     },
   };
+
+  // Update currency labels in UI
+  if (elements.shopCoinLabel) {
+    elements.shopCoinLabel.textContent = state.currencyMeta.SHOP_COIN.label;
+  }
+  if (elements.gameCoinLabel) {
+    elements.gameCoinLabel.textContent = state.currencyMeta.GAME_COIN.label;
+  }
 }
 
 function currencyMetaForCore() {
@@ -1113,6 +1138,60 @@ function attachTextureCandidates(img, candidates) {
   };
 }
 
+function formatRelativeTimeLabel(timestamp) {
+  const value = new Date(timestamp || 0).getTime();
+  if (!Number.isFinite(value) || value <= 0) {
+    return "刚刚";
+  }
+  const diff = Math.max(0, Date.now() - value);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const month = 30 * day;
+  const year = 365 * day;
+
+  if (diff < minute) {
+    return "刚刚";
+  }
+  if (diff < hour) {
+    return `${Math.floor(diff / minute)} 分钟前`;
+  }
+  if (diff < day) {
+    return `${Math.floor(diff / hour)} 小时前`;
+  }
+  if (diff < month) {
+    return `${Math.floor(diff / day)} 天前`;
+  }
+  if (diff < year) {
+    return `${Math.floor(diff / month)} 个月前`;
+  }
+  return `${Math.floor(diff / year)} 年前`;
+}
+
+function bindTradeQuantityControls(rangeInput, qtyField, minValue, maxValue, onChange) {
+  const min = Math.max(1, Number(minValue) || 1);
+  const max = Math.max(min, Number(maxValue) || min);
+
+  const updateValue = (raw) => {
+    const parsed = Number(raw);
+    const safe = Number.isFinite(parsed) ? parsed : min;
+    const value = Math.max(min, Math.min(max, Math.floor(safe)));
+    rangeInput.value = String(value);
+    qtyField.value = String(value);
+    if (typeof qtyField.setAttribute === "function") {
+      qtyField.setAttribute("value", String(value));
+    }
+    if (typeof onChange === "function") {
+      onChange(value);
+    }
+  };
+
+  rangeInput.addEventListener("input", () => updateValue(rangeInput.value));
+  qtyField.addEventListener("input", () => updateValue(qtyField.value));
+  qtyField.addEventListener("change", () => updateValue(qtyField.value));
+  updateValue(qtyField.value || min);
+}
+
 function renderProductList() {
   if (!elements.productList) {
     return;
@@ -1134,19 +1213,24 @@ function renderProductList() {
     const productId = String(product && (product.id || product.sku || "")).trim();
     const qtyFieldId = `product-qty-${productId}`;
     const card = document.createElement("mdui-card");
-    card.className = "wsx-card";
+    card.className = "wsx-card wsx-trade-card";
 
-    const titleRow = document.createElement("div");
-    titleRow.className = "wsx-card-title";
-    const heading = document.createElement("h3");
-    heading.textContent = String(product && product.title ? product.title : productId || "未命名商品");
+    const stockInfo = resolveOfficialProductStock(product);
+    const hasStock = !stockInfo.hasTrackedStock || stockInfo.remainingStock > 0;
 
-    const icon = createIconNode("cart");
-    titleRow.append(icon, heading);
-    card.appendChild(titleRow);
+    const headerRow = document.createElement("div");
+    headerRow.className = "wsx-trade-head";
+    const badge = document.createElement("span");
+    badge.className = "wsx-trade-badge";
+    badge.textContent = hasStock ? "在售" : "售罄";
+    const time = document.createElement("span");
+    time.className = "wsx-trade-time";
+    time.textContent = formatRelativeTimeLabel(product && (product.updatedAt || product.createdAt));
+    headerRow.append(badge, time);
+    card.appendChild(headerRow);
 
-    const mediaRow = document.createElement("div");
-    mediaRow.className = "wsx-action-row";
+    const heroRow = document.createElement("div");
+    heroRow.className = "wsx-trade-hero";
 
     const textureMaterial = resolveProductTextureMaterial(product);
     const localizedMaterial = getLocalizedMaterialName(textureMaterial, state.materialNameMap, locale);
@@ -1160,43 +1244,90 @@ function renderProductList() {
         fallbackDataUrl: FALLBACK_TEXTURE_DATA_URL,
       })
     );
-    mediaRow.appendChild(texture);
+    heroRow.appendChild(texture);
 
     const info = document.createElement("div");
-    info.className = "wsx-kv";
-    const priceLine = document.createElement("div");
-    priceLine.innerHTML = `<b>${formatCurrency(product && product.price, product && product.currency, currencyMetaForCore(), locale)}</b>`;
-    const typeLine = document.createElement("div");
-    typeLine.className = "wsx-muted";
-    typeLine.textContent = `${String(product && product.productType ? product.productType : "UNKNOWN")} | ${localizedMaterial}`;
-    info.append(priceLine, typeLine);
-    mediaRow.appendChild(info);
-    card.appendChild(mediaRow);
+    info.className = "wsx-trade-info";
+    const heading = document.createElement("h3");
+    heading.className = "wsx-trade-title";
+    heading.textContent = String(product && product.title ? product.title : productId || "未命名商品");
+    const sellerLine = document.createElement("p");
+    sellerLine.className = "wsx-trade-seller";
+    sellerLine.textContent = "卖家: 官方商城";
+    const metaLine = document.createElement("p");
+    metaLine.className = "wsx-muted";
+    metaLine.textContent = `${String(product && product.productType ? product.productType : "UNKNOWN")} | ${localizedMaterial}`;
+    info.append(heading, sellerLine, metaLine);
+    heroRow.appendChild(info);
+    card.appendChild(heroRow);
 
-    const stockInfo = resolveOfficialProductStock(product);
-    const stockText = document.createElement("div");
-    stockText.className = "wsx-muted";
-    stockText.textContent = stockInfo.hasTrackedStock
-      ? `库存 ${stockInfo.remainingStock}/${stockInfo.totalStock}`
-      : "库存: 长期供应";
-    card.appendChild(stockText);
+    const progressWrap = document.createElement("div");
+    progressWrap.className = "wsx-trade-progress-row";
+    const progress = document.createElement("div");
+    progress.className = "wsx-trade-progress";
+    const progressInner = document.createElement("span");
+    const stockRatio = stockInfo.hasTrackedStock && stockInfo.totalStock > 0
+      ? Math.max(0, Math.min(100, Math.round((stockInfo.remainingStock / stockInfo.totalStock) * 100)))
+      : 100;
+    progressInner.style.width = `${stockRatio}%`;
+    progress.appendChild(progressInner);
+    const remain = document.createElement("span");
+    remain.className = "wsx-trade-remain";
+    remain.textContent = stockInfo.hasTrackedStock
+      ? `剩余${stockInfo.remainingStock}`
+      : "长期供应";
+    progressWrap.append(progress, remain);
+    card.appendChild(progressWrap);
+
+    const priceRow = document.createElement("div");
+    priceRow.className = "wsx-trade-price-row";
+    const priceLabel = document.createElement("span");
+    priceLabel.textContent = "单价";
+    const priceValue = document.createElement("strong");
+    priceValue.textContent = formatCurrency(product && product.price, product && product.currency, currencyMetaForCore(), locale);
+    priceRow.append(priceLabel, priceValue);
+    card.appendChild(priceRow);
 
     const qtyField = document.createElement("mdui-text-field");
     qtyField.id = qtyFieldId;
     qtyField.label = "数量";
+    qtyField.className = "wsx-trade-qty-field";
     qtyField.value = "1";
     qtyField.type = "number";
     qtyField.min = "1";
-    qtyField.max = String(Math.max(1, Math.min(64, stockInfo.maxQuantity || 64)));
-    card.appendChild(qtyField);
+    const maxQuantity = Math.max(1, Math.min(64, stockInfo.maxQuantity || 64));
+    qtyField.max = String(maxQuantity);
+
+    const range = document.createElement("input");
+    range.type = "range";
+    range.className = "wsx-trade-slider";
+    range.min = "1";
+    range.max = String(maxQuantity);
+    range.value = "1";
+
+    const qtyRow = document.createElement("div");
+    qtyRow.className = "wsx-trade-qty-row";
+    qtyRow.append(range, qtyField);
+    card.appendChild(qtyRow);
+
+    const totalLine = document.createElement("div");
+    totalLine.className = "wsx-trade-total";
+    card.appendChild(totalLine);
+
+    bindTradeQuantityControls(range, qtyField, 1, maxQuantity, (quantity) => {
+      const total = Math.max(0, Math.floor(Number(product && product.price ? product.price : 0) * quantity));
+      totalLine.textContent = `总价: ${formatCurrency(total, product && product.currency, currencyMetaForCore(), locale)}`;
+    });
 
     const actionRow = document.createElement("div");
-    actionRow.className = "wsx-action-row";
+    actionRow.className = "wsx-trade-actions";
 
     const actionBtn = document.createElement("mdui-button");
     const type = String(product && product.productType ? product.productType : "").toUpperCase();
     actionBtn.variant = "filled";
-    actionBtn.textContent = type === "RECYCLE_ITEM" ? "立即回收" : "立即购买";
+    actionBtn.className = "wsx-trade-primary-btn";
+    actionBtn.textContent = hasStock ? (type === "RECYCLE_ITEM" ? "立即回收" : "立即购买") : "已售罄";
+    actionBtn.disabled = !hasStock;
     actionBtn.dataset.action = "buy-product";
     actionBtn.dataset.productId = productId;
     actionBtn.dataset.qtyFieldId = qtyFieldId;
@@ -1586,20 +1717,71 @@ function renderStoreCards(listings, container) {
 
   stores.forEach((store) => {
     const card = document.createElement("mdui-card");
-    card.className = "wsx-card";
-    const heading = document.createElement("h3");
-    heading.textContent = store.sellerName;
-    card.appendChild(heading);
+    card.className = "wsx-card wsx-trade-card";
 
-    const summary = document.createElement("p");
-    summary.className = "wsx-muted";
-    summary.textContent = `在售商品 ${store.listings.length} 项`;
-    card.appendChild(summary);
+    const headerRow = document.createElement("div");
+    headerRow.className = "wsx-trade-head";
+    const badge = document.createElement("span");
+    badge.className = "wsx-trade-badge";
+    badge.textContent = "店铺";
+    const time = document.createElement("span");
+    time.className = "wsx-trade-time";
+    time.textContent = "玩家市场";
+    headerRow.append(badge, time);
+    card.appendChild(headerRow);
+
+    const heroRow = document.createElement("div");
+    heroRow.className = "wsx-trade-hero";
+
+    const avatar = document.createElement("img");
+    avatar.className = "wsx-product-media";
+    avatar.alt = store.sellerName;
+    const avatarSeed = String(store.sellerName || store.sellerKey || "store").trim();
+    avatar.src = `https://nmsr.nickac.dev/face/${encodeURIComponent(avatarSeed)}`;
+    avatar.onerror = () => {
+      avatar.src = FALLBACK_TEXTURE_DATA_URL;
+    };
+    heroRow.appendChild(avatar);
+
+    const info = document.createElement("div");
+    info.className = "wsx-trade-info";
+    const heading = document.createElement("h3");
+    heading.className = "wsx-trade-title";
+    heading.textContent = `${store.sellerName} 的店铺`;
+    const seller = document.createElement("p");
+    seller.className = "wsx-trade-seller";
+    seller.textContent = `卖家: ${store.sellerName}`;
+    info.append(heading, seller);
+    heroRow.appendChild(info);
+    card.appendChild(heroRow);
+
+    const progressWrap = document.createElement("div");
+    progressWrap.className = "wsx-trade-progress-row";
+    const progress = document.createElement("div");
+    progress.className = "wsx-trade-progress";
+    const progressInner = document.createElement("span");
+    progressInner.style.width = "100%";
+    progress.appendChild(progressInner);
+    const remain = document.createElement("span");
+    remain.className = "wsx-trade-remain";
+    remain.textContent = `在售${store.listings.length}`;
+    progressWrap.append(progress, remain);
+    card.appendChild(progressWrap);
+
+    const priceRow = document.createElement("div");
+    priceRow.className = "wsx-trade-price-row";
+    const priceLabel = document.createElement("span");
+    priceLabel.textContent = "商品数";
+    const priceValue = document.createElement("strong");
+    priceValue.textContent = String(store.listings.length);
+    priceRow.append(priceLabel, priceValue);
+    card.appendChild(priceRow);
 
     const btnRow = document.createElement("div");
-    btnRow.className = "wsx-action-row";
+    btnRow.className = "wsx-trade-actions";
     const openBtn = document.createElement("mdui-button");
     openBtn.variant = "filled";
+    openBtn.className = "wsx-trade-primary-btn";
     openBtn.textContent = "进入店铺";
     openBtn.dataset.action = "market-open-store";
     openBtn.dataset.sellerKey = store.sellerKey;
@@ -1663,15 +1845,30 @@ function renderMarketListings(scope) {
   visible.forEach((listing) => {
     const listingId = String(listing && listing.id ? listing.id : "");
     const card = document.createElement("mdui-card");
-    card.className = "wsx-card";
+    card.className = "wsx-card wsx-trade-card";
 
-    const title = document.createElement("div");
-    title.className = "wsx-card-title";
-    title.appendChild(createIconNode(scope === "AUCTION" ? "hammer" : "market"));
-    const heading = document.createElement("h3");
-    heading.textContent = `${listingLocalizedMaterial(listing)} x ${Number(listing && listing.quantityTotal !== undefined ? listing.quantityTotal : listing && listing.quantity !== undefined ? listing.quantity : 0)}`;
-    title.appendChild(heading);
-    card.appendChild(title);
+    const seller = String(listing && listing.sellerName ? listing.sellerName : "未知卖家");
+    const quantityTotal = Number(listing && listing.quantityTotal !== undefined
+      ? listing.quantityTotal
+      : (listing && listing.quantity !== undefined ? listing.quantity : 0));
+    const quantityAvailable = Number(listing && listing.quantity !== undefined
+      ? listing.quantity
+      : quantityTotal);
+
+    const headerRow = document.createElement("div");
+    headerRow.className = "wsx-trade-head";
+    const badge = document.createElement("span");
+    badge.className = "wsx-trade-badge";
+    const status = String(listing && listing.status ? listing.status : "ACTIVE").toUpperCase();
+    badge.textContent = scope === "AUCTION" ? "拍卖" : (status === "ACTIVE" ? "在售" : status);
+    const time = document.createElement("span");
+    time.className = "wsx-trade-time";
+    time.textContent = formatRelativeTimeLabel(listing && listing.createdAt);
+    headerRow.append(badge, time);
+    card.appendChild(headerRow);
+
+    const heroRow = document.createElement("div");
+    heroRow.className = "wsx-trade-hero";
 
     const media = document.createElement("img");
     media.className = "wsx-product-media";
@@ -1683,39 +1880,52 @@ function renderMarketListings(scope) {
         fallbackDataUrl: FALLBACK_TEXTURE_DATA_URL,
       })
     );
-
-    const mediaRow = document.createElement("div");
-    mediaRow.className = "wsx-action-row";
-    mediaRow.appendChild(media);
+    heroRow.appendChild(media);
 
     const detail = document.createElement("div");
-    detail.className = "wsx-kv";
-    const seller = String(listing && listing.sellerName ? listing.sellerName : "未知卖家");
-    const price = formatCurrency(
-      listing && (listing.price !== undefined ? listing.price : listing.currentHighestBid),
+    detail.className = "wsx-trade-info";
+    const heading = document.createElement("h3");
+    heading.className = "wsx-trade-title";
+    heading.textContent = `${listingLocalizedMaterial(listing)}${quantityTotal > 0 ? ` x${quantityTotal}` : ""}`;
+    const sellerLine = document.createElement("p");
+    sellerLine.className = "wsx-trade-seller";
+    sellerLine.textContent = `卖家: ${seller}`;
+    detail.append(heading, sellerLine);
+    heroRow.appendChild(detail);
+    card.appendChild(heroRow);
+
+    const progressWrap = document.createElement("div");
+    progressWrap.className = "wsx-trade-progress-row";
+    const progress = document.createElement("div");
+    progress.className = "wsx-trade-progress";
+    const progressInner = document.createElement("span");
+    const ratio = quantityTotal > 0
+      ? Math.max(0, Math.min(100, Math.round((quantityAvailable / quantityTotal) * 100)))
+      : 100;
+    progressInner.style.width = `${ratio}%`;
+    progress.appendChild(progressInner);
+    const remain = document.createElement("span");
+    remain.className = "wsx-trade-remain";
+    remain.textContent = scope === "AUCTION"
+      ? `余量${Math.max(0, quantityAvailable)}`
+      : `剩余${Math.max(0, quantityAvailable)}`;
+    progressWrap.append(progress, remain);
+    card.appendChild(progressWrap);
+
+    const unitPrice = Number(listing && (listing.price !== undefined ? listing.price : listing.currentHighestBid)) || 0;
+    const priceRow = document.createElement("div");
+    priceRow.className = "wsx-trade-price-row";
+    const priceLabel = document.createElement("span");
+    priceLabel.textContent = scope === "AUCTION" ? "当前价" : "单价";
+    const priceValue = document.createElement("strong");
+    priceValue.textContent = formatCurrency(
+      unitPrice,
       listing && listing.currency,
       currencyMetaForCore(),
       locale
     );
-    detail.innerHTML = `<div><b>${price}</b></div><div class='wsx-muted'>卖家: ${seller}</div>`;
-    mediaRow.appendChild(detail);
-    card.appendChild(mediaRow);
-
-    const status = String(listing && listing.status ? listing.status : "ACTIVE");
-    const mode = String(listing && listing.tradeMode ? listing.tradeMode : scope);
-    const meta = document.createElement("p");
-    meta.className = "wsx-muted";
-    meta.textContent = `${mode} | ${status} | 数量 ${listing && listing.quantity !== undefined ? listing.quantity : "-"}`;
-    card.appendChild(meta);
-
-    const createdAtText = formatDateTime(listing && listing.createdAt, {
-      locale,
-      timeZone: state.timeZone,
-    });
-    const timeMeta = document.createElement("p");
-    timeMeta.className = "wsx-muted";
-    timeMeta.textContent = `上架时间: ${createdAtText}`;
-    card.appendChild(timeMeta);
+    priceRow.append(priceLabel, priceValue);
+    card.appendChild(priceRow);
 
     const dynamicParams = parseAlgorithmParamsJson(listing && listing.dynamicParamsJson);
     const dynamicKeys = Object.keys(dynamicParams || {});
@@ -1727,24 +1937,50 @@ function renderMarketListings(scope) {
     }
 
     const actionRow = document.createElement("div");
-    actionRow.className = "wsx-action-row";
+    actionRow.className = "wsx-trade-actions";
 
     const isMine = String(listing && listing.sellerUuid ? listing.sellerUuid : "") === String(state.boundUuid || "")
       || String(listing && listing.sellerName ? listing.sellerName : "").toLowerCase() === String(state.username || "").toLowerCase();
 
     if (scope === "DIRECT" && !isMine && state.marketMode !== "mine") {
+      const maxQuantity = Math.max(1, Math.min(64, Number(listing && listing.quantity ? listing.quantity : 64)));
+      const range = document.createElement("input");
+      range.type = "range";
+      range.className = "wsx-trade-slider";
+      range.min = "1";
+      range.max = String(maxQuantity);
+      range.value = "1";
+
       const qtyField = document.createElement("mdui-text-field");
       qtyField.id = `listing-buy-${listingId}`;
       qtyField.label = "购买数量";
+      qtyField.className = "wsx-trade-qty-field";
       qtyField.type = "number";
       qtyField.min = "1";
-      qtyField.max = String(Math.max(1, Math.min(64, Number(listing && listing.quantity ? listing.quantity : 64))));
+      qtyField.max = String(maxQuantity);
       qtyField.value = "1";
-      actionRow.appendChild(qtyField);
+
+      const qtyRow = document.createElement("div");
+      qtyRow.className = "wsx-trade-qty-row";
+      qtyRow.append(range, qtyField);
+      actionRow.appendChild(qtyRow);
+
+      const totalLine = document.createElement("div");
+      totalLine.className = "wsx-trade-total";
+      actionRow.appendChild(totalLine);
+
+      bindTradeQuantityControls(range, qtyField, 1, maxQuantity, (quantity) => {
+        const total = Math.max(0, Math.floor(unitPrice * quantity));
+        totalLine.textContent = `总价: ${formatCurrency(total, listing && listing.currency, currencyMetaForCore(), locale)}`;
+      });
+
+      const canBuy = quantityAvailable > 0;
 
       const buyBtn = document.createElement("mdui-button");
       buyBtn.variant = "filled";
-      buyBtn.textContent = "立即购买";
+      buyBtn.className = "wsx-trade-primary-btn";
+      buyBtn.textContent = canBuy ? "立即购买" : "暂不可购";
+      buyBtn.disabled = !canBuy;
       buyBtn.dataset.action = "market-buy";
       buyBtn.dataset.listingId = listingId;
       buyBtn.dataset.qtyFieldId = qtyField.id;
@@ -1755,6 +1991,7 @@ function renderMarketListings(scope) {
       const bidField = document.createElement("mdui-text-field");
       bidField.id = `listing-bid-${listingId}`;
       bidField.label = "出价";
+      bidField.className = "wsx-trade-qty-field";
       bidField.type = "number";
       bidField.min = "1";
       bidField.value = String(
@@ -1764,6 +2001,7 @@ function renderMarketListings(scope) {
 
       const bidBtn = document.createElement("mdui-button");
       bidBtn.variant = "filled";
+      bidBtn.className = "wsx-trade-primary-btn";
       bidBtn.textContent = "提交出价";
       bidBtn.dataset.action = "market-bid";
       bidBtn.dataset.listingId = listingId;
@@ -1772,6 +2010,7 @@ function renderMarketListings(scope) {
     }
 
     if (isMine || state.marketMode === "mine") {
+      actionRow.classList.add("wsx-trade-admin-actions");
       const editBtn = document.createElement("mdui-button");
       editBtn.variant = "tonal";
       editBtn.textContent = "编辑";

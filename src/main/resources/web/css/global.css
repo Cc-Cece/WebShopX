@@ -32,6 +32,11 @@ body {
   padding: var(--wsx-space-4);
 }
 
+.wsx-help-page .wsx-main {
+  height: calc(100vh - var(--mdui-comp-top-app-bar-height, 64px));
+  overflow: auto;
+}
+
 .wsx-toolbar {
   display: flex;
   align-items: center;
@@ -68,11 +73,11 @@ body {
 }
 
 .wsx-grid-2 {
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
 }
 
 .wsx-grid-3 {
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
 }
 
 .wsx-stack {
@@ -138,6 +143,155 @@ body {
   image-rendering: pixelated;
 }
 
+.wsx-trade-card {
+  gap: var(--wsx-space-3);
+  border: 1px solid color-mix(in srgb, var(--mdui-color-outline-variant) 75%, transparent);
+  border-radius: var(--mdui-shape-corner-large, 20px);
+  background:
+    radial-gradient(circle at 100% -10%, color-mix(in srgb, var(--mdui-color-primary) 22%, transparent), transparent 45%),
+    color-mix(in srgb, var(--mdui-color-surface-container) 86%, transparent);
+  box-shadow: 0 10px 30px color-mix(in srgb, black 18%, transparent);
+}
+
+.wsx-trade-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--wsx-space-2);
+}
+
+.wsx-trade-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--mdui-color-on-primary-container);
+  background: color-mix(in srgb, var(--mdui-color-primary-container) 82%, transparent);
+}
+
+.wsx-trade-time {
+  color: var(--mdui-color-on-surface-variant);
+  font-weight: 600;
+}
+
+.wsx-trade-hero {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--wsx-space-2);
+  align-items: center;
+}
+
+.wsx-trade-info {
+  display: grid;
+  gap: 4px;
+}
+
+.wsx-trade-title {
+  margin: 0;
+  line-height: 1.25;
+  font-size: clamp(1.25rem, 1.1rem + 0.35vw, 1.6rem);
+}
+
+.wsx-trade-seller {
+  margin: 0;
+  color: var(--mdui-color-on-surface-variant);
+  font-size: 1.02rem;
+}
+
+.wsx-trade-progress-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--wsx-space-2);
+}
+
+.wsx-trade-progress {
+  position: relative;
+  height: 14px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mdui-color-outline) 35%, transparent);
+  overflow: hidden;
+}
+
+.wsx-trade-progress > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #93b6f5 0%, #d8b2ea 100%);
+}
+
+.wsx-trade-remain {
+  font-weight: 700;
+  color: var(--mdui-color-on-surface);
+}
+
+.wsx-trade-price-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--wsx-space-2);
+  padding-top: var(--wsx-space-1);
+  border-top: 1px solid color-mix(in srgb, var(--mdui-color-outline-variant) 72%, transparent);
+}
+
+.wsx-trade-price-row > span {
+  color: var(--mdui-color-on-surface-variant);
+  font-size: 1.5rem;
+}
+
+.wsx-trade-price-row > strong {
+  font-size: clamp(2rem, 1.75rem + 0.4vw, 2.4rem);
+  color: color-mix(in srgb, var(--mdui-color-primary) 45%, var(--mdui-color-tertiary));
+  line-height: 1;
+}
+
+.wsx-trade-qty-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(110px, 140px);
+  align-items: center;
+  gap: var(--wsx-space-2);
+}
+
+.wsx-trade-slider {
+  width: 100%;
+  accent-color: color-mix(in srgb, var(--mdui-color-primary) 75%, #9ab4f8);
+}
+
+.wsx-trade-qty-field {
+  min-width: 110px;
+}
+
+.wsx-trade-total {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--mdui-color-primary) 50%, var(--mdui-color-tertiary));
+}
+
+.wsx-trade-actions {
+  display: grid;
+  gap: var(--wsx-space-2);
+}
+
+.wsx-trade-primary-btn {
+  width: 100%;
+  min-height: 50px;
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.wsx-trade-admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.wsx-trade-admin-actions > mdui-button {
+  flex: 1 1 140px;
+}
+
 .wsx-chip-row,
 .wsx-action-row {
   display: flex;
@@ -183,8 +337,101 @@ body {
 
 .wsx-help-layout {
   display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
   gap: var(--wsx-space-3);
-  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  align-items: start;
+  min-height: calc(100% - var(--wsx-space-2));
+}
+
+.help-toc-container {
+  position: sticky;
+  top: calc(var(--mdui-comp-top-app-bar-height, 64px) + var(--wsx-space-2));
+  align-self: start;
+  max-height: calc(100vh - var(--mdui-comp-top-app-bar-height, 64px) - var(--wsx-space-4));
+  padding: var(--wsx-space-2);
+  border: 1px solid var(--mdui-color-outline-variant);
+  border-radius: var(--mdui-shape-corner-medium, 12px);
+  background: var(--mdui-color-surface-container-low);
+  overflow-y: auto;
+}
+
+#helpHeaderActions {
+  flex-wrap: nowrap;
+  max-width: min(75vw, 1200px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.help-mobile-actions {
+  display: none;
+  padding-bottom: var(--wsx-space-2);
+  margin-bottom: var(--wsx-space-2);
+  border-bottom: 1px solid var(--mdui-color-outline-variant);
+}
+
+.help-toc-container .wsx-stack {
+  gap: var(--wsx-space-1);
+}
+
+.help-toc-container a {
+  display: block;
+  padding: var(--wsx-space-1) var(--wsx-space-2);
+  border-radius: var(--wsx-space-1);
+  text-decoration: none;
+  color: var(--mdui-color-on-surface-variant);
+  transition: all 0.2s ease;
+}
+
+.help-toc-container a:hover {
+  background: var(--mdui-color-surface-variant);
+  color: var(--mdui-color-on-surface);
+}
+
+.help-toc-container a.active {
+  background: var(--mdui-color-primary-container);
+  color: var(--mdui-color-on-primary-container);
+  font-weight: 500;
+}
+
+.help-toc-container a[data-level="1"] {
+  padding-left: var(--wsx-space-2);
+  font-weight: 500;
+}
+
+.help-toc-container a[data-level="2"] {
+  padding-left: calc(var(--wsx-space-2) * 2.5);
+  font-size: 0.95em;
+}
+
+.help-toc-container a[data-level="3"] {
+  padding-left: calc(var(--wsx-space-2) * 4);
+  font-size: 0.9em;
+}
+
+.wsx-help-layout .help-doc {
+  overflow: visible;
+}
+
+.help-search-popup {
+  position: fixed;
+  top: var(--mdui-comp-top-app-bar-height, 64px);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--mdui-color-scrim);
+  backdrop-filter: blur(4px);
+  z-index: 300;
+  padding: var(--wsx-space-4);
+  overflow: auto;
+  max-width: 600px;
+  margin: auto;
+}
+
+.help-search-popup .wsx-list-scroll {
+  background: var(--mdui-color-surface);
+  border-radius: var(--wsx-radius);
+  padding: var(--wsx-space-3);
 }
 
 .wsx-help-content pre,
@@ -287,6 +534,21 @@ body {
   display: none !important;
 }
 
+.help-header-select,
+.help-header-search {
+  display: flex;
+  max-width: 250px;
+}
+
+.help-header-select {
+  flex-shrink: 0;
+}
+
+.help-header-search {
+  flex-grow: 0;
+  flex-shrink: 1;
+}
+
 @media (max-width: 900px) {
   .wsx-main {
     padding: var(--wsx-space-2);
@@ -295,4 +557,101 @@ body {
   .wsx-help-layout {
     grid-template-columns: 1fr;
   }
+
+  .help-toc-container {
+    position: fixed;
+    top: var(--mdui-comp-top-app-bar-height, 64px);
+    left: 0;
+    bottom: 0;
+    max-height: none;
+    width: 300px;
+    transform: translateX(-100%);
+    border-right: none;
+    border-left: none;
+    border-top: none;
+    border-bottom: none;
+    border-radius: 0;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+    z-index: 200;
+    transition: transform 0.3s ease;
+  }
+
+  .help-shell.menu-open .help-toc-container {
+    transform: translateX(0);
+  }
+
+  .help-shell.menu-open::before {
+    content: '';
+    position: fixed;
+    top: var(--mdui-comp-top-app-bar-height, 64px);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--mdui-color-scrim);
+    backdrop-filter: blur(4px);
+    z-index: 150;
+  }
+
+  .help-header-select {
+    display: none;
+  }
+
+  .help-header-search {
+    display: none;
+  }
+
+  #helpHomeBtn,
+  #helpThemeToggleBtn,
+  #helpModeToggleBtn,
+  #helpReloadBtn {
+    display: none;
+  }
+
+  .help-mobile-actions {
+    display: grid;
+    gap: var(--wsx-space-2);
+  }
+
+  #helpMenuBtn {
+    display: inline-flex !important;
+  }
+
+  .wsx-trade-title {
+    font-size: 1.25rem;
+  }
+
+  .wsx-trade-price-row > span {
+    font-size: 1.1rem;
+  }
+
+  .wsx-trade-price-row > strong {
+    font-size: 1.65rem;
+  }
+
+  .wsx-trade-total {
+    font-size: 1.2rem;
+  }
+
+  .wsx-trade-primary-btn {
+    font-size: 1.15rem;
+    min-height: 44px;
+  }
+}
+
+/* Navigation Rail Icon Styles */
+mdui-navigation-rail-item span[slot="icon"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+mdui-navigation-rail-item span[slot="icon"] svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+/* Auth Cards: Limit individual card width */
+.auth-cards-grid .wsx-card {
+  max-width: 520px;
 }

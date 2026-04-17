@@ -34,6 +34,7 @@ import {
 
   const elements = {
     shell: document.querySelector(".help-shell"),
+    main: document.querySelector(".wsx-main"),
     menuBtn: document.getElementById("helpMenuBtn"),
     headerActions: document.getElementById("helpHeaderActions"),
     progress: document.getElementById("helpProgress"),
@@ -42,6 +43,11 @@ import {
     modeBtn: document.getElementById("helpModeToggleBtn"),
     reloadBtn: document.getElementById("helpReloadBtn"),
     docSelect: document.getElementById("helpDocSelect"),
+    menuDocSelect: document.getElementById("helpMenuDocSelect"),
+    menuHomeBtn: document.getElementById("helpMenuHomeBtn"),
+    menuThemeBtn: document.getElementById("helpMenuThemeBtn"),
+    menuModeBtn: document.getElementById("helpMenuModeBtn"),
+    menuReloadBtn: document.getElementById("helpMenuReloadBtn"),
     searchInput: document.getElementById("helpSearchInput"),
     searchResults: document.getElementById("helpSearchResults"),
     toc: document.getElementById("helpToc"),
@@ -67,7 +73,7 @@ import {
     searchTimer: 0,
   };
 
-  const mobileMenuMedia = window.matchMedia("(max-width: 760px)");
+  const mobileMenuMedia = window.matchMedia("(max-width: 900px)");
   let pendingRequests = 0;
 
   function setGlobalBusy(busy) {
@@ -128,6 +134,14 @@ import {
     if (elements.menuBtn) {
       elements.menuBtn.setAttribute("aria-expanded", "false");
     }
+    // Clear search results when closing menu
+    if (elements.searchInput) {
+      elements.searchInput.value = "";
+    }
+    if (elements.searchResults) {
+      elements.searchResults.innerHTML = "";
+      elements.searchResults.style.display = "none";
+    }
   }
 
   function toggleMobileMenu() {
@@ -163,11 +177,19 @@ import {
 
   function setThemeButtonText() {
     const isDark = document.documentElement.classList.contains("mdui-theme-dark");
-    elements.themeBtn.textContent = isDark ? "切换亮色" : "切换暗色";
+    const text = isDark ? "切换亮色" : "切换暗色";
+    elements.themeBtn.textContent = text;
+    if (elements.menuThemeBtn) {
+      elements.menuThemeBtn.textContent = text;
+    }
   }
 
   function setModeButtonText() {
-    elements.modeBtn.textContent = state.mode === "single" ? "查看全文" : "单页模式";
+    const text = state.mode === "single" ? "查看全文" : "单页模式";
+    elements.modeBtn.textContent = text;
+    if (elements.menuModeBtn) {
+      elements.menuModeBtn.textContent = text;
+    }
   }
 
   function toggleTheme() {
@@ -354,6 +376,7 @@ import {
       };
     });
     setSelectItems(elements.docSelect, items, selected);
+    setSelectItems(elements.menuDocSelect, items, selected);
   }
 
   function resetDocumentModel() {
@@ -564,12 +587,14 @@ import {
 
     for (const heading of headings) {
       const link = document.createElement("a");
-      link.className = `toc-link level-${heading.level}`;
+      link.className = "toc-link";
       link.dataset.id = heading.id;
+      link.dataset.level = heading.level;
       link.href = `#${encodeURIComponent(heading.id)}`;
       link.textContent = heading.text;
       link.addEventListener("click", (event) => {
         event.preventDefault();
+        closeMobileMenu();
         if (window.location.hash === `#${encodeURIComponent(heading.id)}` || window.location.hash === `#${heading.id}`) {
           navigateTo(heading.id, { smooth: true, scroll: true, updateHash: false });
           return;
@@ -816,9 +841,13 @@ import {
   function renderSearchResults(keyword) {
     const input = String(keyword || "").trim().toLowerCase();
     elements.searchResults.innerHTML = "";
+    
     if (!input) {
+      elements.searchResults.style.display = "none";
       return;
     }
+
+    elements.searchResults.style.display = "block";
 
     const tokens = input.split(/\s+/).filter(Boolean);
     const ranked = [];
@@ -858,6 +887,9 @@ import {
       return;
     }
 
+    const resultsList = document.createElement("div");
+    resultsList.className = "wsx-list-scroll";
+
     for (const result of limited) {
       const button = document.createElement("button");
       button.type = "button";
@@ -875,6 +907,7 @@ import {
 
       button.addEventListener("click", () => {
         const encoded = encodeURIComponent(result.item.id);
+        closeMobileMenu();
         if (window.location.hash === `#${encoded}` || window.location.hash === `#${result.item.id}`) {
           navigateTo(result.item.id, {
             smooth: true,
@@ -886,10 +919,13 @@ import {
         }
         elements.searchInput.value = "";
         elements.searchResults.innerHTML = "";
+        elements.searchResults.style.display = "none";
       });
 
-      elements.searchResults.appendChild(button);
+      resultsList.appendChild(button);
     }
+
+    elements.searchResults.appendChild(resultsList);
   }
 
   function rewriteMarkdownLinks() {
@@ -1059,20 +1095,44 @@ import {
       closeMobileMenu();
       window.location.href = "index.html";
     });
+    if (elements.menuHomeBtn) {
+      elements.menuHomeBtn.addEventListener("click", () => {
+        closeMobileMenu();
+        window.location.href = "index.html";
+      });
+    }
 
     elements.themeBtn.addEventListener("click", () => {
       toggleTheme();
       closeMobileMenu();
     });
+    if (elements.menuThemeBtn) {
+      elements.menuThemeBtn.addEventListener("click", () => {
+        toggleTheme();
+        closeMobileMenu();
+      });
+    }
     elements.modeBtn.addEventListener("click", () => {
       closeMobileMenu();
       toggleMode();
     });
+    if (elements.menuModeBtn) {
+      elements.menuModeBtn.addEventListener("click", () => {
+        closeMobileMenu();
+        toggleMode();
+      });
+    }
 
     elements.reloadBtn.addEventListener("click", () => {
       closeMobileMenu();
       loadCurrentDocument();
     });
+    if (elements.menuReloadBtn) {
+      elements.menuReloadBtn.addEventListener("click", () => {
+        closeMobileMenu();
+        loadCurrentDocument();
+      });
+    }
 
     elements.docSelect.addEventListener("change", () => {
       const target = findDocById(getSelectValue(elements.docSelect));
@@ -1083,6 +1143,17 @@ import {
       closeMobileMenu();
       switchToDoc(target, targetLang, true);
     });
+    if (elements.menuDocSelect) {
+      elements.menuDocSelect.addEventListener("change", () => {
+        const target = findDocById(getSelectValue(elements.menuDocSelect));
+        if (!target) {
+          return;
+        }
+        const targetLang = target.locale || state.lang;
+        closeMobileMenu();
+        switchToDoc(target, targetLang, true);
+      });
+    }
 
     elements.searchInput.addEventListener("input", () => {
       if (state.searchTimer) {
@@ -1095,9 +1166,9 @@ import {
 
     elements.searchInput.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
-        closeMobileMenu();
         elements.searchInput.value = "";
         elements.searchResults.innerHTML = "";
+        elements.searchResults.style.display = "none";
       }
       if (event.key === "Enter") {
         const first = elements.searchResults.querySelector(".search-result-item");
@@ -1105,6 +1176,18 @@ import {
           first.click();
           event.preventDefault();
         }
+      }
+    });
+
+    elements.searchInput.addEventListener("focus", () => {
+      if (elements.searchInput.value && elements.searchResults.innerHTML) {
+        elements.searchResults.style.display = "block";
+      }
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!elements.searchInput.contains(event.target) && !elements.searchResults.contains(event.target)) {
+        elements.searchResults.style.display = "none";
       }
     });
 
@@ -1121,6 +1204,9 @@ import {
     });
 
     window.addEventListener("scroll", queueScrollSync, { passive: true });
+    if (elements.main) {
+      elements.main.addEventListener("scroll", queueScrollSync, { passive: true });
+    }
   }
 
   async function init() {
