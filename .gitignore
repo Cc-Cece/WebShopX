@@ -5,3 +5,5 @@ bin/
 logs/
 .*.md
 .docs/
+server/
+.old/

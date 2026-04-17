@@ -1,4 +1,437 @@
 ﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebShopX - 管理端</title>
+  <script>
+    (function bootstrapTheme() {
+      try {
+        var saved = window.localStorage.getItem("webshopx_theme");
+        var theme = saved === "dark" || saved === "light"
+          ? saved
+          : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.classList.remove("mdui-theme-light", "mdui-theme-dark");
+        document.documentElement.classList.add(theme === "dark" ? "mdui-theme-dark" : "mdui-theme-light");
+      } catch (error) {
+        document.documentElement.classList.add("mdui-theme-light");
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="lib/mdui.css" />
+  <link rel="stylesheet" href="css/global.css" />
+</head>
+<body class="wsx-page wsx-admin-page">
+  <mdui-layout class="wsx-layout">
+    <mdui-top-app-bar>
+      <mdui-top-app-bar-title>WebShopX 管理端</mdui-top-app-bar-title>
+      <div class="wsx-toolbar" slot="end-icon">
+        <mdui-select id="adminLocaleSelect" value="zh-CN" style="min-width: 128px;">
+          <mdui-menu-item value="zh-CN">简体中文</mdui-menu-item>
+          <mdui-menu-item value="en-US">English</mdui-menu-item>
+        </mdui-select>
+        <mdui-button id="adminThemeToggleBtn" variant="tonal">切换主题</mdui-button>
+        <mdui-chip id="adminStatusChip">未登录</mdui-chip>
+      </div>
+    </mdui-top-app-bar>
+
+    <mdui-navigation-rail id="adminRail" contained value="login">
+      <mdui-navigation-rail-item value="login" data-tab-target="login">登录</mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="products" data-tab-target="products">官方商品</mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="market" data-tab-target="market">玩家市场</mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="orders" data-tab-target="orders">订单</mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="redeem" data-tab-target="redeem">兑换码</mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="economy" data-tab-target="economy">经济</mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="users" data-tab-target="users">账号</mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="admins" data-tab-target="admins">管理员</mdui-navigation-rail-item>
+      <mdui-navigation-rail-item value="audit" data-tab-target="audit">审计</mdui-navigation-rail-item>
+    </mdui-navigation-rail>
+
+    <mdui-layout-main class="wsx-main">
+      <nav class="wsx-top-tabs" role="tablist" aria-label="管理功能">
+        <mdui-button class="top-tab" data-tab-target="login" variant="filled">管理员登录</mdui-button>
+        <mdui-button class="top-tab" data-tab-target="products" variant="tonal">官方商品</mdui-button>
+        <mdui-button class="top-tab" data-tab-target="market" variant="tonal">玩家市场</mdui-button>
+        <mdui-button class="top-tab" data-tab-target="orders" variant="tonal">订单</mdui-button>
+        <mdui-button class="top-tab" data-tab-target="redeem" variant="tonal">兑换码</mdui-button>
+      </nav>
+
+      <section class="wsx-panel is-active" data-tab-panel="login">
+        <div class="wsx-grid wsx-grid-2">
+          <mdui-card class="wsx-card">
+            <h2>管理员登录</h2>
+            <mdui-text-field id="adminIdentifier" label="用户名或 UUID" clearable></mdui-text-field>
+            <mdui-text-field id="adminPassword" label="密码" type="password" clearable toggle-password></mdui-text-field>
+            <div class="wsx-action-row">
+              <mdui-button id="adminLoginBtn" variant="filled">登录</mdui-button>
+              <mdui-button id="adminLogoutBtn" variant="tonal">退出</mdui-button>
+            </div>
+            <p id="adminLoginStatus" class="wsx-muted">等待登录</p>
+          </mdui-card>
+
+          <mdui-card class="wsx-card">
+            <h2>当前管理员</h2>
+            <p id="adminProfileView" class="wsx-muted">未登录</p>
+          </mdui-card>
+        </div>
+      </section>
+
+      <section class="wsx-panel" data-tab-panel="redeem">
+        <mdui-card class="wsx-card">
+          <div class="wsx-card-title">
+            <h2>兑换码管理</h2>
+            <mdui-button id="redeemRefreshBtn" variant="filled">刷新列表</mdui-button>
+          </div>
+          <div class="wsx-filter-row">
+            <mdui-text-field id="redeemShopCoin" label="网页币" type="number" value="0" min="0"></mdui-text-field>
+            <mdui-text-field id="redeemGameCoin" label="游戏币" type="number" value="0" min="0"></mdui-text-field>
+            <mdui-text-field id="redeemMaxUses" label="最大使用次数" type="number" value="1" min="1"></mdui-text-field>
+            <mdui-text-field id="redeemPerUserMaxUses" label="单账号最大使用次数" type="number" value="1" min="1"></mdui-text-field>
+            <mdui-text-field id="redeemExpires" label="有效期（分钟，可空）" type="number" min="0"></mdui-text-field>
+            <mdui-text-field id="redeemCustomCode" label="自定义兑换码（可空）"></mdui-text-field>
+          </div>
+          <div class="wsx-action-row">
+            <mdui-button id="redeemCreateBtn" variant="filled">生成兑换码</mdui-button>
+            <mdui-button id="redeemCopyBtn" variant="tonal">复制最新兑换码</mdui-button>
+          </div>
+          <p id="redeemCreateResult" class="wsx-muted">等待生成</p>
+          <div id="redeemList" class="wsx-admin-grid"></div>
+        </mdui-card>
+      </section>
+
+      <section class="wsx-panel" data-tab-panel="products">
+        <div class="wsx-grid">
+          <mdui-card class="wsx-card">
+            <div class="wsx-card-title">
+              <h2>新增 / 编辑商品</h2>
+              <div class="wsx-action-row">
+                <mdui-button id="productSaveBtn" variant="filled">保存商品</mdui-button>
+                <mdui-button id="productRefreshBtn" variant="tonal">刷新商品</mdui-button>
+              </div>
+            </div>
+
+            <div class="wsx-filter-row">
+              <mdui-text-field id="productSku" label="SKU（唯一标识）"></mdui-text-field>
+              <mdui-text-field id="productTitle" label="标题"></mdui-text-field>
+              <mdui-select id="productCurrency" label="币种" value="SHOP_COIN">
+                <mdui-menu-item value="SHOP_COIN">网页币</mdui-menu-item>
+                <mdui-menu-item value="GAME_COIN">游戏币</mdui-menu-item>
+              </mdui-select>
+              <mdui-text-field id="productPrice" label="价格" type="number" min="1" value="1"></mdui-text-field>
+              <mdui-select id="productType" label="商品类型" value="COMMAND">
+                <mdui-menu-item value="COMMAND">指令</mdui-menu-item>
+                <mdui-menu-item value="GIVE_ITEM">出售物品</mdui-menu-item>
+                <mdui-menu-item value="POTION_EFFECT">药水效果</mdui-menu-item>
+                <mdui-menu-item value="RECYCLE_ITEM">回收物品</mdui-menu-item>
+                <mdui-menu-item value="GROUP_BUY_VOUCHER">团购券</mdui-menu-item>
+              </mdui-select>
+              <mdui-select id="productActive" label="启用状态" value="true">
+                <mdui-menu-item value="true">启用</mdui-menu-item>
+                <mdui-menu-item value="false">停用</mdui-menu-item>
+              </mdui-select>
+              <mdui-text-field id="productPublishAt" label="上架时间" type="datetime-local"></mdui-text-field>
+              <mdui-text-field id="productUnpublishAt" label="下架时间" type="datetime-local"></mdui-text-field>
+              <mdui-text-field id="productCommand" label="命令模板"></mdui-text-field>
+              <mdui-text-field id="productItemMaterial" label="物品材质"></mdui-text-field>
+              <mdui-text-field id="productEffectType" label="药水效果"></mdui-text-field>
+              <mdui-text-field id="productEffectSeconds" label="药水时长（秒）" type="number" min="1" value="30"></mdui-text-field>
+              <mdui-text-field id="productEffectAmplifier" label="药水等级" type="number" min="0" value="0"></mdui-text-field>
+              <mdui-text-field id="productItemAmount" label="总库存" type="number" min="1" value="64"></mdui-text-field>
+              <mdui-text-field id="productPerUserLimit" label="单玩家限购" type="number" min="1"></mdui-text-field>
+              <mdui-text-field id="productRemark" label="商品备注" maxlength="400"></mdui-text-field>
+            </div>
+
+            <h3>动态价格</h3>
+            <div class="wsx-filter-row">
+              <mdui-select id="productDynamicEnabled" label="启用动态价格" value="false">
+                <mdui-menu-item value="false">关闭</mdui-menu-item>
+                <mdui-menu-item value="true">启用</mdui-menu-item>
+              </mdui-select>
+              <mdui-select id="productDynamicAlgorithm" label="动态算法" value="LINEAR_DEMAND_V1"></mdui-select>
+              <mdui-text-field id="productDynamicBasePrice" label="基准价（可空）" type="number" min="1"></mdui-text-field>
+              <mdui-text-field id="productDynamicFloorPrice" label="最低价（可空）" type="number" min="1"></mdui-text-field>
+              <mdui-text-field id="productDynamicCapPrice" label="最高价（可空）" type="number" min="1"></mdui-text-field>
+              <mdui-text-field id="productDynamicPriceStep" label="步长（可空）" type="number" min="1"></mdui-text-field>
+            </div>
+            <p id="productDynamicSummary" class="wsx-muted">算法参数说明将随算法切换刷新。</p>
+            <div id="productDynamicParamEditor" class="wsx-grid">
+              <div class="wsx-action-row">
+                <mdui-button id="productDynamicParamBasicTabBtn" variant="filled">基础参数</mdui-button>
+                <mdui-button id="productDynamicParamAdvancedTabBtn" variant="tonal">高级参数</mdui-button>
+                <mdui-button id="productDynamicHelpBtn" variant="text">查看算法文档</mdui-button>
+              </div>
+              <div id="productDynamicParamBasicPanel">
+                <div id="productDynamicBasicParams" class="wsx-filter-row"></div>
+              </div>
+              <div id="productDynamicParamAdvancedPanel" style="display: none;">
+                <details id="productDynamicAdvancedDetails" open>
+                  <summary>高级参数</summary>
+                  <div id="productDynamicAdvancedParams" class="wsx-filter-row"></div>
+                </details>
+              </div>
+            </div>
+            <mdui-text-field id="productDynamicParamsJson" label="算法参数 JSON（可空）" textarea rows="4"></mdui-text-field>
+            <p id="productScheduleHint" class="wsx-muted">商品上下架时间按配置时区处理。</p>
+            <p id="productStatus" class="wsx-muted">等待操作</p>
+          </mdui-card>
+
+          <mdui-card class="wsx-card">
+            <h2>商品列表</h2>
+            <div class="wsx-filter-row">
+              <mdui-text-field id="productSearchKeyword" label="关键词"></mdui-text-field>
+              <mdui-select id="productSearchType" label="类型" value="">
+                <mdui-menu-item value="">全部</mdui-menu-item>
+                <mdui-menu-item value="COMMAND">指令</mdui-menu-item>
+                <mdui-menu-item value="GIVE_ITEM">出售物品</mdui-menu-item>
+                <mdui-menu-item value="POTION_EFFECT">药水效果</mdui-menu-item>
+                <mdui-menu-item value="RECYCLE_ITEM">回收物品</mdui-menu-item>
+                <mdui-menu-item value="GROUP_BUY_VOUCHER">团购券</mdui-menu-item>
+              </mdui-select>
+              <mdui-select id="productSearchActive" label="启用状态" value="">
+                <mdui-menu-item value="">全部</mdui-menu-item>
+                <mdui-menu-item value="true">启用</mdui-menu-item>
+                <mdui-menu-item value="false">停用</mdui-menu-item>
+              </mdui-select>
+            </div>
+            <div class="wsx-action-row">
+              <mdui-button id="productEditorTabBtn" variant="tonal">切换编辑区</mdui-button>
+              <mdui-button id="productListTabBtn" variant="tonal">刷新列表</mdui-button>
+              <mdui-button id="productVoucherTabBtn" variant="tonal">团购券核销区</mdui-button>
+            </div>
+            <p id="productListStatus" class="wsx-muted">等待加载商品列表</p>
+            <div id="productList" class="wsx-admin-grid"></div>
+          </mdui-card>
+
+          <mdui-card class="wsx-card">
+            <h2>团购券核销</h2>
+            <mdui-text-field id="groupBuyConsumeCode" label="团购兑换码"></mdui-text-field>
+            <div class="wsx-action-row">
+              <mdui-button id="groupBuyConsumeBtn" variant="filled">核销</mdui-button>
+            </div>
+            <p id="groupBuyConsumeStatus" class="wsx-muted">等待核销</p>
+          </mdui-card>
+        </div>
+      </section>
+
+      <section class="wsx-panel" data-tab-panel="orders">
+        <mdui-card class="wsx-card">
+          <div class="wsx-card-title">
+            <h2>订单列表</h2>
+            <mdui-button id="orderRefreshBtn" variant="filled">刷新订单</mdui-button>
+          </div>
+          <div class="wsx-filter-row">
+            <mdui-select id="orderStatus" label="状态" value="">
+              <mdui-menu-item value="">全部</mdui-menu-item>
+              <mdui-menu-item value="PENDING">待发放</mdui-menu-item>
+              <mdui-menu-item value="WAIT_CLAIM">待领取</mdui-menu-item>
+              <mdui-menu-item value="DELIVERED">已发放</mdui-menu-item>
+              <mdui-menu-item value="REFUNDED">已退款</mdui-menu-item>
+              <mdui-menu-item value="FAILED">失败</mdui-menu-item>
+            </mdui-select>
+            <mdui-text-field id="orderUserId" label="用户ID"></mdui-text-field>
+            <mdui-text-field id="orderNo" label="订单号"></mdui-text-field>
+            <mdui-text-field id="orderUsername" label="用户名"></mdui-text-field>
+            <mdui-select id="orderCurrency" label="币种" value="">
+              <mdui-menu-item value="">全部</mdui-menu-item>
+              <mdui-menu-item value="SHOP_COIN">网页币</mdui-menu-item>
+              <mdui-menu-item value="GAME_COIN">游戏币</mdui-menu-item>
+            </mdui-select>
+            <mdui-select id="orderProductType" label="商品类型" value="">
+              <mdui-menu-item value="">全部</mdui-menu-item>
+              <mdui-menu-item value="COMMAND">指令</mdui-menu-item>
+              <mdui-menu-item value="GIVE_ITEM">出售物品</mdui-menu-item>
+              <mdui-menu-item value="POTION_EFFECT">药水效果</mdui-menu-item>
+              <mdui-menu-item value="RECYCLE_ITEM">回收物品</mdui-menu-item>
+              <mdui-menu-item value="GROUP_BUY_VOUCHER">团购券</mdui-menu-item>
+            </mdui-select>
+            <mdui-text-field id="orderKeyword" label="综合关键词"></mdui-text-field>
+          </div>
+          <p id="orderStatusView" class="wsx-muted">等待刷新</p>
+          <div id="adminOrderList" class="wsx-admin-grid"></div>
+        </mdui-card>
+      </section>
+
+      <section class="wsx-panel" data-tab-panel="economy">
+        <div class="wsx-grid wsx-grid-2">
+          <mdui-card class="wsx-card">
+            <h2>兑换方向与比例</h2>
+            <div class="wsx-filter-row">
+              <mdui-select id="exchangeShopToGameEnabled" label="网页币 -> 游戏币" value="true">
+                <mdui-menu-item value="true">启用</mdui-menu-item>
+                <mdui-menu-item value="false">关闭</mdui-menu-item>
+              </mdui-select>
+              <mdui-text-field id="exchangeShopToGameRatio" label="比例" type="number" min="0" step="0.000001"></mdui-text-field>
+              <mdui-select id="exchangeGameToShopEnabled" label="游戏币 -> 网页币" value="false">
+                <mdui-menu-item value="true">启用</mdui-menu-item>
+                <mdui-menu-item value="false">关闭</mdui-menu-item>
+              </mdui-select>
+              <mdui-text-field id="exchangeGameToShopRatio" label="比例" type="number" min="0" step="0.000001"></mdui-text-field>
+            </div>
+            <div class="wsx-action-row">
+              <mdui-button id="exchangeSaveBtn" variant="filled">保存兑换配置</mdui-button>
+            </div>
+            <p id="exchangeStatusView" class="wsx-muted">等待加载</p>
+          </mdui-card>
+
+          <mdui-card class="wsx-card">
+            <h2>交易手续费与税率</h2>
+            <div class="wsx-filter-row">
+              <mdui-text-field id="marketFeePercent" label="交易手续费（%）" type="number" min="0" step="0.01"></mdui-text-field>
+              <mdui-text-field id="marketTaxPercent" label="交易税率（%）" type="number" min="0" step="0.01"></mdui-text-field>
+            </div>
+            <div class="wsx-action-row">
+              <mdui-button id="marketEconomySaveBtn" variant="filled">保存手续费/税率</mdui-button>
+            </div>
+            <p id="marketEconomyStatusView" class="wsx-muted">等待加载</p>
+            <p id="vaultStatusView" class="wsx-muted">等待加载 Vault 状态</p>
+          </mdui-card>
+        </div>
+      </section>
+
+      <section class="wsx-panel" data-tab-panel="market">
+        <mdui-card class="wsx-card">
+          <div class="wsx-card-title">
+            <h2>玩家市场管理</h2>
+            <mdui-button id="marketRefreshBtn" variant="filled">刷新列表</mdui-button>
+          </div>
+          <div class="wsx-filter-row">
+            <mdui-select id="marketStatus" label="状态" value="">
+              <mdui-menu-item value="">全部</mdui-menu-item>
+              <mdui-menu-item value="ACTIVE">在售</mdui-menu-item>
+              <mdui-menu-item value="SOLD">已售</mdui-menu-item>
+              <mdui-menu-item value="UNLISTED">已下架</mdui-menu-item>
+            </mdui-select>
+            <mdui-text-field id="marketSeller" label="卖家"></mdui-text-field>
+            <mdui-text-field id="marketBuyer" label="买家"></mdui-text-field>
+            <mdui-text-field id="marketMaterial" label="材质"></mdui-text-field>
+            <mdui-select id="marketCurrency" label="币种" value="">
+              <mdui-menu-item value="">全部</mdui-menu-item>
+              <mdui-menu-item value="SHOP_COIN">网页币</mdui-menu-item>
+              <mdui-menu-item value="GAME_COIN">游戏币</mdui-menu-item>
+            </mdui-select>
+            <mdui-text-field id="marketKeyword" label="关键词"></mdui-text-field>
+          </div>
+          <p id="marketStatusView" class="wsx-muted">等待刷新</p>
+          <div id="adminMarketList" class="wsx-admin-grid"></div>
+        </mdui-card>
+      </section>
+
+      <section class="wsx-panel" data-tab-panel="users">
+        <div class="wsx-grid wsx-grid-2">
+          <mdui-card class="wsx-card">
+            <h2>账号查询</h2>
+            <mdui-text-field id="userIdentifier" label="用户名 / UUID"></mdui-text-field>
+            <div class="wsx-action-row">
+              <mdui-button id="userSearchBtn" variant="filled">查询账号</mdui-button>
+            </div>
+            <p id="userLookupStatus" class="wsx-muted">等待查询</p>
+            <div id="userInfoBox" class="wsx-list-scroll"></div>
+          </mdui-card>
+
+          <mdui-card class="wsx-card">
+            <h2>支持操作</h2>
+            <mdui-text-field id="userNewPassword" label="新密码" type="password" clearable></mdui-text-field>
+            <div class="wsx-action-row">
+              <mdui-button id="userResetPasswordBtn" variant="outlined">重置密码</mdui-button>
+              <mdui-button id="userUnbindBtn" variant="outlined">解绑</mdui-button>
+              <mdui-button id="userForceLogoutBtn" variant="outlined">强制下线</mdui-button>
+            </div>
+            <div class="wsx-filter-row">
+              <mdui-select id="walletCurrency" label="调整币种" value="SHOP_COIN">
+                <mdui-menu-item value="SHOP_COIN">网页币</mdui-menu-item>
+                <mdui-menu-item value="GAME_COIN">游戏币</mdui-menu-item>
+              </mdui-select>
+              <mdui-text-field id="walletDelta" label="调整数量（可负数）" type="number" step="1"></mdui-text-field>
+              <mdui-text-field id="walletReason" label="原因"></mdui-text-field>
+            </div>
+            <div class="wsx-action-row">
+              <mdui-button id="walletAdjustBtn" variant="filled">调整余额</mdui-button>
+            </div>
+            <p id="userActionStatus" class="wsx-muted">等待操作</p>
+          </mdui-card>
+
+          <mdui-card class="wsx-card" style="grid-column: 1 / -1;">
+            <div class="wsx-card-title">
+              <h2>已注册用户列表</h2>
+              <mdui-button id="userListRefreshBtn" variant="filled">刷新列表</mdui-button>
+            </div>
+            <div class="wsx-action-row">
+              <mdui-text-field id="userListKeyword" label="关键词"></mdui-text-field>
+              <mdui-checkbox id="userListHideInactiveToggle">隐藏停用/未绑定用户</mdui-checkbox>
+            </div>
+            <p id="userListStatus" class="wsx-muted">等待加载列表</p>
+            <div id="userList" class="wsx-admin-grid"></div>
+          </mdui-card>
+        </div>
+      </section>
+
+      <section class="wsx-panel" data-tab-panel="admins">
+        <div class="wsx-grid wsx-grid-2">
+          <mdui-card class="wsx-card">
+            <h2>管理员编辑</h2>
+            <div class="wsx-filter-row">
+              <mdui-text-field id="adminManagerIdentifier" label="用户标识"></mdui-text-field>
+              <mdui-select id="adminManagerTemplate" label="权限模板" value="">
+                <mdui-menu-item value="">自定义</mdui-menu-item>
+              </mdui-select>
+              <mdui-select id="adminManagerType" label="管理员类型" value="normal">
+                <mdui-menu-item value="normal">子级管理员</mdui-menu-item>
+                <mdui-menu-item value="super">超级管理员</mdui-menu-item>
+              </mdui-select>
+            </div>
+            <p id="adminManagerTemplateHint" class="wsx-muted">先选择模板，再按需细调权限。</p>
+            <div id="adminPermissionGroups" class="wsx-grid"></div>
+            <div class="wsx-action-row">
+              <mdui-button id="adminManagerSaveBtn" variant="filled">保存管理员</mdui-button>
+              <mdui-button id="adminManagerClearBtn" variant="tonal">清空表单</mdui-button>
+            </div>
+            <p id="adminManagerStatus" class="wsx-muted">等待操作</p>
+          </mdui-card>
+
+          <mdui-card class="wsx-card">
+            <div class="wsx-card-title">
+              <h2>管理员列表</h2>
+              <mdui-button id="adminManagerRefreshBtn" variant="filled">刷新管理员</mdui-button>
+            </div>
+            <p id="adminManagerListStatus" class="wsx-muted">等待加载管理员列表</p>
+            <div id="adminManagerList" class="wsx-admin-grid"></div>
+          </mdui-card>
+        </div>
+      </section>
+
+      <section class="wsx-panel" data-tab-panel="audit">
+        <mdui-card class="wsx-card">
+          <div class="wsx-card-title">
+            <h2>审计日志</h2>
+            <mdui-button id="auditRefreshBtn" variant="filled">刷新日志</mdui-button>
+          </div>
+          <div id="auditList" class="wsx-admin-grid"></div>
+        </mdui-card>
+      </section>
+
+      <datalist id="materialSuggestList"></datalist>
+      <datalist id="potionEffectSuggestList"></datalist>
+    </mdui-layout-main>
+  </mdui-layout>
+
+  <mdui-dialog id="adminConfirmDialog" close-on-overlay-click>
+    <div slot="headline" id="adminConfirmTitle">确认操作</div>
+    <div slot="description" id="adminConfirmBody">请确认是否继续。</div>
+    <mdui-button id="adminConfirmCancel" slot="action">取消</mdui-button>
+    <mdui-button id="adminConfirmOk" slot="action" variant="filled">确认</mdui-button>
+  </mdui-dialog>
+
+  <mdui-dialog id="adminNoticeDialog" close-on-overlay-click>
+    <div slot="headline">提示</div>
+    <div slot="description" id="adminNoticeBody">-</div>
+    <mdui-button id="adminNoticeOk" slot="action" variant="filled">我知道了</mdui-button>
+  </mdui-dialog>
+
+  <script src="lib/mdui.global.js"></script>
+  <script src="js/i18n.js"></script>
+  <script type="module" src="js/admin.js"></script>
+</body>
+</html><!doctype html>
 <html lang="zh-CN" class="light">
 <head>
   <meta charset="utf-8" />

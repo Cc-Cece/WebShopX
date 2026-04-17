@@ -1,0 +1,208 @@
+:root {
+  --wsx-space-1: calc(var(--mdui-spacing, 8px) * 0.5);
+  --wsx-space-2: var(--mdui-spacing, 8px);
+  --wsx-space-3: calc(var(--mdui-spacing, 8px) * 1.5);
+  --wsx-space-4: calc(var(--mdui-spacing, 8px) * 2);
+  --wsx-space-5: calc(var(--mdui-spacing, 8px) * 3);
+  --wsx-radius: var(--mdui-shape-corner-large, 16px);
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--mdui-color-primary-container) 34%, transparent), transparent 48%),
+    radial-gradient(circle at 100% 100%, color-mix(in srgb, var(--mdui-color-secondary-container) 20%, transparent), transparent 52%),
+    var(--mdui-color-surface);
+  color: var(--mdui-color-on-surface);
+}
+
+.wsx-layout {
+  min-height: 100vh;
+}
+
+.wsx-main {
+  padding: var(--wsx-space-4);
+}
+
+.wsx-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--wsx-space-2);
+  flex-wrap: wrap;
+}
+
+.wsx-top-tabs {
+  display: flex;
+  gap: var(--wsx-space-2);
+  flex-wrap: wrap;
+  margin: var(--wsx-space-2) 0 var(--wsx-space-4);
+}
+
+.wsx-panel {
+  display: none;
+}
+
+.wsx-panel.is-active {
+  display: block;
+}
+
+.wsx-grid {
+  display: grid;
+  gap: var(--wsx-space-3);
+}
+
+.wsx-grid-2 {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.wsx-grid-3 {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.wsx-stack {
+  display: grid;
+  gap: var(--wsx-space-2);
+}
+
+.wsx-card {
+  display: grid;
+  gap: var(--wsx-space-2);
+  padding: var(--wsx-space-3);
+}
+
+.wsx-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--wsx-space-2);
+}
+
+.wsx-muted {
+  color: var(--mdui-color-on-surface-variant);
+}
+
+.wsx-inline-icon {
+  display: inline-flex;
+  width: 1.1rem;
+  height: 1.1rem;
+  vertical-align: text-bottom;
+}
+
+.wsx-inline-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+.wsx-avatar {
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  border: 1px solid var(--mdui-color-outline-variant);
+  background: var(--mdui-color-surface-container-low);
+  image-rendering: pixelated;
+}
+
+.wsx-product-grid,
+.wsx-order-grid,
+.wsx-market-grid,
+.wsx-admin-grid,
+.wsx-help-grid {
+  display: grid;
+  gap: var(--wsx-space-3);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.wsx-product-media {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--mdui-shape-corner-small, 8px);
+  border: 1px solid var(--mdui-color-outline-variant);
+  background: var(--mdui-color-surface-container-low);
+  image-rendering: pixelated;
+}
+
+.wsx-chip-row,
+.wsx-action-row {
+  display: flex;
+  align-items: center;
+  gap: var(--wsx-space-2);
+  flex-wrap: wrap;
+}
+
+.wsx-filter-row {
+  display: grid;
+  gap: var(--wsx-space-2);
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.wsx-list-scroll {
+  max-height: 360px;
+  overflow: auto;
+  border-radius: var(--wsx-radius);
+  border: 1px solid var(--mdui-color-outline-variant);
+}
+
+.wsx-kv {
+  display: grid;
+  gap: var(--wsx-space-1);
+}
+
+.wsx-kv b {
+  color: var(--mdui-color-on-surface);
+}
+
+.wsx-log {
+  padding: var(--wsx-space-2);
+  border-radius: var(--wsx-radius);
+  border: 1px solid var(--mdui-color-outline-variant);
+  background: var(--mdui-color-surface-container-low);
+  max-height: 280px;
+  overflow: auto;
+}
+
+.wsx-help-layout {
+  display: grid;
+  gap: var(--wsx-space-3);
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+}
+
+.wsx-help-content pre,
+.wsx-help-content code {
+  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+}
+
+.wsx-help-content pre {
+  border: 1px solid var(--mdui-color-outline-variant);
+  border-radius: var(--wsx-radius);
+  padding: var(--wsx-space-2);
+  background: var(--mdui-color-surface-container-low);
+  overflow: auto;
+}
+
+.wsx-help-content img {
+  max-width: 100%;
+}
+
+.wsx-help-content table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.wsx-help-content th,
+.wsx-help-content td {
+  border: 1px solid var(--mdui-color-outline-variant);
+  padding: var(--wsx-space-1) var(--wsx-space-2);
+}
+
+@media (max-width: 900px) {
+  .wsx-main {
+    padding: var(--wsx-space-2);
+  }
+
+  .wsx-help-layout {
+    grid-template-columns: 1fr;
+  }
+}

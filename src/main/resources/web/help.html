@@ -1,4 +1,65 @@
 <!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebShopX - 帮助中心</title>
+  <script>
+    (function bootstrapTheme() {
+      try {
+        var saved = window.localStorage.getItem("webshopx_theme");
+        var theme = saved === "dark" || saved === "light"
+          ? saved
+          : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.classList.remove("mdui-theme-light", "mdui-theme-dark");
+        document.documentElement.classList.add(theme === "dark" ? "mdui-theme-dark" : "mdui-theme-light");
+      } catch (error) {
+        document.documentElement.classList.add("mdui-theme-light");
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="lib/mdui.css" />
+  <link rel="stylesheet" href="vendor/katex.min.css" />
+  <link rel="stylesheet" href="css/global.css" />
+</head>
+<body class="wsx-page wsx-help-page">
+  <mdui-layout class="wsx-layout">
+    <mdui-top-app-bar>
+      <mdui-top-app-bar-title>WebShopX 帮助中心</mdui-top-app-bar-title>
+      <div class="wsx-toolbar" slot="end-icon">
+        <mdui-button id="helpHomeBtn" href="index.html">返回商城</mdui-button>
+        <mdui-button id="helpThemeToggleBtn" variant="tonal">切换主题</mdui-button>
+        <mdui-button id="helpModeToggleBtn" variant="tonal">单页模式</mdui-button>
+        <mdui-button id="helpReloadBtn" variant="outlined">重新加载</mdui-button>
+      </div>
+    </mdui-top-app-bar>
+
+    <mdui-layout-main class="wsx-main">
+      <div class="wsx-help-layout">
+        <mdui-card class="wsx-card">
+          <h2>文档导航</h2>
+          <mdui-select id="helpDocSelect" label="文档"></mdui-select>
+          <mdui-text-field id="helpSearchInput" label="搜索文档" clearable></mdui-text-field>
+          <div id="helpSearchResults" class="wsx-list-scroll"></div>
+          <div id="helpToc" class="wsx-stack"></div>
+        </mdui-card>
+
+        <mdui-card class="wsx-card">
+          <div id="helpMeta" class="wsx-muted"></div>
+          <article id="helpContent" class="wsx-help-content"></article>
+        </mdui-card>
+      </div>
+    </mdui-layout-main>
+  </mdui-layout>
+
+  <script src="lib/mdui.global.js"></script>
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/purify.min.js"></script>
+  <script src="vendor/katex.min.js"></script>
+  <script src="vendor/auto-render.min.js"></script>
+  <script type="module" src="js/help.js"></script>
+</body>
+</html><!doctype html>
 <html lang="zh-CN" class="light">
 <head>
   <meta charset="utf-8" />
