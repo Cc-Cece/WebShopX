@@ -21,6 +21,13 @@ command:
     partial: "§6Claim completed: success §a{success} §6item(s), failed §c{failed}§6. You can run /ws claim again."
     success: "§aClaim completed: success {success} item(s)."
     failed: "§cClaim failed: {reason}"
+  mailbox:
+    player_only: "§cOnly players can use the in-game mailbox."
+    usage: "§eUsage: /webshopx mailbox claim"
+    none: "§eThere are no mailbox items to claim."
+    pending: "§6You have §f{count} §6mailbox item(s) pending."
+    partial: "§6Mailbox claim completed: success §a{success} §6item(s), failed §c{failed} §6item(s), remaining §e{remaining}§6."
+    success: "§aMailbox claimed: §f{success} §aitem(s), remaining §e{remaining}§a."
   market:
     player_only: "§cOnly players can use market commands."
     usage_gui: "§eUsage: /webshopx market [gui]"
@@ -50,6 +57,7 @@ command:
       - "§e/webshopx market sell <price> [amount] [currency] §7- Legacy listing command"
       - "§e/webshopx market logs [count] §7- Show recent trades from your store"
       - "§e/webshopx claim [all|ODR-...|MKT-...|CLM-...|MCL-...] §7- Claim pending deliveries"
+      - "§e/webshopx mailbox claim §7- Claim buffered items from in-game mailbox"
     admin:
       - "§e/webshopx reload §7- Reload config and embedded web assets"
       - "§e/webshopx redeem create <shop> <game> [max] [perUserMax] [minutes] [code] §7- Create a redeem code"
@@ -57,10 +65,12 @@ command:
 chat:
   delivery:
     claim_hint: "§eYou have {count} pending delivery item(s). Use /ws claim"
+    mailbox_hint: "§eYou have {count} mailbox item(s). Use /ws mailbox claim"
     claim_success_order: "Claimed successfully: {orderNo}"
     deliver_success_order: "Delivered successfully: {orderNo}"
     claim_success_market: "Claimed successfully: {token}"
     deliver_success_market: "Delivered successfully: {token}"
+    mailbox_saved: "§aItem moved to in-game mailbox: {token}"
     claim_failed: "§eClaim failed: {reason}"
     auto_claim_hint: "§eAuto delivery failed and was moved to manual claim: /ws claim {token}"
     generic_failed: "Delivery failed"

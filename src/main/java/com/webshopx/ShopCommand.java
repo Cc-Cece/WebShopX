@@ -22,6 +22,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
   private final MarketService marketService;
   private final MarketGuiService marketGuiService;
   private final DeliveryService deliveryService;
+  private final MailboxService mailboxService;
   private final MessageService messageService;
 
   ShopCommand(
@@ -31,6 +32,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       MarketService marketService,
       MarketGuiService marketGuiService,
       DeliveryService deliveryService,
+      MailboxService mailboxService,
       MessageService messageService) {
     this.plugin = plugin;
     this.authService = authService;
@@ -38,6 +40,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     this.marketService = marketService;
     this.marketGuiService = marketGuiService;
     this.deliveryService = deliveryService;
+    this.mailboxService = mailboxService;
     this.messageService = messageService;
   }
 
@@ -57,6 +60,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       case "password" -> handlePassword(sender, args);
       case "market" -> handleMarket(sender, args);
       case "claim" -> handleClaim(sender, args);
+      case "mailbox" -> handleMailbox(sender, args);
       case "reload" -> handleReload(sender);
       case "redeem" -> handleRedeem(sender, args);
       default -> {
@@ -78,6 +82,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       options.add("password");
       options.add("market");
       options.add("claim");
+      options.add("mailbox");
       if (sender.hasPermission("webshop.admin")) {
         options.add("reload");
         options.add("redeem");
@@ -105,6 +110,13 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     if (top.equals("claim")) {
       if (args.length == 2) {
         return filterByPrefix(List.of("all", "ODR-", "MKT-", "CLM-", "MCL-"), args[1]);
+      }
+      return List.of();
+    }
+
+    if (top.equals("mailbox")) {
+      if (args.length == 2) {
+        return filterByPrefix(List.of("claim"), args[1]);
       }
       return List.of();
     }
@@ -226,6 +238,43 @@ class ShopCommand implements CommandExecutor, TabCompleter {
           Map.of("reason", humanizeMarketError(player, exception))));
       return true;
     }
+  }
+
+  private boolean handleMailbox(CommandSender sender, String[] args) {
+    if (!(sender instanceof Player player)) {
+      sender.sendMessage(msg(sender, "command.mailbox.player_only"));
+      return true;
+    }
+    if (args.length == 1) {
+      int pending = mailboxService.countPending(player.getUniqueId());
+      if (pending <= 0) {
+        player.sendMessage(msg(player, "command.mailbox.none"));
+      } else {
+        player.sendMessage(msg(player, "command.mailbox.pending", Map.of("count", pending)));
+        player.sendMessage(msg(player, "command.mailbox.usage"));
+      }
+      return true;
+    }
+    if (!args[1].equalsIgnoreCase("claim")) {
+      player.sendMessage(msg(player, "command.mailbox.usage"));
+      return true;
+    }
+    MailboxService.MailboxClaimSummary summary = mailboxService.claimPending(player);
+    if (summary.success() == 0 && summary.failed() == 0) {
+      player.sendMessage(msg(player, "command.mailbox.none"));
+      return true;
+    }
+    if (summary.failed() > 0) {
+      player.sendMessage(msg(player, "command.mailbox.partial", Map.of(
+          "success", summary.success(),
+          "failed", summary.failed(),
+          "remaining", summary.remaining())));
+      return true;
+    }
+    player.sendMessage(msg(player, "command.mailbox.success", Map.of(
+        "success", summary.success(),
+        "remaining", summary.remaining())));
+    return true;
   }
 
   private boolean handleMarketLogs(Player player, String[] args) {

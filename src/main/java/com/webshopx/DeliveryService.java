@@ -37,6 +37,7 @@ class DeliveryService {
   private final Supplier<PluginSettings> settingsSupplier;
   private final MessageService messageService;
   private final NotificationService notificationService;
+  private final MailboxService mailboxService;
   private final ItemSnapshotCodec itemSnapshotCodec;
   private final Map<UUID, Long> claimHintSentAt = new HashMap<>();
 
@@ -46,13 +47,15 @@ class DeliveryService {
       WalletService walletService,
       Supplier<PluginSettings> settingsSupplier,
       MessageService messageService,
-      NotificationService notificationService) {
+      NotificationService notificationService,
+      MailboxService mailboxService) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.walletService = walletService;
     this.settingsSupplier = settingsSupplier;
     this.messageService = messageService;
     this.notificationService = notificationService;
+    this.mailboxService = mailboxService;
     this.itemSnapshotCodec = new ItemSnapshotCodec();
   }
 
@@ -74,6 +77,7 @@ class DeliveryService {
       promoteOfflineRetries(playerUuid);
       processDueDeliveries(playerUuid);
       notifyClaimHint(player);
+      notifyMailboxHint(player);
     } catch (Exception exception) {
       databaseManager.logFailure("Failed to process player join deliveries", exception);
     }
@@ -233,6 +237,14 @@ class DeliveryService {
     claimHintSentAt.put(player.getUniqueId(), System.currentTimeMillis());
   }
 
+  private void notifyMailboxHint(Player player) {
+    int pending = mailboxService.countPending(player.getUniqueId());
+    if (pending <= 0) {
+      return;
+    }
+    sendWarnActionBar(player, msg(player, "chat.delivery.mailbox_hint", Map.of("count", pending)));
+  }
+
   private void notifyClaimHintsForOnlinePlayers() {
     long now = System.currentTimeMillis();
     for (Player player : Bukkit.getOnlinePlayers()) {
@@ -314,7 +326,7 @@ class DeliveryService {
     String sql = """
         SELECT dq.id, dq.order_id, dq.item_id, dq.mc_uuid, dq.command_text,
                dq.delivery_kind, dq.payload_json, dq.quantity, dq.retry_count,
-               o.order_no
+         o.order_no, o.user_id
         FROM delivery_queue dq
         JOIN orders o ON o.id = dq.order_id
         WHERE dq.mc_uuid = ?
@@ -374,7 +386,7 @@ class DeliveryService {
     String sql = """
         SELECT dq.id, dq.order_id, dq.item_id, dq.mc_uuid, dq.command_text,
                dq.delivery_kind, dq.payload_json, dq.quantity, dq.retry_count,
-               o.order_no
+         o.order_no, o.user_id
         FROM delivery_queue dq
         JOIN orders o ON o.id = dq.order_id
         WHERE dq.status = 'PENDING'
@@ -419,8 +431,12 @@ class DeliveryService {
   }
 
   private boolean handleCommandTask(CommandDeliveryTask task, boolean claimMode, Player forcedPlayer) {
+    DeliveryKind kind = DeliveryKind.fromRaw(task.deliveryKind());
     Player player = forcedPlayer == null ? Bukkit.getPlayer(task.playerUuid()) : forcedPlayer;
     if (player == null || !player.isOnline()) {
+      if (!claimMode && kind == DeliveryKind.GIVE_ITEM && tryMoveCommandItemToMailbox(task, claimMode, "玩家离线", null)) {
+        return true;
+      }
       if (!claimMode) {
         rescheduleCommand(task.id(), "玩家离线", false);
       }
@@ -428,7 +444,6 @@ class DeliveryService {
     }
 
     try {
-      DeliveryKind kind = DeliveryKind.fromRaw(task.deliveryKind());
       switch (kind) {
         case COMMAND -> {
           if (usesQuantityPlaceholder(task.commandText())) {
@@ -461,6 +476,11 @@ class DeliveryService {
       return true;
     } catch (Exception exception) {
       String raw = exception.getMessage() == null ? msg(player, "chat.delivery.generic_failed") : exception.getMessage();
+      if (kind == DeliveryKind.GIVE_ITEM
+          && isInventoryFullError(raw)
+          && tryMoveCommandItemToMailbox(task, claimMode, raw, player)) {
+        return true;
+      }
       String error = truncate(localizeDeliveryError(player, raw), 255);
       if (claimMode) {
         markCommandWaitClaim(task.orderId(), task.id(), error, false);
@@ -479,6 +499,9 @@ class DeliveryService {
   private boolean handleMarketTask(MarketItemDeliveryTask task, boolean claimMode, Player forcedPlayer) {
     Player player = forcedPlayer == null ? Bukkit.getPlayer(task.targetUuid()) : forcedPlayer;
     if (player == null || !player.isOnline()) {
+      if (!claimMode && tryMoveMarketItemToMailbox(task, claimMode, "玩家离线", null)) {
+        return true;
+      }
       if (!claimMode) {
         rescheduleMarket(task.id(), "玩家离线", false);
       }
@@ -505,6 +528,9 @@ class DeliveryService {
       return true;
     } catch (Exception exception) {
       String raw = exception.getMessage() == null ? msg(player, "chat.delivery.generic_failed") : exception.getMessage();
+      if (isInventoryFullError(raw) && tryMoveMarketItemToMailbox(task, claimMode, raw, player)) {
+        return true;
+      }
       String error = truncate(localizeDeliveryError(player, raw), 255);
       if (claimMode) {
         markMarketWaitClaim(task, error, false);
@@ -907,6 +933,89 @@ class DeliveryService {
     }
   }
 
+  private boolean tryMoveCommandItemToMailbox(
+      CommandDeliveryTask task,
+      boolean claimMode,
+      String reason,
+      Player player) {
+    try {
+      ItemStack itemStack = buildGiveItemStack(task);
+      mailboxService.enqueueItem(
+          task.userId(),
+          task.playerUuid(),
+          itemStack,
+          task.quantity(),
+          "ORDER",
+          task.orderNo(),
+          reason);
+      markCommandDelivered(task.orderId(), task.id(), claimMode);
+      pushMailboxNotification(task.userId(), "ORDER", task.orderNo());
+      if (player != null) {
+        notifyDeliverySuccess(player, msg(player, "chat.delivery.mailbox_saved", Map.of("token", task.orderNo())));
+      }
+      return true;
+    } catch (Exception exception) {
+      databaseManager.logFailure("Failed to move command delivery into mailbox", exception);
+      return false;
+    }
+  }
+
+  private boolean tryMoveMarketItemToMailbox(
+      MarketItemDeliveryTask task,
+      boolean claimMode,
+      String reason,
+      Player player) {
+    try {
+      ItemStack itemStack = itemSnapshotCodec.deserialize(task.itemBlob());
+      String token = task.tradeId() == null ? "#" + task.listingId() : "MKT-" + task.tradeId();
+      mailboxService.enqueueItem(
+          task.targetUserId(),
+          task.targetUuid(),
+          itemStack,
+          task.quantity(),
+          "MARKET",
+          token,
+          reason);
+      markMarketDelivered(task, claimMode);
+      pushMailboxNotification(task.targetUserId(), "MARKET", token);
+      if (player != null) {
+        notifyDeliverySuccess(player, msg(player, "chat.delivery.mailbox_saved", Map.of("token", token)));
+      }
+      return true;
+    } catch (Exception exception) {
+      databaseManager.logFailure("Failed to move market delivery into mailbox", exception);
+      return false;
+    }
+  }
+
+  private ItemStack buildGiveItemStack(CommandDeliveryTask task) {
+    JsonObject payload = parsePayload(task.payloadJson());
+    String materialRaw = payload.has("material") ? payload.get("material").getAsString() : "";
+    Material material = resolveMaterial(materialRaw);
+    if (material == null || material == Material.AIR) {
+      throw new ServiceException("invalid_delivery_payload", "物品材质无效");
+    }
+    return new ItemStack(material, 1);
+  }
+
+  private void pushMailboxNotification(long userId, String sourceType, String sourceRef) {
+    if (userId <= 0L) {
+      return;
+    }
+    String title = "物品已转入游戏信箱";
+    String content = "自动发货时背包不可用，物品已存入游戏信箱。"
+        + "请在游戏内执行 /ws mailbox claim 领取。来源：" + sourceType + " " + sourceRef;
+    notificationService.createNotification(userId, "MAILBOX_PENDING", title, content);
+  }
+
+  private boolean isInventoryFullError(String message) {
+    if (message == null || message.isBlank()) {
+      return false;
+    }
+    String normalized = message.toLowerCase(Locale.ROOT);
+    return normalized.contains("inventory is full") || message.contains("背包已满");
+  }
+
   private Material resolveMaterial(String raw) {
     if (raw == null || raw.isBlank()) {
       return null;
@@ -1070,7 +1179,8 @@ class DeliveryService {
           resultSet.getString("payload_json"),
           resultSet.getInt("quantity"),
           resultSet.getInt("retry_count"),
-          resultSet.getString("order_no")));
+          resultSet.getString("order_no"),
+          resultSet.getLong("user_id")));
     }
     return tasks;
   }
@@ -1140,7 +1250,8 @@ class DeliveryService {
       String payloadJson,
       int quantity,
       int retryCount,
-      String orderNo) {
+      String orderNo,
+      long userId) {
   }
 
   private record MarketItemDeliveryTask(

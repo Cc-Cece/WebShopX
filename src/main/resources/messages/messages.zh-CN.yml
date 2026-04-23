@@ -21,6 +21,13 @@ command:
     partial: "§6领取完成：成功 §a{success} §6条，失败 §c{failed} §6条。可再次使用 /ws claim。"
     success: "§a领取完成：成功 {success} 条。"
     failed: "§c领取失败：{reason}"
+  mailbox:
+    player_only: "§c仅玩家可使用游戏信箱。"
+    usage: "§e用法：/webshopx mailbox claim"
+    none: "§e当前信箱没有可领取的物品。"
+    pending: "§6你有 §f{count} §6份信箱物品待领取。"
+    partial: "§6信箱领取完成：成功 §a{success} §6份，失败 §c{failed} §6份，剩余 §e{remaining} §6份。"
+    success: "§a信箱领取成功：§f{success} §a份，剩余 §e{remaining} §a份。"
   market:
     player_only: "§c仅玩家可使用市场命令。"
     usage_gui: "§e用法：/webshopx market [gui]"
@@ -50,6 +57,7 @@ command:
       - "§e/webshopx market sell <price> [amount] [currency] §7- 兼容旧式上架命令"
       - "§e/webshopx market logs [count] §7- 查看自己店铺最近成交记录"
       - "§e/webshopx claim [all|ODR-...|MKT-...|CLM-...|MCL-...] §7- 领取待发货内容"
+      - "§e/webshopx mailbox claim §7- 领取游戏信箱中的缓冲物品"
     admin:
       - "§e/webshopx reload §7- 重载配置与内置网页"
       - "§e/webshopx redeem create <shop> <game> [max] [perUserMax] [minutes] [code] §7- 创建兑换码"
@@ -57,10 +65,12 @@ command:
 chat:
   delivery:
     claim_hint: "§e你有 {count} 条待领取发货，请输入 /ws claim"
+    mailbox_hint: "§e你有 {count} 份信箱物品待领取，请输入 /ws mailbox claim"
     claim_success_order: "领取成功：{orderNo}"
     deliver_success_order: "发货成功：{orderNo}"
     claim_success_market: "领取成功：{token}"
     deliver_success_market: "发货成功：{token}"
+    mailbox_saved: "§a物品已存入游戏信箱：{token}"
     claim_failed: "§e领取失败：{reason}"
     auto_claim_hint: "§e自动发货失败，已转手动领取：/ws claim {token}"
     generic_failed: "发货失败"

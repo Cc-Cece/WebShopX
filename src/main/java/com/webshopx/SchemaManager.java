@@ -48,6 +48,8 @@ class SchemaManager {
     createMarketItemDeliveries(connection);
     migrateMarketItemDeliveries(connection);
     createGroupBuyVouchers(connection);
+    createMailboxItems(connection);
+    migrateMailboxItems(connection);
     createNotifications(connection);
     migrateNotifications(connection);
     return null;
@@ -1366,6 +1368,94 @@ class SchemaManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
+  }
+
+  private void createMailboxItems(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS mailbox_items (
+          id BIGINT NOT NULL AUTO_INCREMENT,
+          user_id BIGINT NOT NULL,
+          target_uuid CHAR(36) NOT NULL,
+          source_type VARCHAR(24) NOT NULL DEFAULT 'DELIVERY',
+          source_ref VARCHAR(64) NULL,
+          item_blob LONGBLOB NOT NULL,
+          quantity INT NOT NULL DEFAULT 1,
+          reason VARCHAR(255) NULL,
+          status VARCHAR(24) NOT NULL DEFAULT 'PENDING',
+          last_error VARCHAR(255) NULL,
+          claimed_at DATETIME NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_mailbox_target_status_time (target_uuid, status, created_at),
+          KEY idx_mailbox_user_status_time (user_id, status, created_at),
+          CONSTRAINT fk_mailbox_user
+            FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void migrateMailboxItems(Connection connection) throws SQLException {
+    if (!columnExists(connection, "mailbox_items", "source_type")) {
+      execute(
+          connection,
+          "ALTER TABLE mailbox_items "
+              + "ADD COLUMN source_type VARCHAR(24) NOT NULL DEFAULT 'DELIVERY' AFTER target_uuid");
+    }
+    if (!columnExists(connection, "mailbox_items", "source_ref")) {
+      execute(
+          connection,
+          "ALTER TABLE mailbox_items "
+              + "ADD COLUMN source_ref VARCHAR(64) NULL AFTER source_type");
+    }
+    if (!columnExists(connection, "mailbox_items", "item_blob")) {
+      execute(
+          connection,
+          "ALTER TABLE mailbox_items "
+              + "ADD COLUMN item_blob LONGBLOB NOT NULL AFTER source_ref");
+    }
+    if (!columnExists(connection, "mailbox_items", "quantity")) {
+      execute(
+          connection,
+          "ALTER TABLE mailbox_items "
+              + "ADD COLUMN quantity INT NOT NULL DEFAULT 1 AFTER item_blob");
+    }
+    if (!columnExists(connection, "mailbox_items", "reason")) {
+      execute(
+          connection,
+          "ALTER TABLE mailbox_items "
+              + "ADD COLUMN reason VARCHAR(255) NULL AFTER quantity");
+    }
+    if (!columnExists(connection, "mailbox_items", "status")) {
+      execute(
+          connection,
+          "ALTER TABLE mailbox_items "
+              + "ADD COLUMN status VARCHAR(24) NOT NULL DEFAULT 'PENDING' AFTER reason");
+    }
+    if (!columnExists(connection, "mailbox_items", "last_error")) {
+      execute(
+          connection,
+          "ALTER TABLE mailbox_items "
+              + "ADD COLUMN last_error VARCHAR(255) NULL AFTER status");
+    }
+    if (!columnExists(connection, "mailbox_items", "claimed_at")) {
+      execute(
+          connection,
+          "ALTER TABLE mailbox_items "
+              + "ADD COLUMN claimed_at DATETIME NULL AFTER last_error");
+    }
+    if (!indexExists(connection, "mailbox_items", "idx_mailbox_target_status_time")) {
+      execute(
+          connection,
+          "ALTER TABLE mailbox_items "
+              + "ADD INDEX idx_mailbox_target_status_time (target_uuid, status, created_at)");
+    }
+    if (!indexExists(connection, "mailbox_items", "idx_mailbox_user_status_time")) {
+      execute(
+          connection,
+          "ALTER TABLE mailbox_items "
+              + "ADD INDEX idx_mailbox_user_status_time (user_id, status, created_at)");
+    }
   }
 
   private void migrateNotifications(Connection connection) throws SQLException {

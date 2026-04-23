@@ -30,6 +30,7 @@ public class WebShopPlugin extends JavaPlugin {
   private OrderService orderService;
   private MarketService marketService;
   private NotificationService notificationService;
+  private MailboxService mailboxService;
   private BroadcastService broadcastService;
   private MarketGuiService marketGuiService;
   private DeliveryService deliveryService;
@@ -66,6 +67,7 @@ public class WebShopPlugin extends JavaPlugin {
       productService = new ProductService(databaseManager);
       orderService = new OrderService(this, databaseManager, this::settings, productService, walletService);
       notificationService = new NotificationService(databaseManager);
+      mailboxService = new MailboxService(databaseManager);
       broadcastService = new BroadcastService(this, this::settings);
       broadcastService.reload();
       marketService = new MarketService(
@@ -83,7 +85,8 @@ public class WebShopPlugin extends JavaPlugin {
           walletService,
           this::settings,
           messageService,
-          notificationService);
+          notificationService,
+          mailboxService);
       adminService = new AdminService(databaseManager, authService, walletService);
       adminAuditService = new AdminAuditService(databaseManager);
       maintenanceService = new MaintenanceService(this, databaseManager, this::settings, pluginLogService);
@@ -195,6 +198,7 @@ public class WebShopPlugin extends JavaPlugin {
         marketService,
         marketGuiService,
         deliveryService,
+        mailboxService,
         messageService);
     PluginCommand rootCommand = getCommand("webshopx");
     if (rootCommand == null) {
