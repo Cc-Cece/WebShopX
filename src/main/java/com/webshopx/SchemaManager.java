@@ -48,6 +48,8 @@ class SchemaManager {
     createMarketItemDeliveries(connection);
     migrateMarketItemDeliveries(connection);
     createGroupBuyVouchers(connection);
+    createNotifications(connection);
+    migrateNotifications(connection);
     return null;
   }
 
@@ -1342,6 +1344,61 @@ class SchemaManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
+  }
+
+  private void createNotifications(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS notifications (
+          id BIGINT NOT NULL AUTO_INCREMENT,
+          user_id BIGINT NOT NULL,
+          type VARCHAR(32) NOT NULL DEFAULT 'GENERAL',
+          title VARCHAR(128) NOT NULL,
+          content TEXT NOT NULL,
+          data_json JSON NULL,
+          is_read BOOLEAN NOT NULL DEFAULT FALSE,
+          read_at DATETIME NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_notifications_user_created (user_id, created_at),
+          KEY idx_notifications_user_read (user_id, is_read, created_at),
+          CONSTRAINT fk_notifications_user
+            FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void migrateNotifications(Connection connection) throws SQLException {
+    if (!columnExists(connection, "notifications", "data_json")) {
+      execute(
+          connection,
+          "ALTER TABLE notifications "
+              + "ADD COLUMN data_json JSON NULL AFTER content");
+    }
+    if (!columnExists(connection, "notifications", "is_read")) {
+      execute(
+          connection,
+          "ALTER TABLE notifications "
+              + "ADD COLUMN is_read BOOLEAN NOT NULL DEFAULT FALSE AFTER data_json");
+    }
+    if (!columnExists(connection, "notifications", "read_at")) {
+      execute(
+          connection,
+          "ALTER TABLE notifications "
+              + "ADD COLUMN read_at DATETIME NULL AFTER is_read");
+    }
+    if (!indexExists(connection, "notifications", "idx_notifications_user_created")) {
+      execute(
+          connection,
+          "ALTER TABLE notifications "
+              + "ADD INDEX idx_notifications_user_created (user_id, created_at)");
+    }
+    if (!indexExists(connection, "notifications", "idx_notifications_user_read")) {
+      execute(
+          connection,
+          "ALTER TABLE notifications "
+              + "ADD INDEX idx_notifications_user_read (user_id, is_read, created_at)");
+    }
   }
 
   private void createProductUserUsage(Connection connection) throws SQLException {

@@ -36,6 +36,7 @@ class DeliveryService {
   private final WalletService walletService;
   private final Supplier<PluginSettings> settingsSupplier;
   private final MessageService messageService;
+  private final NotificationService notificationService;
   private final ItemSnapshotCodec itemSnapshotCodec;
   private final Map<UUID, Long> claimHintSentAt = new HashMap<>();
 
@@ -44,12 +45,14 @@ class DeliveryService {
       DatabaseManager databaseManager,
       WalletService walletService,
       Supplier<PluginSettings> settingsSupplier,
-      MessageService messageService) {
+      MessageService messageService,
+      NotificationService notificationService) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.walletService = walletService;
     this.settingsSupplier = settingsSupplier;
     this.messageService = messageService;
+    this.notificationService = notificationService;
     this.itemSnapshotCodec = new ItemSnapshotCodec();
   }
 
@@ -460,10 +463,10 @@ class DeliveryService {
       String raw = exception.getMessage() == null ? msg(player, "chat.delivery.generic_failed") : exception.getMessage();
       String error = truncate(localizeDeliveryError(player, raw), 255);
       if (claimMode) {
-        markCommandWaitClaim(task.orderId(), task.id(), error);
+        markCommandWaitClaim(task.orderId(), task.id(), error, false);
         sendWarnActionBar(player, msg(player, "chat.delivery.claim_failed", Map.of("reason", error)));
       } else if (task.retryCount() + 1 >= MAX_AUTO_RETRY_BEFORE_CLAIM) {
-        markCommandWaitClaim(task.orderId(), task.id(), error);
+        markCommandWaitClaim(task.orderId(), task.id(), error, true);
         sendWarnActionBar(player, msg(player, "chat.delivery.auto_claim_hint",
             Map.of("token", task.orderNo())));
       } else {
@@ -504,10 +507,10 @@ class DeliveryService {
       String raw = exception.getMessage() == null ? msg(player, "chat.delivery.generic_failed") : exception.getMessage();
       String error = truncate(localizeDeliveryError(player, raw), 255);
       if (claimMode) {
-        markMarketWaitClaim(task, error);
+        markMarketWaitClaim(task, error, false);
         sendWarnActionBar(player, msg(player, "chat.delivery.claim_failed", Map.of("reason", error)));
       } else if (task.retryCount() + 1 >= MAX_AUTO_RETRY_BEFORE_CLAIM) {
-        markMarketWaitClaim(task, error);
+        markMarketWaitClaim(task, error, true);
         String token = task.tradeId() == null ? "#" + task.listingId() : "MKT-" + task.tradeId();
         sendWarnActionBar(player, msg(player, "chat.delivery.auto_claim_hint", Map.of("token", token)));
       } else {
@@ -680,7 +683,11 @@ class DeliveryService {
     });
   }
 
-  private void markCommandWaitClaim(long orderId, long deliveryId, String errorMessage) {
+  private void markCommandWaitClaim(
+      long orderId,
+      long deliveryId,
+      String errorMessage,
+      boolean pushNotification) {
     databaseManager.withConnection(connection -> {
       ClaimTokenRepository.ensureOrderToken(connection, orderId);
       String sql = """
@@ -705,6 +712,9 @@ class DeliveryService {
       try (PreparedStatement statement = connection.prepareStatement(updateOrderSql)) {
         statement.setLong(1, orderId);
         statement.executeUpdate();
+      }
+      if (pushNotification) {
+        pushOrderWaitClaimNotification(connection, orderId, errorMessage);
       }
       return null;
     });
@@ -733,7 +743,10 @@ class DeliveryService {
     });
   }
 
-  private void markMarketWaitClaim(MarketItemDeliveryTask task, String errorMessage) {
+  private void markMarketWaitClaim(
+      MarketItemDeliveryTask task,
+      String errorMessage,
+      boolean pushNotification) {
     databaseManager.withConnection(connection -> {
       if (task.tradeId() != null) {
         ClaimTokenRepository.ensureMarketTradeToken(connection, task.tradeId());
@@ -761,8 +774,70 @@ class DeliveryService {
         statement.setLong(2, task.id());
         statement.executeUpdate();
       }
+      if (pushNotification) {
+        pushMarketWaitClaimNotification(connection, task, errorMessage);
+      }
       return null;
     });
+  }
+
+  private void pushOrderWaitClaimNotification(Connection connection, long orderId, String errorMessage)
+      throws SQLException {
+    String sql = """
+        SELECT user_id, order_no, claim_token
+        FROM orders
+        WHERE id = ?
+        LIMIT 1
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, orderId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return;
+        }
+        long userId = resultSet.getLong("user_id");
+        if (userId <= 0L) {
+          return;
+        }
+        String orderNo = resultSet.getString("order_no");
+        String claimToken = resultSet.getString("claim_token");
+        String token = claimToken == null || claimToken.isBlank() ? orderNo : claimToken;
+        String title = "订单待领取";
+        String content = "订单 " + token + " 自动发货失败，请在游戏内执行 /ws claim "
+            + token + " 领取。原因：" + truncate(errorMessage, 120);
+        notificationService.createNotification(userId, "DELIVERY_WAIT_CLAIM", title, content);
+      }
+    }
+  }
+
+  private void pushMarketWaitClaimNotification(
+      Connection connection,
+      MarketItemDeliveryTask task,
+      String errorMessage) throws SQLException {
+    String token = null;
+    if (task.tradeId() != null) {
+      String sql = """
+          SELECT claim_token
+          FROM market_trades
+          WHERE id = ?
+          LIMIT 1
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, task.tradeId());
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (resultSet.next()) {
+            token = resultSet.getString("claim_token");
+          }
+        }
+      }
+    }
+    if (token == null || token.isBlank()) {
+      token = task.tradeId() == null ? "#" + task.listingId() : "MKT-" + task.tradeId();
+    }
+    String title = "市场物品待领取";
+    String content = "市场物品自动发货失败，请在游戏内执行 /ws claim "
+        + token + " 领取。原因：" + truncate(errorMessage, 120);
+    notificationService.createNotification(task.targetUserId(), "DELIVERY_WAIT_CLAIM", title, content);
   }
 
   private String renderCommand(String template, String playerName, int quantity, String orderNo) {

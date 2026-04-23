@@ -29,6 +29,8 @@ public class WebShopPlugin extends JavaPlugin {
   private ProductService productService;
   private OrderService orderService;
   private MarketService marketService;
+  private NotificationService notificationService;
+  private BroadcastService broadcastService;
   private MarketGuiService marketGuiService;
   private DeliveryService deliveryService;
   private AdminService adminService;
@@ -63,9 +65,25 @@ public class WebShopPlugin extends JavaPlugin {
       redeemCodeService = new RedeemCodeService(databaseManager, walletService);
       productService = new ProductService(databaseManager);
       orderService = new OrderService(this, databaseManager, this::settings, productService, walletService);
-      marketService = new MarketService(this, databaseManager, walletService, this::settings, messageService);
+      notificationService = new NotificationService(databaseManager);
+      broadcastService = new BroadcastService(this, this::settings);
+      broadcastService.reload();
+      marketService = new MarketService(
+          this,
+          databaseManager,
+          walletService,
+          this::settings,
+          messageService,
+          notificationService,
+          broadcastService);
       marketGuiService = new MarketGuiService(marketService, this::settings, messageService);
-      deliveryService = new DeliveryService(this, databaseManager, walletService, this::settings, messageService);
+      deliveryService = new DeliveryService(
+          this,
+          databaseManager,
+          walletService,
+          this::settings,
+          messageService,
+          notificationService);
       adminService = new AdminService(databaseManager, authService, walletService);
       adminAuditService = new AdminAuditService(databaseManager);
       maintenanceService = new MaintenanceService(this, databaseManager, this::settings, pluginLogService);
@@ -78,14 +96,12 @@ public class WebShopPlugin extends JavaPlugin {
           productService,
           orderService,
           marketService,
+          notificationService,
           adminService,
           adminAuditService);
 
       // Products are managed via admin backend; no seed import from config.
       adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());
-      if (settings.redisSettings().enabled()) {
-        getLogger().warning("Redis is enabled in config but currently optional and not wired in V1.");
-      }
 
       registerCommands();
       getServer().getPluginManager().registerEvents(
@@ -131,6 +147,9 @@ public class WebShopPlugin extends JavaPlugin {
     if (databaseManager != null) {
       databaseManager.close();
     }
+    if (broadcastService != null) {
+      broadcastService.shutdown();
+    }
     if (pluginLogService != null) {
       pluginLogService.close();
     }
@@ -148,6 +167,9 @@ public class WebShopPlugin extends JavaPlugin {
     // Products are managed via admin backend; no seed import from config.
     if (adminService != null) {
       adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());
+    }
+    if (broadcastService != null) {
+      broadcastService.reload();
     }
     startMaintenanceLoop();
     startMarketCycleLoop();

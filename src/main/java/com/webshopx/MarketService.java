@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -43,6 +44,8 @@ class MarketService {
   private final WalletService walletService;
   private final Supplier<PluginSettings> settingsSupplier;
   private final MessageService messageService;
+  private final NotificationService notificationService;
+  private final BroadcastService broadcastService;
   private final ItemSnapshotCodec itemSnapshotCodec;
 
   MarketService(
@@ -50,12 +53,16 @@ class MarketService {
       DatabaseManager databaseManager,
       WalletService walletService,
       Supplier<PluginSettings> settingsSupplier,
-      MessageService messageService) {
+      MessageService messageService,
+      NotificationService notificationService,
+      BroadcastService broadcastService) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.walletService = walletService;
     this.settingsSupplier = settingsSupplier;
     this.messageService = messageService;
+    this.notificationService = notificationService;
+    this.broadcastService = broadcastService;
     this.itemSnapshotCodec = new ItemSnapshotCodec();
   }
 
@@ -107,7 +114,10 @@ class MarketService {
           snapshot,
           listingLimit,
           SupplyConfig.manual()));
-      return new ListingCreateResult(listingId, listingItem.getType().name(), amount, currency, price);
+      ListingCreateResult result =
+          new ListingCreateResult(listingId, listingItem.getType().name(), amount, currency, price);
+      publishListingCreatedEvent(boundUser.userId(), player.getName(), result, TradeMode.DIRECT);
+      return result;
     } catch (Exception exception) {
       restoreItem(player, listingItem);
       throw exception;
@@ -142,7 +152,10 @@ class MarketService {
         snapshot,
         listingLimit,
         SupplyConfig.manual()));
-    return new ListingCreateResult(listingId, storedItem.getType().name(), storedItem.getAmount(), currency, price);
+    ListingCreateResult result =
+        new ListingCreateResult(listingId, storedItem.getType().name(), storedItem.getAmount(), currency, price);
+    publishListingCreatedEvent(boundUser.userId(), player.getName(), result, TradeMode.DIRECT);
+    return result;
   }
 
   ListingCreateResult createSupplyListingFromPlayer(
@@ -176,7 +189,7 @@ class MarketService {
         templateItem,
         normalizedSupply.transferBatchSize());
     if (transfer.loadedAmount() <= 0) {
-      throw new ServiceException("supply_empty", "供货箱里没有匹配的货物可上架");
+      throw new ServiceException("supply_empty", "渚涜揣绠遍噷娌℃湁鍖归厤鐨勮揣鐗╁彲涓婃灦");
     }
     try {
       long listingId = databaseManager.inTransaction(connection -> createListingInTransaction(
@@ -193,12 +206,14 @@ class MarketService {
               normalizedSupply.transitMaxStock(),
               new SupplySource(source.worldName(), source.x(), source.y(), source.z()),
               transfer.loadedAmount())));
-      return new ListingCreateResult(
+      ListingCreateResult result = new ListingCreateResult(
           listingId,
           transfer.loadedItem().getType().name(),
           transfer.loadedAmount(),
           currency,
           price);
+      publishListingCreatedEvent(seller.userId(), player.getName(), result, TradeMode.DIRECT);
+      return result;
     } catch (Exception exception) {
       restoreSupplyStock(
           new SupplySource(source.worldName(), source.x(), source.y(), source.z()),
@@ -218,7 +233,7 @@ class MarketService {
       throw new ServiceException("supply_missing", "Supply container is unavailable");
     }
     if (templateItem == null || templateItem.getType() == Material.AIR) {
-      throw new ServiceException("invalid_item", "模板物品不能为空");
+      throw new ServiceException("invalid_item", "妯℃澘鐗╁搧涓嶈兘涓虹┖");
     }
     SupplyConfig normalizedSupply = normalizeSupplyConfig(0, 0);
     ItemStack template = templateItem.clone();
@@ -254,12 +269,14 @@ class MarketService {
               normalizedSupply.transitMaxStock(),
               source,
               transfer.loadedAmount())));
-      return new ListingCreateResult(
+      ListingCreateResult result = new ListingCreateResult(
           listingId,
           storedItem.getType().name(),
           transfer.loadedAmount(),
           currency,
           price);
+      publishListingCreatedEvent(seller.userId(), player.getName(), result, TradeMode.DIRECT);
+      return result;
     } catch (Exception exception) {
       if (transfer.loadedAmount() > 0) {
         restoreSupplyStock(source, transfer.loadedItem(), transfer.loadedAmount());
@@ -524,7 +541,7 @@ class MarketService {
       throw new ServiceException("invalid_quantity", "Buy quantity must be between 1 and 64");
     }
     String normalizedIdempotency = normalizeIdempotencyKey(idempotencyKey);
-    return databaseManager.inTransaction(connection ->
+    TradeResult result = databaseManager.inTransaction(connection ->
         buyListingInTransaction(
             connection,
             buyerUserId,
@@ -532,6 +549,10 @@ class MarketService {
             buyQuantity,
             normalizedIdempotency,
             deliveryModeRaw));
+    if (result.state() == TradeState.CREATED) {
+      publishTradeCreatedEvent(result.tradeId());
+    }
+    return result;
   }
 
   BidResult placeBid(long bidderUserId, long listingId, long bidAmount, String idempotencyKey) {
@@ -542,8 +563,12 @@ class MarketService {
       throw new ServiceException("invalid_bid", "Bid amount must be positive");
     }
     String normalizedIdempotency = normalizeIdempotencyKey(idempotencyKey);
-    return databaseManager.inTransaction(
+    BidResult result = databaseManager.inTransaction(
         connection -> placeBidInTransaction(connection, bidderUserId, listingId, bidAmount, normalizedIdempotency));
+    if (result.state() == BidState.CREATED) {
+      publishBidCreatedEvent(result);
+    }
+    return result;
   }
 
   void processMarketCycles() {
@@ -551,6 +576,7 @@ class MarketService {
       List<AuctionSettlementNotice> notices =
           databaseManager.inTransaction(this::settleDueAuctions);
       notices.forEach(notice -> notifyPlayerAsync(notice.playerUuid(), notice.message()));
+      persistAuctionNotices(notices);
       databaseManager.inTransaction(connection -> {
         applyDynamicPriceDecay(connection);
         return null;
@@ -746,7 +772,7 @@ class MarketService {
     if (activeListings >= listingLimit) {
       throw new ServiceException(
           "listing_limit",
-          "当前上架数量已达上限 (" + listingLimit + ")");
+          "褰撳墠涓婃灦鏁伴噺宸茶揪涓婇檺 (" + listingLimit + ")");
     }
 
     int initialQuantity = supplyConfig.mode() == SupplyMode.SUPPLY
@@ -1250,11 +1276,11 @@ class MarketService {
           && (previousHighestBidderUserId == null || previousHighestBidderUserId != bidder.userId())) {
         notifyPlayerAsync(
             previousHighestBidderUuid,
-            "你的拍卖出价已被超越，系统已自动退回 "
+            "浣犵殑鎷嶅崠鍑轰环宸茶瓒呰秺锛岀郴缁熷凡鑷姩閫€鍥?"
                 + previousHighestBid
                 + " "
                 + listing.currency().name()
-                + "。上架 #"
+                + "銆備笂鏋?#"
                 + listing.id());
       }
     } else {
@@ -1465,7 +1491,7 @@ class MarketService {
       if (refund.bidderUuid() != null) {
         notifyPlayerAsync(
             refund.bidderUuid(),
-            "拍卖 #" + listing.id() + " 已取消或重置，系统已退回你的竞拍冻结资金。");
+            "Auction #" + listing.id() + " was reset or cancelled, and your frozen bid funds were returned.");
       }
     }
 
@@ -1535,7 +1561,7 @@ class MarketService {
         listing,
         notices,
         "auction-expired-dutch",
-        "拍卖 #" + listing.id() + " 已结束（无人买断），物品已退回待发放。");
+        "Auction #" + listing.id() + " ended without a buyer, item returned for delivery.");
   }
 
   private void settleAscendingAuction(
@@ -1551,7 +1577,7 @@ class MarketService {
           listing,
           notices,
           "auction-expired-no-bid",
-          "拍卖 #" + listing.id() + " 已结束（无人出价），物品已退回待发放。");
+          "Auction #" + listing.id() + " ended with no bids, item returned for delivery.");
       return;
     }
 
@@ -1563,7 +1589,7 @@ class MarketService {
           listing,
           notices,
           "auction-expired-reserve",
-          "拍卖 #" + listing.id() + " 已结束（未达到保留价），物品已退回待发放。");
+          "Auction #" + listing.id() + " ended below reserve price, item returned for delivery.");
       return;
     }
 
@@ -1582,10 +1608,12 @@ class MarketService {
 
     notices.add(new AuctionSettlementNotice(
         winner.boundUuid(),
-        "你已赢得拍卖 #" + listing.id() + "，成交价 " + finalBid + " " + listing.currency().name() + "。物品将尽快发放。"));
+        "You won auction #" + listing.id() + " at "
+            + finalBid + " " + listing.currency().name() + ". Delivery is queued."));
     notices.add(new AuctionSettlementNotice(
         listing.sellerUuid(),
-        "你的拍卖 #" + listing.id() + " 已成交，成交价 " + finalBid + " " + listing.currency().name() + "。"));
+        "Your auction #" + listing.id() + " was sold at "
+            + finalBid + " " + listing.currency().name() + "."));
   }
 
   private void settleVickreyAuction(
@@ -1623,7 +1651,7 @@ class MarketService {
           listing,
           notices,
           "auction-expired-no-bid",
-          "拍卖 #" + listing.id() + " 已结束（无人出价），物品已退回待发放。");
+          "Auction #" + listing.id() + " ended with no bids, item returned for delivery.");
       return;
     }
 
@@ -1636,7 +1664,7 @@ class MarketService {
           listing,
           notices,
           "auction-expired-reserve",
-          "拍卖 #" + listing.id() + " 已结束（未达到保留价），物品已退回待发放。");
+          "Auction #" + listing.id() + " ended below reserve price, item returned for delivery.");
       return;
     }
 
@@ -1670,18 +1698,19 @@ class MarketService {
 
     notices.add(new AuctionSettlementNotice(
         winner.boundUuid(),
-        "你已赢得拍卖 #"
+        "You won auction #"
             + listing.id()
-            + "，你的出价 "
+            + " with bid "
             + winnerBid.bidAmount()
             + " "
             + listing.currency().name()
-            + "，按次高价规则实际成交 "
+            + ", and the final clearing price is "
             + finalBid
-            + "。"));
+            + "."));
     notices.add(new AuctionSettlementNotice(
         listing.sellerUuid(),
-        "你的拍卖 #" + listing.id() + " 已成交（Vickrey），成交价 " + finalBid + " " + listing.currency().name() + "。"));
+        "Your auction #" + listing.id() + " was sold (Vickrey) at "
+            + finalBid + " " + listing.currency().name() + "."));
   }
 
   private void finalizeAuctionWithoutWinner(
@@ -1783,7 +1812,7 @@ class MarketService {
       if (bid.bidderUuid() != null) {
         notifyPlayerAsync(
             bid.bidderUuid(),
-            "拍卖 #" + listing.id() + " 已结束，你未获胜，系统已退回冻结资金。");
+            "Auction #" + listing.id() + " has ended, you did not win, and your frozen funds were returned.");
       }
     }
   }
@@ -2781,6 +2810,239 @@ class MarketService {
     });
   }
 
+  private void publishListingCreatedEvent(
+      long sellerUserId,
+      String sellerName,
+      ListingCreateResult result,
+      TradeMode tradeMode) {
+    try {
+      String itemLabel = formatMaterial(result.material());
+      String amountText = formatAmount(result.price(), result.currency());
+      broadcastService.broadcastTemplate(
+          "listing-created",
+          Map.of(
+              "listingId", result.listingId(),
+              "seller", sellerName,
+              "item", itemLabel,
+              "quantity", result.quantity(),
+              "price", result.price(),
+              "currency", result.currency().name(),
+              "priceText", amountText,
+              "tradeMode", tradeMode.name()));
+      notificationService.createNotification(
+          sellerUserId,
+          "MARKET_LISTED",
+          "Listing Created",
+          "Listing #" + result.listingId() + " is now active: "
+              + itemLabel + " x" + result.quantity() + ", unit price " + amountText + ".");
+    } catch (Exception exception) {
+      plugin.getLogger().warning("Failed to publish listing-created event: " + exception.getMessage());
+    }
+  }
+
+  private void publishTradeCreatedEvent(long tradeId) {
+    try {
+      TradeNoticeContext context = readTradeNoticeContext(tradeId);
+      if (context == null) {
+        return;
+      }
+      String totalText = formatAmount(context.totalPrice(), context.currency());
+      String itemLabel = formatMaterial(context.itemMaterial());
+      broadcastService.broadcastTemplate(
+          "trade-success",
+          Map.of(
+              "tradeId", context.tradeId(),
+              "listingId", context.listingId(),
+              "seller", context.sellerName(),
+              "buyer", context.buyerName(),
+              "item", itemLabel,
+              "quantity", context.quantity(),
+              "total", context.totalPrice(),
+              "currency", context.currency().name(),
+              "totalText", totalText));
+      notificationService.createNotifications(
+          List.of(context.sellerUserId(), context.buyerUserId()),
+          "MARKET_TRADE",
+          "Market Trade",
+          "Listing #" + context.listingId() + " traded: "
+              + itemLabel + " x" + context.quantity() + ", total " + totalText + ".");
+    } catch (Exception exception) {
+      plugin.getLogger().warning("Failed to publish trade event: " + exception.getMessage());
+    }
+  }
+
+  private void publishBidCreatedEvent(BidResult result) {
+    try {
+      BidNoticeContext context = readBidNoticeContext(result.bidId());
+      if (context == null) {
+        return;
+      }
+      if (result.sealedBid()) {
+        broadcastService.broadcastTemplate(
+            "auction-sealed-bid",
+            Map.of(
+                "listingId", context.listingId(),
+                "bidder", context.bidderName(),
+                "seller", context.sellerName(),
+                "currency", context.currency().name()));
+      } else {
+        String amountText = formatAmount(context.bidAmount(), context.currency());
+        broadcastService.broadcastTemplate(
+            "auction-bid",
+            Map.of(
+                "listingId", context.listingId(),
+                "bidder", context.bidderName(),
+                "seller", context.sellerName(),
+                "bidAmount", context.bidAmount(),
+                "currency", context.currency().name(),
+                "bidAmountText", amountText));
+      }
+
+      String bidderMessage = result.sealedBid()
+          ? "You submitted a sealed bid on auction #" + context.listingId() + "."
+          : "You placed a bid on auction #" + context.listingId() + ": "
+              + formatAmount(context.bidAmount(), context.currency()) + ".";
+      notificationService.createNotification(
+          context.bidderUserId(),
+          "AUCTION_BID",
+          "Bid Accepted",
+          bidderMessage);
+      notificationService.createNotification(
+          context.sellerUserId(),
+          "AUCTION_BID",
+          "Auction Updated",
+          "Auction #" + context.listingId() + " received a new bid from " + context.bidderName() + ".");
+      if (result.previousHighestBidderUserId() != null
+          && result.previousHighestBidderUserId() > 0L
+          && result.previousHighestBidderUserId() != context.bidderUserId()) {
+        notificationService.createNotification(
+            result.previousHighestBidderUserId(),
+            "AUCTION_OUTBID",
+            "Outbid Notice",
+            "Your leading bid on auction #" + context.listingId() + " was surpassed.");
+      }
+    } catch (Exception exception) {
+      plugin.getLogger().warning("Failed to publish auction bid event: " + exception.getMessage());
+    }
+  }
+
+  private void persistAuctionNotices(List<AuctionSettlementNotice> notices) {
+    if (notices == null || notices.isEmpty()) {
+      return;
+    }
+    for (AuctionSettlementNotice notice : notices) {
+      if (notice == null || notice.playerUuid() == null || notice.message() == null || notice.message().isBlank()) {
+        continue;
+      }
+      try {
+        Long userId = notificationService.findUserIdByBoundUuid(notice.playerUuid());
+        if (userId == null || userId <= 0L) {
+          continue;
+        }
+        notificationService.createNotification(
+            userId,
+            "AUCTION_SETTLEMENT",
+            "Auction Settlement",
+            notice.message());
+      } catch (Exception exception) {
+        plugin.getLogger().warning("Failed to persist auction notice: " + exception.getMessage());
+      }
+    }
+  }
+
+  private TradeNoticeContext readTradeNoticeContext(long tradeId) {
+    return databaseManager.withConnection(connection -> {
+      String sql = """
+          SELECT mt.id AS trade_id, mt.listing_id, mt.seller_user_id, seller.username AS seller_name,
+                 mt.buyer_user_id, buyer.username AS buyer_name, mt.currency, mt.quantity, mt.total_price,
+                 ml.item_material
+          FROM market_trades mt
+          JOIN market_listings ml ON ml.id = mt.listing_id
+          JOIN web_users seller ON seller.id = mt.seller_user_id
+          JOIN web_users buyer ON buyer.id = mt.buyer_user_id
+          WHERE mt.id = ?
+          LIMIT 1
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, tradeId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (!resultSet.next()) {
+            return null;
+          }
+          return new TradeNoticeContext(
+              resultSet.getLong("trade_id"),
+              resultSet.getLong("listing_id"),
+              resultSet.getLong("seller_user_id"),
+              resultSet.getString("seller_name"),
+              resultSet.getLong("buyer_user_id"),
+              resultSet.getString("buyer_name"),
+              CurrencyType.valueOf(resultSet.getString("currency")),
+              resultSet.getInt("quantity"),
+              resultSet.getLong("total_price"),
+              resultSet.getString("item_material"));
+        }
+      }
+    });
+  }
+
+  private BidNoticeContext readBidNoticeContext(long bidId) {
+    return databaseManager.withConnection(connection -> {
+      String sql = """
+          SELECT mb.id AS bid_id, mb.listing_id, mb.bid_amount, mb.bidder_user_id, bidder.username AS bidder_name,
+                 ml.seller_user_id, seller.username AS seller_name, ml.currency
+          FROM market_bids mb
+          JOIN market_listings ml ON ml.id = mb.listing_id
+          JOIN web_users bidder ON bidder.id = mb.bidder_user_id
+          JOIN web_users seller ON seller.id = ml.seller_user_id
+          WHERE mb.id = ?
+          LIMIT 1
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, bidId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (!resultSet.next()) {
+            return null;
+          }
+          return new BidNoticeContext(
+              resultSet.getLong("bid_id"),
+              resultSet.getLong("listing_id"),
+              resultSet.getLong("bidder_user_id"),
+              resultSet.getString("bidder_name"),
+              resultSet.getLong("seller_user_id"),
+              resultSet.getString("seller_name"),
+              CurrencyType.valueOf(resultSet.getString("currency")),
+              resultSet.getLong("bid_amount"));
+        }
+      }
+    });
+  }
+
+  private String formatAmount(long amount, CurrencyType currency) {
+    return amount + " " + currency.name();
+  }
+
+  private String formatMaterial(String material) {
+    if (material == null || material.isBlank()) {
+      return "UNKNOWN";
+    }
+    String normalized = material.trim().toLowerCase(Locale.ROOT).replace('_', ' ');
+    String[] parts = normalized.split(" ");
+    StringBuilder builder = new StringBuilder();
+    for (String part : parts) {
+      if (part.isBlank()) {
+        continue;
+      }
+      if (builder.length() > 0) {
+        builder.append(' ');
+      }
+      builder.append(Character.toUpperCase(part.charAt(0)));
+      if (part.length() > 1) {
+        builder.append(part.substring(1));
+      }
+    }
+    return builder.length() == 0 ? material : builder.toString();
+  }
+
   boolean isProtectedSupplyBlock(Block block) {
     if (block == null) {
       return false;
@@ -2875,7 +3137,7 @@ class MarketService {
       Thread.currentThread().interrupt();
       throw new ServiceException("sync_interrupted", "Supply operation interrupted; please try again later");
     } catch (TimeoutException exception) {
-      throw new ServiceException("sync_timeout", "供货操作超时，请稍后重试");
+      throw new ServiceException("sync_timeout", "渚涜揣鎿嶄綔瓒呮椂锛岃绋嶅悗閲嶈瘯");
     } catch (ExecutionException exception) {
       Throwable cause = exception.getCause();
       if (cause instanceof ServiceException serviceException) {
@@ -3532,34 +3794,58 @@ class MarketService {
       LocalDateTime refundDeadline) {
   }
 
-      private record ExistingBid(
-        long bidId,
-        long listingId,
-        long bidAmount,
-        String status) {
-      }
+  private record TradeNoticeContext(
+      long tradeId,
+      long listingId,
+      long sellerUserId,
+      String sellerName,
+      long buyerUserId,
+      String buyerName,
+      CurrencyType currency,
+      int quantity,
+      long totalPrice,
+      String itemMaterial) {
+  }
 
-      private record AuctionBidRefund(
-        long bidId,
-        long bidderUserId,
-        UUID bidderUuid,
-        long bidAmount) {
-      }
+  private record BidNoticeContext(
+      long bidId,
+      long listingId,
+      long bidderUserId,
+      String bidderName,
+      long sellerUserId,
+      String sellerName,
+      CurrencyType currency,
+      long bidAmount) {
+  }
 
-      private record AuctionSettlementNotice(UUID playerUuid, String message) {
-      }
+  private record ExistingBid(
+      long bidId,
+      long listingId,
+      long bidAmount,
+      String status) {
+  }
 
-      private record DynamicDecayTarget(
-        long listingId,
-        long currentPrice,
-        String dynamicAlgorithm,
-        String dynamicParamsJson,
-        Long dynamicBasePrice,
-        Long dynamicFloorPrice,
-        Long dynamicCapPrice,
-        Long dynamicPriceStep,
-        long dynamicDemandScore) {
-      }
+  private record AuctionBidRefund(
+      long bidId,
+      long bidderUserId,
+      UUID bidderUuid,
+      long bidAmount) {
+  }
+
+  private record AuctionSettlementNotice(UUID playerUuid, String message) {
+  }
+
+  private record DynamicDecayTarget(
+      long listingId,
+      long currentPrice,
+      String dynamicAlgorithm,
+      String dynamicParamsJson,
+      Long dynamicBasePrice,
+      Long dynamicFloorPrice,
+      Long dynamicCapPrice,
+      Long dynamicPriceStep,
+      long dynamicDemandScore) {
+  }
 
   private record MarketListing(
       long id,
@@ -3909,6 +4195,7 @@ class MarketService {
     }
   }
 }
+
 
 
 

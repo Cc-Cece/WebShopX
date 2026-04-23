@@ -1013,6 +1013,114 @@ code {
   flex-wrap: wrap;
 }
 
+.account-notification-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notification-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--md-sys-color-error);
+  color: var(--md-sys-color-on-error);
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.notification-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.notification-card {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--radius-medium);
+  background: var(--app-card-soft-bg);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.notification-card.is-unread {
+  border-color: var(--app-info-border);
+  background: color-mix(in srgb, var(--app-info-bg) 42%, var(--app-card-soft-bg));
+}
+
+.notification-head {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.notification-head-main {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.notification-title {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.notification-type {
+  display: inline-flex;
+  width: fit-content;
+  border-radius: 999px;
+  border: 1px solid var(--app-info-border);
+  background: var(--app-info-bg);
+  color: var(--app-info-fg);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.notification-time {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.notification-content {
+  margin: 0;
+  color: var(--md-sys-color-on-surface);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.notification-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.notification-state {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.notification-state.unread {
+  color: var(--app-info-fg);
+}
+
+.notification-state.read {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
 .product-card {
   padding: 14px;
   display: flex;
@@ -2058,6 +2166,15 @@ pre {
     padding: 0;
     margin: 2px 0 0;
     font-size: 13px;
+  }
+
+  .notification-head {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .notification-time {
+    white-space: normal;
   }
 
   .page-index .dialog-card .dialog-select-field,

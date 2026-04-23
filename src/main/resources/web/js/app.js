@@ -13,6 +13,8 @@
   listings: [],
   products: [],
   orders: [],
+  notifications: [],
+  unreadNotificationCount: 0,
   orderPolicy: {
     cooldownSeconds: 0,
     refundEnabled: false,
@@ -35,6 +37,7 @@
   hasLoadedProducts: false,
   hasLoadedMarket: false,
   hasLoadedOrders: false,
+  hasLoadedNotifications: false,
   theme: "light",
   hideOwnMarketListings: true,
   realtime: {
@@ -44,6 +47,7 @@
     orderDigest: {},
     listingDigest: {},
     wallet: null,
+    notificationUnread: null,
   },
   walletBalance: {
     shopCoin: 0,
@@ -299,6 +303,13 @@ const ERROR_TIPS_BY_SCENE = {
   market_load: {
     not_found: "市场接口不可用，请稍后重试。",
   },
+  notifications_load: {
+    not_found: "通知接口不可用，请稍后重试。",
+  },
+  notifications_mark_read: {
+    bad_request: "通知参数有误，请刷新后重试。",
+    not_found: "通知不存在或已被删除。",
+  },
 };
 
 const REDEEM_STATUS_TIPS = {
@@ -402,6 +413,11 @@ const elements = {
   orderView: document.getElementById("orderView"),
   ordersBtn: document.getElementById("ordersBtn"),
   orderList: document.getElementById("orderList"),
+  notificationsView: document.getElementById("notificationsView"),
+  notificationsList: document.getElementById("notificationsList"),
+  notificationsRefreshBtn: document.getElementById("notificationsRefreshBtn"),
+  notificationsMarkAllBtn: document.getElementById("notificationsMarkAllBtn"),
+  notificationsBadge: document.getElementById("notificationsBadge"),
   marketView: document.getElementById("marketView"),
   shopCoinValue: document.getElementById("shopCoinValue"),
   gameCoinValue: document.getElementById("gameCoinValue"),
@@ -462,7 +478,7 @@ const tabs = Array.from(document.querySelectorAll(".top-tab"));
 const panels = Array.from(document.querySelectorAll(".tab-panel"));
 const accountEntryButtons = Array.from(document.querySelectorAll("[data-account-tab]"));
 const accountBackButtons = Array.from(document.querySelectorAll("[data-account-back]"));
-const ACCOUNT_CHILD_TABS = new Set(["wallet", "orders", "logs"]);
+const ACCOUNT_CHILD_TABS = new Set(["wallet", "orders", "notifications", "logs"]);
 
 function getMarketTradeScopeByTab(tabName) {
   return tabName === "auction" ? "AUCTION" : "DIRECT";
@@ -1771,6 +1787,16 @@ function updateAccountBackButtonVisibility() {
   elements.headerAccountBackBtn.classList.toggle("hidden", !shouldShow);
 }
 
+function updateNotificationBadge() {
+  if (!elements.notificationsBadge) {
+    return;
+  }
+  const unreadCount = Math.max(0, Number(state.unreadNotificationCount || 0));
+  const shouldShow = !!state.token && unreadCount > 0;
+  elements.notificationsBadge.textContent = unreadCount > 99 ? "99+" : String(unreadCount);
+  elements.notificationsBadge.classList.toggle("hidden", !shouldShow);
+}
+
 const PATH_TAB_MAP = {
   "/": "auth",
   "/account": "auth",
@@ -1826,6 +1852,13 @@ function switchTab(tabName, skipHistory = false) {
       loadOrders();
     } else {
       setMetaText(elements.orderView, "请先登录后查看订单。", "warn");
+    }
+  }
+  if (tabName === "notifications") {
+    if (state.token) {
+      loadNotifications();
+    } else {
+      setMetaText(elements.notificationsView, "请先登录后查看通知。", "warn");
     }
   }
   if (tabName === "market" || tabName === "auction") {
@@ -3250,11 +3283,13 @@ function updateAuthLayout() {
 
   if (!loggedIn) {
     setStatus("未登录", "offline");
+    updateNotificationBadge();
     updateAccountBackButtonVisibility();
     return;
   }
 
   setStatus(`已登录：${state.username || "-"}`, "online");
+  updateNotificationBadge();
   updateAccountBackButtonVisibility();
   renderProfile();
 }
@@ -3296,7 +3331,11 @@ function setSession(payload) {
 
   updateAuthLayout();
   state.hasLoadedOrders = false;
+  state.hasLoadedNotifications = false;
   startRealtimeSync();
+  refreshNotificationUnreadCount().catch(() => {
+    // ignore unread refresh errors, realtime loop will retry
+  });
 }
 
 function clearSession() {
@@ -3304,10 +3343,14 @@ function clearSession() {
   state.username = null;
   state.boundUuid = null;
   state.orders = [];
+  state.notifications = [];
   state.hasLoadedOrders = false;
+  state.hasLoadedNotifications = false;
+  state.unreadNotificationCount = 0;
   // 移除本地存储的会话
   window.localStorage.removeItem(SESSION_STORAGE_KEY);
   renderOrders(state.orders);
+  renderNotifications(state.notifications);
   renderWalletLedger([]);
   updateAuthLayout();
   stopRealtimeSync();
@@ -3333,6 +3376,7 @@ async function restoreSession() {
     state.boundUuid = sessionData.boundUuid;
     updateAuthLayout();
     await loadOrders();
+    await refreshNotificationUnreadCount();
     startRealtimeSync();
     log("会话已恢复。", "SUCCESS");
   } catch (error) {
@@ -3350,10 +3394,11 @@ async function pollRealtimeSync() {
   }
   state.realtime.busy = true;
   try {
-    const [walletPayload, ordersPayload, listingsPayload] = await Promise.all([
+    const [walletPayload, ordersPayload, listingsPayload, notificationPayload] = await Promise.all([
       api("/api/wallet", { method: "GET" }),
       api("/api/orders/list?limit=30", { method: "GET" }),
       api("/api/market/listings?mine=true&limit=80", { method: "GET" }),
+      api("/api/notifications/unread-count", { method: "GET" }),
     ]);
 
     if (state.realtime.hasBootstrapped) {
@@ -3374,6 +3419,12 @@ async function pollRealtimeSync() {
       }
       notifyOrderTransitions(state.realtime.orderDigest, ordersPayload.orders || []);
       notifyListingTransitions(state.realtime.listingDigest, listingsPayload.listings || []);
+      const previousUnread = Number(state.realtime.notificationUnread || 0);
+      const currentUnread = Math.max(0, Number(notificationPayload.unreadCount || 0));
+      if (currentUnread > previousUnread) {
+        const delta = currentUnread - previousUnread;
+        notify(`你有 ${delta} 条新通知。`, "info");
+      }
     }
 
     state.realtime.wallet = {
@@ -3382,6 +3433,9 @@ async function pollRealtimeSync() {
     };
     state.realtime.orderDigest = buildOrderDigest(ordersPayload.orders || []);
     state.realtime.listingDigest = buildListingDigest(listingsPayload.listings || []);
+    state.realtime.notificationUnread = Math.max(0, Number(notificationPayload.unreadCount || 0));
+    state.unreadNotificationCount = state.realtime.notificationUnread;
+    updateNotificationBadge();
     state.realtime.hasBootstrapped = true;
 
     if (state.activeTab === "wallet") {
@@ -3390,6 +3444,11 @@ async function pollRealtimeSync() {
     if (state.activeTab === "orders") {
       state.orders = ordersPayload.orders || [];
       renderOrders(state.orders);
+    }
+    if (state.activeTab === "notifications") {
+      loadNotifications({ silent: true }).catch(() => {
+        // ignore transient notification refresh failures
+      });
     }
     if ((state.activeTab === "market" || state.activeTab === "auction") && state.marketMode === "mine") {
       state.listings = filterListingsByTradeScope(listingsPayload.listings || [], state.marketTradeScope);
@@ -3416,6 +3475,7 @@ function startRealtimeSync() {
   state.realtime.orderDigest = {};
   state.realtime.listingDigest = {};
   state.realtime.wallet = null;
+  state.realtime.notificationUnread = null;
   pollRealtimeSync().catch(() => {
     // ignore first poll errors, next tick will retry
   });
@@ -3436,6 +3496,7 @@ function stopRealtimeSync() {
   state.realtime.orderDigest = {};
   state.realtime.listingDigest = {};
   state.realtime.wallet = null;
+  state.realtime.notificationUnread = null;
 }
 
 function updateWalletView(payload) {
@@ -4486,6 +4547,168 @@ function renderOrders(orders) {
   setMetaText(elements.orderView, `订单记录：${orders.length} 条`, "info");
 }
 
+function notificationTypeLabel(type) {
+  const key = String(type || "GENERAL").toUpperCase();
+  const labels = {
+    GENERAL: "通知",
+    SYSTEM_ANNOUNCEMENT: "系统公告",
+    MARKET_LISTED: "上架提醒",
+    MARKET_TRADE: "市场成交",
+    AUCTION_BID: "竞拍提醒",
+    AUCTION_OUTBID: "竞拍超价",
+    DELIVERY_WAIT_CLAIM: "待领取提醒",
+  };
+  if (labels[key]) {
+    return localizeDisplayText(labels[key]);
+  }
+  if (I18N && typeof I18N.humanizeEnum === "function") {
+    return I18N.humanizeEnum(key.toLowerCase());
+  }
+  return key;
+}
+
+function renderNotifications(notifications) {
+  if (!elements.notificationsList) {
+    return;
+  }
+  elements.notificationsList.innerHTML = "";
+  if (!notifications || notifications.length === 0) {
+    const empty = createEl("div", "notification-card", "当前没有通知。");
+    elements.notificationsList.appendChild(empty);
+    return;
+  }
+
+  for (const row of notifications) {
+    const isRead = !!row.isRead;
+    const card = createEl("article", `notification-card${isRead ? "" : " is-unread"}`);
+
+    const head = createEl("div", "notification-head");
+    const headMain = createEl("div", "notification-head-main");
+    headMain.appendChild(createEl("h3", "notification-title", row.title || "系统通知"));
+    headMain.appendChild(createEl("span", "notification-type", notificationTypeLabel(row.type)));
+    head.appendChild(headMain);
+    head.appendChild(createEl("p", "notification-time", formatDateTime(row.createdAt)));
+    card.appendChild(head);
+
+    card.appendChild(createEl("p", "notification-content", row.content || "-"));
+
+    const actions = createEl("div", "notification-actions");
+    actions.appendChild(
+      createEl("span", `notification-state ${isRead ? "read" : "unread"}`, isRead ? "已读" : "未读")
+    );
+    if (!isRead) {
+      const markBtn = createEl("button", "btn-tonal", "标记已读");
+      markBtn.type = "button";
+      markBtn.dataset.action = "markRead";
+      markBtn.dataset.notificationId = String(row.id || "");
+      actions.appendChild(markBtn);
+    }
+    card.appendChild(actions);
+    elements.notificationsList.appendChild(card);
+  }
+}
+
+async function refreshNotificationUnreadCount(options = {}) {
+  const silent = !!options.silent;
+  if (!state.token) {
+    state.unreadNotificationCount = 0;
+    updateNotificationBadge();
+    return;
+  }
+  try {
+    const payload = await api("/api/notifications/unread-count", { method: "GET" });
+    state.unreadNotificationCount = Math.max(0, Number(payload.unreadCount || 0));
+    updateNotificationBadge();
+  } catch (error) {
+    if (!silent) {
+      const message = resolveErrorMessage(error, "notifications_load");
+      log(`刷新通知未读数失败：${message}`, "WARN");
+    }
+  }
+}
+
+async function loadNotifications(options = {}) {
+  const announce = !!options.announce;
+  const silent = !!options.silent;
+  try {
+    ensureToken();
+    const payload = await api("/api/notifications/list?limit=50", { method: "GET" });
+    state.notifications = payload.notifications || [];
+    state.hasLoadedNotifications = true;
+    const unreadFromResponse = Number(payload.unreadCount);
+    if (Number.isFinite(unreadFromResponse)) {
+      state.unreadNotificationCount = Math.max(0, unreadFromResponse);
+    } else {
+      state.unreadNotificationCount = state.notifications.filter((item) => !item.isRead).length;
+    }
+    updateNotificationBadge();
+    renderNotifications(state.notifications);
+    setMetaText(elements.notificationsView, `通知中心：${state.notifications.length} 条`, "info");
+    if (announce && !silent) {
+      notify(`通知已刷新：${state.notifications.length} 条。`, "info");
+    }
+  } catch (error) {
+    const message = resolveErrorMessage(error, "notifications_load");
+    setMetaText(elements.notificationsView, `加载通知失败：${message}`, "error");
+    if (announce && !silent) {
+      notify(`加载通知失败：${message}`, "error");
+    }
+    if (!silent) {
+      log(`加载通知失败：${message}`, "ERROR");
+    }
+  }
+}
+
+async function markNotificationRead(notificationId) {
+  ensureToken();
+  const targetId = Number(notificationId || 0);
+  if (!Number.isFinite(targetId) || targetId <= 0) {
+    throw new Error("通知 ID 无效。");
+  }
+  const payload = await api("/api/notifications/mark-read", {
+    method: "POST",
+    body: JSON.stringify({
+      id: targetId,
+    }),
+  });
+  state.notifications = state.notifications.map((item) => (
+    Number(item.id) === targetId
+      ? { ...item, isRead: true, readAt: item.readAt || new Date().toISOString() }
+      : item
+  ));
+  if (Object.prototype.hasOwnProperty.call(payload, "unreadCount")) {
+    state.unreadNotificationCount = Math.max(0, Number(payload.unreadCount || 0));
+  } else {
+    state.unreadNotificationCount = state.notifications.filter((item) => !item.isRead).length;
+  }
+  updateNotificationBadge();
+  renderNotifications(state.notifications);
+  setMetaText(elements.notificationsView, `通知中心：${state.notifications.length} 条`, "info");
+}
+
+async function markAllNotificationsRead() {
+  ensureToken();
+  const payload = await api("/api/notifications/mark-read", {
+    method: "POST",
+    body: JSON.stringify({
+      all: true,
+    }),
+  });
+  state.notifications = state.notifications.map((item) => ({
+    ...item,
+    isRead: true,
+    readAt: item.readAt || new Date().toISOString(),
+  }));
+  if (Object.prototype.hasOwnProperty.call(payload, "unreadCount")) {
+    state.unreadNotificationCount = Math.max(0, Number(payload.unreadCount || 0));
+  } else {
+    state.unreadNotificationCount = 0;
+  }
+  updateNotificationBadge();
+  renderNotifications(state.notifications);
+  setMetaText(elements.notificationsView, `通知中心：${state.notifications.length} 条`, "info");
+}
+
 async function loadOrders(options = {}) {
   const announce = !!options.announce;
   try {
@@ -5015,6 +5238,7 @@ if (elements.loginBtn) {
     await refreshWallet();
     await loadWalletLedger();
     await loadOrders();
+    await loadNotifications({ silent: true });
     try {
       await loadProducts();
     } catch (productError) {
@@ -5244,6 +5468,49 @@ if (elements.productClearBtn) {
 if (elements.ordersBtn) {
   elements.ordersBtn.addEventListener("click", () => {
     loadOrders({ announce: true });
+  });
+}
+if (elements.notificationsRefreshBtn) {
+  elements.notificationsRefreshBtn.addEventListener("click", () => {
+    loadNotifications({ announce: true });
+  });
+}
+if (elements.notificationsMarkAllBtn) {
+  elements.notificationsMarkAllBtn.addEventListener("click", async () => {
+    try {
+      if (state.unreadNotificationCount <= 0) {
+        notify("当前没有未读通知。", "info");
+        return;
+      }
+      await markAllNotificationsRead();
+      notify("已全部标记为已读。", "success");
+    } catch (error) {
+      const message = resolveErrorMessage(error, "notifications_mark_read");
+      notify(`操作失败：${message}`, "error");
+      log(`通知全部已读失败：${message}`, "ERROR");
+    }
+  });
+}
+if (elements.notificationsList) {
+  elements.notificationsList.addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-action='markRead']");
+    if (!button || button.disabled) {
+      return;
+    }
+    const notificationId = Number(button.dataset.notificationId || 0);
+    if (!Number.isFinite(notificationId) || notificationId <= 0) {
+      return;
+    }
+    button.disabled = true;
+    try {
+      await markNotificationRead(notificationId);
+    } catch (error) {
+      const message = resolveErrorMessage(error, "notifications_mark_read");
+      notify(`标记已读失败：${message}`, "error");
+      log(`通知标记已读失败：${message}`, "ERROR");
+    } finally {
+      button.disabled = false;
+    }
   });
 }
 document.getElementById("marketListBtn").addEventListener("click", () => {
@@ -5678,7 +5945,10 @@ setMetaText(elements.redeemView, "等待兑换操作", "info");
 setMetaText(elements.exchangeRateHint, "等待加载兑换比例", "info");
 setMetaText(elements.exchangeView, "等待兑换操作", "info");
 setMetaText(elements.orderView, "暂无订单", "info");
+setMetaText(elements.notificationsView, "暂无通知", "info");
 setMetaText(elements.marketView, "暂无市场数据", "info");
+renderNotifications(state.notifications);
+updateNotificationBadge();
 ensureMaterialNameMap();
 loadOrderPolicy();
 loadCurrencyMeta().finally(() => {

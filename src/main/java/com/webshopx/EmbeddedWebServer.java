@@ -39,6 +39,7 @@ class EmbeddedWebServer {
   private final ProductService productService;
   private final OrderService orderService;
   private final MarketService marketService;
+  private final NotificationService notificationService;
   private final AdminService adminService;
   private final AdminAuditService adminAuditService;
   private final Gson gson;
@@ -56,6 +57,7 @@ class EmbeddedWebServer {
       ProductService productService,
       OrderService orderService,
       MarketService marketService,
+      NotificationService notificationService,
       AdminService adminService,
       AdminAuditService adminAuditService) {
     this.plugin = plugin;
@@ -66,6 +68,7 @@ class EmbeddedWebServer {
     this.productService = productService;
     this.orderService = orderService;
     this.marketService = marketService;
+    this.notificationService = notificationService;
     this.adminService = adminService;
     this.adminAuditService = adminAuditService;
     this.gson = new GsonBuilder().disableHtmlEscaping().create();
@@ -95,6 +98,9 @@ class EmbeddedWebServer {
     server.createContext("/api/orders/list", this::handleOrdersList);
     server.createContext("/api/orders/refund", this::handleOrdersRefund);
     server.createContext("/api/orders/policy", this::handleOrdersPolicy);
+    server.createContext("/api/notifications/list", this::handleNotificationsList);
+    server.createContext("/api/notifications/unread-count", this::handleNotificationsUnreadCount);
+    server.createContext("/api/notifications/mark-read", this::handleNotificationsMarkRead);
     server.createContext("/api/meta/currency", this::handleCurrencyMeta);
     server.createContext("/api/meta/materials", this::handleMaterialMeta);
     server.createContext("/api/market/listings", this::handleMarketListings);
@@ -130,6 +136,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/users/logout", this::handleAdminForceLogout);
     server.createContext("/api/admin/users/wallet-adjust", this::handleAdminWalletAdjust);
     server.createContext("/api/admin/audit/list", this::handleAdminAuditList);
+    server.createContext("/api/admin/notifications/announce", this::handleAdminNotificationAnnounce);
     server.createContext("/api/admin/admin-users/meta", this::handleAdminUsersMeta);
     server.createContext("/api/admin/admin-users/list", this::handleAdminAdminUsersList);
     server.createContext("/api/admin/admin-users/upsert", this::handleAdminAdminUsersUpsert);
@@ -545,6 +552,108 @@ class EmbeddedWebServer {
           "marketSupplyAutoRefreshThreshold",
           Math.max(0, settingsSupplier.get().marketSupplySettings().autoRefreshThreshold()));
       response.addProperty("sharedClaimAllowed", settingsSupplier.get().allowSharedClaimCommand());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleNotificationsList(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, null);
+      Map<String, String> query = parseQuery(exchange);
+      int limit = parseInt(query.get("limit"), 30);
+      Long cursor = parseLong(query.get("cursor"));
+      boolean unreadOnly = parseBoolean(query.get("unreadOnly"));
+      List<NotificationService.NotificationView> notifications =
+          notificationService.listForUser(user.id(), limit, cursor, unreadOnly);
+
+      JsonArray rows = new JsonArray();
+      Long nextCursor = null;
+      for (NotificationService.NotificationView notification : notifications) {
+        JsonObject row = new JsonObject();
+        row.addProperty("id", notification.id());
+        row.addProperty("type", notification.type());
+        row.addProperty("title", notification.title());
+        row.addProperty("content", notification.content());
+        row.addProperty("isRead", notification.read());
+        row.addProperty("createdAt", notification.createdAt().toString());
+        if (notification.readAt() == null) {
+          row.add("readAt", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("readAt", notification.readAt().toString());
+        }
+        if (notification.dataJson() == null || notification.dataJson().isBlank()) {
+          row.add("data", JsonNull.INSTANCE);
+        } else {
+          try {
+            row.add("data", JsonParser.parseString(notification.dataJson()));
+          } catch (Exception ignored) {
+            row.addProperty("dataRaw", notification.dataJson());
+            row.add("data", JsonNull.INSTANCE);
+          }
+        }
+        rows.add(row);
+        nextCursor = notification.id();
+      }
+
+      JsonObject response = new JsonObject();
+      response.add("notifications", rows);
+      if (nextCursor == null) {
+        response.add("nextCursor", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("nextCursor", nextCursor);
+      }
+      response.addProperty("unreadCount", notificationService.countUnread(user.id()));
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleNotificationsUnreadCount(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, null);
+      JsonObject response = new JsonObject();
+      response.addProperty("unreadCount", notificationService.countUnread(user.id()));
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleNotificationsMarkRead(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      boolean markAll = payload.has("all")
+          && !payload.get("all").isJsonNull()
+          && payload.get("all").getAsBoolean();
+      int updated;
+      if (markAll) {
+        updated = notificationService.markAllRead(user.id());
+      } else {
+        long notificationId = getLong(payload, "id", -1L);
+        if (notificationId <= 0L) {
+          throw new ServiceException("bad_request", "Missing field: id");
+        }
+        updated = notificationService.markRead(user.id(), notificationId);
+      }
+      JsonObject response = new JsonObject();
+      response.addProperty("updated", updated);
+      response.addProperty("unreadCount", notificationService.countUnread(user.id()));
       sendJson(exchange, 200, response);
     });
   }
@@ -2071,6 +2180,39 @@ class EmbeddedWebServer {
       response.add("logs", array);
       sendJson(exchange, 200, response);
       adminAuditService.log(admin, "AUDIT_LIST", "audit", null, null, clientIp(exchange));
+    });
+  }
+
+  private void handleAdminNotificationAnnounce(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.MARKET_MANAGE);
+      String title = getString(payload, "title").trim();
+      String content = getString(payload, "content").trim();
+      if (title.isBlank() || content.isBlank()) {
+        throw new ServiceException("bad_request", "Title and content must not be empty");
+      }
+      int delivered = notificationService.createSystemAnnouncement(title, content);
+      JsonObject response = new JsonObject();
+      response.addProperty("delivered", delivered);
+      sendJson(exchange, 200, response);
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("title", title);
+      detail.addProperty("delivered", delivered);
+      adminAuditService.log(
+          admin,
+          "NOTIFICATION_ANNOUNCE",
+          "notification",
+          null,
+          detail,
+          clientIp(exchange));
     });
   }
 

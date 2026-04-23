@@ -103,6 +103,10 @@
           <div class="actions">
             <button class="btn-tonal" type="button" data-account-tab="wallet">钱包资产</button>
             <button class="btn-tonal" type="button" data-account-tab="orders">订单记录</button>
+            <button id="accountNotificationsBtn" class="btn-tonal account-notification-btn" type="button" data-account-tab="notifications">
+              <span>通知中心</span>
+              <span id="notificationsBadge" class="notification-badge hidden">0</span>
+            </button>
             <button class="btn-tonal" type="button" data-account-tab="logs">操作日志</button>
             <button id="accountHelpBtn" class="btn-tonal" type="button">使用教程</button>
           </div>
@@ -282,6 +286,23 @@
         </div>
         <p class="meta" id="orderView">暂无订单</p>
         <div id="orderList" class="order-grid"></div>
+      </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="notifications">
+      <article class="md-card section-card">
+        <div class="section-head">
+          <div>
+            <h2>通知中心</h2>
+            <p class="card-desc">查看市场动态、交付提醒和系统公告。</p>
+          </div>
+          <div class="section-actions">
+            <button id="notificationsRefreshBtn" type="button">刷新通知</button>
+            <button id="notificationsMarkAllBtn" class="btn-tonal" type="button">全部已读</button>
+          </div>
+        </div>
+        <p class="meta" id="notificationsView">暂无通知</p>
+        <div id="notificationsList" class="notification-list"></div>
       </article>
     </section>
 

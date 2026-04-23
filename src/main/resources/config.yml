@@ -53,6 +53,15 @@ webshop:
       # 玩家可设置的中转库存上限
       max-transit-stock: 1024
 
+  broadcast:
+    # 是否启用市场事件广播（上架、成交、竞拍等）
+    enabled: true
+    templates:
+      listing-created: "&6[市场]&r &e{seller}&r 上架了 &b{item}&r x{quantity}，单价 {priceText}"
+      trade-success: "&6[市场]&r &e{buyer}&r 购买了 &b{item}&r x{quantity}，成交总价 {totalText}"
+      auction-bid: "&6[拍卖]&r &e{bidder}&r 对拍卖 #{listingId} 出价 {bidAmountText}"
+      auction-sealed-bid: "&6[拍卖]&r 拍卖 #{listingId} 收到新的密封出价"
+
   maintenance:
     # 清理任务执行间隔（分钟）
     cleanup-interval-minutes: 30
@@ -133,6 +142,8 @@ redis:
   enabled: false
   host: 127.0.0.1
   port: 6379
+  password: ""
+  channel: webshopx:market:broadcast
 
 sample-products:
   - sku: vip_week
