@@ -9,10 +9,13 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import redis.clients.jedis.Connection;
 import redis.clients.jedis.DefaultJedisClientConfig;
+import redis.clients.jedis.HostAndPort;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPooled;
 import redis.clients.jedis.JedisPubSub;
@@ -164,7 +167,9 @@ class BroadcastService {
       }
       this.clientConfig = configBuilder.build();
 
-      this.publisher = new JedisPooled(host, port, clientConfig);
+        this.publisher =
+            new JedisPooled(
+            new GenericObjectPoolConfig<Connection>(), new HostAndPort(host, port), clientConfig);
       this.subscriberThread = new Thread(() -> runSubscriber(host, port), "webshopx-redis-sub");
       this.subscriberThread.setDaemon(true);
       this.subscriberThread.start();
