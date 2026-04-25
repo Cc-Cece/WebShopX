@@ -260,6 +260,12 @@ const elements = {
   marketEconomySaveBtn: document.getElementById("marketEconomySaveBtn"),
   marketEconomyStatusView: document.getElementById("marketEconomyStatusView"),
   vaultStatusView: document.getElementById("vaultStatusView"),
+  leaderboardEnabled: document.getElementById("leaderboardEnabled"),
+  leaderboardShowOnlineStatus: document.getElementById("leaderboardShowOnlineStatus"),
+  leaderboardDefaultMetric: document.getElementById("leaderboardDefaultMetric"),
+  leaderboardDefaultOrder: document.getElementById("leaderboardDefaultOrder"),
+  leaderboardSaveBtn: document.getElementById("leaderboardSaveBtn"),
+  leaderboardStatusView: document.getElementById("leaderboardStatusView"),
 
   marketStatus: document.getElementById("marketStatus"),
   marketSeller: document.getElementById("marketSeller"),
@@ -2186,8 +2192,23 @@ async function loadEconomySettings() {
     }
   }
 
+  const leaderboard = payload.leaderboard || {};
+  if (elements.leaderboardEnabled) {
+    elements.leaderboardEnabled.value = String(leaderboard.enabled !== false);
+  }
+  if (elements.leaderboardShowOnlineStatus) {
+    elements.leaderboardShowOnlineStatus.value = String(leaderboard.showOnlineStatus !== false);
+  }
+  if (elements.leaderboardDefaultMetric) {
+    elements.leaderboardDefaultMetric.value = String(leaderboard.defaultMetric || "GAME_COIN").toUpperCase();
+  }
+  if (elements.leaderboardDefaultOrder) {
+    elements.leaderboardDefaultOrder.value = String(leaderboard.defaultOrder || "DESC").toUpperCase();
+  }
+
   setMetaText(elements.exchangeStatusView, "已加载兑换配置", "info");
   setMetaText(elements.marketEconomyStatusView, "已加载手续费/税率配置", "info");
+  setMetaText(elements.leaderboardStatusView, "已加载排行榜配置", "info");
 }
 
 async function saveExchangeSettings() {
@@ -2223,6 +2244,25 @@ async function saveMarketEconomySettings() {
   });
   setMetaText(elements.marketEconomyStatusView, "手续费/税率已保存", "success");
   notify("手续费/税率已保存", "success");
+}
+
+async function saveLeaderboardSettings() {
+  ensureAdmin();
+  const enabled = elements.leaderboardEnabled?.value === "true";
+  const showOnlineStatus = elements.leaderboardShowOnlineStatus?.value === "true";
+  const defaultMetric = String(elements.leaderboardDefaultMetric?.value || "GAME_COIN").toUpperCase();
+  const defaultOrder = String(elements.leaderboardDefaultOrder?.value || "DESC").toUpperCase();
+  await apiAdmin("/api/admin/economy/leaderboard", {
+    method: "POST",
+    body: JSON.stringify({
+      enabled,
+      showOnlineStatus,
+      defaultMetric,
+      defaultOrder,
+    }),
+  });
+  setMetaText(elements.leaderboardStatusView, "排行榜配置已保存", "success");
+  notify("排行榜配置已保存", "success");
 }
 
 async function loadMarket() {

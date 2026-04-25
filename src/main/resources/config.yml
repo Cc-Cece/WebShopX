@@ -53,6 +53,16 @@ webshop:
       # 玩家可设置的中转库存上限
       max-transit-stock: 1024
 
+  leaderboard:
+    # 是否启用排行榜页面（玩家端）
+    enabled: true
+    # 默认是否显示实时在线状态
+    show-online-status: true
+    # 默认排行维度：GAME_COIN | SHOP_COIN | ONLINE_TIME
+    default-metric: GAME_COIN
+    # 默认排序：DESC=高到低，ASC=低到高
+    default-order: DESC
+
   broadcast:
     # 是否启用市场事件广播（上架、成交、竞拍等）
     enabled: true

@@ -319,6 +319,14 @@ class StaticAssetInstaller {
         + System.lineSeparator()
         + "  defaultLocale: \"" + escapeJs(settings.defaultLocale()) + "\","
         + System.lineSeparator()
+        + "  leaderboardEnabled: " + settings.leaderboardSettings().enabled() + ","
+        + System.lineSeparator()
+        + "  leaderboardShowOnlineStatus: " + settings.leaderboardSettings().showOnlineStatus() + ","
+        + System.lineSeparator()
+        + "  leaderboardDefaultMetric: \"" + settings.leaderboardSettings().defaultMetric().name() + "\"," 
+        + System.lineSeparator()
+        + "  leaderboardDefaultOrder: \"" + settings.leaderboardSettings().defaultOrder().name() + "\"," 
+        + System.lineSeparator()
         + "  docsManifest: \"docs/index.json\","
         + System.lineSeparator()
         + "  helpDefaultDoc: \"manual\","

@@ -42,6 +42,7 @@ class EmbeddedWebServer {
   private final NotificationService notificationService;
   private final AdminService adminService;
   private final AdminAuditService adminAuditService;
+  private final LeaderboardService leaderboardService;
   private final Gson gson;
 
   private HttpServer server;
@@ -59,7 +60,8 @@ class EmbeddedWebServer {
       MarketService marketService,
       NotificationService notificationService,
       AdminService adminService,
-      AdminAuditService adminAuditService) {
+      AdminAuditService adminAuditService,
+      LeaderboardService leaderboardService) {
     this.plugin = plugin;
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
@@ -71,6 +73,7 @@ class EmbeddedWebServer {
     this.notificationService = notificationService;
     this.adminService = adminService;
     this.adminAuditService = adminAuditService;
+    this.leaderboardService = leaderboardService;
     this.gson = new GsonBuilder().disableHtmlEscaping().create();
   }
 
@@ -103,6 +106,8 @@ class EmbeddedWebServer {
     server.createContext("/api/notifications/mark-read", this::handleNotificationsMarkRead);
     server.createContext("/api/meta/currency", this::handleCurrencyMeta);
     server.createContext("/api/meta/materials", this::handleMaterialMeta);
+    server.createContext("/api/leaderboard/config", this::handleLeaderboardConfig);
+    server.createContext("/api/leaderboard/list", this::handleLeaderboardList);
     server.createContext("/api/market/listings", this::handleMarketListings);
     server.createContext("/api/market/buy", this::handleMarketBuy);
     server.createContext("/api/market/bid", this::handleMarketBid);
@@ -127,6 +132,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/economy/settings", this::handleAdminEconomySettings);
     server.createContext("/api/admin/economy/exchange", this::handleAdminExchangeUpdate);
     server.createContext("/api/admin/economy/market", this::handleAdminMarketEconomyUpdate);
+    server.createContext("/api/admin/economy/leaderboard", this::handleAdminLeaderboardSettingsUpdate);
     server.createContext("/api/admin/market/listings", this::handleAdminMarketListings);
     server.createContext("/api/admin/market/unlist", this::handleAdminMarketUnlist);
     server.createContext("/api/admin/users/lookup", this::handleAdminUserLookup);
@@ -716,6 +722,100 @@ class EmbeddedWebServer {
       response.add("materials", materials);
       sendJson(exchange, 200, response);
     });
+  }
+
+  private void handleLeaderboardConfig(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject response = new JsonObject();
+      response.add("leaderboard", leaderboardSettingsJson(settingsSupplier.get()));
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleLeaderboardList(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      PluginSettings settings = settingsSupplier.get();
+      PluginSettings.LeaderboardSettings leaderboardSettings = settings.leaderboardSettings();
+      if (!leaderboardSettings.enabled()) {
+        throw new ServiceException("feature_disabled", "Leaderboard page is disabled");
+      }
+
+      Map<String, String> query = parseQuery(exchange);
+      String metric = query.get("metric");
+      String order = query.get("order");
+      String range = query.get("range");
+      int limit = parseInt(query.get("limit"), 100);
+      boolean includeOnline = leaderboardSettings.showOnlineStatus();
+      if (query.containsKey("showOnline")) {
+        includeOnline = parseBoolean(query.get("showOnline"));
+      }
+
+      Long viewerUserId = findOptionalAuth(exchange).map(AuthService.AuthUser::id).orElse(null);
+      LeaderboardService.LeaderboardResult result = leaderboardService.list(
+          metric,
+          order,
+          range,
+          limit,
+          viewerUserId,
+          includeOnline,
+          leaderboardSettings);
+
+      JsonArray rows = new JsonArray();
+      for (LeaderboardService.LeaderboardEntry entry : result.entries()) {
+        JsonObject row = new JsonObject();
+        row.addProperty("rank", entry.rank());
+        row.addProperty("userId", entry.userId());
+        row.addProperty("username", entry.username());
+        if (entry.boundUuid() == null) {
+          row.add("boundUuid", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("boundUuid", entry.boundUuid().toString());
+        }
+        row.addProperty("shopCoin", entry.shopCoin());
+        row.addProperty("gameCoin", entry.gameCoin());
+        row.addProperty("onlineTimeMinutes", entry.onlineTimeMinutes());
+        row.addProperty("score", entry.score());
+        row.addProperty("online", entry.online());
+        rows.add(row);
+      }
+
+      JsonObject response = new JsonObject();
+      response.add("leaderboard", leaderboardSettingsJson(settings));
+      response.addProperty("metric", result.metric().name());
+      response.addProperty("order", result.order().name());
+      response.addProperty("requestedRange", result.requestedRange().name());
+      response.addProperty("effectiveRange", result.effectiveRange().name());
+      response.addProperty("total", result.total());
+      if (result.myRank() == null) {
+        response.add("myRank", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("myRank", result.myRank());
+      }
+      response.add("entries", rows);
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private JsonObject leaderboardSettingsJson(PluginSettings settings) {
+    PluginSettings.LeaderboardSettings leaderboard = settings.leaderboardSettings();
+    JsonObject json = new JsonObject();
+    json.addProperty("enabled", leaderboard.enabled());
+    json.addProperty("showOnlineStatus", leaderboard.showOnlineStatus());
+    json.addProperty("defaultMetric", leaderboard.defaultMetric().name());
+    json.addProperty("defaultOrder", leaderboard.defaultOrder().name());
+    return json;
   }
 
   private void handleMarketListings(HttpExchange exchange) throws IOException {
@@ -1696,6 +1796,7 @@ class EmbeddedWebServer {
       response.add("market", marketJson);
       response.add("currency", currencyJson);
       response.add("vault", vaultJson);
+      response.add("leaderboard", leaderboardSettingsJson(settings));
       sendJson(exchange, 200, response);
 
       adminAuditService.log(admin, "ECONOMY_READ", "economy", null, null, clientIp(exchange));
@@ -1760,6 +1861,45 @@ class EmbeddedWebServer {
       detail.addProperty("tradeFeePercent", fee);
       detail.addProperty("tradeTaxPercent", tax);
       adminAuditService.log(admin, "MARKET_ECONOMY_UPDATE", "market", null, detail, clientIp(exchange));
+
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminLeaderboardSettingsUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+
+      boolean enabled = getBoolean(payload, "enabled");
+      boolean showOnlineStatus = getBoolean(payload, "showOnlineStatus");
+      String defaultMetric = getString(payload, "defaultMetric");
+      String defaultOrder = getString(payload, "defaultOrder");
+
+      PluginSettings.LeaderboardMetric.fromRaw(defaultMetric);
+      PluginSettings.SortDirection.fromRaw(defaultOrder);
+
+      updateConfig(config -> {
+        config.set("webshop.leaderboard.enabled", enabled);
+        config.set("webshop.leaderboard.show-online-status", showOnlineStatus);
+        config.set("webshop.leaderboard.default-metric", defaultMetric.trim().toUpperCase(Locale.ROOT));
+        config.set("webshop.leaderboard.default-order", defaultOrder.trim().toUpperCase(Locale.ROOT));
+      });
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("enabled", enabled);
+      detail.addProperty("showOnlineStatus", showOnlineStatus);
+      detail.addProperty("defaultMetric", defaultMetric);
+      detail.addProperty("defaultOrder", defaultOrder);
+      adminAuditService.log(admin, "LEADERBOARD_UPDATE", "leaderboard", null, detail, clientIp(exchange));
 
       JsonObject response = new JsonObject();
       response.addProperty("status", "ok");

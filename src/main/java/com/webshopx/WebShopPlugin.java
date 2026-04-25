@@ -36,6 +36,7 @@ public class WebShopPlugin extends JavaPlugin {
   private DeliveryService deliveryService;
   private AdminService adminService;
   private AdminAuditService adminAuditService;
+  private LeaderboardService leaderboardService;
   private EmbeddedWebServer embeddedWebServer;
   private StaticAssetInstaller staticAssetInstaller;
   private TextureAssetManager textureAssetManager;
@@ -89,6 +90,7 @@ public class WebShopPlugin extends JavaPlugin {
           mailboxService);
       adminService = new AdminService(databaseManager, authService, walletService);
       adminAuditService = new AdminAuditService(databaseManager);
+          leaderboardService = new LeaderboardService(this, databaseManager);
       maintenanceService = new MaintenanceService(this, databaseManager, this::settings, pluginLogService);
       embeddedWebServer = new EmbeddedWebServer(
           this,
@@ -101,7 +103,8 @@ public class WebShopPlugin extends JavaPlugin {
           marketService,
           notificationService,
           adminService,
-          adminAuditService);
+          adminAuditService,
+          leaderboardService);
 
       // Products are managed via admin backend; no seed import from config.
       adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());

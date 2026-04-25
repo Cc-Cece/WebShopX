@@ -44,6 +44,7 @@
       <button class="top-tab" data-tab-target="shop" type="button">官方商城</button>
       <button class="top-tab" data-tab-target="market" type="button">玩家市场</button>
       <button class="top-tab" data-tab-target="auction" type="button">拍卖行</button>
+      <button class="top-tab" data-tab-target="leaderboard" type="button" id="leaderboardTabBtn">排行榜</button>
     </nav>
 
     <section class="tab-panel active" data-tab-panel="auth">
@@ -384,6 +385,58 @@
 
         <p class="meta" id="marketView">暂无市场数据</p>
         <div id="marketList" class="market-grid"></div>
+      </article>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="leaderboard" id="leaderboardPanel">
+      <article class="md-card section-card">
+        <div class="section-head">
+          <div>
+            <h2>玩家排行榜</h2>
+            <p class="card-desc">支持按资产和在线时长排序，可查看我的名次与实时在线状态。</p>
+          </div>
+          <div class="section-actions">
+            <button id="leaderboardRefreshBtn" type="button">刷新榜单</button>
+            <button id="leaderboardMyRankBtn" class="btn-tonal" type="button">定位我的名次</button>
+          </div>
+        </div>
+
+        <div class="field-grid three-col field-grid-smart">
+          <label class="field field-select">
+            <select id="leaderboardMetric">
+              <option value="GAME_COIN">GameCoin</option>
+              <option value="SHOP_COIN">ShopCoin</option>
+              <option value="ONLINE_TIME">在线时长</option>
+            </select>
+            <span class="field-label">排行维度</span>
+          </label>
+          <label class="field field-select">
+            <select id="leaderboardOrder">
+              <option value="DESC">高到低</option>
+              <option value="ASC">低到高</option>
+            </select>
+            <span class="field-label">排序方向</span>
+          </label>
+          <label class="field field-select">
+            <select id="leaderboardRange">
+              <option value="TOTAL">总榜</option>
+              <option value="WEEK">近7天</option>
+              <option value="MONTH">近30天</option>
+            </select>
+            <span class="field-label">时间范围</span>
+          </label>
+        </div>
+
+        <div class="actions compact-actions">
+          <label class="market-toggle market-filter-toggle">
+            <input id="leaderboardShowOnlineToggle" type="checkbox" checked />
+            <span>实时显示在线状态</span>
+          </label>
+          <span class="meta" id="leaderboardMyRankView">我的名次：-</span>
+        </div>
+
+        <p class="meta" id="leaderboardView">等待加载榜单</p>
+        <div id="leaderboardList" class="market-grid"></div>
       </article>
     </section>
 

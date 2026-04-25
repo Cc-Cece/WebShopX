@@ -511,6 +511,46 @@
           <p class="card-desc"><span id="vaultGameCoinName">游戏币</span> 与 Vault 经济系统的连接状态。</p>
           <p class="meta" id="vaultStatusView">等待加载</p>
         </article>
+
+        <article class="md-card section-card">
+          <h2>排行榜设置</h2>
+          <p class="card-desc">控制玩家端排行榜页面开关、在线状态显示及默认排序。</p>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>开启排行榜页面</span>
+              <select id="leaderboardEnabled">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>显示实时在线状态</span>
+              <select id="leaderboardShowOnlineStatus">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>默认排行维度</span>
+              <select id="leaderboardDefaultMetric">
+                <option value="GAME_COIN">GameCoin</option>
+                <option value="SHOP_COIN">ShopCoin</option>
+                <option value="ONLINE_TIME">在线时长</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>默认排序方向</span>
+              <select id="leaderboardDefaultOrder">
+                <option value="DESC">高到低</option>
+                <option value="ASC">低到高</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions">
+            <button id="leaderboardSaveBtn" type="button">保存排行榜配置</button>
+          </div>
+          <p class="meta" id="leaderboardStatusView">等待操作</p>
+        </article>
       </div>
     </section>
 

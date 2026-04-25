@@ -24,6 +24,7 @@ record PluginSettings(
     ZoneId timeZone,
     int marketMaxActiveListings,
     MarketSupplySettings marketSupplySettings,
+    LeaderboardSettings leaderboardSettings,
     CurrencyDisplaySettings currencyDisplaySettings,
     MaintenanceSettings maintenanceSettings,
     LoggingSettings loggingSettings,
@@ -86,6 +87,11 @@ record PluginSettings(
         config.getInt("webshop.market.supply.max-transfer-batch-size", 256),
         config.getInt("webshop.market.supply.default-transit-stock", 256),
         config.getInt("webshop.market.supply.max-transit-stock", 1024));
+    LeaderboardSettings leaderboardSettings = new LeaderboardSettings(
+      config.getBoolean("webshop.leaderboard.enabled", true),
+      config.getBoolean("webshop.leaderboard.show-online-status", true),
+      LeaderboardMetric.fromRaw(config.getString("webshop.leaderboard.default-metric", "GAME_COIN")),
+      SortDirection.fromRaw(config.getString("webshop.leaderboard.default-order", "DESC")));
     InflationSettings inflationSettings = new InflationSettings(
         InflationMode.fromRaw(config.getString("economy.inflation-control.mode", "burn")),
         config.getLong("economy.inflation-control.treasury-user-id", 0L));
@@ -120,6 +126,7 @@ record PluginSettings(
         parseZoneId(config.getString("webshop.time-zone", "Asia/Shanghai")),
         config.getInt("webshop.market.max-active-listings", 10),
         marketSupplySettings,
+        leaderboardSettings,
         currencyDisplaySettings,
         maintenanceSettings,
         loggingSettings,
@@ -337,6 +344,46 @@ record PluginSettings(
       int maxTransferBatchSize,
       int defaultTransitStock,
       int maxTransitStock) {
+  }
+
+  record LeaderboardSettings(
+      boolean enabled,
+      boolean showOnlineStatus,
+      LeaderboardMetric defaultMetric,
+      SortDirection defaultOrder) {
+  }
+
+  enum LeaderboardMetric {
+    GAME_COIN,
+    SHOP_COIN,
+    ONLINE_TIME;
+
+    static LeaderboardMetric fromRaw(String raw) {
+      if (raw == null || raw.isBlank()) {
+        return GAME_COIN;
+      }
+      try {
+        return LeaderboardMetric.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+      } catch (IllegalArgumentException exception) {
+        return GAME_COIN;
+      }
+    }
+  }
+
+  enum SortDirection {
+    ASC,
+    DESC;
+
+    static SortDirection fromRaw(String raw) {
+      if (raw == null || raw.isBlank()) {
+        return DESC;
+      }
+      String normalized = raw.trim().toUpperCase(Locale.ROOT);
+      if ("ASC".equals(normalized) || "ASCENDING".equals(normalized)) {
+        return ASC;
+      }
+      return DESC;
+    }
   }
 
   record InflationSettings(InflationMode mode, long treasuryUserId) {

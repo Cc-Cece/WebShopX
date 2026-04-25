@@ -58,6 +58,16 @@
     shopToGame: { enabled: true, ratio: 1.0 },
     gameToShop: { enabled: false, ratio: 1.0 },
   },
+  leaderboard: {
+    enabled: true,
+    showOnlineStatusEnabled: true,
+    defaultMetric: "GAME_COIN",
+    defaultOrder: "DESC",
+    timer: null,
+    busy: false,
+    previousRanks: {},
+    myRank: null,
+  },
   timeZone: "Asia/Shanghai",
 };
 
@@ -195,6 +205,7 @@ const ERROR_TIPS_COMMON = {
   method_not_allowed: "请求方式错误，请刷新页面后重试。",
   wallet_missing: "钱包不存在，请联系管理员检查数据。",
   user_missing: "账号数据不存在，请联系管理员处理。",
+  feature_disabled: "该功能当前已被管理员关闭。",
 };
 
 const ERROR_TIPS_BY_SCENE = {
@@ -448,6 +459,17 @@ const elements = {
   marketHideOwnToggle: document.getElementById("marketHideOwnToggle"),
   marketSectionTitle: document.getElementById("marketSectionTitle"),
   marketSectionDesc: document.getElementById("marketSectionDesc"),
+  leaderboardTabBtn: document.getElementById("leaderboardTabBtn"),
+  leaderboardPanel: document.getElementById("leaderboardPanel"),
+  leaderboardMetric: document.getElementById("leaderboardMetric"),
+  leaderboardOrder: document.getElementById("leaderboardOrder"),
+  leaderboardRange: document.getElementById("leaderboardRange"),
+  leaderboardShowOnlineToggle: document.getElementById("leaderboardShowOnlineToggle"),
+  leaderboardRefreshBtn: document.getElementById("leaderboardRefreshBtn"),
+  leaderboardMyRankBtn: document.getElementById("leaderboardMyRankBtn"),
+  leaderboardView: document.getElementById("leaderboardView"),
+  leaderboardMyRankView: document.getElementById("leaderboardMyRankView"),
+  leaderboardList: document.getElementById("leaderboardList"),
   snackbarHost: document.getElementById("snackbarHost"),
   confirmDialog: document.getElementById("confirmDialog"),
   confirmTitle: document.getElementById("confirmTitle"),
@@ -1802,14 +1824,16 @@ const PATH_TAB_MAP = {
   "/account": "auth",
   "/b2c": "shop",
   "/c2c": "market",
-  "/auction": "auction"
+  "/auction": "auction",
+  "/leaderboard": "leaderboard"
 };
 
 const TAB_PATH_MAP = {
   "auth": "/account",
   "shop": "/b2c",
   "market": "/c2c",
-  "auction": "/auction"
+  "auction": "/auction",
+  "leaderboard": "/leaderboard"
 };
 
 function switchTab(tabName, skipHistory = false) {
@@ -1866,6 +1890,15 @@ function switchTab(tabName, skipHistory = false) {
     updateMarketSectionContext();
     loadMarket("public");
   }
+  if (tabName === "leaderboard") {
+    loadLeaderboardConfig().then(() => loadLeaderboard()).catch((error) => {
+      const message = resolveErrorMessage(error, "leaderboard");
+      setMetaText(elements.leaderboardView, `加载榜单失败：${message}`, "error");
+    });
+    startLeaderboardRealtime();
+  } else {
+    stopLeaderboardRealtime();
+  }
 }
 
 tabs.forEach((tab) => {
@@ -1914,6 +1947,186 @@ window.addEventListener("load", () => {
   const tabName = PATH_TAB_MAP[path] || "auth";
   switchTab(tabName, true);
 });
+
+async function loadLeaderboardConfig() {
+  const payload = await fetch(resolveApiUrl("/api/leaderboard/config"), { method: "GET" }).then((res) => res.json());
+  const config = payload.leaderboard || {};
+  state.leaderboard.enabled = config.enabled !== false;
+  state.leaderboard.showOnlineStatusEnabled = config.showOnlineStatus !== false;
+  state.leaderboard.defaultMetric = String(config.defaultMetric || "GAME_COIN").toUpperCase();
+  state.leaderboard.defaultOrder = String(config.defaultOrder || "DESC").toUpperCase();
+
+  if (elements.leaderboardTabBtn) {
+    elements.leaderboardTabBtn.classList.toggle("hidden", !state.leaderboard.enabled);
+  }
+  if (elements.leaderboardPanel) {
+    elements.leaderboardPanel.classList.toggle("hidden", !state.leaderboard.enabled);
+  }
+
+  if (!state.leaderboard.enabled) {
+    if (state.activeTab === "leaderboard") {
+      switchTab("auth");
+    }
+    return;
+  }
+
+  if (elements.leaderboardMetric) {
+    elements.leaderboardMetric.value = state.leaderboard.defaultMetric;
+  }
+  if (elements.leaderboardOrder) {
+    elements.leaderboardOrder.value = state.leaderboard.defaultOrder;
+  }
+  if (elements.leaderboardShowOnlineToggle) {
+    elements.leaderboardShowOnlineToggle.checked = state.leaderboard.showOnlineStatusEnabled;
+    elements.leaderboardShowOnlineToggle.disabled = !state.leaderboard.showOnlineStatusEnabled;
+  }
+}
+
+function formatOnlineMinutes(minutes) {
+  const value = Math.max(0, Number(minutes || 0));
+  const hours = Math.floor(value / 60);
+  const remain = value % 60;
+  return `${hours}h ${remain}m`;
+}
+
+function leaderboardScoreText(entry, metric) {
+  if (metric === "SHOP_COIN") {
+    return formatCurrency(entry.shopCoin, "SHOP_COIN");
+  }
+  if (metric === "ONLINE_TIME") {
+    return formatOnlineMinutes(entry.onlineTimeMinutes);
+  }
+  return formatCurrency(entry.gameCoin, "GAME_COIN");
+}
+
+function leaderboardTrendText(userId, rank) {
+  const previous = state.leaderboard.previousRanks[userId];
+  if (!previous) {
+    return "NEW";
+  }
+  if (rank < previous) {
+    return `↑ ${previous - rank}`;
+  }
+  if (rank > previous) {
+    return `↓ ${rank - previous}`;
+  }
+  return "-";
+}
+
+function renderLeaderboard(payload) {
+  const rows = payload.entries || [];
+  const metric = String(payload.metric || state.leaderboard.defaultMetric || "GAME_COIN").toUpperCase();
+  const nextRanks = {};
+  elements.leaderboardList.innerHTML = "";
+
+  if (!rows.length) {
+    setMetaText(elements.leaderboardView, "当前没有可显示的排行榜数据。", "warn");
+    return;
+  }
+
+  rows.forEach((entry) => {
+    nextRanks[entry.userId] = entry.rank;
+    const card = createEl("article", "market-card leaderboard-card");
+    card.dataset.userId = String(entry.userId);
+
+    const title = createEl("h3", "", `#${entry.rank} ${entry.username}`);
+    card.appendChild(title);
+
+    const trend = createEl("p", "meta", `趋势：${leaderboardTrendText(entry.userId, entry.rank)}`);
+    card.appendChild(trend);
+
+    const score = createEl("p", "", `当前值：${leaderboardScoreText(entry, metric)}`);
+    card.appendChild(score);
+
+    if (elements.leaderboardShowOnlineToggle && elements.leaderboardShowOnlineToggle.checked) {
+      const onlineText = entry.online ? "在线" : "离线";
+      const online = createEl("p", "meta", `状态：${onlineText}`);
+      card.appendChild(online);
+    }
+
+    elements.leaderboardList.appendChild(card);
+  });
+
+  state.leaderboard.previousRanks = nextRanks;
+  state.leaderboard.myRank = payload.myRank ?? null;
+  const rankText = state.leaderboard.myRank ? `我的名次：#${state.leaderboard.myRank}` : "我的名次：未上榜";
+  setNodeText(elements.leaderboardMyRankView, rankText);
+
+  let statusText = `已加载 ${rows.length} / ${payload.total || rows.length} 条`;
+  if (payload.requestedRange && payload.effectiveRange && payload.requestedRange !== payload.effectiveRange) {
+    statusText += "（当前维度仅支持总榜）";
+  }
+  setMetaText(elements.leaderboardView, statusText, "info");
+}
+
+async function loadLeaderboard() {
+  if (!state.leaderboard.enabled || state.leaderboard.busy) {
+    return;
+  }
+  state.leaderboard.busy = true;
+  try {
+    const metric = elements.leaderboardMetric?.value || state.leaderboard.defaultMetric || "GAME_COIN";
+    const order = elements.leaderboardOrder?.value || state.leaderboard.defaultOrder || "DESC";
+    const range = elements.leaderboardRange?.value || "TOTAL";
+    const showOnline = elements.leaderboardShowOnlineToggle?.checked !== false;
+    const query = new URLSearchParams({
+      metric,
+      order,
+      range,
+      showOnline: String(showOnline),
+      limit: "100",
+    });
+    const payload = await api(`/api/leaderboard/list?${query.toString()}`, { method: "GET" });
+    renderLeaderboard(payload);
+  } finally {
+    state.leaderboard.busy = false;
+  }
+}
+
+function locateMyLeaderboardRank() {
+  if (!state.leaderboard.myRank) {
+    notify("当前未找到你的榜单名次。", "warn");
+    return;
+  }
+  const card = elements.leaderboardList?.querySelector(`[data-user-id]`);
+  if (!card) {
+    notify("请先加载榜单后再定位。", "warn");
+    return;
+  }
+  const cards = Array.from(elements.leaderboardList.querySelectorAll("[data-user-id]"));
+  const target = cards.find((node) => {
+    const title = node.querySelector("h3")?.textContent || "";
+    return title.startsWith(`#${state.leaderboard.myRank} `);
+  });
+  if (!target) {
+    notify("当前分页未包含你的名次。", "warn");
+    return;
+  }
+  target.scrollIntoView({ behavior: "smooth", block: "center" });
+  notify(`已定位到 #${state.leaderboard.myRank}`, "success");
+}
+
+function startLeaderboardRealtime() {
+  stopLeaderboardRealtime();
+  if (!state.leaderboard.enabled) {
+    return;
+  }
+  state.leaderboard.timer = window.setInterval(() => {
+    if (state.activeTab !== "leaderboard") {
+      return;
+    }
+    loadLeaderboard().catch(() => {
+      // ignore transient leaderboard refresh failures
+    });
+  }, 10000);
+}
+
+function stopLeaderboardRealtime() {
+  if (state.leaderboard.timer) {
+    clearInterval(state.leaderboard.timer);
+    state.leaderboard.timer = null;
+  }
+}
 
 function createIdempotencyKey() {
   if (window.crypto && typeof window.crypto.randomUUID === "function") {
@@ -5576,6 +5789,43 @@ if (elements.marketClearBtn) {
   });
 }
 
+if (elements.leaderboardRefreshBtn) {
+  elements.leaderboardRefreshBtn.addEventListener("click", () => {
+    loadLeaderboard().then(() => {
+      notify("排行榜已刷新。", "success");
+    }).catch((error) => {
+      const message = resolveErrorMessage(error, "leaderboard");
+      notify(`加载失败：${message}`, "error");
+    });
+  });
+}
+
+if (elements.leaderboardMyRankBtn) {
+  elements.leaderboardMyRankBtn.addEventListener("click", () => {
+    locateMyLeaderboardRank();
+  });
+}
+
+[
+  elements.leaderboardMetric,
+  elements.leaderboardOrder,
+  elements.leaderboardRange,
+].filter(Boolean).forEach((node) => {
+  node.addEventListener("change", () => {
+    loadLeaderboard().catch(() => {
+      // handled by next manual refresh
+    });
+  });
+});
+
+if (elements.leaderboardShowOnlineToggle) {
+  elements.leaderboardShowOnlineToggle.addEventListener("change", () => {
+    loadLeaderboard().catch(() => {
+      // handled by next manual refresh
+    });
+  });
+}
+
 elements.productList.addEventListener("click", async (event) => {
   const button = event.target.closest(".product-buy-btn");
   if (!button) {
@@ -5947,10 +6197,19 @@ setMetaText(elements.exchangeView, "等待兑换操作", "info");
 setMetaText(elements.orderView, "暂无订单", "info");
 setMetaText(elements.notificationsView, "暂无通知", "info");
 setMetaText(elements.marketView, "暂无市场数据", "info");
+if (elements.leaderboardView) {
+  setMetaText(elements.leaderboardView, "等待加载榜单", "info");
+}
+if (elements.leaderboardMyRankView) {
+  setNodeText(elements.leaderboardMyRankView, "我的名次：-");
+}
 renderNotifications(state.notifications);
 updateNotificationBadge();
 ensureMaterialNameMap();
 loadOrderPolicy();
+loadLeaderboardConfig().catch(() => {
+  // ignore config bootstrap errors
+});
 loadCurrencyMeta().finally(() => {
   loadProducts();
   loadMarket("public");
