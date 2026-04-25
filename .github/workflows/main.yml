@@ -1,7 +1,7 @@
 name: Test and Release
 
 permissions:
-  contents: write 
+  contents: write
 
 on:
   push:
@@ -24,7 +24,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Common Setup
         uses: ./.github/actions/common-setup
@@ -38,14 +38,14 @@ jobs:
         run: ./gradlew build --info -x checkstyleMain -x checkstyleTest -x spotbugsMain -x spotbugsTest
 
       - name: Upload build results
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }} Java ${{ matrix.java }} build results
           path: ${{ github.workspace }}/build/libs/
 
       - name: Upload test results
         if: ${{ always() }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }} Java ${{ matrix.java }} test results
           path: ${{ github.workspace }}/build/reports/
@@ -56,27 +56,33 @@ jobs:
       - test
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Common Setup
         uses: ./.github/actions/common-setup
         with:
           java-version: 21
 
+      - name: Get short SHA
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
       - name: Build with Gradle (Ignoring Quality Checks)
-        run: ./gradlew build -x checkstyleMain -x checkstyleTest -x spotbugsMain -x spotbugsTest
+        run: |
+          ./gradlew build -x checkstyleMain -x checkstyleTest -x spotbugsMain -x spotbugsTest \
+          -Pversion="1.1.3-SNAPSHOT+${{ steps.vars.outputs.sha_short }}"
 
       - name: Upload build results
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: Dev Build
           path: ${{ github.workspace }}/build/libs/
           retention-days: 14
 
-      - name: Create Dev Release
+      - name: Create Dev Release (Current Repo)
         env:
           GH_TOKEN: ${{ github.token }} 
         run: |
@@ -84,4 +90,16 @@ jobs:
             gh release upload dev ${{ github.workspace }}/build/libs/* --clobber
           else
             gh release create dev --generate-notes --prerelease --title "Dev Build" ${{ github.workspace }}/build/libs/*
+          fi
+
+      - name: Sync Release to Repo B
+        env:
+          GH_TOKEN: ${{ secrets.REPO_WebShopX_Issues_TOKEN }}
+          TARGET_REPO: "Cc-Cece/WebShopX-Issues" 
+        run: |
+          echo "Syncing build artifacts to $TARGET_REPO..."
+          if gh release view dev --repo "$TARGET_REPO" >/dev/null 2>&1; then
+            gh release upload dev ${{ github.workspace }}/build/libs/* --repo "$TARGET_REPO" --clobber
+          else
+            gh release create dev --repo "$TARGET_REPO" --generate-notes --prerelease --title "Dev Build" ${{ github.workspace }}/build/libs/*
           fi
