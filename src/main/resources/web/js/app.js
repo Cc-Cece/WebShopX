@@ -1343,6 +1343,185 @@ async function openAuctionParamDialog(state, fallbackPrice) {
   });
 }
 
+async function openListingVisualDialog({
+  currentItemMaterial,
+  currentFallbackTitle,
+  currentDisplayNameOverride,
+  currentDisplayMaterial,
+  currentDisplayIconPath,
+  pendingDisplayIconFile,
+  pendingDisplayIconPreviewUrl,
+}) {
+  const originalDisplayIconPath = String(currentDisplayIconPath || "").trim() || null;
+  return openMarketParamDialog({
+    title: "展示设置",
+    hint: "单独配置展示名称、展示材质与展示图标，保存后回到上架编辑窗口继续处理价格与交易模式。",
+    confirmText: "保存展示设置",
+    setupForm: (host) => {
+      const dialogDraft = {
+        displayIconPath: String(currentDisplayIconPath || "").trim() || null,
+        pendingDisplayIconFile: pendingDisplayIconFile || null,
+        pendingDisplayIconPreviewUrl: String(pendingDisplayIconPreviewUrl || ""),
+      };
+
+      const displayNameInput = document.createElement("input");
+      displayNameInput.type = "text";
+      displayNameInput.maxLength = 128;
+      displayNameInput.placeholder = "留空则跟随默认展示名称";
+      displayNameInput.value = currentDisplayNameOverride || "";
+      host.appendChild(createDialogSelectField("展示名称（仅前端显示）", displayNameInput));
+
+      const displayMaterialInput = document.createElement("input");
+      displayMaterialInput.type = "text";
+      displayMaterialInput.maxLength = 64;
+      displayMaterialInput.placeholder = "如 DIAMOND_SWORD，留空则跟随原材质";
+      displayMaterialInput.value = currentDisplayMaterial || "";
+      displayMaterialInput.addEventListener("blur", () => {
+        const normalized = normalizeMaterialKey(displayMaterialInput.value || "");
+        if (normalized) {
+          displayMaterialInput.value = normalized;
+          return;
+        }
+        if (String(displayMaterialInput.value || "").trim()) {
+          notify("展示材质未识别，将按输入值规范化后提交。", "warn");
+          displayMaterialInput.value = normalizeMaterialKey(String(displayMaterialInput.value || "").trim());
+        }
+      });
+      host.appendChild(createDialogSelectField("展示材质（仅前端显示）", displayMaterialInput));
+
+      const iconField = createEl("div", "dialog-select-field");
+      iconField.appendChild(createEl("span", "dialog-select-label", "展示图标（仅前端显示）"));
+      const iconPreviewWrap = createEl("div", "material-override-preview");
+      const iconPreviewImage = document.createElement("img");
+      iconPreviewImage.alt = "商品图标预览";
+      iconPreviewImage.src = getFallbackTexture();
+      const iconPreviewText = document.createElement("div");
+      const iconPreviewMeta = createEl("p", "meta", "当前图标预览");
+      const iconPreviewLabel = document.createElement("strong");
+      const iconStatus = createEl("p", "meta", "当前跟随材质图标。");
+      iconPreviewText.appendChild(iconPreviewMeta);
+      iconPreviewText.appendChild(iconPreviewLabel);
+      iconPreviewText.appendChild(iconStatus);
+      iconPreviewWrap.appendChild(iconPreviewImage);
+      iconPreviewWrap.appendChild(iconPreviewText);
+      iconField.appendChild(iconPreviewWrap);
+
+      const iconFileInput = document.createElement("input");
+      iconFileInput.type = "file";
+      iconFileInput.accept = ".png,.webp,.jpg,.jpeg,.gif,image/*";
+      iconField.appendChild(iconFileInput);
+
+      const iconActionRow = createEl("div", "actions compact-actions");
+      const iconUploadBtn = createEl("button", "btn-tonal", "上传图片");
+      iconUploadBtn.type = "button";
+      const iconClearBtn = createEl("button", "btn-tonal", "清除自定义图标");
+      iconClearBtn.type = "button";
+      iconActionRow.appendChild(iconUploadBtn);
+      iconActionRow.appendChild(iconClearBtn);
+      iconField.appendChild(iconActionRow);
+      iconField.appendChild(createEl("p", "field-hint", "上传图片会先进入待保存状态，回到主窗口保存修改后才会真正生效。"));
+      host.appendChild(iconField);
+
+      const resolveListingPreviewVisual = () => {
+        const baseMaterial = normalizeMaterialKey(currentItemMaterial || "") || DEFAULT_TEXTURE_FALLBACK_MATERIAL;
+        const fallbackTitle = String(currentFallbackTitle || "").trim()
+          || String(currentDisplayNameOverride || "").trim()
+          || getLocalizedMaterialName(baseMaterial, { includeGlobalOverride: false });
+        return resolveDisplayVisual(
+          baseMaterial,
+          displayNameInput.value,
+          displayMaterialInput.value,
+          dialogDraft.displayIconPath,
+          fallbackTitle,
+          { category: "market" }
+        );
+      };
+
+      const updateListingIconPreview = (message, tone = null) => {
+        const visual = resolveListingPreviewVisual();
+        const previewTitle = visual.title || String(currentFallbackTitle || "").trim() || "未命名商品";
+        setNodeText(iconPreviewLabel, previewTitle);
+        if (dialogDraft.pendingDisplayIconPreviewUrl) {
+          iconPreviewImage.src = dialogDraft.pendingDisplayIconPreviewUrl;
+        } else {
+          iconPreviewImage.src = resolveMaterialIconUrl(visual.forceIconPath)
+            || getTextureCandidates(visual.material || DEFAULT_TEXTURE_FALLBACK_MATERIAL, {
+              forceIconPath: visual.forceIconPath,
+              includeMaterialOverride: visual.includeMaterialOverride,
+            })[0]
+            || getFallbackTexture();
+        }
+
+        if (message) {
+          setMetaText(iconStatus, message, tone || "info");
+          return;
+        }
+        if (dialogDraft.pendingDisplayIconPreviewUrl) {
+          setMetaText(iconStatus, "已选择新的自定义图片，回到主窗口保存修改后生效。", "success");
+          return;
+        }
+        if (dialogDraft.displayIconPath) {
+          setMetaText(iconStatus, "当前使用已保存的自定义图片。", "info");
+          return;
+        }
+        if (originalDisplayIconPath) {
+          setMetaText(iconStatus, "回到主窗口保存修改后将移除当前自定义图标。", "warn");
+          return;
+        }
+        if (normalizeMaterialKey(displayMaterialInput.value || "")) {
+          setMetaText(iconStatus, "当前跟随展示材质的图标。", "info");
+          return;
+        }
+        setMetaText(iconStatus, "当前跟随原始材质图标。", "info");
+      };
+
+      iconUploadBtn.addEventListener("click", async () => {
+        try {
+          iconUploadBtn.disabled = true;
+          const file = iconFileInput.files?.[0];
+          if (!file) {
+            throw new Error("请先选择图标文件。");
+          }
+          const croppedFile = await cropImageFileToSquarePng(file, 128);
+          if (!croppedFile) {
+            updateListingIconPreview("已取消裁剪与上传。", "info");
+            return;
+          }
+          dialogDraft.pendingDisplayIconFile = croppedFile;
+          dialogDraft.pendingDisplayIconPreviewUrl = await readFileAsDataUrl(croppedFile);
+          iconFileInput.value = "";
+          updateListingIconPreview("新的自定义图片已加入待保存队列。", "success");
+        } catch (error) {
+          const message = resolveErrorMessage(error, "market_icon_upload");
+          updateListingIconPreview(`图标处理失败：${message}`, "error");
+          notify(`图标处理失败：${message}`, "error");
+        } finally {
+          iconUploadBtn.disabled = false;
+        }
+      });
+      iconClearBtn.addEventListener("click", () => {
+        dialogDraft.pendingDisplayIconFile = null;
+        dialogDraft.pendingDisplayIconPreviewUrl = "";
+        dialogDraft.displayIconPath = null;
+        iconFileInput.value = "";
+        updateListingIconPreview();
+      });
+      displayNameInput.addEventListener("input", () => updateListingIconPreview());
+      displayMaterialInput.addEventListener("input", () => updateListingIconPreview());
+      updateListingIconPreview();
+
+      return { displayNameInput, displayMaterialInput, dialogDraft };
+    },
+    resolveValue: (context) => ({
+      displayNameOverride: context.displayNameInput.value.trim() || null,
+      displayMaterial: normalizeMaterialKey(context.displayMaterialInput.value || "") || null,
+      displayIconPath: context.dialogDraft.displayIconPath,
+      pendingDisplayIconFile: context.dialogDraft.pendingDisplayIconFile,
+      pendingDisplayIconPreviewUrl: context.dialogDraft.pendingDisplayIconPreviewUrl,
+    }),
+  });
+}
+
 async function openListingEditDialog({
   listingId,
   currentPrice,
@@ -1443,6 +1622,8 @@ async function openListingEditDialog({
     dynamicParamsJson: currentDynamicParamsJson || null,
     auctionAlgorithm: String(currentAuctionAlgorithm || defaultAuctionAlgorithm).toUpperCase(),
     auctionParamsJson: currentAuctionParamsJson || null,
+    displayNameOverride: String(currentDisplayNameOverride || "").trim() || null,
+    displayMaterial: String(currentDisplayMaterial || "").trim() || null,
     displayIconPath: String(currentDisplayIconPath || "").trim() || null,
     pendingDisplayIconFile: null,
     pendingDisplayIconPreviewUrl: "",
@@ -1488,36 +1669,9 @@ async function openListingEditDialog({
   const remarkField = createDialogSelectField("备注", remarkInput);
   elements.confirmDetails.appendChild(remarkField);
 
-  const displayNameInput = document.createElement("input");
-  displayNameInput.type = "text";
-  displayNameInput.maxLength = 128;
-  displayNameInput.placeholder = "留空则跟随默认展示名称";
-  displayNameInput.value = currentDisplayNameOverride || "";
-  const displayNameField = createDialogSelectField("展示名称（仅前端显示）", displayNameInput);
-  elements.confirmDetails.appendChild(displayNameField);
-
-  const displayMaterialInput = document.createElement("input");
-  displayMaterialInput.type = "text";
-  displayMaterialInput.maxLength = 64;
-  displayMaterialInput.placeholder = "如 DIAMOND_SWORD，留空则跟随原材质";
-  displayMaterialInput.value = currentDisplayMaterial || "";
-  displayMaterialInput.addEventListener("blur", () => {
-    const normalized = normalizeMaterialKey(displayMaterialInput.value || "");
-    if (normalized) {
-      displayMaterialInput.value = normalized;
-      return;
-    }
-    if (String(displayMaterialInput.value || "").trim()) {
-      notify("展示材质未识别，将按输入值规范化后提交。", "warn");
-      displayMaterialInput.value = normalizeMaterialKey(String(displayMaterialInput.value || "").trim());
-    }
-  });
-  const displayMaterialField = createDialogSelectField("展示材质（仅前端显示）", displayMaterialInput);
-  elements.confirmDetails.appendChild(displayMaterialField);
-
   const originalDisplayIconPath = String(currentDisplayIconPath || "").trim() || null;
   const iconField = createEl("div", "dialog-select-field");
-  iconField.appendChild(createEl("span", "dialog-select-label", "展示图标（仅前端显示）"));
+  iconField.appendChild(createEl("span", "dialog-select-label", "展示设置（仅前端显示）"));
   const iconPreviewWrap = createEl("div", "material-override-preview");
   const iconPreviewImage = document.createElement("img");
   iconPreviewImage.alt = "商品图标预览";
@@ -1525,28 +1679,22 @@ async function openListingEditDialog({
   const iconPreviewText = document.createElement("div");
   const iconPreviewMeta = createEl("p", "meta", "当前图标预览");
   const iconPreviewLabel = document.createElement("strong");
+  const iconPreviewDetail = createEl("p", "meta", "");
   const iconStatus = createEl("p", "meta", "当前跟随材质图标。");
   iconPreviewText.appendChild(iconPreviewMeta);
   iconPreviewText.appendChild(iconPreviewLabel);
+  iconPreviewText.appendChild(iconPreviewDetail);
   iconPreviewText.appendChild(iconStatus);
   iconPreviewWrap.appendChild(iconPreviewImage);
   iconPreviewWrap.appendChild(iconPreviewText);
   iconField.appendChild(iconPreviewWrap);
 
-  const iconFileInput = document.createElement("input");
-  iconFileInput.type = "file";
-  iconFileInput.accept = ".png,.webp,.jpg,.jpeg,.gif,image/*";
-  iconField.appendChild(iconFileInput);
-
   const iconActionRow = createEl("div", "actions compact-actions");
-  const iconUploadBtn = createEl("button", "btn-tonal", "上传图片");
-  iconUploadBtn.type = "button";
-  const iconClearBtn = createEl("button", "btn-tonal", "清除自定义图标");
-  iconClearBtn.type = "button";
-  iconActionRow.appendChild(iconUploadBtn);
-  iconActionRow.appendChild(iconClearBtn);
+  const iconConfigBtn = createEl("button", "btn-tonal", "编辑展示设置");
+  iconConfigBtn.type = "button";
+  iconActionRow.appendChild(iconConfigBtn);
   iconField.appendChild(iconActionRow);
-  const iconHint = createEl("p", "field-hint", "上传图片会先进入待保存状态，点击“保存修改”后才会真正生效。");
+  const iconHint = createEl("p", "field-hint", "展示名称、展示材质和展示图标已移动到单独窗口编辑，避免和交易参数区域重叠。");
   iconField.appendChild(iconHint);
   elements.confirmDetails.appendChild(iconField);
 
@@ -1557,8 +1705,8 @@ async function openListingEditDialog({
       || getLocalizedMaterialName(baseMaterial, { includeGlobalOverride: false });
     return resolveDisplayVisual(
       baseMaterial,
-      displayNameInput.value,
-      displayMaterialInput.value,
+      draft.displayNameOverride,
+      draft.displayMaterial,
       draft.displayIconPath,
       fallbackTitle,
       { category: "market" }
@@ -1569,6 +1717,9 @@ async function openListingEditDialog({
     const visual = resolveListingPreviewVisual();
     const previewTitle = visual.title || String(currentFallbackTitle || "").trim() || "未命名商品";
     setNodeText(iconPreviewLabel, previewTitle);
+    const materialLabel = normalizeMaterialKey(draft.displayMaterial || "") || normalizeMaterialKey(currentItemMaterial || "") || "未设置";
+    const nameLabel = String(draft.displayNameOverride || "").trim() || "跟随默认展示名称";
+    setNodeText(iconPreviewDetail, `名称：${nameLabel} | 材质：${materialLabel}`);
     if (draft.pendingDisplayIconPreviewUrl) {
       iconPreviewImage.src = draft.pendingDisplayIconPreviewUrl;
     } else {
@@ -1596,54 +1747,32 @@ async function openListingEditDialog({
       setMetaText(iconStatus, "保存修改后将移除当前自定义图标。", "warn");
       return;
     }
-    if (normalizeMaterialKey(displayMaterialInput.value || "")) {
+    if (normalizeMaterialKey(draft.displayMaterial || "")) {
       setMetaText(iconStatus, "当前跟随展示材质的图标。", "info");
       return;
     }
     setMetaText(iconStatus, "当前跟随原始材质图标。", "info");
   };
-
-  const stageListingIconUpload = async () => {
-    const file = iconFileInput.files?.[0];
-    if (!file) {
-      throw new Error("请先选择图标文件。");
-    }
-    const croppedFile = await cropImageFileToSquarePng(file, 128);
-    if (!croppedFile) {
-      updateListingIconPreview("已取消裁剪与上传。", "info");
+  iconConfigBtn.addEventListener("click", async () => {
+    const value = await openListingVisualDialog({
+      currentItemMaterial,
+      currentFallbackTitle,
+      currentDisplayNameOverride: draft.displayNameOverride,
+      currentDisplayMaterial: draft.displayMaterial,
+      currentDisplayIconPath: draft.displayIconPath,
+      pendingDisplayIconFile: draft.pendingDisplayIconFile,
+      pendingDisplayIconPreviewUrl: draft.pendingDisplayIconPreviewUrl,
+    });
+    if (!value) {
       return;
     }
-    draft.pendingDisplayIconFile = croppedFile;
-    draft.pendingDisplayIconPreviewUrl = await readFileAsDataUrl(croppedFile);
-    iconFileInput.value = "";
-    updateListingIconPreview("新的自定义图片已加入待保存队列。", "success");
-  };
-
-  const clearListingIconDraft = () => {
-    draft.pendingDisplayIconFile = null;
-    draft.pendingDisplayIconPreviewUrl = "";
-    draft.displayIconPath = null;
-    iconFileInput.value = "";
+    draft.displayNameOverride = value.displayNameOverride;
+    draft.displayMaterial = value.displayMaterial;
+    draft.displayIconPath = value.displayIconPath;
+    draft.pendingDisplayIconFile = value.pendingDisplayIconFile;
+    draft.pendingDisplayIconPreviewUrl = value.pendingDisplayIconPreviewUrl;
     updateListingIconPreview();
-  };
-
-  iconUploadBtn.addEventListener("click", async () => {
-    try {
-      iconUploadBtn.disabled = true;
-      await stageListingIconUpload();
-    } catch (error) {
-      const message = resolveErrorMessage(error, "market_icon_upload");
-      updateListingIconPreview(`图标处理失败：${message}`, "error");
-      notify(`图标处理失败：${message}`, "error");
-    } finally {
-      iconUploadBtn.disabled = false;
-    }
   });
-  iconClearBtn.addEventListener("click", () => {
-    clearListingIconDraft();
-  });
-  displayNameInput.addEventListener("input", () => updateListingIconPreview());
-  displayMaterialInput.addEventListener("input", () => updateListingIconPreview());
   updateListingIconPreview();
 
   const modeSelect = document.createElement("select");
@@ -1891,8 +2020,8 @@ async function openListingEditDialog({
       price: Math.floor(price),
       currency: currencySelect.value,
       remark: remarkInput.value.trim() || null,
-      displayNameOverride: displayNameInput.value.trim() || null,
-      displayMaterial: normalizeMaterialKey(displayMaterialInput.value || "") || null,
+      displayNameOverride: draft.displayNameOverride,
+      displayMaterial: normalizeMaterialKey(draft.displayMaterial || "") || null,
       displayIconPath: draft.displayIconPath,
       pendingDisplayIconFile: draft.pendingDisplayIconFile,
       supplyBatchSize: supplyBatchInput ? Math.floor(batchSize) : null,
