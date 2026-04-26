@@ -26,7 +26,6 @@ import org.bukkit.block.BlockState;
 import org.bukkit.block.Container;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.permissions.PermissionAttachmentInfo;
 import org.bukkit.plugin.java.JavaPlugin;
 
 class MarketService {
@@ -47,6 +46,7 @@ class MarketService {
   private final NotificationService notificationService;
   private final BroadcastService broadcastService;
   private final PlayerPresenceService playerPresenceService;
+  private final UserMarketSettingsService userMarketSettingsService;
   private final ItemSnapshotCodec itemSnapshotCodec;
 
   MarketService(
@@ -57,7 +57,8 @@ class MarketService {
       MessageService messageService,
       NotificationService notificationService,
       BroadcastService broadcastService,
-      PlayerPresenceService playerPresenceService) {
+      PlayerPresenceService playerPresenceService,
+      UserMarketSettingsService userMarketSettingsService) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.walletService = walletService;
@@ -66,6 +67,7 @@ class MarketService {
     this.notificationService = notificationService;
     this.broadcastService = broadcastService;
     this.playerPresenceService = playerPresenceService;
+    this.userMarketSettingsService = userMarketSettingsService;
     this.itemSnapshotCodec = new ItemSnapshotCodec();
   }
 
@@ -104,7 +106,7 @@ class MarketService {
       throw new ServiceException("not_bound", "Please set your web password in-game before listing items");
     }
 
-    int listingLimit = resolveListingLimit(player);
+    int listingLimit = resolveListingLimit(boundUser);
 
     removeFromMainHand(player, amount);
     try {
@@ -145,7 +147,7 @@ class MarketService {
     if (boundUser == null) {
       throw new ServiceException("not_bound", "Please set your web password in-game before listing items");
     }
-    int listingLimit = resolveListingLimit(player);
+    int listingLimit = resolveListingLimit(boundUser);
     long listingId = databaseManager.inTransaction(connection -> createListingInTransaction(
         connection,
         boundUser,
@@ -186,7 +188,7 @@ class MarketService {
       throw new ServiceException("not_bound", "Please set your web password in-game before listing items");
     }
 
-    int listingLimit = resolveListingLimit(player);
+    int listingLimit = resolveListingLimit(seller);
     SupplyTransfer transfer = withdrawSupplyStock(
         new SupplySource(source.worldName(), source.x(), source.y(), source.z()),
         templateItem,
@@ -246,7 +248,7 @@ class MarketService {
     if (seller == null) {
       throw new ServiceException("not_bound", "Please set your web password in-game before listing items");
     }
-    int listingLimit = resolveListingLimit(player);
+    int listingLimit = resolveListingLimit(seller);
     SupplySource source = new SupplySource(
         sourceDescriptor.worldName(),
         sourceDescriptor.x(),
@@ -395,7 +397,7 @@ class MarketService {
     StringBuilder sql = new StringBuilder("""
         SELECT ml.id, ml.seller_user_id, u.username AS seller_name, ml.seller_uuid, ml.currency, ml.price,
                ml.quantity, ml.quantity_total, ml.item_material, ml.display_name_override, ml.display_material,
-               ml.item_meta_json,
+               ml.display_icon_path, ml.item_meta_json,
                ml.remark, ml.status, ml.created_at, ml.source_mode, ml.supply_batch_size,
                ml.supply_max_stock, ml.supply_loaded_total, ml.supply_sold_total,
          ml.supply_last_loaded_amount, ml.supply_last_loaded_at,
@@ -517,7 +519,7 @@ class MarketService {
         SELECT ml.id, ml.seller_user_id, us.username AS seller_name, ml.seller_uuid,
                ml.buyer_user_id, ub.username AS buyer_name, ml.buyer_uuid,
                ml.currency, ml.price, ml.quantity, ml.quantity_total, ml.item_material,
-               ml.display_name_override, ml.display_material, ml.item_meta_json,
+               ml.display_name_override, ml.display_material, ml.display_icon_path, ml.item_meta_json,
                ml.remark, ml.status, ml.created_at, ml.sold_at, ml.unlisted_at,
                ml.source_mode, ml.supply_batch_size, ml.supply_max_stock, ml.supply_loaded_total,
                ml.supply_sold_total, ml.supply_last_loaded_amount, ml.supply_last_loaded_at
@@ -659,6 +661,7 @@ class MarketService {
       String remark,
       String displayNameOverride,
       String displayMaterial,
+      String displayIconPath,
       Integer supplyBatchSize,
       Integer supplyMaxStock,
       String tradeMode,
@@ -691,6 +694,7 @@ class MarketService {
             normalizedRemark,
             displayNameOverride,
             displayMaterial,
+            displayIconPath,
             supplyBatchSize,
             supplyMaxStock,
             tradeMode,
@@ -706,6 +710,38 @@ class MarketService {
             auctionStartPrice,
             auctionMinIncrement,
             auctionEndAt));
+  }
+
+  ListingVisualUpdateResult updateListingDisplayIconPath(
+      long sellerUserId,
+      long listingId,
+      String displayIconPath) {
+    if (listingId <= 0L) {
+      throw new ServiceException("invalid_listing", "Listing id must be positive");
+    }
+    String normalizedPath = normalizeDisplayIconPath(displayIconPath);
+    return databaseManager.inTransaction(connection -> {
+      MarketListing listing = readListingForUpdate(connection, listingId);
+      if (!"ACTIVE".equalsIgnoreCase(listing.status()) && !"PAUSED".equalsIgnoreCase(listing.status())) {
+        throw new ServiceException("listing_unavailable", "Listing is not editable");
+      }
+      if (listing.sellerUserId() != sellerUserId) {
+        throw new ServiceException("forbidden", "Only the owner can update listing settings");
+      }
+      String sql = "UPDATE market_listings SET display_icon_path = ? WHERE id = ?";
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, normalizedPath);
+        statement.setLong(2, listingId);
+        statement.executeUpdate();
+      }
+      MarketListing refreshed = readListingForUpdate(connection, listingId);
+      return new ListingVisualUpdateResult(
+          refreshed.id(),
+          listing.displayIconPath(),
+          refreshed.displayNameOverride(),
+          refreshed.displayMaterial(),
+          refreshed.displayIconPath());
+    });
   }
 
   SupplyRefreshResult refreshSupplyListing(long sellerUserId, long listingId) {
@@ -807,11 +843,11 @@ class MarketService {
     String sql = """
         INSERT INTO market_listings (
           seller_user_id, seller_uuid, currency, price, quantity, quantity_total, item_material, raw_item_blob,
-          display_name_override, display_material, item_meta_json, remark, item_hash, source_mode,
+          display_name_override, display_material, display_icon_path, item_meta_json, remark, item_hash, source_mode,
           supply_world, supply_x, supply_y, supply_z, supply_batch_size, supply_max_stock,
           supply_loaded_total, supply_sold_total, supply_last_loaded_amount, supply_last_loaded_at, status
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement =
              connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -825,37 +861,38 @@ class MarketService {
       statement.setBytes(8, snapshot.rawItemBlob());
       statement.setString(9, null);
       statement.setString(10, null);
-      statement.setString(11, snapshot.itemMetaJson());
-      statement.setString(12, null);
-      statement.setString(13, snapshot.itemHash());
-      statement.setString(14, supplyConfig.mode().name());
+      statement.setString(11, null);
+      statement.setString(12, snapshot.itemMetaJson());
+      statement.setString(13, null);
+      statement.setString(14, snapshot.itemHash());
+      statement.setString(15, supplyConfig.mode().name());
       if (supplyConfig.source() == null) {
-        statement.setString(15, null);
-        statement.setObject(16, null);
+        statement.setString(16, null);
         statement.setObject(17, null);
         statement.setObject(18, null);
+        statement.setObject(19, null);
       } else {
-        statement.setString(15, supplyConfig.source().worldName());
-        statement.setInt(16, supplyConfig.source().x());
-        statement.setInt(17, supplyConfig.source().y());
-        statement.setInt(18, supplyConfig.source().z());
+        statement.setString(16, supplyConfig.source().worldName());
+        statement.setInt(17, supplyConfig.source().x());
+        statement.setInt(18, supplyConfig.source().y());
+        statement.setInt(19, supplyConfig.source().z());
       }
       if (supplyConfig.mode() == SupplyMode.SUPPLY) {
-        statement.setInt(19, supplyConfig.transferBatchSize());
-        statement.setInt(20, supplyConfig.transitMaxStock());
-        statement.setLong(21, supplyConfig.initialLoadedAmount());
-        statement.setLong(22, 0L);
-        statement.setInt(23, supplyConfig.initialLoadedAmount());
-        statement.setTimestamp(24, Timestamp.valueOf(LocalDateTime.now()));
+        statement.setInt(20, supplyConfig.transferBatchSize());
+        statement.setInt(21, supplyConfig.transitMaxStock());
+        statement.setLong(22, supplyConfig.initialLoadedAmount());
+        statement.setLong(23, 0L);
+        statement.setInt(24, supplyConfig.initialLoadedAmount());
+        statement.setTimestamp(25, Timestamp.valueOf(LocalDateTime.now()));
       } else {
-        statement.setObject(19, null);
         statement.setObject(20, null);
-        statement.setLong(21, 0L);
+        statement.setObject(21, null);
         statement.setLong(22, 0L);
-        statement.setObject(23, null);
-        statement.setTimestamp(24, null);
+        statement.setLong(23, 0L);
+        statement.setObject(24, null);
+        statement.setTimestamp(25, null);
       }
-      statement.setString(25, initialStatus);
+      statement.setString(26, initialStatus);
       statement.executeUpdate();
       try (ResultSet keyResult = statement.getGeneratedKeys()) {
         if (!keyResult.next()) {
@@ -2142,6 +2179,7 @@ class MarketService {
       String remark,
       String displayNameOverride,
       String displayMaterial,
+      String displayIconPath,
       Integer supplyBatchSize,
       Integer supplyMaxStock,
       String tradeModeRaw,
@@ -2166,6 +2204,7 @@ class MarketService {
     }
     String normalizedDisplayNameOverride = normalizeDisplayNameOverride(displayNameOverride);
     String normalizedDisplayMaterial = normalizeDisplayMaterial(displayMaterial);
+    String normalizedDisplayIconPath = normalizeDisplayIconPath(displayIconPath);
     Integer batch = listing.supplyBatchSize();
     Integer maxStock = listing.supplyMaxStock();
     int quantityTotal = listing.quantityTotal();
@@ -2437,7 +2476,7 @@ class MarketService {
     String sql = """
         UPDATE market_listings
         SET price = ?, currency = ?, remark = ?, display_name_override = ?, display_material = ?,
-        supply_batch_size = ?, supply_max_stock = ?, quantity_total = ?,
+        display_icon_path = ?, supply_batch_size = ?, supply_max_stock = ?, quantity_total = ?,
         trade_mode = ?, dynamic_pricing_enabled = ?, dynamic_algorithm = ?, dynamic_params_json = ?,
         dynamic_base_price = ?, dynamic_floor_price = ?, dynamic_cap_price = ?, dynamic_price_step = ?,
         dynamic_demand_score = ?,
@@ -2453,55 +2492,56 @@ class MarketService {
       statement.setString(3, remark);
       statement.setString(4, normalizedDisplayNameOverride);
       statement.setString(5, normalizedDisplayMaterial);
+      statement.setString(6, normalizedDisplayIconPath);
       if (batch == null) {
-        statement.setObject(6, null);
-      } else {
-        statement.setInt(6, batch);
-      }
-      if (maxStock == null) {
         statement.setObject(7, null);
       } else {
-        statement.setInt(7, maxStock);
+        statement.setInt(7, batch);
       }
-      statement.setInt(8, quantityTotal);
-      statement.setString(9, tradeMode.name());
-      statement.setBoolean(10, normalizedDynamicEnabled);
-      statement.setString(11, dynamicAlgorithmType.name());
-      statement.setString(12, MarketAlgorithmRegistry.toJson(normalizedDynamicParams));
-      statement.setObject(13, normalizedDynamicBasePrice);
-      statement.setObject(14, normalizedDynamicFloorPrice);
-      statement.setObject(15, normalizedDynamicCapPrice);
-      statement.setObject(16, normalizedDynamicPriceStep);
-      statement.setLong(17, normalizedDynamicDemandScore);
-      statement.setString(18, auctionAlgorithmType.name());
-      statement.setString(19, MarketAlgorithmRegistry.toJson(normalizedAuctionParams));
-      statement.setObject(20, normalizedAuctionStartPrice);
-      statement.setObject(21, normalizedAuctionMinIncrement);
-      if (normalizedAuctionStartedAt == null) {
-        statement.setTimestamp(22, null);
+      if (maxStock == null) {
+        statement.setObject(8, null);
       } else {
-        statement.setTimestamp(22, Timestamp.valueOf(normalizedAuctionStartedAt));
+        statement.setInt(8, maxStock);
       }
-      if (normalizedAuctionPublicEndAt == null) {
+      statement.setInt(9, quantityTotal);
+      statement.setString(10, tradeMode.name());
+      statement.setBoolean(11, normalizedDynamicEnabled);
+      statement.setString(12, dynamicAlgorithmType.name());
+      statement.setString(13, MarketAlgorithmRegistry.toJson(normalizedDynamicParams));
+      statement.setObject(14, normalizedDynamicBasePrice);
+      statement.setObject(15, normalizedDynamicFloorPrice);
+      statement.setObject(16, normalizedDynamicCapPrice);
+      statement.setObject(17, normalizedDynamicPriceStep);
+      statement.setLong(18, normalizedDynamicDemandScore);
+      statement.setString(19, auctionAlgorithmType.name());
+      statement.setString(20, MarketAlgorithmRegistry.toJson(normalizedAuctionParams));
+      statement.setObject(21, normalizedAuctionStartPrice);
+      statement.setObject(22, normalizedAuctionMinIncrement);
+      if (normalizedAuctionStartedAt == null) {
         statement.setTimestamp(23, null);
       } else {
-        statement.setTimestamp(23, Timestamp.valueOf(normalizedAuctionPublicEndAt));
+        statement.setTimestamp(23, Timestamp.valueOf(normalizedAuctionStartedAt));
       }
-      if (normalizedAuctionEndAt == null) {
+      if (normalizedAuctionPublicEndAt == null) {
         statement.setTimestamp(24, null);
       } else {
-        statement.setTimestamp(24, Timestamp.valueOf(normalizedAuctionEndAt));
+        statement.setTimestamp(24, Timestamp.valueOf(normalizedAuctionPublicEndAt));
       }
-      statement.setObject(25, normalizedAuctionHighestBid);
-      statement.setObject(26, normalizedAuctionHighestBidderUserId);
-      statement.setObject(27, normalizedAuctionHighestBidderUuid == null ? null : normalizedAuctionHighestBidderUuid.toString());
-      statement.setObject(28, normalizedAuctionHighestBidId);
-      if (normalizedAuctionLastBidAt == null) {
-        statement.setTimestamp(29, null);
+      if (normalizedAuctionEndAt == null) {
+        statement.setTimestamp(25, null);
       } else {
-        statement.setTimestamp(29, Timestamp.valueOf(normalizedAuctionLastBidAt));
+        statement.setTimestamp(25, Timestamp.valueOf(normalizedAuctionEndAt));
       }
-      statement.setLong(30, listingId);
+      statement.setObject(26, normalizedAuctionHighestBid);
+      statement.setObject(27, normalizedAuctionHighestBidderUserId);
+      statement.setObject(28, normalizedAuctionHighestBidderUuid == null ? null : normalizedAuctionHighestBidderUuid.toString());
+      statement.setObject(29, normalizedAuctionHighestBidId);
+      if (normalizedAuctionLastBidAt == null) {
+        statement.setTimestamp(30, null);
+      } else {
+        statement.setTimestamp(30, Timestamp.valueOf(normalizedAuctionLastBidAt));
+      }
+      statement.setLong(31, listingId);
       statement.executeUpdate();
     }
     MarketListing refreshed = readListingForUpdate(connection, listingId);
@@ -2512,6 +2552,7 @@ class MarketService {
         refreshed.remark(),
         refreshed.displayNameOverride(),
         refreshed.displayMaterial(),
+        refreshed.displayIconPath(),
         refreshed.sourceMode(),
         refreshed.supplyBatchSize(),
         refreshed.supplyMaxStock(),
@@ -3449,7 +3490,7 @@ class MarketService {
   private MarketListing readListingForUpdate(Connection connection, long listingId) throws SQLException {
     String sql = """
         SELECT id, seller_user_id, seller_uuid, currency, price, quantity, quantity_total,
-               item_material, display_name_override, display_material, raw_item_blob,
+               item_material, display_name_override, display_material, display_icon_path, raw_item_blob,
                item_meta_json, remark, item_hash, status, source_mode,
                supply_world, supply_x, supply_y, supply_z, supply_batch_size, supply_max_stock,
          supply_loaded_total, supply_sold_total, supply_last_loaded_amount, supply_last_loaded_at,
@@ -3482,6 +3523,7 @@ class MarketService {
             resultSet.getString("item_material"),
             resultSet.getString("display_name_override"),
             resultSet.getString("display_material"),
+            resultSet.getString("display_icon_path"),
             resultSet.getBytes("raw_item_blob"),
             resultSet.getString("item_meta_json"),
             resultSet.getString("remark"),
@@ -3581,6 +3623,7 @@ class MarketService {
           resultSet.getString("item_material"),
           resultSet.getString("display_name_override"),
           resultSet.getString("display_material"),
+          resultSet.getString("display_icon_path"),
           resultSet.getString("item_meta_json"),
           resultSet.getString("remark"),
           status,
@@ -3643,6 +3686,7 @@ class MarketService {
           resultSet.getString("item_material"),
           resultSet.getString("display_name_override"),
           resultSet.getString("display_material"),
+          resultSet.getString("display_icon_path"),
           resultSet.getString("item_meta_json"),
           resultSet.getString("remark"),
           resultSet.getString("status"),
@@ -3730,6 +3774,20 @@ class MarketService {
     return normalized;
   }
 
+  private String normalizeDisplayIconPath(String raw) {
+    if (raw == null) {
+      return null;
+    }
+    String normalized = raw.trim();
+    if (normalized.isEmpty()) {
+      return null;
+    }
+    if (normalized.length() > 255) {
+      return normalized.substring(0, 255);
+    }
+    return normalized;
+  }
+
   private int normalizedOrderCooldownSeconds() {
     int value = settingsSupplier.get().orderCooldownSeconds();
     if (value < 0) {
@@ -3782,32 +3840,12 @@ class MarketService {
     }
   }
 
-  private int resolveListingLimit(Player player) {
-    int baseLimit = Math.max(1, settingsSupplier.get().marketMaxActiveListings());
-    int maxLimit = baseLimit;
-    for (PermissionAttachmentInfo info : player.getEffectivePermissions()) {
-      if (!info.getValue()) {
-        continue;
-      }
-      String permission = info.getPermission();
-      if (permission == null) {
-        continue;
-      }
-      String normalized = permission.toLowerCase(Locale.ROOT);
-      if (!normalized.startsWith("webshop.market.limit.")) {
-        continue;
-      }
-      String suffix = normalized.substring("webshop.market.limit.".length());
-      try {
-        int value = Integer.parseInt(suffix);
-        if (value > maxLimit) {
-          maxLimit = value;
-        }
-      } catch (NumberFormatException ignored) {
-        continue;
-      }
-    }
-    return maxLimit;
+  private int resolveListingLimit(BoundUser seller) {
+    return userMarketSettingsService.resolveListingLimit(
+        seller.userId(),
+        seller.boundUuid(),
+        settingsSupplier.get().marketMaxActiveListings())
+        .effectiveLimit();
   }
 
   private int countActiveListings(Connection connection, long userId) throws SQLException {
@@ -3936,6 +3974,7 @@ class MarketService {
       String itemMaterial,
       String displayNameOverride,
       String displayMaterial,
+      String displayIconPath,
       byte[] rawItemBlob,
       String itemMetaJson,
       String remark,
@@ -4083,6 +4122,7 @@ class MarketService {
       String itemMaterial,
       String displayNameOverride,
       String displayMaterial,
+      String displayIconPath,
       String itemMetaJson,
       String remark,
       String status,
@@ -4132,6 +4172,7 @@ class MarketService {
       String itemMaterial,
       String displayNameOverride,
       String displayMaterial,
+      String displayIconPath,
       String itemMetaJson,
       String remark,
       String status,
@@ -4196,6 +4237,7 @@ class MarketService {
       String remark,
       String displayNameOverride,
       String displayMaterial,
+      String displayIconPath,
       SupplyMode sourceMode,
       Integer supplyBatchSize,
       Integer supplyMaxStock,
@@ -4222,7 +4264,15 @@ class MarketService {
       LocalDateTime auctionLastBidAt) {
     }
 
-    record BidResult(
+  record ListingVisualUpdateResult(
+      long listingId,
+      String previousDisplayIconPath,
+      String displayNameOverride,
+      String displayMaterial,
+      String displayIconPath) {
+  }
+
+  record BidResult(
       BidState state,
       long bidId,
       long listingId,

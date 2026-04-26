@@ -78,7 +78,7 @@ class ProductService {
             + "AND (unpublish_at IS NULL OR unpublish_at > ?)";
     String sql = """
        SELECT id, sku, title, remark, currency, price, product_type, command_template,
-         item_material, display_name_override, display_material,
+         item_material, display_name_override, display_material, display_icon_path,
          item_amount, stock_remaining, per_user_limit,
          effect_type, effect_seconds, effect_amplifier,
          dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
@@ -114,6 +114,7 @@ class ProductService {
       String normalizedItemMaterial = normalizeItemMaterial(input.itemMaterial(), productType);
       String normalizedDisplayNameOverride = normalizeDisplayNameOverride(input.displayNameOverride());
       String normalizedDisplayMaterial = normalizeDisplayMaterial(input.displayMaterial());
+      String normalizedDisplayIconPath = normalizeDisplayIconPath(input.displayIconPath());
       Integer normalizedItemAmount = normalizeItemAmount(input.itemAmount(), productType);
       Integer normalizedPerUserLimit = normalizePerUserLimit(input.perUserLimit());
       String normalizedEffectType = normalizeEffectType(input.effectType(), productType);
@@ -146,7 +147,7 @@ class ProductService {
         String insertSql = """
             INSERT INTO products (
               sku, title, remark, currency, price, product_type, command_template,
-              item_material, display_name_override, display_material,
+              item_material, display_name_override, display_material, display_icon_path,
               item_amount, stock_remaining, per_user_limit,
               effect_type, effect_seconds, effect_amplifier,
               dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
@@ -154,7 +155,7 @@ class ProductService {
               dynamic_price_step, dynamic_demand_score,
               publish_at, unpublish_at, active
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
         try (PreparedStatement statement = connection.prepareStatement(insertSql)) {
           statement.setString(1, normalizedSku);
@@ -167,6 +168,91 @@ class ProductService {
           statement.setString(8, normalizedItemMaterial);
           statement.setString(9, normalizedDisplayNameOverride);
           statement.setString(10, normalizedDisplayMaterial);
+          statement.setString(11, normalizedDisplayIconPath);
+          if (normalizedItemAmount == null) {
+            statement.setObject(12, null);
+            statement.setObject(13, null);
+          } else {
+            statement.setInt(12, normalizedItemAmount);
+            statement.setInt(13, adjustedStockRemaining == null ? normalizedItemAmount : adjustedStockRemaining);
+          }
+          if (normalizedPerUserLimit == null) {
+            statement.setObject(14, null);
+          } else {
+            statement.setInt(14, normalizedPerUserLimit);
+          }
+          statement.setString(15, normalizedEffectType);
+          if (normalizedEffectSeconds == null) {
+            statement.setObject(16, null);
+          } else {
+            statement.setInt(16, normalizedEffectSeconds);
+          }
+          if (normalizedEffectAmplifier == null) {
+            statement.setObject(17, null);
+          } else {
+            statement.setInt(17, normalizedEffectAmplifier);
+          }
+          statement.setBoolean(18, dynamicSettings.enabled());
+          statement.setString(19, dynamicSettings.algorithmType().name());
+          statement.setString(20, MarketAlgorithmRegistry.toJson(dynamicSettings.params()));
+          if (dynamicSettings.basePrice() == null) {
+            statement.setObject(21, null);
+          } else {
+            statement.setLong(21, dynamicSettings.basePrice());
+          }
+          if (dynamicSettings.floorPrice() == null) {
+            statement.setObject(22, null);
+          } else {
+            statement.setLong(22, dynamicSettings.floorPrice());
+          }
+          if (dynamicSettings.capPrice() == null) {
+            statement.setObject(23, null);
+          } else {
+            statement.setLong(23, dynamicSettings.capPrice());
+          }
+          if (dynamicSettings.priceStep() == null) {
+            statement.setObject(24, null);
+          } else {
+            statement.setLong(24, dynamicSettings.priceStep());
+          }
+          statement.setLong(25, dynamicSettings.demandScore());
+          if (input.publishAt() == null) {
+            statement.setObject(26, null);
+          } else {
+            statement.setObject(26, input.publishAt());
+          }
+          if (input.unpublishAt() == null) {
+            statement.setObject(27, null);
+          } else {
+            statement.setObject(27, input.unpublishAt());
+          }
+          statement.setBoolean(28, input.active());
+          statement.executeUpdate();
+        }
+      } else {
+        String updateSql = """
+            UPDATE products
+            SET title = ?, remark = ?, currency = ?, price = ?, product_type = ?, command_template = ?,
+                item_material = ?, display_name_override = ?, display_material = ?, display_icon_path = ?,
+                item_amount = ?, stock_remaining = ?, per_user_limit = ?, effect_type = ?,
+                effect_seconds = ?, effect_amplifier = ?,
+                dynamic_pricing_enabled = ?, dynamic_algorithm = ?, dynamic_params_json = ?,
+                dynamic_base_price = ?, dynamic_floor_price = ?, dynamic_cap_price = ?,
+                dynamic_price_step = ?, dynamic_demand_score = ?,
+                publish_at = ?, unpublish_at = ?, active = ?
+            WHERE id = ?
+            """;
+        try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
+          statement.setString(1, input.title().trim());
+          statement.setString(2, normalizedRemark);
+          statement.setString(3, input.currency().name());
+          statement.setLong(4, effectivePrice);
+          statement.setString(5, productType.name());
+          statement.setString(6, normalizedCommand);
+          statement.setString(7, normalizedItemMaterial);
+          statement.setString(8, normalizedDisplayNameOverride);
+          statement.setString(9, normalizedDisplayMaterial);
+          statement.setString(10, normalizedDisplayIconPath);
           if (normalizedItemAmount == null) {
             statement.setObject(11, null);
             statement.setObject(12, null);
@@ -225,90 +311,7 @@ class ProductService {
             statement.setObject(26, input.unpublishAt());
           }
           statement.setBoolean(27, input.active());
-          statement.executeUpdate();
-        }
-      } else {
-        String updateSql = """
-            UPDATE products
-            SET title = ?, remark = ?, currency = ?, price = ?, product_type = ?, command_template = ?,
-                item_material = ?, display_name_override = ?, display_material = ?,
-                item_amount = ?, stock_remaining = ?, per_user_limit = ?, effect_type = ?,
-                effect_seconds = ?, effect_amplifier = ?,
-                dynamic_pricing_enabled = ?, dynamic_algorithm = ?, dynamic_params_json = ?,
-                dynamic_base_price = ?, dynamic_floor_price = ?, dynamic_cap_price = ?,
-                dynamic_price_step = ?, dynamic_demand_score = ?,
-                publish_at = ?, unpublish_at = ?, active = ?
-            WHERE id = ?
-            """;
-        try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
-          statement.setString(1, input.title().trim());
-          statement.setString(2, normalizedRemark);
-          statement.setString(3, input.currency().name());
-          statement.setLong(4, effectivePrice);
-          statement.setString(5, productType.name());
-          statement.setString(6, normalizedCommand);
-          statement.setString(7, normalizedItemMaterial);
-          statement.setString(8, normalizedDisplayNameOverride);
-          statement.setString(9, normalizedDisplayMaterial);
-          if (normalizedItemAmount == null) {
-            statement.setObject(10, null);
-            statement.setObject(11, null);
-          } else {
-            statement.setInt(10, normalizedItemAmount);
-            statement.setInt(11, adjustedStockRemaining == null ? normalizedItemAmount : adjustedStockRemaining);
-          }
-          if (normalizedPerUserLimit == null) {
-            statement.setObject(12, null);
-          } else {
-            statement.setInt(12, normalizedPerUserLimit);
-          }
-          statement.setString(13, normalizedEffectType);
-          if (normalizedEffectSeconds == null) {
-            statement.setObject(14, null);
-          } else {
-            statement.setInt(14, normalizedEffectSeconds);
-          }
-          if (normalizedEffectAmplifier == null) {
-            statement.setObject(15, null);
-          } else {
-            statement.setInt(15, normalizedEffectAmplifier);
-          }
-          statement.setBoolean(16, dynamicSettings.enabled());
-          statement.setString(17, dynamicSettings.algorithmType().name());
-          statement.setString(18, MarketAlgorithmRegistry.toJson(dynamicSettings.params()));
-          if (dynamicSettings.basePrice() == null) {
-            statement.setObject(19, null);
-          } else {
-            statement.setLong(19, dynamicSettings.basePrice());
-          }
-          if (dynamicSettings.floorPrice() == null) {
-            statement.setObject(20, null);
-          } else {
-            statement.setLong(20, dynamicSettings.floorPrice());
-          }
-          if (dynamicSettings.capPrice() == null) {
-            statement.setObject(21, null);
-          } else {
-            statement.setLong(21, dynamicSettings.capPrice());
-          }
-          if (dynamicSettings.priceStep() == null) {
-            statement.setObject(22, null);
-          } else {
-            statement.setLong(22, dynamicSettings.priceStep());
-          }
-          statement.setLong(23, dynamicSettings.demandScore());
-          if (input.publishAt() == null) {
-            statement.setObject(24, null);
-          } else {
-            statement.setObject(24, input.publishAt());
-          }
-          if (input.unpublishAt() == null) {
-            statement.setObject(25, null);
-          } else {
-            statement.setObject(25, input.unpublishAt());
-          }
-          statement.setBoolean(26, input.active());
-          statement.setLong(27, existing.id());
+          statement.setLong(28, existing.id());
           statement.executeUpdate();
         }
       }
@@ -402,7 +405,7 @@ class ProductService {
     String lockClause = forUpdate ? " FOR UPDATE" : "";
     String sql = """
        SELECT id, sku, title, remark, currency, price, product_type, command_template,
-         item_material, display_name_override, display_material,
+         item_material, display_name_override, display_material, display_icon_path,
          item_amount, stock_remaining, per_user_limit,
          effect_type, effect_seconds, effect_amplifier,
          dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
@@ -430,7 +433,7 @@ class ProductService {
   private ProductView readProductById(Connection connection, long productId) throws SQLException {
     String sql = """
      SELECT id, sku, title, remark, currency, price, product_type, command_template,
-        item_material, display_name_override, display_material,
+        item_material, display_name_override, display_material, display_icon_path,
         item_amount, stock_remaining, per_user_limit,
        effect_type, effect_seconds, effect_amplifier,
        dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
@@ -467,7 +470,7 @@ class ProductService {
     String lockClause = forUpdate ? " FOR UPDATE" : "";
     String sql = """
        SELECT id, sku, title, remark, currency, price, product_type, command_template,
-         item_material, display_name_override, display_material,
+         item_material, display_name_override, display_material, display_icon_path,
          item_amount, stock_remaining, per_user_limit,
          effect_type, effect_seconds, effect_amplifier,
          dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
@@ -518,6 +521,7 @@ class ProductService {
     String itemMaterial = resultSet.getString("item_material");
     String displayNameOverride = resultSet.getString("display_name_override");
     String displayMaterial = resultSet.getString("display_material");
+    String displayIconPath = resultSet.getString("display_icon_path");
     int itemAmountValue = resultSet.getInt("item_amount");
     Integer itemAmount = resultSet.wasNull() ? null : itemAmountValue;
     int stockRemainingValue = resultSet.getInt("stock_remaining");
@@ -552,6 +556,7 @@ class ProductService {
         itemMaterial,
         displayNameOverride,
         displayMaterial,
+        displayIconPath,
         itemAmount,
         stockRemaining,
         perUserLimit,
@@ -686,6 +691,20 @@ class ProductService {
     }
     if (normalized.length() > 64) {
       return normalized.substring(0, 64);
+    }
+    return normalized;
+  }
+
+  private String normalizeDisplayIconPath(String raw) {
+    if (raw == null) {
+      return null;
+    }
+    String normalized = raw.trim();
+    if (normalized.isEmpty()) {
+      return null;
+    }
+    if (normalized.length() > 255) {
+      return normalized.substring(0, 255);
     }
     return normalized;
   }
@@ -973,6 +992,23 @@ class ProductService {
     return databaseManager.withConnection(connection -> readProductById(connection, productId));
   }
 
+  ProductView updateDisplayIconPath(long productId, String displayIconPath) {
+    if (productId <= 0L) {
+      throw new ServiceException("invalid_product", "Product id must be positive");
+    }
+    String normalizedPath = normalizeDisplayIconPath(displayIconPath);
+    return databaseManager.inTransaction(connection -> {
+      ProductView existing = readProductById(connection, productId);
+      String sql = "UPDATE products SET display_icon_path = ? WHERE id = ?";
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, normalizedPath);
+        statement.setLong(2, productId);
+        statement.executeUpdate();
+      }
+      return readProductById(connection, existing.id());
+    });
+  }
+
   private Map<Long, Integer> readUsageByProduct(Connection connection, long userId) throws SQLException {
     String sql = """
         SELECT product_id, used_count
@@ -1021,6 +1057,7 @@ class ProductService {
       String itemMaterial,
       String displayNameOverride,
       String displayMaterial,
+      String displayIconPath,
       Integer itemAmount,
       Integer perUserLimit,
       String effectType,
@@ -1050,6 +1087,7 @@ class ProductService {
       String itemMaterial,
       String displayNameOverride,
       String displayMaterial,
+      String displayIconPath,
       Integer itemAmount,
       Integer stockRemaining,
       Integer perUserLimit,
@@ -1081,6 +1119,7 @@ class ProductService {
           itemMaterial,
           displayNameOverride,
           displayMaterial,
+          displayIconPath,
           itemAmount,
           stockRemaining,
           perUserLimit,

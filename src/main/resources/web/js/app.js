@@ -34,6 +34,12 @@
   visualPolicy: {
     globalCustomIconEnabled: true,
     globalCustomNameEnabled: true,
+    officialProductCustomIconEnabled: true,
+    officialProductCustomNameEnabled: true,
+    officialProductUploadImageEnabled: true,
+    marketListingCustomIconEnabled: true,
+    marketListingCustomNameEnabled: true,
+    marketListingUploadImageEnabled: true,
     iconPolicyMode: "SOFT",
     namePolicyMode: "SOFT",
   },
@@ -504,6 +510,13 @@ const elements = {
   priceDialogError: document.getElementById("priceDialogError"),
   priceDialogCancel: document.getElementById("priceDialogCancel"),
   priceDialogConfirm: document.getElementById("priceDialogConfirm"),
+  materialCropDialog: document.getElementById("materialCropDialog"),
+  materialCropCanvas: document.getElementById("materialCropCanvas"),
+  materialCropZoom: document.getElementById("materialCropZoom"),
+  materialCropZoomValue: document.getElementById("materialCropZoomValue"),
+  materialCropResetBtn: document.getElementById("materialCropResetBtn"),
+  materialCropCancelBtn: document.getElementById("materialCropCancelBtn"),
+  materialCropApplyBtn: document.getElementById("materialCropApplyBtn"),
 };
 
 const tabs = Array.from(document.querySelectorAll(".top-tab"));
@@ -1353,6 +1366,9 @@ async function openListingEditDialog({
   currentAuctionEndAt,
   currentDisplayNameOverride,
   currentDisplayMaterial,
+  currentDisplayIconPath,
+  currentItemMaterial,
+  currentFallbackTitle,
 }) {
   await ensureMarketAlgorithmGlossary();
   const dynamicCatalog = getAlgorithmCatalog("dynamic");
@@ -1386,12 +1402,18 @@ async function openListingEditDialog({
     if (rawDisplayMaterial === null) {
       return Promise.resolve(null);
     }
+    const rawDisplayIconPath = window.prompt("请输入展示图标路径（留空则跟随材质）", currentDisplayIconPath || "");
+    if (rawDisplayIconPath === null) {
+      return Promise.resolve(null);
+    }
     return Promise.resolve({
       price: Math.floor(Number(rawPrice)),
       currency: String(rawCurrency || "GAME_COIN").trim().toUpperCase(),
       remark: rawRemark.trim() || null,
       displayNameOverride: rawDisplayName.trim() || null,
       displayMaterial: normalizeMaterialKey(rawDisplayMaterial) || null,
+      displayIconPath: String(rawDisplayIconPath || "").trim() || null,
+      pendingDisplayIconFile: null,
       supplyBatchSize: null,
       supplyMaxStock: null,
       tradeMode: "DIRECT",
@@ -1421,6 +1443,9 @@ async function openListingEditDialog({
     dynamicParamsJson: currentDynamicParamsJson || null,
     auctionAlgorithm: String(currentAuctionAlgorithm || defaultAuctionAlgorithm).toUpperCase(),
     auctionParamsJson: currentAuctionParamsJson || null,
+    displayIconPath: String(currentDisplayIconPath || "").trim() || null,
+    pendingDisplayIconFile: null,
+    pendingDisplayIconPreviewUrl: "",
     dynamicBasePrice: Number.isFinite(Number(currentDynamicBasePrice)) ? Math.floor(Number(currentDynamicBasePrice)) : Math.floor(Number(currentPrice || 1)),
     dynamicFloorPrice: Number.isFinite(Number(currentDynamicFloorPrice)) && Number(currentDynamicFloorPrice) > 0
       ? Math.floor(Number(currentDynamicFloorPrice))
@@ -1489,6 +1514,137 @@ async function openListingEditDialog({
   });
   const displayMaterialField = createDialogSelectField("展示材质（仅前端显示）", displayMaterialInput);
   elements.confirmDetails.appendChild(displayMaterialField);
+
+  const originalDisplayIconPath = String(currentDisplayIconPath || "").trim() || null;
+  const iconField = createEl("div", "dialog-select-field");
+  iconField.appendChild(createEl("span", "dialog-select-label", "展示图标（仅前端显示）"));
+  const iconPreviewWrap = createEl("div", "material-override-preview");
+  const iconPreviewImage = document.createElement("img");
+  iconPreviewImage.alt = "商品图标预览";
+  iconPreviewImage.src = getFallbackTexture();
+  const iconPreviewText = document.createElement("div");
+  const iconPreviewMeta = createEl("p", "meta", "当前图标预览");
+  const iconPreviewLabel = document.createElement("strong");
+  const iconStatus = createEl("p", "meta", "当前跟随材质图标。");
+  iconPreviewText.appendChild(iconPreviewMeta);
+  iconPreviewText.appendChild(iconPreviewLabel);
+  iconPreviewText.appendChild(iconStatus);
+  iconPreviewWrap.appendChild(iconPreviewImage);
+  iconPreviewWrap.appendChild(iconPreviewText);
+  iconField.appendChild(iconPreviewWrap);
+
+  const iconFileInput = document.createElement("input");
+  iconFileInput.type = "file";
+  iconFileInput.accept = ".png,.webp,.jpg,.jpeg,.gif,image/*";
+  iconField.appendChild(iconFileInput);
+
+  const iconActionRow = createEl("div", "actions compact-actions");
+  const iconUploadBtn = createEl("button", "btn-tonal", "上传图片");
+  iconUploadBtn.type = "button";
+  const iconClearBtn = createEl("button", "btn-tonal", "清除自定义图标");
+  iconClearBtn.type = "button";
+  iconActionRow.appendChild(iconUploadBtn);
+  iconActionRow.appendChild(iconClearBtn);
+  iconField.appendChild(iconActionRow);
+  const iconHint = createEl("p", "field-hint", "上传图片会先进入待保存状态，点击“保存修改”后才会真正生效。");
+  iconField.appendChild(iconHint);
+  elements.confirmDetails.appendChild(iconField);
+
+  const resolveListingPreviewVisual = () => {
+    const baseMaterial = normalizeMaterialKey(currentItemMaterial || "") || DEFAULT_TEXTURE_FALLBACK_MATERIAL;
+    const fallbackTitle = String(currentFallbackTitle || "").trim()
+      || String(currentDisplayNameOverride || "").trim()
+      || getLocalizedMaterialName(baseMaterial, { includeGlobalOverride: false });
+    return resolveDisplayVisual(
+      baseMaterial,
+      displayNameInput.value,
+      displayMaterialInput.value,
+      draft.displayIconPath,
+      fallbackTitle,
+      { category: "market" }
+    );
+  };
+
+  const updateListingIconPreview = (message, tone = null) => {
+    const visual = resolveListingPreviewVisual();
+    const previewTitle = visual.title || String(currentFallbackTitle || "").trim() || "未命名商品";
+    setNodeText(iconPreviewLabel, previewTitle);
+    if (draft.pendingDisplayIconPreviewUrl) {
+      iconPreviewImage.src = draft.pendingDisplayIconPreviewUrl;
+    } else {
+      iconPreviewImage.src = resolveMaterialIconUrl(visual.forceIconPath)
+        || getTextureCandidates(visual.material || DEFAULT_TEXTURE_FALLBACK_MATERIAL, {
+          forceIconPath: visual.forceIconPath,
+          includeMaterialOverride: visual.includeMaterialOverride,
+        })[0]
+        || getFallbackTexture();
+    }
+
+    if (message) {
+      setMetaText(iconStatus, message, tone || "info");
+      return;
+    }
+    if (draft.pendingDisplayIconPreviewUrl) {
+      setMetaText(iconStatus, "已选择新的自定义图片，保存修改后生效。", "success");
+      return;
+    }
+    if (draft.displayIconPath) {
+      setMetaText(iconStatus, "当前使用已保存的自定义图片。", "info");
+      return;
+    }
+    if (originalDisplayIconPath) {
+      setMetaText(iconStatus, "保存修改后将移除当前自定义图标。", "warn");
+      return;
+    }
+    if (normalizeMaterialKey(displayMaterialInput.value || "")) {
+      setMetaText(iconStatus, "当前跟随展示材质的图标。", "info");
+      return;
+    }
+    setMetaText(iconStatus, "当前跟随原始材质图标。", "info");
+  };
+
+  const stageListingIconUpload = async () => {
+    const file = iconFileInput.files?.[0];
+    if (!file) {
+      throw new Error("请先选择图标文件。");
+    }
+    const croppedFile = await cropImageFileToSquarePng(file, 128);
+    if (!croppedFile) {
+      updateListingIconPreview("已取消裁剪与上传。", "info");
+      return;
+    }
+    draft.pendingDisplayIconFile = croppedFile;
+    draft.pendingDisplayIconPreviewUrl = await readFileAsDataUrl(croppedFile);
+    iconFileInput.value = "";
+    updateListingIconPreview("新的自定义图片已加入待保存队列。", "success");
+  };
+
+  const clearListingIconDraft = () => {
+    draft.pendingDisplayIconFile = null;
+    draft.pendingDisplayIconPreviewUrl = "";
+    draft.displayIconPath = null;
+    iconFileInput.value = "";
+    updateListingIconPreview();
+  };
+
+  iconUploadBtn.addEventListener("click", async () => {
+    try {
+      iconUploadBtn.disabled = true;
+      await stageListingIconUpload();
+    } catch (error) {
+      const message = resolveErrorMessage(error, "market_icon_upload");
+      updateListingIconPreview(`图标处理失败：${message}`, "error");
+      notify(`图标处理失败：${message}`, "error");
+    } finally {
+      iconUploadBtn.disabled = false;
+    }
+  });
+  iconClearBtn.addEventListener("click", () => {
+    clearListingIconDraft();
+  });
+  displayNameInput.addEventListener("input", () => updateListingIconPreview());
+  displayMaterialInput.addEventListener("input", () => updateListingIconPreview());
+  updateListingIconPreview();
 
   const modeSelect = document.createElement("select");
   [
@@ -1737,6 +1893,8 @@ async function openListingEditDialog({
       remark: remarkInput.value.trim() || null,
       displayNameOverride: displayNameInput.value.trim() || null,
       displayMaterial: normalizeMaterialKey(displayMaterialInput.value || "") || null,
+      displayIconPath: draft.displayIconPath,
+      pendingDisplayIconFile: draft.pendingDisplayIconFile,
       supplyBatchSize: supplyBatchInput ? Math.floor(batchSize) : null,
       supplyMaxStock: supplyMaxInput ? Math.floor(maxStock) : null,
       tradeMode: mappedTradeMode,
@@ -2781,6 +2939,12 @@ function normalizeVisualPolicy(raw) {
   return {
     globalCustomIconEnabled: raw?.globalCustomIconEnabled !== false,
     globalCustomNameEnabled: raw?.globalCustomNameEnabled !== false,
+    officialProductCustomIconEnabled: raw?.officialProductCustomIconEnabled !== false,
+    officialProductCustomNameEnabled: raw?.officialProductCustomNameEnabled !== false,
+    officialProductUploadImageEnabled: raw?.officialProductUploadImageEnabled !== false,
+    marketListingCustomIconEnabled: raw?.marketListingCustomIconEnabled !== false,
+    marketListingCustomNameEnabled: raw?.marketListingCustomNameEnabled !== false,
+    marketListingUploadImageEnabled: raw?.marketListingUploadImageEnabled !== false,
     iconPolicyMode: iconMode,
     namePolicyMode: nameMode,
   };
@@ -2819,18 +2983,28 @@ function getLocalizedMaterialName(material, options = {}) {
   return state.materialNameMap[key] || state.materialNameMap[aliasKey] || humanizeMaterial(aliasKey || key);
 }
 
-function resolveDisplayVisual(baseMaterial, displayNameOverride, displayMaterial, fallbackName = "") {
+function resolveDisplayVisual(baseMaterial, displayNameOverride, displayMaterial, displayIconPath, fallbackName = "", options = {}) {
   const policy = normalizeVisualPolicy(state.visualPolicy || {});
+  const category = options.category === "official" ? "official" : "market";
+  const categoryIconEnabled = category === "official"
+    ? policy.officialProductCustomIconEnabled !== false
+    : policy.marketListingCustomIconEnabled !== false;
+  const categoryNameEnabled = category === "official"
+    ? policy.officialProductCustomNameEnabled !== false
+    : policy.marketListingCustomNameEnabled !== false;
   const baseKey = normalizeMaterialKey(baseMaterial) || DEFAULT_TEXTURE_FALLBACK_MATERIAL;
   const globalVisual = getMaterialVisualOverride(baseKey);
   const customName = String(displayNameOverride || "").trim();
   const customMaterial = normalizeMaterialKey(displayMaterial);
+  const customIconPath = String(displayIconPath || "").trim();
   const fallback = String(fallbackName || "").trim();
   const resolvedMaterial = customMaterial || baseKey || DEFAULT_TEXTURE_FALLBACK_MATERIAL;
 
   let forceIconPath = "";
   if (policy.globalCustomIconEnabled && policy.iconPolicyMode === "HARD" && globalVisual?.iconPath) {
     forceIconPath = String(globalVisual.iconPath);
+  } else if (categoryIconEnabled && customIconPath) {
+    forceIconPath = customIconPath;
   } else if (!customMaterial && policy.globalCustomIconEnabled && policy.iconPolicyMode === "SOFT" && globalVisual?.iconPath) {
     forceIconPath = String(globalVisual.iconPath);
   }
@@ -2838,7 +3012,7 @@ function resolveDisplayVisual(baseMaterial, displayNameOverride, displayMaterial
   let resolvedName = "";
   if (policy.globalCustomNameEnabled && policy.namePolicyMode === "HARD" && globalVisual?.displayNameOverride) {
     resolvedName = String(globalVisual.displayNameOverride);
-  } else if (customName) {
+  } else if (categoryNameEnabled && customName) {
     resolvedName = customName;
   } else if (fallback) {
     resolvedName = fallback;
@@ -2861,7 +3035,9 @@ function resolveListingDisplayVisual(listing, metaDisplayName = "") {
     listing?.itemMaterial,
     listing?.displayNameOverride,
     listing?.displayMaterial,
-    metaDisplayName
+    listing?.displayIconPath,
+    metaDisplayName,
+    { category: "market" }
   );
 }
 
@@ -2871,7 +3047,9 @@ function resolveProductDisplayVisual(product) {
     baseMaterial,
     product?.displayNameOverride,
     product?.displayMaterial,
-    product?.title || ""
+    product?.displayIconPath,
+    product?.title || "",
+    { category: "official" }
   );
 }
 
@@ -3788,6 +3966,538 @@ async function api(path, options = {}) {
   return payload;
 }
 
+async function apiUpload(path, file) {
+  const headers = {};
+  if (state.token) {
+    headers.Authorization = `Bearer ${state.token}`;
+  }
+  const contentType = String(file?.type || "").trim();
+  headers["Content-Type"] = contentType || "application/octet-stream";
+  const response = await fetch(resolveApiUrl(path), {
+    method: "POST",
+    headers,
+    body: file,
+  });
+  const responseType = response.headers.get("content-type") || "";
+  const payload = responseType.includes("application/json")
+    ? await response.json()
+    : { message: await response.text() };
+  if (!response.ok) {
+    const error = new Error(payload.message || payload.error || `HTTP ${response.status}`);
+    error.code = payload.error || "";
+    error.status = response.status;
+    error.endpoint = path;
+    throw error;
+  }
+  return payload;
+}
+
+function fileNameWithExtension(name, ext) {
+  const base = String(name || "custom-icon")
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .replace(/\.[^./\\]+$/, "")
+    .trim() || "custom-icon";
+  return `${base}.${ext}`;
+}
+
+const materialCropState = {
+  initialized: false,
+  image: null,
+  sourceFileName: "",
+  exportSize: 128,
+  scale: 1,
+  minScale: 1,
+  maxScale: 8,
+  offsetX: 0,
+  offsetY: 0,
+  activePointers: new Map(),
+  dragActive: false,
+  dragPointerId: null,
+  dragStartX: 0,
+  dragStartY: 0,
+  dragOriginOffsetX: 0,
+  dragOriginOffsetY: 0,
+  pinchStartDistance: 0,
+  pinchStartScale: 1,
+  resolver: null,
+};
+
+function isMaterialCropDialogOpen() {
+  return Boolean(elements.materialCropDialog?.classList.contains("show"));
+}
+
+async function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("读取图片失败"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function loadImageFromDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const node = new Image();
+    node.onload = () => resolve(node);
+    node.onerror = () => reject(new Error("解析图片失败"));
+    node.src = dataUrl;
+  });
+}
+
+async function cropImageFileToSquarePngAuto(file, size = 128) {
+  const input = file;
+  if (!input || !String(input.type || "").startsWith("image/")) {
+    return input;
+  }
+  const dataUrl = await readFileAsDataUrl(input);
+  const image = await loadImageFromDataUrl(dataUrl);
+  const width = Number(image.width || 0);
+  const height = Number(image.height || 0);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new Error("图片尺寸无效");
+  }
+  const side = Math.min(width, height);
+  const sx = Math.floor((width - side) / 2);
+  const sy = Math.floor((height - side) / 2);
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("无法创建图片画布");
+  }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(image, sx, sy, side, side, 0, 0, size, size);
+  const blob = await new Promise((resolve) => {
+    canvas.toBlob(resolve, "image/png", 1.0);
+  });
+  if (!blob) {
+    throw new Error("图片裁剪失败");
+  }
+  return new File([blob], fileNameWithExtension(input.name, "png"), { type: "image/png" });
+}
+
+function getMaterialCropCanvasContext() {
+  const canvas = elements.materialCropCanvas;
+  if (!canvas) {
+    return null;
+  }
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return null;
+  }
+  return { canvas, ctx, width: canvas.width, height: canvas.height };
+}
+
+function getMaterialCropFrameRect(metrics) {
+  const base = Math.min(metrics.width, metrics.height);
+  const padding = Math.max(16, Math.round(base * 0.1));
+  const size = Math.max(120, base - padding * 2);
+  const x = Math.round((metrics.width - size) / 2);
+  const y = Math.round((metrics.height - size) / 2);
+  return { x, y, size };
+}
+
+function getPointerDistance(pointerA, pointerB) {
+  if (!pointerA || !pointerB) {
+    return 0;
+  }
+  const dx = pointerA.clientX - pointerB.clientX;
+  const dy = pointerA.clientY - pointerB.clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function getCanvasRelativePoint(canvas, clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const ratioX = canvas.width / Math.max(rect.width, 1);
+  const ratioY = canvas.height / Math.max(rect.height, 1);
+  return {
+    x: (clientX - rect.left) * ratioX,
+    y: (clientY - rect.top) * ratioY,
+  };
+}
+
+function clampMaterialCropOffsets() {
+  const metrics = getMaterialCropCanvasContext();
+  if (!metrics || !materialCropState.image) {
+    return;
+  }
+  const frame = getMaterialCropFrameRect(metrics);
+  const drawWidth = materialCropState.image.width * materialCropState.scale;
+  const drawHeight = materialCropState.image.height * materialCropState.scale;
+  const minX = frame.x + frame.size - drawWidth;
+  const maxX = frame.x;
+  const minY = frame.y + frame.size - drawHeight;
+  const maxY = frame.y;
+  materialCropState.offsetX = Math.max(minX, Math.min(maxX, materialCropState.offsetX));
+  materialCropState.offsetY = Math.max(minY, Math.min(maxY, materialCropState.offsetY));
+}
+
+function updateMaterialCropZoomUi() {
+  if (!elements.materialCropZoom || !elements.materialCropZoomValue) {
+    return;
+  }
+  const ratio = Math.max(
+    1,
+    Math.min(8, materialCropState.scale / Math.max(materialCropState.minScale, Number.EPSILON))
+  );
+  elements.materialCropZoom.value = String(Math.round(ratio * 100));
+  setNodeText(elements.materialCropZoomValue, `${Math.round(ratio * 100)}%`);
+}
+
+function renderMaterialCropCanvas() {
+  const metrics = getMaterialCropCanvasContext();
+  if (!metrics) {
+    return;
+  }
+  const { ctx, width, height } = metrics;
+  const frame = getMaterialCropFrameRect(metrics);
+  ctx.clearRect(0, 0, width, height);
+
+  const checkerSize = 16;
+  for (let y = 0; y < height; y += checkerSize) {
+    for (let x = 0; x < width; x += checkerSize) {
+      const odd = (Math.floor(x / checkerSize) + Math.floor(y / checkerSize)) % 2 === 1;
+      ctx.fillStyle = odd ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+      ctx.fillRect(x, y, checkerSize, checkerSize);
+    }
+  }
+
+  if (materialCropState.image) {
+    const drawWidth = materialCropState.image.width * materialCropState.scale;
+    const drawHeight = materialCropState.image.height * materialCropState.scale;
+    ctx.drawImage(
+      materialCropState.image,
+      materialCropState.offsetX,
+      materialCropState.offsetY,
+      drawWidth,
+      drawHeight
+    );
+  }
+
+  ctx.fillStyle = "rgba(0, 0, 0, 0.36)";
+  ctx.fillRect(0, 0, width, frame.y);
+  ctx.fillRect(0, frame.y, frame.x, frame.size);
+  ctx.fillRect(frame.x + frame.size, frame.y, width - frame.x - frame.size, frame.size);
+  ctx.fillRect(0, frame.y + frame.size, width, height - frame.y - frame.size);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.75)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(frame.x + 1, frame.y + 1, frame.size - 2, frame.size - 2);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(255,255,255,0.28)";
+  ctx.beginPath();
+  ctx.moveTo(frame.x + frame.size / 3, frame.y);
+  ctx.lineTo(frame.x + frame.size / 3, frame.y + frame.size);
+  ctx.moveTo(frame.x + (frame.size * 2) / 3, frame.y);
+  ctx.lineTo(frame.x + (frame.size * 2) / 3, frame.y + frame.size);
+  ctx.moveTo(frame.x, frame.y + frame.size / 3);
+  ctx.lineTo(frame.x + frame.size, frame.y + frame.size / 3);
+  ctx.moveTo(frame.x, frame.y + (frame.size * 2) / 3);
+  ctx.lineTo(frame.x + frame.size, frame.y + (frame.size * 2) / 3);
+  ctx.stroke();
+}
+
+function setMaterialCropScale(nextScale, anchorX, anchorY) {
+  const metrics = getMaterialCropCanvasContext();
+  if (!metrics || !materialCropState.image) {
+    return;
+  }
+  const frame = getMaterialCropFrameRect(metrics);
+  const safeAnchorX = Number.isFinite(anchorX) ? anchorX : frame.x + frame.size / 2;
+  const safeAnchorY = Number.isFinite(anchorY) ? anchorY : frame.y + frame.size / 2;
+  const previousScale = Math.max(materialCropState.scale, Number.EPSILON);
+  const normalizedScale = Math.max(
+    materialCropState.minScale,
+    Math.min(materialCropState.maxScale, nextScale)
+  );
+  const imageX = (safeAnchorX - materialCropState.offsetX) / previousScale;
+  const imageY = (safeAnchorY - materialCropState.offsetY) / previousScale;
+  materialCropState.scale = normalizedScale;
+  materialCropState.offsetX = safeAnchorX - imageX * normalizedScale;
+  materialCropState.offsetY = safeAnchorY - imageY * normalizedScale;
+  clampMaterialCropOffsets();
+  updateMaterialCropZoomUi();
+  renderMaterialCropCanvas();
+}
+
+function resetMaterialCropViewport() {
+  const metrics = getMaterialCropCanvasContext();
+  if (!metrics || !materialCropState.image) {
+    return;
+  }
+  const frame = getMaterialCropFrameRect(metrics);
+  const imageWidth = Number(materialCropState.image.width || 0);
+  const imageHeight = Number(materialCropState.image.height || 0);
+  if (!Number.isFinite(imageWidth) || !Number.isFinite(imageHeight) || imageWidth <= 0 || imageHeight <= 0) {
+    throw new Error("图片尺寸无效");
+  }
+  const minScale = Math.max(frame.size / imageWidth, frame.size / imageHeight);
+  materialCropState.minScale = minScale;
+  materialCropState.maxScale = minScale * 8;
+  materialCropState.scale = minScale;
+  materialCropState.offsetX = frame.x + (frame.size - imageWidth * minScale) / 2;
+  materialCropState.offsetY = frame.y + (frame.size - imageHeight * minScale) / 2;
+  clampMaterialCropOffsets();
+  updateMaterialCropZoomUi();
+  renderMaterialCropCanvas();
+}
+
+function closeMaterialCropDialog(resultFile = null) {
+  if (elements.materialCropDialog) {
+    elements.materialCropDialog.classList.remove("show");
+    elements.materialCropDialog.setAttribute("aria-hidden", "true");
+  }
+  materialCropState.activePointers.clear();
+  materialCropState.dragActive = false;
+  materialCropState.dragPointerId = null;
+  materialCropState.pinchStartDistance = 0;
+  materialCropState.pinchStartScale = materialCropState.scale || 1;
+  materialCropState.image = null;
+  const resolver = materialCropState.resolver;
+  materialCropState.resolver = null;
+  if (typeof resolver === "function") {
+    resolver(resultFile);
+  }
+}
+
+async function exportMaterialCropAsPngFile() {
+  const metrics = getMaterialCropCanvasContext();
+  if (!metrics || !materialCropState.image) {
+    throw new Error("裁剪器未准备好");
+  }
+  const frame = getMaterialCropFrameRect(metrics);
+  const outputSize = Math.max(32, Math.min(1024, Number(materialCropState.exportSize || 128)));
+  const sourceX = (frame.x - materialCropState.offsetX) / materialCropState.scale;
+  const sourceY = (frame.y - materialCropState.offsetY) / materialCropState.scale;
+  const sourceW = frame.size / materialCropState.scale;
+  const sourceH = frame.size / materialCropState.scale;
+  const maxSourceX = Math.max(0, materialCropState.image.width - sourceW);
+  const maxSourceY = Math.max(0, materialCropState.image.height - sourceH);
+  const safeSourceX = Math.max(0, Math.min(maxSourceX, sourceX));
+  const safeSourceY = Math.max(0, Math.min(maxSourceY, sourceY));
+
+  const outputCanvas = document.createElement("canvas");
+  outputCanvas.width = outputSize;
+  outputCanvas.height = outputSize;
+  const outputCtx = outputCanvas.getContext("2d");
+  if (!outputCtx) {
+    throw new Error("无法创建输出画布");
+  }
+  outputCtx.imageSmoothingEnabled = true;
+  outputCtx.imageSmoothingQuality = "high";
+  outputCtx.drawImage(
+    materialCropState.image,
+    safeSourceX,
+    safeSourceY,
+    sourceW,
+    sourceH,
+    0,
+    0,
+    outputSize,
+    outputSize
+  );
+  const blob = await new Promise((resolve) => {
+    outputCanvas.toBlob(resolve, "image/png", 1.0);
+  });
+  if (!blob) {
+    throw new Error("图片裁剪失败");
+  }
+  return new File([blob], fileNameWithExtension(materialCropState.sourceFileName, "png"), { type: "image/png" });
+}
+
+async function openMaterialCropDialog(file, exportSize = 128) {
+  if (!elements.materialCropDialog || !elements.materialCropCanvas) {
+    return cropImageFileToSquarePngAuto(file, exportSize);
+  }
+  if (typeof materialCropState.resolver === "function") {
+    materialCropState.resolver(null);
+    materialCropState.resolver = null;
+  }
+  const input = file;
+  if (!input || !String(input.type || "").startsWith("image/")) {
+    return input;
+  }
+  const dataUrl = await readFileAsDataUrl(input);
+  const image = await loadImageFromDataUrl(dataUrl);
+  materialCropState.activePointers.clear();
+  materialCropState.dragActive = false;
+  materialCropState.dragPointerId = null;
+  materialCropState.pinchStartDistance = 0;
+  materialCropState.image = image;
+  materialCropState.sourceFileName = input.name || "custom-icon.png";
+  materialCropState.exportSize = exportSize;
+  resetMaterialCropViewport();
+  elements.materialCropDialog.classList.add("show");
+  elements.materialCropDialog.setAttribute("aria-hidden", "false");
+  return new Promise((resolve) => {
+    materialCropState.resolver = resolve;
+  });
+}
+
+function initializeMaterialCropDialog() {
+  if (materialCropState.initialized) {
+    return;
+  }
+  if (!elements.materialCropDialog || !elements.materialCropCanvas) {
+    materialCropState.initialized = true;
+    return;
+  }
+  materialCropState.initialized = true;
+
+  if (elements.materialCropZoom) {
+    elements.materialCropZoom.addEventListener("input", () => {
+      if (!materialCropState.image) {
+        return;
+      }
+      const ratio = Math.max(1, Number(elements.materialCropZoom.value || 100) / 100);
+      setMaterialCropScale(materialCropState.minScale * ratio);
+    });
+  }
+
+  if (elements.materialCropResetBtn) {
+    elements.materialCropResetBtn.addEventListener("click", () => {
+      if (!materialCropState.image) {
+        return;
+      }
+      resetMaterialCropViewport();
+    });
+  }
+
+  if (elements.materialCropCancelBtn) {
+    elements.materialCropCancelBtn.addEventListener("click", () => {
+      closeMaterialCropDialog(null);
+    });
+  }
+
+  if (elements.materialCropApplyBtn) {
+    elements.materialCropApplyBtn.addEventListener("click", async () => {
+      try {
+        const file = await exportMaterialCropAsPngFile();
+        closeMaterialCropDialog(file);
+      } catch (error) {
+        notify(error.message || "裁剪失败，请重试。", "error");
+      }
+    });
+  }
+
+  elements.materialCropDialog.addEventListener("click", (event) => {
+    if (event.target === elements.materialCropDialog) {
+      closeMaterialCropDialog(null);
+    }
+  });
+
+  const canvas = elements.materialCropCanvas;
+  canvas.style.touchAction = "none";
+  canvas.addEventListener("pointerdown", (event) => {
+    if (!materialCropState.image) {
+      return;
+    }
+    materialCropState.activePointers.set(event.pointerId, {
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+    canvas.setPointerCapture(event.pointerId);
+    if (materialCropState.activePointers.size === 1) {
+      materialCropState.dragActive = true;
+      materialCropState.dragPointerId = event.pointerId;
+      materialCropState.dragStartX = event.clientX;
+      materialCropState.dragStartY = event.clientY;
+      materialCropState.dragOriginOffsetX = materialCropState.offsetX;
+      materialCropState.dragOriginOffsetY = materialCropState.offsetY;
+    } else if (materialCropState.activePointers.size >= 2) {
+      const pointers = Array.from(materialCropState.activePointers.values());
+      materialCropState.dragActive = false;
+      materialCropState.dragPointerId = null;
+      materialCropState.pinchStartDistance = getPointerDistance(pointers[0], pointers[1]) || 1;
+      materialCropState.pinchStartScale = materialCropState.scale;
+    }
+    event.preventDefault();
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    if (!materialCropState.image) {
+      return;
+    }
+    if (materialCropState.activePointers.has(event.pointerId)) {
+      materialCropState.activePointers.set(event.pointerId, {
+        clientX: event.clientX,
+        clientY: event.clientY,
+      });
+    }
+    if (materialCropState.activePointers.size >= 2) {
+      const pointers = Array.from(materialCropState.activePointers.values());
+      const currentDistance = getPointerDistance(pointers[0], pointers[1]);
+      const safeBaseDistance = Math.max(materialCropState.pinchStartDistance || 1, 1);
+      const nextScale = materialCropState.pinchStartScale * (currentDistance / safeBaseDistance);
+      const centerClientX = (pointers[0].clientX + pointers[1].clientX) / 2;
+      const centerClientY = (pointers[0].clientY + pointers[1].clientY) / 2;
+      const center = getCanvasRelativePoint(canvas, centerClientX, centerClientY);
+      setMaterialCropScale(nextScale, center.x, center.y);
+    } else if (materialCropState.dragActive && materialCropState.dragPointerId === event.pointerId) {
+      const deltaX = event.clientX - materialCropState.dragStartX;
+      const deltaY = event.clientY - materialCropState.dragStartY;
+      materialCropState.offsetX = materialCropState.dragOriginOffsetX + deltaX;
+      materialCropState.offsetY = materialCropState.dragOriginOffsetY + deltaY;
+      clampMaterialCropOffsets();
+      renderMaterialCropCanvas();
+    }
+    event.preventDefault();
+  });
+  const handlePointerEnd = (event) => {
+    materialCropState.activePointers.delete(event.pointerId);
+    if (materialCropState.activePointers.size === 0) {
+      materialCropState.dragActive = false;
+      materialCropState.dragPointerId = null;
+      materialCropState.pinchStartDistance = 0;
+      materialCropState.pinchStartScale = materialCropState.scale;
+      return;
+    }
+    if (materialCropState.activePointers.size === 1) {
+      const [remainingId, remainingPointer] = Array.from(materialCropState.activePointers.entries())[0];
+      materialCropState.dragActive = true;
+      materialCropState.dragPointerId = remainingId;
+      materialCropState.dragStartX = remainingPointer.clientX;
+      materialCropState.dragStartY = remainingPointer.clientY;
+      materialCropState.dragOriginOffsetX = materialCropState.offsetX;
+      materialCropState.dragOriginOffsetY = materialCropState.offsetY;
+      materialCropState.pinchStartDistance = 0;
+      materialCropState.pinchStartScale = materialCropState.scale;
+      return;
+    }
+    const pointers = Array.from(materialCropState.activePointers.values());
+    materialCropState.dragActive = false;
+    materialCropState.dragPointerId = null;
+    materialCropState.pinchStartDistance = getPointerDistance(pointers[0], pointers[1]) || 1;
+    materialCropState.pinchStartScale = materialCropState.scale;
+  };
+  canvas.addEventListener("pointerup", handlePointerEnd);
+  canvas.addEventListener("pointercancel", handlePointerEnd);
+  canvas.addEventListener("wheel", (event) => {
+    if (!materialCropState.image) {
+      return;
+    }
+    const point = getCanvasRelativePoint(canvas, event.clientX, event.clientY);
+    const scaleFactor = event.deltaY < 0 ? 1.07 : 0.93;
+    setMaterialCropScale(materialCropState.scale * scaleFactor, point.x, point.y);
+    event.preventDefault();
+  }, { passive: false });
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && isMaterialCropDialogOpen()) {
+      closeMaterialCropDialog(null);
+    }
+  });
+}
+
+async function cropImageFileToSquarePng(file, size = 128) {
+  initializeMaterialCropDialog();
+  if (!elements.materialCropDialog || !elements.materialCropCanvas) {
+    return cropImageFileToSquarePngAuto(file, size);
+  }
+  return openMaterialCropDialog(file, size);
+}
+
 function ensureToken() {
   if (!state.token) {
     switchTab("auth");
@@ -4590,6 +5300,9 @@ function renderListings(listings, container = elements.marketList) {
       editBtn.dataset.auctionEndAt = listing.auctionEndAt || "";
       editBtn.dataset.currentDisplayNameOverride = listing.displayNameOverride || "";
       editBtn.dataset.currentDisplayMaterial = listing.displayMaterial || "";
+      editBtn.dataset.currentDisplayIconPath = listing.displayIconPath || "";
+      editBtn.dataset.currentItemMaterial = listing.itemMaterial || "";
+      editBtn.dataset.currentFallbackTitle = displayName || "";
       actions.appendChild(editBtn);
 
       if (isSupply && normalizedStatus !== "UNLISTED" && normalizedStatus !== "SOLD") {
@@ -5725,6 +6438,7 @@ async function updateListing(
   remark,
   displayNameOverride,
   displayMaterial,
+  displayIconPath,
   supplyBatchSize,
   supplyMaxStock,
   tradeMode,
@@ -5751,6 +6465,7 @@ async function updateListing(
       remark,
       displayNameOverride,
       displayMaterial,
+      displayIconPath,
       supplyBatchSize,
       supplyMaxStock,
       tradeMode,
@@ -6403,10 +7118,22 @@ elements.marketList.addEventListener("click", async (event) => {
         currentAuctionEndAt: button.dataset.auctionEndAt || null,
         currentDisplayNameOverride: button.dataset.currentDisplayNameOverride || "",
         currentDisplayMaterial: button.dataset.currentDisplayMaterial || "",
+        currentDisplayIconPath: button.dataset.currentDisplayIconPath || "",
+        currentItemMaterial: button.dataset.currentItemMaterial || "",
+        currentFallbackTitle: button.dataset.currentFallbackTitle || "",
       });
       if (!result) {
         notify("已取消修改。", "info");
         return;
+      }
+      let displayIconPath = result.displayIconPath || null;
+      if (result.pendingDisplayIconFile) {
+        const query = new URLSearchParams({
+          listingId: String(listingId),
+          filename: result.pendingDisplayIconFile.name || `listing-${listingId}.png`,
+        });
+        const uploadPayload = await apiUpload(`/api/market/icon/upload?${query.toString()}`, result.pendingDisplayIconFile);
+        displayIconPath = uploadPayload.displayIconPath || null;
       }
       await updateListing(
         listingId,
@@ -6415,6 +7142,7 @@ elements.marketList.addEventListener("click", async (event) => {
         result.remark,
         result.displayNameOverride,
         result.displayMaterial,
+        displayIconPath,
         result.supplyBatchSize,
         result.supplyMaxStock,
         result.tradeMode,

@@ -33,6 +33,8 @@ class SchemaManager {
     createRuntimeConfig(connection);
     createUserVisualPermissions(connection);
     migrateUserVisualPermissions(connection);
+    createUserMarketSettings(connection);
+    migrateUserMarketSettings(connection);
     createMaterialVisualOverrides(connection);
     migrateMaterialVisualOverrides(connection);
     createProducts(connection);
@@ -319,6 +321,7 @@ class SchemaManager {
           user_id BIGINT NOT NULL,
           icon_permission VARCHAR(16) NOT NULL DEFAULT 'INHERIT',
           name_permission VARCHAR(16) NOT NULL DEFAULT 'INHERIT',
+          upload_permission VARCHAR(16) NOT NULL DEFAULT 'INHERIT',
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (user_id),
@@ -342,6 +345,12 @@ class SchemaManager {
           "ALTER TABLE user_visual_permissions "
               + "ADD COLUMN name_permission VARCHAR(16) NOT NULL DEFAULT 'INHERIT' AFTER icon_permission");
     }
+    if (!columnExists(connection, "user_visual_permissions", "upload_permission")) {
+      execute(
+          connection,
+          "ALTER TABLE user_visual_permissions "
+              + "ADD COLUMN upload_permission VARCHAR(16) NOT NULL DEFAULT 'INHERIT' AFTER name_permission");
+    }
     execute(
         connection,
         "UPDATE user_visual_permissions SET icon_permission = 'INHERIT' "
@@ -350,6 +359,38 @@ class SchemaManager {
         connection,
         "UPDATE user_visual_permissions SET name_permission = 'INHERIT' "
             + "WHERE name_permission IS NULL OR name_permission = ''");
+    execute(
+        connection,
+        "UPDATE user_visual_permissions SET upload_permission = 'INHERIT' "
+            + "WHERE upload_permission IS NULL OR upload_permission = ''");
+  }
+
+  private void createUserMarketSettings(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS user_market_settings (
+          user_id BIGINT NOT NULL,
+          listing_limit_override INT NULL,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (user_id),
+          CONSTRAINT fk_user_market_settings_user
+            FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void migrateUserMarketSettings(Connection connection) throws SQLException {
+    if (!columnExists(connection, "user_market_settings", "listing_limit_override")) {
+      execute(
+          connection,
+          "ALTER TABLE user_market_settings "
+              + "ADD COLUMN listing_limit_override INT NULL AFTER user_id");
+    }
+    execute(
+        connection,
+        "UPDATE user_market_settings SET listing_limit_override = NULL "
+            + "WHERE listing_limit_override IS NOT NULL AND listing_limit_override <= 0");
   }
 
   private void createMaterialVisualOverrides(Connection connection) throws SQLException {
@@ -438,6 +479,7 @@ class SchemaManager {
           item_material VARCHAR(64) NULL,
           display_name_override VARCHAR(128) NULL,
           display_material VARCHAR(64) NULL,
+          display_icon_path VARCHAR(255) NULL,
           item_amount INT NULL,
           stock_remaining INT NULL,
           per_user_limit INT NULL,
@@ -495,6 +537,12 @@ class SchemaManager {
           connection,
           "ALTER TABLE products "
               + "ADD COLUMN display_material VARCHAR(64) NULL AFTER display_name_override");
+    }
+    if (!columnExists(connection, "products", "display_icon_path")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN display_icon_path VARCHAR(255) NULL AFTER display_material");
     }
     if (!columnExists(connection, "products", "item_amount")) {
       execute(
@@ -836,6 +884,7 @@ class SchemaManager {
           item_material VARCHAR(64) NOT NULL,
           display_name_override VARCHAR(128) NULL,
           display_material VARCHAR(64) NULL,
+          display_icon_path VARCHAR(255) NULL,
           raw_item_blob LONGBLOB NOT NULL,
           item_meta_json JSON NOT NULL,
           remark TEXT NULL,
@@ -897,6 +946,12 @@ class SchemaManager {
           connection,
           "ALTER TABLE market_listings "
               + "ADD COLUMN display_material VARCHAR(64) NULL AFTER display_name_override");
+    }
+    if (!columnExists(connection, "market_listings", "display_icon_path")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN display_icon_path VARCHAR(255) NULL AFTER display_material");
     }
     if (!columnExists(connection, "market_listings", "quantity_total")) {
       execute(

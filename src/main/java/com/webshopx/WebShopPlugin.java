@@ -38,6 +38,7 @@ public class WebShopPlugin extends JavaPlugin {
   private MarketService marketService;
   private MaterialVisualService materialVisualService;
   private VisualCustomizationService visualCustomizationService;
+  private UserMarketSettingsService userMarketSettingsService;
   private NotificationService notificationService;
   private MailboxService mailboxService;
   private BroadcastService broadcastService;
@@ -99,6 +100,7 @@ public class WebShopPlugin extends JavaPlugin {
       broadcastService = new BroadcastService(this, this::settings);
       broadcastService.reload();
       clusterEventBusService.reload();
+      userMarketSettingsService = new UserMarketSettingsService(databaseManager);
       marketService = new MarketService(
           this,
           databaseManager,
@@ -107,7 +109,8 @@ public class WebShopPlugin extends JavaPlugin {
           messageService,
           notificationService,
           broadcastService,
-          playerPresenceService);
+          playerPresenceService,
+          userMarketSettingsService);
       materialVisualService = new MaterialVisualService(databaseManager);
       visualCustomizationService = new VisualCustomizationService(databaseManager);
       marketGuiService = new MarketGuiService(marketService, this::settings, messageService);
@@ -138,6 +141,7 @@ public class WebShopPlugin extends JavaPlugin {
           leaderboardService,
           materialVisualService,
           visualCustomizationService,
+          userMarketSettingsService,
           runtimeConfigService,
           clusterEventBusService);
 

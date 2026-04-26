@@ -5,6 +5,7 @@
   activeTab: "login",
   majorLastTab: {},
   productPanel: "editor",
+  selectedProductId: null,
   selectedUser: null,
   products: [],
   userList: [],
@@ -23,6 +24,12 @@
   visualPolicy: {
     globalCustomIconEnabled: true,
     globalCustomNameEnabled: true,
+    officialProductCustomIconEnabled: true,
+    officialProductCustomNameEnabled: true,
+    officialProductUploadImageEnabled: true,
+    marketListingCustomIconEnabled: true,
+    marketListingCustomNameEnabled: true,
+    marketListingUploadImageEnabled: true,
     iconPolicyMode: "SOFT",
     namePolicyMode: "SOFT",
   },
@@ -97,6 +104,11 @@ const MATERIAL_TEXTURE_OVERRIDES = {
   MOSS_CARPET: ["moss_carpet"],
   GRASS: ["short_grass", "grass"],
   TALL_GRASS: ["tall_grass"],
+};
+const PRODUCT_TYPE_TEXTURE_MAP = {
+  COMMAND: "COMMAND_BLOCK",
+  POTION_EFFECT: "SPLASH_POTION",
+  GROUP_BUY_VOUCHER: "PAPER",
 };
 const DEFAULT_TEXTURE_FALLBACK_MATERIAL = "BUNDLE";
 
@@ -259,6 +271,13 @@ const elements = {
   productItemMaterial: document.getElementById("productItemMaterial"),
   productDisplayMaterial: document.getElementById("productDisplayMaterial"),
   productDisplayNameOverride: document.getElementById("productDisplayNameOverride"),
+  productDisplayIconPath: document.getElementById("productDisplayIconPath"),
+  productIconPreviewImage: document.getElementById("productIconPreviewImage"),
+  productIconPreviewLabel: document.getElementById("productIconPreviewLabel"),
+  productIconFile: document.getElementById("productIconFile"),
+  productIconUploadBtn: document.getElementById("productIconUploadBtn"),
+  productIconClearBtn: document.getElementById("productIconClearBtn"),
+  productIconStatus: document.getElementById("productIconStatus"),
   productStockMode: document.getElementById("productStockMode"),
   productItemAmount: document.getElementById("productItemAmount"),
   productPerUserLimit: document.getElementById("productPerUserLimit"),
@@ -365,6 +384,12 @@ const elements = {
   runtimeBroadcastStatusView: document.getElementById("runtimeBroadcastStatusView"),
   visualGlobalCustomIconEnabled: document.getElementById("visualGlobalCustomIconEnabled"),
   visualGlobalCustomNameEnabled: document.getElementById("visualGlobalCustomNameEnabled"),
+  visualOfficialProductCustomIconEnabled: document.getElementById("visualOfficialProductCustomIconEnabled"),
+  visualOfficialProductCustomNameEnabled: document.getElementById("visualOfficialProductCustomNameEnabled"),
+  visualOfficialProductUploadImageEnabled: document.getElementById("visualOfficialProductUploadImageEnabled"),
+  visualMarketListingCustomIconEnabled: document.getElementById("visualMarketListingCustomIconEnabled"),
+  visualMarketListingCustomNameEnabled: document.getElementById("visualMarketListingCustomNameEnabled"),
+  visualMarketListingUploadImageEnabled: document.getElementById("visualMarketListingUploadImageEnabled"),
   visualIconPolicyMode: document.getElementById("visualIconPolicyMode"),
   visualNamePolicyMode: document.getElementById("visualNamePolicyMode"),
   visualSettingsSaveBtn: document.getElementById("visualSettingsSaveBtn"),
@@ -421,8 +446,11 @@ const elements = {
   walletAdjustBtn: document.getElementById("walletAdjustBtn"),
   userVisualIconPermission: document.getElementById("userVisualIconPermission"),
   userVisualNamePermission: document.getElementById("userVisualNamePermission"),
+  userVisualUploadPermission: document.getElementById("userVisualUploadPermission"),
+  userListingLimitOverride: document.getElementById("userListingLimitOverride"),
   userVisualPermissionSaveBtn: document.getElementById("userVisualPermissionSaveBtn"),
   userVisualPermissionStatus: document.getElementById("userVisualPermissionStatus"),
+  userListingLimitStatus: document.getElementById("userListingLimitStatus"),
   userActionStatus: document.getElementById("userActionStatus"),
 
   adminManagerIdentifier: document.getElementById("adminManagerIdentifier"),
@@ -1805,13 +1833,16 @@ function renderOrderAdminCard(order) {
 function renderProductAdminCard(product, actions = []) {
   const card = document.createElement("div");
   card.className = "admin-card admin-product-card-v2";
+  const baseMaterial = resolveAdminProductTextureMaterial(product);
   const visual = resolveDisplayVisual(
-    product.itemMaterial,
+    baseMaterial,
     product.displayNameOverride,
     product.displayMaterial,
-    ""
+    product.displayIconPath,
+    "",
+    { category: "official" }
   );
-  const visualLabel = visual.title || getLocalizedMaterialName(visual.material || product.itemMaterial || "");
+  const visualLabel = visual.title || getLocalizedMaterialName(visual.material || baseMaterial || "");
 
   const header = document.createElement("div");
   header.className = "admin-card-hero";
@@ -1822,7 +1853,7 @@ function renderProductAdminCard(product, actions = []) {
   const materialTile = document.createElement("div");
   materialTile.className = "admin-material-tile";
   materialTile.appendChild(
-    buildTextureImage(visual.material || product.itemMaterial, visualLabel, {
+    buildTextureImage(visual.material || baseMaterial, visualLabel, {
       forceIconPath: visual.forceIconPath,
       includeMaterialOverride: visual.includeMaterialOverride,
     })
@@ -1867,12 +1898,12 @@ function renderProductAdminCard(product, actions = []) {
   tags.appendChild(
     createTag(
       (visual.material || product.itemMaterial)
-        ? `${visual.material || product.itemMaterial} (${visualLabel})`
+        ? `${visual.material || baseMaterial} (${visualLabel})`
         : "无材质",
       "info"
     )
   );
-  if (product.displayNameOverride || product.displayMaterial) {
+  if (product.displayNameOverride || product.displayMaterial || product.displayIconPath) {
     tags.appendChild(createTag("含显示覆盖", "neutral"));
   }
   if (product.dynamicPricingEnabled) {
@@ -1945,7 +1976,9 @@ function renderAdminMarketCard(listing, actions = []) {
     listing.itemMaterial,
     listing.displayNameOverride,
     listing.displayMaterial,
-    ""
+    listing.displayIconPath,
+    "",
+    { category: "market" }
   );
   const materialLabel = visual.title || getLocalizedMaterialName(listing.itemMaterial || "");
   iconWrap.appendChild(
@@ -1999,7 +2032,7 @@ function renderAdminMarketCard(listing, actions = []) {
       "info"
     )
   );
-  if (listing.displayNameOverride || listing.displayMaterial) {
+  if (listing.displayNameOverride || listing.displayMaterial || listing.displayIconPath) {
     tags.appendChild(createTag("含显示覆盖", "neutral"));
   }
   if (listing.remark) {
@@ -2266,6 +2299,12 @@ function normalizeVisualPolicy(raw) {
   return {
     globalCustomIconEnabled: raw?.globalCustomIconEnabled !== false,
     globalCustomNameEnabled: raw?.globalCustomNameEnabled !== false,
+    officialProductCustomIconEnabled: raw?.officialProductCustomIconEnabled !== false,
+    officialProductCustomNameEnabled: raw?.officialProductCustomNameEnabled !== false,
+    officialProductUploadImageEnabled: raw?.officialProductUploadImageEnabled !== false,
+    marketListingCustomIconEnabled: raw?.marketListingCustomIconEnabled !== false,
+    marketListingCustomNameEnabled: raw?.marketListingCustomNameEnabled !== false,
+    marketListingUploadImageEnabled: raw?.marketListingUploadImageEnabled !== false,
     iconPolicyMode: iconMode,
     namePolicyMode: nameMode,
   };
@@ -2275,18 +2314,28 @@ function applyVisualPolicy(raw) {
   state.visualPolicy = normalizeVisualPolicy(raw || state.visualPolicy || {});
 }
 
-function resolveDisplayVisual(baseMaterial, displayNameOverride, displayMaterial, fallbackName = "") {
+function resolveDisplayVisual(baseMaterial, displayNameOverride, displayMaterial, displayIconPath, fallbackName = "", options = {}) {
   const policy = normalizeVisualPolicy(state.visualPolicy || {});
+  const category = options.category === "official" ? "official" : "market";
+  const categoryIconEnabled = category === "official"
+    ? policy.officialProductCustomIconEnabled !== false
+    : policy.marketListingCustomIconEnabled !== false;
+  const categoryNameEnabled = category === "official"
+    ? policy.officialProductCustomNameEnabled !== false
+    : policy.marketListingCustomNameEnabled !== false;
   const baseKey = normalizeMaterialKey(baseMaterial);
   const globalVisual = getMaterialVisualOverride(baseKey);
   const customName = String(displayNameOverride || "").trim();
   const customMaterial = normalizeMaterialKey(displayMaterial);
+  const customIconPath = String(displayIconPath || "").trim();
   const resolvedMaterial = customMaterial || baseKey || DEFAULT_TEXTURE_FALLBACK_MATERIAL;
   const fallback = String(fallbackName || "").trim();
 
   let forceIconPath = "";
   if (policy.globalCustomIconEnabled && policy.iconPolicyMode === "HARD" && globalVisual?.iconPath) {
     forceIconPath = String(globalVisual.iconPath);
+  } else if (categoryIconEnabled && customIconPath) {
+    forceIconPath = customIconPath;
   } else if (!customMaterial && policy.globalCustomIconEnabled && policy.iconPolicyMode === "SOFT" && globalVisual?.iconPath) {
     forceIconPath = String(globalVisual.iconPath);
   }
@@ -2294,7 +2343,7 @@ function resolveDisplayVisual(baseMaterial, displayNameOverride, displayMaterial
   let resolvedName = "";
   if (policy.globalCustomNameEnabled && policy.namePolicyMode === "HARD" && globalVisual?.displayNameOverride) {
     resolvedName = String(globalVisual.displayNameOverride);
-  } else if (customName) {
+  } else if (categoryNameEnabled && customName) {
     resolvedName = customName;
   } else if (fallback) {
     resolvedName = fallback;
@@ -3177,6 +3226,49 @@ async function loadRedeemList() {
   renderList(elements.redeemList, rows);
 }
 
+function resolveAdminProductTextureMaterial(product) {
+  const itemMaterial = normalizeMaterialKey(product?.itemMaterial || "");
+  if (itemMaterial) {
+    return itemMaterial;
+  }
+  const productType = String(product?.productType || "").trim().toUpperCase();
+  return PRODUCT_TYPE_TEXTURE_MAP[productType] || DEFAULT_TEXTURE_FALLBACK_MATERIAL;
+}
+
+function updateProductIconPreview() {
+  if (!elements.productIconPreviewImage || !elements.productIconPreviewLabel) {
+    return;
+  }
+  const draft = {
+    itemMaterial: resolveMaterialInputLoose(elements.productItemMaterial?.value || ""),
+    productType: String(elements.productType?.value || "COMMAND").trim().toUpperCase(),
+    displayNameOverride: String(elements.productDisplayNameOverride?.value || "").trim() || null,
+    displayMaterial: resolveMaterialInputLoose(elements.productDisplayMaterial?.value || ""),
+    displayIconPath: String(elements.productDisplayIconPath?.value || "").trim() || null,
+    title: String(elements.productTitle?.value || "").trim() || String(elements.productSku?.value || "").trim() || "未命名商品",
+  };
+  const baseMaterial = resolveAdminProductTextureMaterial(draft);
+  const visual = resolveDisplayVisual(
+    baseMaterial,
+    draft.displayNameOverride,
+    draft.displayMaterial,
+    draft.displayIconPath,
+    draft.title,
+    { category: "official" }
+  );
+  const previewLabel = visual.title || draft.title || "未命名商品";
+  setNodeText(
+    elements.productIconPreviewLabel,
+    `${previewLabel}${state.selectedProductId ? ` (#${state.selectedProductId})` : "（未保存）"}`
+  );
+  elements.productIconPreviewImage.src = resolveMaterialIconUrl(visual.forceIconPath)
+    || getTextureCandidates(visual.material || baseMaterial, {
+      forceIconPath: visual.forceIconPath,
+      includeMaterialOverride: visual.includeMaterialOverride,
+    })[0]
+    || getFallbackTexture();
+}
+
 function getProductInput() {
   const isUnlimited = elements.productStockMode?.value === "UNLIMITED";
   const rawItemAmount = String(elements.productItemAmount.value || "").trim();
@@ -3198,6 +3290,7 @@ function getProductInput() {
     itemMaterial: resolveMaterialInput(elements.productItemMaterial.value),
     displayNameOverride: String(elements.productDisplayNameOverride?.value || "").trim() || null,
     displayMaterial: resolveMaterialInputLoose(elements.productDisplayMaterial?.value || ""),
+    displayIconPath: String(elements.productDisplayIconPath?.value || "").trim() || null,
     itemAmount: isUnlimited
       ? null
       :
@@ -3229,9 +3322,70 @@ async function saveProduct() {
     method: "POST",
     body: JSON.stringify(input),
   });
+  state.selectedProductId = Number(payload.id || 0) || state.selectedProductId;
+  if (elements.productDisplayIconPath) {
+    elements.productDisplayIconPath.value = payload.displayIconPath || "";
+  }
+  updateProductIconPreview();
+  setMetaText(
+    elements.productIconStatus,
+    state.selectedProductId
+      ? `商品已保存，可继续为 #${state.selectedProductId} 上传独立图标。`
+      : "商品已保存。",
+    "info"
+  );
   setMetaText(elements.productStatus, `商品已保存：${payload.sku}`, "success");
   notify(`商品已保存：${payload.sku}`, "success");
   await loadProducts();
+}
+
+async function uploadProductIcon() {
+  ensureAdmin();
+  if (!state.selectedProductId) {
+    throw new Error("请先保存商品，再上传独立图标。");
+  }
+  const file = elements.productIconFile?.files?.[0];
+  if (!file) {
+    throw new Error("请先选择图标文件。");
+  }
+  const croppedFile = await cropImageFileToSquarePng(file, 128);
+  if (!croppedFile) {
+    setMetaText(elements.productIconStatus, "已取消裁剪与上传", "info");
+    return;
+  }
+  const query = new URLSearchParams({
+    productId: String(state.selectedProductId),
+    filename: croppedFile?.name || `product-${state.selectedProductId}.png`,
+  });
+  const payload = await apiAdminUpload(`/api/admin/products/icon?${query.toString()}`, croppedFile);
+  state.selectedProductId = Number(payload.id || state.selectedProductId) || state.selectedProductId;
+  if (elements.productDisplayIconPath) {
+    elements.productDisplayIconPath.value = payload.displayIconPath || "";
+  }
+  updateProductIconPreview();
+  setMetaText(elements.productIconStatus, `商品 #${state.selectedProductId} 图标上传成功`, "success");
+  notify("商品图标上传成功", "success");
+  await loadProducts();
+}
+
+async function clearProductIcon() {
+  ensureAdmin();
+  if (!state.selectedProductId) {
+    if (elements.productDisplayIconPath) {
+      elements.productDisplayIconPath.value = "";
+    }
+    updateProductIconPreview();
+    setMetaText(elements.productIconStatus, "当前商品尚未保存，已清空本地预览。", "info");
+    return;
+  }
+  if (!window.confirm(`确认清除商品 #${state.selectedProductId} 的自定义图标吗？`)) {
+    return;
+  }
+  if (elements.productDisplayIconPath) {
+    elements.productDisplayIconPath.value = "";
+  }
+  await saveProduct();
+  setMetaText(elements.productIconStatus, `商品 #${state.selectedProductId} 自定义图标已清除`, "success");
 }
 
 async function resetProductLimit(product) {
@@ -3303,7 +3457,9 @@ function renderProducts() {
       product.itemMaterial,
       product.displayNameOverride,
       product.displayMaterial,
-      ""
+      product.displayIconPath,
+      "",
+      { category: "official" }
     );
     const materialName = visual.title || getLocalizedMaterialName(visual.material || product.itemMaterial || "");
     const haystack = [
@@ -3326,6 +3482,7 @@ function renderProducts() {
     editBtn.className = "btn-tonal";
     setNodeText(editBtn, "加载编辑");
     editBtn.addEventListener("click", () => {
+      state.selectedProductId = Number(product.id || 0) || null;
       elements.productSku.value = product.sku;
       elements.productTitle.value = product.title;
       if (elements.productRemark) {
@@ -3375,6 +3532,12 @@ function renderProducts() {
       if (elements.productDisplayNameOverride) {
         elements.productDisplayNameOverride.value = product.displayNameOverride || "";
       }
+      if (elements.productDisplayIconPath) {
+        elements.productDisplayIconPath.value = product.displayIconPath || "";
+      }
+      if (elements.productIconFile) {
+        elements.productIconFile.value = "";
+      }
       if (elements.productStockMode) {
         elements.productStockMode.value = product.itemAmount == null ? "UNLIMITED" : "FINITE";
       }
@@ -3389,6 +3552,8 @@ function renderProducts() {
       renderProductDynamicParamEditors();
       updateProductTypeFieldsVisibility(product.productType);
       syncProductAmountSlider("input");
+      updateProductIconPreview();
+      setMetaText(elements.productIconStatus, `已绑定到商品 #${product.id}`, "info");
       setProductPanel("editor");
       setMetaText(elements.productStatus, `已加载 ${product.sku} 进入编辑`, "info");
     });
@@ -3432,6 +3597,7 @@ async function loadProducts() {
   state.products = payload.products || [];
   renderProducts();
   syncProductAmountSlider("input");
+  updateProductIconPreview();
 }
 
 async function loadAdminOrders() {
@@ -3679,6 +3845,24 @@ async function loadEconomySettings() {
   }
   if (elements.visualGlobalCustomNameEnabled) {
     elements.visualGlobalCustomNameEnabled.value = String(visual.globalCustomNameEnabled !== false);
+  }
+  if (elements.visualOfficialProductCustomIconEnabled) {
+    elements.visualOfficialProductCustomIconEnabled.value = String(visual.officialProductCustomIconEnabled !== false);
+  }
+  if (elements.visualOfficialProductCustomNameEnabled) {
+    elements.visualOfficialProductCustomNameEnabled.value = String(visual.officialProductCustomNameEnabled !== false);
+  }
+  if (elements.visualOfficialProductUploadImageEnabled) {
+    elements.visualOfficialProductUploadImageEnabled.value = String(visual.officialProductUploadImageEnabled !== false);
+  }
+  if (elements.visualMarketListingCustomIconEnabled) {
+    elements.visualMarketListingCustomIconEnabled.value = String(visual.marketListingCustomIconEnabled !== false);
+  }
+  if (elements.visualMarketListingCustomNameEnabled) {
+    elements.visualMarketListingCustomNameEnabled.value = String(visual.marketListingCustomNameEnabled !== false);
+  }
+  if (elements.visualMarketListingUploadImageEnabled) {
+    elements.visualMarketListingUploadImageEnabled.value = String(visual.marketListingUploadImageEnabled !== false);
   }
   if (elements.visualIconPolicyMode) {
     elements.visualIconPolicyMode.value = String(visual.iconPolicyMode || "SOFT").toUpperCase();
@@ -4158,6 +4342,12 @@ async function saveVisualSettings() {
     body: JSON.stringify({
       globalCustomIconEnabled: elements.visualGlobalCustomIconEnabled?.value === "true",
       globalCustomNameEnabled: elements.visualGlobalCustomNameEnabled?.value === "true",
+      officialProductCustomIconEnabled: elements.visualOfficialProductCustomIconEnabled?.value !== "false",
+      officialProductCustomNameEnabled: elements.visualOfficialProductCustomNameEnabled?.value !== "false",
+      officialProductUploadImageEnabled: elements.visualOfficialProductUploadImageEnabled?.value !== "false",
+      marketListingCustomIconEnabled: elements.visualMarketListingCustomIconEnabled?.value !== "false",
+      marketListingCustomNameEnabled: elements.visualMarketListingCustomNameEnabled?.value !== "false",
+      marketListingUploadImageEnabled: elements.visualMarketListingUploadImageEnabled?.value !== "false",
       iconPolicyMode: String(elements.visualIconPolicyMode?.value || "SOFT").toUpperCase(),
       namePolicyMode: String(elements.visualNamePolicyMode?.value || "SOFT").toUpperCase(),
     }),
@@ -4250,6 +4440,17 @@ function applySelectedUser(payload, sourceLabel = "查询") {
   });
 }
 
+function formatListingLimitSource(source) {
+  const normalized = String(source || "").trim().toUpperCase();
+  if (normalized === "USER_OVERRIDE") {
+    return "用户覆盖";
+  }
+  if (normalized === "PERMISSION_NODE") {
+    return "权限节点";
+  }
+  return "全局默认";
+}
+
 async function loadSelectedUserVisualPermission() {
   if (!state.selectedUser || !state.selectedUser.id) {
     if (elements.userVisualIconPermission) {
@@ -4258,7 +4459,14 @@ async function loadSelectedUserVisualPermission() {
     if (elements.userVisualNamePermission) {
       elements.userVisualNamePermission.value = "INHERIT";
     }
+    if (elements.userVisualUploadPermission) {
+      elements.userVisualUploadPermission.value = "INHERIT";
+    }
+    if (elements.userListingLimitOverride) {
+      elements.userListingLimitOverride.value = "";
+    }
     setMetaText(elements.userVisualPermissionStatus, "请先选择用户", "info");
+    setMetaText(elements.userListingLimitStatus, "请先选择用户", "info");
     return;
   }
   const payload = await apiAdmin(`/api/admin/users/visual-permission?userId=${encodeURIComponent(state.selectedUser.id)}`, {
@@ -4270,11 +4478,25 @@ async function loadSelectedUserVisualPermission() {
   if (elements.userVisualNamePermission) {
     elements.userVisualNamePermission.value = String(payload.namePermission || "INHERIT").toUpperCase();
   }
+  if (elements.userVisualUploadPermission) {
+    elements.userVisualUploadPermission.value = String(payload.uploadPermission || "INHERIT").toUpperCase();
+  }
+  if (elements.userListingLimitOverride) {
+    elements.userListingLimitOverride.value = payload.listingLimitOverride == null ? "" : String(payload.listingLimitOverride);
+  }
   const iconAllowed = payload.customIconAllowed ? "允许" : "禁止";
   const nameAllowed = payload.customNameAllowed ? "允许" : "禁止";
+  const uploadAllowed = payload.customUploadAllowed ? "允许" : "禁止";
   setMetaText(
     elements.userVisualPermissionStatus,
-    `已加载：图标${iconAllowed} / 名称${nameAllowed}`,
+    `已加载：图标${iconAllowed} / 名称${nameAllowed} / 上传${uploadAllowed}`,
+    "info"
+  );
+  setMetaText(
+    elements.userListingLimitStatus,
+    `当前生效上限 ${payload.listingLimitEffective || "-"}，来源：${formatListingLimitSource(payload.listingLimitSource)}`
+      + (payload.permissionLimit ? `，权限节点 ${payload.permissionLimit}` : "")
+      + `，全局默认 ${payload.globalDefaultLimit || "-"}`,
     "info"
   );
 }
@@ -4288,13 +4510,23 @@ async function saveSelectedUserVisualPermission() {
       userId,
       iconPermission: String(elements.userVisualIconPermission?.value || "INHERIT").toUpperCase(),
       namePermission: String(elements.userVisualNamePermission?.value || "INHERIT").toUpperCase(),
+      uploadPermission: String(elements.userVisualUploadPermission?.value || "INHERIT").toUpperCase(),
+      listingLimitOverride: String(elements.userListingLimitOverride?.value || "").trim()
+        ? Number(elements.userListingLimitOverride.value)
+        : null,
     }),
   });
   const iconAllowed = payload.customIconAllowed ? "允许" : "禁止";
   const nameAllowed = payload.customNameAllowed ? "允许" : "禁止";
+  const uploadAllowed = payload.customUploadAllowed ? "允许" : "禁止";
   setMetaText(
     elements.userVisualPermissionStatus,
-    `保存成功：图标${iconAllowed} / 名称${nameAllowed}`,
+    `保存成功：图标${iconAllowed} / 名称${nameAllowed} / 上传${uploadAllowed}`,
+    "success"
+  );
+  setMetaText(
+    elements.userListingLimitStatus,
+    `当前生效上限 ${payload.listingLimitEffective || "-"}，来源：${formatListingLimitSource(payload.listingLimitSource)}`,
     "success"
   );
   notify("用户视觉权限已保存", "success");
@@ -4837,6 +5069,26 @@ if (elements.productPrice) {
 if (elements.productCurrency) {
   elements.productCurrency.addEventListener("change", () => syncProductAmountSlider("input"));
 }
+if (elements.productIconUploadBtn) {
+  elements.productIconUploadBtn.addEventListener("click", async () => {
+    try {
+      await uploadProductIcon();
+    } catch (error) {
+      setMetaText(elements.productIconStatus, `上传失败：${error.message}`, "error");
+      notify(`上传失败：${error.message}`, "error");
+    }
+  });
+}
+if (elements.productIconClearBtn) {
+  elements.productIconClearBtn.addEventListener("click", async () => {
+    try {
+      await clearProductIcon();
+    } catch (error) {
+      setMetaText(elements.productIconStatus, `清除失败：${error.message}`, "error");
+      notify(`清除失败：${error.message}`, "error");
+    }
+  });
+}
 
 if (elements.groupBuyConsumeBtn) {
   elements.groupBuyConsumeBtn.addEventListener("click", async () => {
@@ -5267,6 +5519,7 @@ localizeOrderStatusOptions();
 if (elements.productType) {
   elements.productType.addEventListener("change", () => {
     updateProductTypeFieldsVisibility(elements.productType.value);
+    updateProductIconPreview();
   });
 }
 if (elements.productDynamicEnabled) {
@@ -5316,6 +5569,7 @@ if (elements.productItemMaterial) {
     } else if (String(elements.productItemMaterial.value || "").trim()) {
       notify("材质无效，请从建议列表选择或输入正确英文材质名。", "warn");
     }
+    updateProductIconPreview();
   });
 }
 if (elements.productDisplayMaterial) {
@@ -5333,7 +5587,17 @@ if (elements.productDisplayMaterial) {
     } else {
       notify("展示材质格式无效，请检查输入。", "warn");
     }
+    updateProductIconPreview();
   });
+}
+if (elements.productDisplayNameOverride) {
+  elements.productDisplayNameOverride.addEventListener("input", () => updateProductIconPreview());
+}
+if (elements.productTitle) {
+  elements.productTitle.addEventListener("input", () => updateProductIconPreview());
+}
+if (elements.productSku) {
+  elements.productSku.addEventListener("input", () => updateProductIconPreview());
 }
 if (elements.marketMaterial) {
   elements.marketMaterial.addEventListener("blur", () => {
@@ -5409,10 +5673,12 @@ ensureMarketAlgorithmGlossary()
   .then(() => {
     populateProductDynamicAlgorithmSelect();
     renderProductDynamicParamEditors();
+    updateProductIconPreview();
   })
   .catch(() => {
     populateProductDynamicAlgorithmSelect();
     renderProductDynamicParamEditors();
+    updateProductIconPreview();
   });
 populatePotionEffectSuggest();
 setMetaText(elements.adminLoginStatus, "等待登录", "info");

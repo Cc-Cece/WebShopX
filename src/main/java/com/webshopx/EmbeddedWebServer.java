@@ -50,6 +50,7 @@ class EmbeddedWebServer {
   private final LeaderboardService leaderboardService;
   private final MaterialVisualService materialVisualService;
   private final VisualCustomizationService visualCustomizationService;
+  private final UserMarketSettingsService userMarketSettingsService;
   private final RuntimeConfigService runtimeConfigService;
   private final ClusterEventBusService clusterEventBusService;
   private final Gson gson;
@@ -76,6 +77,7 @@ class EmbeddedWebServer {
       LeaderboardService leaderboardService,
       MaterialVisualService materialVisualService,
       VisualCustomizationService visualCustomizationService,
+      UserMarketSettingsService userMarketSettingsService,
       RuntimeConfigService runtimeConfigService,
       ClusterEventBusService clusterEventBusService) {
     this.plugin = plugin;
@@ -92,6 +94,7 @@ class EmbeddedWebServer {
     this.leaderboardService = leaderboardService;
     this.materialVisualService = materialVisualService;
     this.visualCustomizationService = visualCustomizationService;
+    this.userMarketSettingsService = userMarketSettingsService;
     this.runtimeConfigService = runtimeConfigService;
     this.clusterEventBusService = clusterEventBusService;
     this.gson = new GsonBuilder().disableHtmlEscaping().create();
@@ -138,6 +141,7 @@ class EmbeddedWebServer {
     server.createContext("/api/market/price", this::handleMarketPrice);
     server.createContext("/api/market/remark", this::handleMarketRemark);
     server.createContext("/api/market/settings", this::handleMarketSettings);
+    server.createContext("/api/market/icon/upload", this::handleMarketIconUpload);
     server.createContext("/api/market/supply/refresh", this::handleMarketSupplyRefresh);
     server.createContext("/api/admin/auth/login", this::handleAdminLogin);
     server.createContext("/api/admin/auth/me", this::handleAdminMe);
@@ -146,6 +150,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/redeem/list", this::handleAdminRedeemList);
     server.createContext("/api/admin/products/list", this::handleAdminProductsList);
     server.createContext("/api/admin/products/upsert", this::handleAdminProductsUpsert);
+    server.createContext("/api/admin/products/icon", this::handleAdminProductIconUpload);
     server.createContext("/api/admin/products/active", this::handleAdminProductsActive);
     server.createContext("/api/admin/products/reset-limit", this::handleAdminProductsResetLimit);
     server.createContext("/api/admin/group-buy/consume", this::handleAdminGroupBuyConsume);
@@ -934,6 +939,12 @@ class EmbeddedWebServer {
     JsonObject json = new JsonObject();
     json.addProperty("globalCustomIconEnabled", normalized.globalCustomIconEnabled());
     json.addProperty("globalCustomNameEnabled", normalized.globalCustomNameEnabled());
+    json.addProperty("officialProductCustomIconEnabled", normalized.officialProductCustomIconEnabled());
+    json.addProperty("officialProductCustomNameEnabled", normalized.officialProductCustomNameEnabled());
+    json.addProperty("officialProductUploadImageEnabled", normalized.officialProductUploadImageEnabled());
+    json.addProperty("marketListingCustomIconEnabled", normalized.marketListingCustomIconEnabled());
+    json.addProperty("marketListingCustomNameEnabled", normalized.marketListingCustomNameEnabled());
+    json.addProperty("marketListingUploadImageEnabled", normalized.marketListingUploadImageEnabled());
     json.addProperty("iconPolicyMode", normalized.iconPolicyMode().name());
     json.addProperty("namePolicyMode", normalized.namePolicyMode().name());
     return json;
@@ -944,10 +955,34 @@ class EmbeddedWebServer {
     json.addProperty("userId", resolved.userId());
     json.addProperty("iconPermission", resolved.iconPermission().name());
     json.addProperty("namePermission", resolved.namePermission().name());
+    json.addProperty("uploadPermission", resolved.uploadPermission().name());
     json.addProperty("customIconAllowed", resolved.customIconAllowed());
     json.addProperty("customNameAllowed", resolved.customNameAllowed());
+    json.addProperty("customUploadAllowed", resolved.customUploadAllowed());
     json.add("settings", visualSettingsJson(resolved.settings()));
     return json;
+  }
+
+  private void addListingLimitJson(
+      JsonObject json,
+      UserMarketSettingsService.ResolvedListingLimit resolved) {
+    if (json == null || resolved == null) {
+      return;
+    }
+    json.addProperty("listingLimitEffective", resolved.effectiveLimit());
+    json.addProperty("listingLimitSource", resolved.source().name());
+    json.addProperty("playerOnline", resolved.playerOnline());
+    json.addProperty("globalDefaultLimit", resolved.globalDefaultLimit());
+    if (resolved.listingLimitOverride() == null) {
+      json.add("listingLimitOverride", JsonNull.INSTANCE);
+    } else {
+      json.addProperty("listingLimitOverride", resolved.listingLimitOverride());
+    }
+    if (resolved.permissionLimit() == null) {
+      json.add("permissionLimit", JsonNull.INSTANCE);
+    } else {
+      json.addProperty("permissionLimit", resolved.permissionLimit());
+    }
   }
 
   private void handleMarketListings(HttpExchange exchange) throws IOException {
@@ -1015,6 +1050,11 @@ class EmbeddedWebServer {
           row.add("displayMaterial", JsonNull.INSTANCE);
         } else {
           row.addProperty("displayMaterial", listing.displayMaterial());
+        }
+        if (listing.displayIconPath() == null) {
+          row.add("displayIconPath", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("displayIconPath", listing.displayIconPath());
         }
         row.addProperty("itemMetaJson", listing.itemMetaJson());
         if (listing.remark() == null) {
@@ -1354,6 +1394,9 @@ class EmbeddedWebServer {
       String displayMaterial = payload.has("displayMaterial")
           ? getOptionalString(payload, "displayMaterial").orElse(null)
           : null;
+      String displayIconPath = payload.has("displayIconPath")
+          ? getOptionalString(payload, "displayIconPath").orElse(null)
+          : null;
       Integer supplyBatchSize = payload.has("supplyBatchSize") && !payload.get("supplyBatchSize").isJsonNull()
           ? (int) getLong(payload, "supplyBatchSize", 0L)
           : null;
@@ -1402,7 +1445,8 @@ class EmbeddedWebServer {
         LocalDateTime auctionEndAt = getOptionalDateTime(payload, "auctionEndAt");
 
       boolean wantsCustomName = displayNameOverride != null && !displayNameOverride.isBlank();
-      boolean wantsCustomIcon = displayMaterial != null && !displayMaterial.isBlank();
+      boolean wantsCustomIcon = (displayMaterial != null && !displayMaterial.isBlank())
+          || (displayIconPath != null && !displayIconPath.isBlank());
       if (wantsCustomName || wantsCustomIcon) {
         VisualCustomizationService.ResolvedPermission permission =
             visualCustomizationService.resolvePermission(user.id());
@@ -1426,6 +1470,7 @@ class EmbeddedWebServer {
           remark,
           displayNameOverride,
           displayMaterial,
+          displayIconPath,
           supplyBatchSize,
           supplyMaxStock,
           tradeMode,
@@ -1476,6 +1521,11 @@ class EmbeddedWebServer {
         response.add("displayMaterial", JsonNull.INSTANCE);
       } else {
         response.addProperty("displayMaterial", result.displayMaterial());
+      }
+      if (result.displayIconPath() == null) {
+        response.add("displayIconPath", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("displayIconPath", result.displayIconPath());
       }
       if (result.supplyBatchSize() == null) {
         response.add("supplyBatchSize", JsonNull.INSTANCE);
@@ -1551,6 +1601,90 @@ class EmbeddedWebServer {
         response.add("auctionLastBidAt", JsonNull.INSTANCE);
       } else {
         addBusinessDateTime(response, "auctionLastBidAt", result.auctionLastBidAt());
+      }
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleMarketIconUpload(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, null);
+      VisualCustomizationService.ResolvedPermission permission =
+          visualCustomizationService.resolvePermission(user.id());
+      if (!permission.customIconAllowed()) {
+        throw new ServiceException("forbidden", "Custom listing icon is disabled by current visual customization policy");
+      }
+      if (!permission.customUploadAllowed()) {
+        throw new ServiceException("forbidden", "Custom listing icon upload is disabled by current visual customization policy");
+      }
+
+      Map<String, String> query = parseQuery(exchange);
+      Long listingIdRaw = parseLong(query.get("listingId"));
+      long listingId = listingIdRaw == null ? -1L : listingIdRaw;
+      if (listingId <= 0L) {
+        throw new ServiceException("bad_request", "Missing or invalid listingId");
+      }
+
+      String ext = resolveIconUploadExtension(
+          query.get("filename"),
+          exchange.getRequestHeaders().getFirst("X-File-Name"),
+          exchange.getRequestHeaders().getFirst("Content-Type"));
+      byte[] content = readRequestBodyWithLimit(exchange, MATERIAL_ICON_MAX_UPLOAD_BYTES);
+      if (content.length == 0) {
+        throw new ServiceException("bad_request", "Empty file content");
+      }
+
+      Path iconRoot = resolveListingIconRoot();
+      String fileName = "listing-"
+          + listingId
+          + "-"
+          + System.currentTimeMillis()
+          + "-"
+          + UUID.randomUUID().toString().substring(0, 8)
+          + "."
+          + ext;
+      Path output = iconRoot.resolve(fileName).normalize();
+      if (!output.startsWith(iconRoot)) {
+        throw new ServiceException("bad_request", "Invalid upload target");
+      }
+      Files.write(
+          output,
+          content,
+          StandardOpenOption.CREATE,
+          StandardOpenOption.TRUNCATE_EXISTING,
+          StandardOpenOption.WRITE);
+
+      String iconPath = "/uploads/listing-icons/" + fileName;
+      MarketService.ListingVisualUpdateResult saved =
+          marketService.updateListingDisplayIconPath(user.id(), listingId, iconPath);
+      if (saved.previousDisplayIconPath() != null
+          && !saved.previousDisplayIconPath().isBlank()
+          && !saved.previousDisplayIconPath().equals(saved.displayIconPath())) {
+        deleteManagedListingIcon(saved.previousDisplayIconPath());
+      }
+
+      JsonObject response = new JsonObject();
+      response.addProperty("listingId", saved.listingId());
+      if (saved.displayNameOverride() == null) {
+        response.add("displayNameOverride", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("displayNameOverride", saved.displayNameOverride());
+      }
+      if (saved.displayMaterial() == null) {
+        response.add("displayMaterial", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("displayMaterial", saved.displayMaterial());
+      }
+      if (saved.displayIconPath() == null) {
+        response.add("displayIconPath", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("displayIconPath", saved.displayIconPath());
       }
       sendJson(exchange, 200, response);
     });
@@ -1802,6 +1936,7 @@ class EmbeddedWebServer {
           getOptionalString(payload, "itemMaterial").orElse(null),
           getOptionalString(payload, "displayNameOverride").orElse(null),
           getOptionalString(payload, "displayMaterial").orElse(null),
+          getOptionalString(payload, "displayIconPath").orElse(null),
           payload.has("itemAmount") && !payload.get("itemAmount").isJsonNull()
               ? (int) getLong(payload, "itemAmount", 0L)
               : null,
@@ -1836,6 +1971,67 @@ class EmbeddedWebServer {
       detail.addProperty("productType", product.productType().name());
       detail.addProperty("active", product.active());
       adminAuditService.log(admin, "PRODUCT_UPSERT", "product", product.sku(), detail, clientIp(exchange));
+    });
+  }
+
+  private void handleAdminProductIconUpload(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AdminService.AdminUser admin = requireAdmin(exchange, null, AdminPermission.PRODUCT_MANAGE);
+      Map<String, String> query = parseQuery(exchange);
+      Long productIdRaw = parseLong(query.get("productId"));
+      long productId = productIdRaw == null ? -1L : productIdRaw;
+      if (productId <= 0L) {
+        throw new ServiceException("bad_request", "Missing or invalid productId");
+      }
+
+      String ext = resolveIconUploadExtension(
+          query.get("filename"),
+          exchange.getRequestHeaders().getFirst("X-File-Name"),
+          exchange.getRequestHeaders().getFirst("Content-Type"));
+      byte[] content = readRequestBodyWithLimit(exchange, MATERIAL_ICON_MAX_UPLOAD_BYTES);
+      if (content.length == 0) {
+        throw new ServiceException("bad_request", "Empty file content");
+      }
+
+      ProductService.ProductView existing = productService.readProductView(productId);
+      Path iconRoot = resolveProductIconRoot();
+      String fileName = "product-"
+          + productId
+          + "-"
+          + System.currentTimeMillis()
+          + "-"
+          + UUID.randomUUID().toString().substring(0, 8)
+          + "."
+          + ext;
+      Path output = iconRoot.resolve(fileName).normalize();
+      if (!output.startsWith(iconRoot)) {
+        throw new ServiceException("bad_request", "Invalid upload target");
+      }
+      Files.write(
+          output,
+          content,
+          StandardOpenOption.CREATE,
+          StandardOpenOption.TRUNCATE_EXISTING,
+          StandardOpenOption.WRITE);
+
+      String iconPath = "/uploads/product-icons/" + fileName;
+      ProductService.ProductView saved = productService.updateDisplayIconPath(productId, iconPath);
+      if (existing.displayIconPath() != null
+          && !existing.displayIconPath().isBlank()
+          && !existing.displayIconPath().equals(saved.displayIconPath())) {
+        deleteManagedProductIcon(existing.displayIconPath());
+      }
+
+      JsonObject response = new JsonObject();
+      addProductJson(response, saved, false);
+      response.addProperty("active", saved.active());
+      sendJson(exchange, 200, response);
     });
   }
 
@@ -2317,6 +2513,24 @@ class EmbeddedWebServer {
       VisualCustomizationService.VisualSettings settings = new VisualCustomizationService.VisualSettings(
           getBoolean(payload, "globalCustomIconEnabled"),
           getBoolean(payload, "globalCustomNameEnabled"),
+          payload.has("officialProductCustomIconEnabled")
+              ? getBoolean(payload, "officialProductCustomIconEnabled")
+              : true,
+          payload.has("officialProductCustomNameEnabled")
+              ? getBoolean(payload, "officialProductCustomNameEnabled")
+              : true,
+          payload.has("officialProductUploadImageEnabled")
+              ? getBoolean(payload, "officialProductUploadImageEnabled")
+              : true,
+          payload.has("marketListingCustomIconEnabled")
+              ? getBoolean(payload, "marketListingCustomIconEnabled")
+              : true,
+          payload.has("marketListingCustomNameEnabled")
+              ? getBoolean(payload, "marketListingCustomNameEnabled")
+              : true,
+          payload.has("marketListingUploadImageEnabled")
+              ? getBoolean(payload, "marketListingUploadImageEnabled")
+              : true,
           VisualCustomizationService.VisualPolicyMode.fromRaw(
               getOptionalString(payload, "iconPolicyMode").orElse("SOFT")),
           VisualCustomizationService.VisualPolicyMode.fromRaw(
@@ -2356,6 +2570,14 @@ class EmbeddedWebServer {
         VisualCustomizationService.ResolvedPermission resolved =
             visualCustomizationService.resolvePermission(userId);
         JsonObject response = userVisualPermissionJson(resolved);
+        AdminService.UserSupportView userView = adminService.lookupUser(String.valueOf(userId))
+            .orElseThrow(() -> new ServiceException("not_found", "User not found"));
+        addListingLimitJson(
+            response,
+            userMarketSettingsService.resolveListingLimit(
+                userId,
+                userView.boundUuid(),
+                settingsSupplier.get().marketMaxActiveListings()));
         sendJson(exchange, 200, response);
       });
       return;
@@ -2373,16 +2595,41 @@ class EmbeddedWebServer {
       VisualCustomizationService.VisualPermission namePermission =
           VisualCustomizationService.VisualPermission.fromRaw(
               getOptionalString(payload, "namePermission").orElse("INHERIT"));
-      visualCustomizationService.upsertUserPermission(userId, iconPermission, namePermission);
+      VisualCustomizationService.VisualPermission uploadPermission =
+          VisualCustomizationService.VisualPermission.fromRaw(
+              getOptionalString(payload, "uploadPermission").orElse("INHERIT"));
+      Integer listingLimitOverride = payload.has("listingLimitOverride") && !payload.get("listingLimitOverride").isJsonNull()
+          ? (int) getLong(payload, "listingLimitOverride", 0L)
+          : null;
+      visualCustomizationService.upsertUserPermission(
+          userId,
+          iconPermission,
+          namePermission,
+          uploadPermission);
+      userMarketSettingsService.upsertUserSettings(userId, listingLimitOverride);
       VisualCustomizationService.ResolvedPermission resolved =
           visualCustomizationService.resolvePermission(userId);
       JsonObject response = userVisualPermissionJson(resolved);
+      AdminService.UserSupportView userView = adminService.lookupUser(String.valueOf(userId))
+          .orElseThrow(() -> new ServiceException("not_found", "User not found"));
+      addListingLimitJson(
+          response,
+          userMarketSettingsService.resolveListingLimit(
+              userId,
+              userView.boundUuid(),
+              settingsSupplier.get().marketMaxActiveListings()));
       sendJson(exchange, 200, response);
 
       JsonObject detail = new JsonObject();
       detail.addProperty("userId", userId);
       detail.addProperty("iconPermission", iconPermission.name());
       detail.addProperty("namePermission", namePermission.name());
+      detail.addProperty("uploadPermission", uploadPermission.name());
+      if (listingLimitOverride == null) {
+        detail.add("listingLimitOverride", JsonNull.INSTANCE);
+      } else {
+        detail.addProperty("listingLimitOverride", listingLimitOverride);
+      }
       adminAuditService.log(
           admin,
           "USER_VISUAL_PERMISSION_UPDATE",
@@ -2734,6 +2981,11 @@ class EmbeddedWebServer {
           row.add("displayMaterial", JsonNull.INSTANCE);
         } else {
           row.addProperty("displayMaterial", listing.displayMaterial());
+        }
+        if (listing.displayIconPath() == null) {
+          row.add("displayIconPath", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("displayIconPath", listing.displayIconPath());
         }
         row.addProperty("itemMetaJson", listing.itemMetaJson());
         if (listing.remark() == null) {
@@ -3387,6 +3639,11 @@ class EmbeddedWebServer {
     } else {
       row.addProperty("displayMaterial", product.displayMaterial());
     }
+    if (product.displayIconPath() == null) {
+      row.add("displayIconPath", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("displayIconPath", product.displayIconPath());
+    }
     if (product.itemAmount() == null) {
       row.add("itemAmount", JsonNull.INSTANCE);
     } else {
@@ -3932,6 +4189,30 @@ class EmbeddedWebServer {
     return iconRoot;
   }
 
+  private Path resolveProductIconRoot() throws IOException {
+    if (staticRoot == null) {
+      throw new ServiceException("internal_error", "Static root is not initialized");
+    }
+    Path iconRoot = staticRoot.resolve("uploads").resolve("product-icons").normalize();
+    if (!iconRoot.startsWith(staticRoot)) {
+      throw new ServiceException("bad_request", "Invalid icon storage path");
+    }
+    Files.createDirectories(iconRoot);
+    return iconRoot;
+  }
+
+  private Path resolveListingIconRoot() throws IOException {
+    if (staticRoot == null) {
+      throw new ServiceException("internal_error", "Static root is not initialized");
+    }
+    Path iconRoot = staticRoot.resolve("uploads").resolve("listing-icons").normalize();
+    if (!iconRoot.startsWith(staticRoot)) {
+      throw new ServiceException("bad_request", "Invalid icon storage path");
+    }
+    Files.createDirectories(iconRoot);
+    return iconRoot;
+  }
+
   private void deleteManagedMaterialIcon(String iconPath) {
     String normalized = String.valueOf(iconPath == null ? "" : iconPath).trim().replace('\\', '/');
     if (!normalized.startsWith("/uploads/material-icons/")) {
@@ -3950,6 +4231,39 @@ class EmbeddedWebServer {
       Files.deleteIfExists(target);
     } catch (Exception exception) {
       plugin.getLogger().warning("Failed to cleanup old material icon: " + exception.getMessage());
+    }
+  }
+
+  private void deleteManagedProductIcon(String iconPath) {
+    deleteManagedUploadedIcon(iconPath, "/uploads/product-icons/", "product icon", this::resolveProductIconRoot);
+  }
+
+  private void deleteManagedListingIcon(String iconPath) {
+    deleteManagedUploadedIcon(iconPath, "/uploads/listing-icons/", "listing icon", this::resolveListingIconRoot);
+  }
+
+  private void deleteManagedUploadedIcon(
+      String iconPath,
+      String expectedPrefix,
+      String label,
+      CheckedPathSupplier rootSupplier) {
+    String normalized = String.valueOf(iconPath == null ? "" : iconPath).trim().replace('\\', '/');
+    if (!normalized.startsWith(expectedPrefix)) {
+      return;
+    }
+    String fileName = normalized.substring(normalized.lastIndexOf('/') + 1);
+    if (fileName.isBlank()) {
+      return;
+    }
+    try {
+      Path iconRoot = rootSupplier.get();
+      Path target = iconRoot.resolve(fileName).normalize();
+      if (!target.startsWith(iconRoot)) {
+        return;
+      }
+      Files.deleteIfExists(target);
+    } catch (Exception exception) {
+      plugin.getLogger().warning("Failed to cleanup old " + label + ": " + exception.getMessage());
     }
   }
 
@@ -3992,5 +4306,10 @@ class EmbeddedWebServer {
   @FunctionalInterface
   private interface CheckedRunnable {
     void run() throws Exception;
+  }
+
+  @FunctionalInterface
+  private interface CheckedPathSupplier {
+    Path get() throws Exception;
   }
 }

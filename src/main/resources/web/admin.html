@@ -290,6 +290,23 @@
               <span>展示名称覆盖（可空）</span>
               <input id="productDisplayNameOverride" placeholder="用于前端名称展示，不影响实际发货" />
             </label>
+            <label class="field product-remark-field">
+              <span>自定义图标（优先级高于展示材质）</span>
+              <input id="productDisplayIconPath" type="hidden" />
+              <div class="material-override-preview">
+                <img id="productIconPreviewImage" src="" alt="商品图标预览" />
+                <div>
+                  <p class="meta">当前商品图标</p>
+                  <strong id="productIconPreviewLabel">未选择商品</strong>
+                </div>
+              </div>
+              <input id="productIconFile" type="file" accept=".png,.webp,.jpg,.jpeg,.gif,image/*" />
+              <div class="actions compact-actions">
+                <button id="productIconUploadBtn" class="btn-tonal" type="button">上传并绑定图标</button>
+                <button id="productIconClearBtn" class="btn-tonal" type="button">清除自定义图标</button>
+              </div>
+              <p class="field-hint" id="productIconStatus">先保存商品后即可上传独立商品图标。</p>
+            </label>
             <label class="field">
               <span>药水效果（POTION）</span>
               <input id="productEffectType" list="potionEffectSuggestList" placeholder="例如 speed" />
@@ -820,6 +837,48 @@
                 <option value="HARD">HARD（全局优先）</option>
               </select>
             </label>
+            <label class="field">
+              <span>官方商品允许自定义图标</span>
+              <select id="visualOfficialProductCustomIconEnabled">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>官方商品允许自定义名称</span>
+              <select id="visualOfficialProductCustomNameEnabled">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>官方商品允许上传图片</span>
+              <select id="visualOfficialProductUploadImageEnabled">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>玩家市场允许自定义图标</span>
+              <select id="visualMarketListingCustomIconEnabled">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>玩家市场允许自定义名称</span>
+              <select id="visualMarketListingCustomNameEnabled">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>玩家市场允许上传图片</span>
+              <select id="visualMarketListingUploadImageEnabled">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
           </div>
           <div class="actions">
             <button id="visualSettingsSaveBtn" type="button">保存视觉策略</button>
@@ -993,11 +1052,24 @@
                 <option value="DENY">禁止</option>
               </select>
             </label>
+            <label class="field">
+              <span>上传图片权限</span>
+              <select id="userVisualUploadPermission">
+                <option value="INHERIT">继承全局</option>
+                <option value="ALLOW">允许（可绕过全局）</option>
+                <option value="DENY">禁止</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>上架数量覆盖</span>
+              <input id="userListingLimitOverride" type="number" min="1" step="1" placeholder="留空 = 跟随权限/全局" />
+            </label>
           </div>
           <div class="actions">
             <button id="userVisualPermissionSaveBtn" type="button">保存视觉权限</button>
             <p class="meta" id="userVisualPermissionStatus">等待操作</p>
           </div>
+          <p class="meta" id="userListingLimitStatus">等待读取上架数量限制</p>
           <p class="meta" id="userActionStatus">等待操作</p>
         </article>
       </div>

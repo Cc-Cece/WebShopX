@@ -511,6 +511,28 @@
     </div>
   </div>
 
+  <div id="materialCropDialog" class="dialog-backdrop" aria-hidden="true">
+    <article class="md-card dialog-card material-crop-dialog-card">
+      <h3>裁剪商品图标</h3>
+      <p>拖动画面移动位置，滚轮/滑杆缩放；移动端可双指缩放。完成后点击“应用并上传”。</p>
+      <div class="material-crop-stage-wrap">
+        <canvas id="materialCropCanvas" width="360" height="360" aria-label="商品图标裁剪画布"></canvas>
+      </div>
+      <div class="material-crop-controls">
+        <label class="field dialog-select-field">
+          <span>缩放</span>
+          <input id="materialCropZoom" type="range" min="100" max="800" step="1" value="100" />
+        </label>
+        <p class="meta" id="materialCropZoomValue">100%</p>
+      </div>
+      <div class="actions">
+        <button id="materialCropResetBtn" class="btn-tonal" type="button">重置</button>
+        <button id="materialCropCancelBtn" class="btn-tonal" type="button">取消</button>
+        <button id="materialCropApplyBtn" type="button">应用并上传</button>
+      </div>
+    </article>
+  </div>
+
   <div id="snackbarHost" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
 
   <script src="config.js"></script>
