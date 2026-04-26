@@ -155,6 +155,8 @@ WebShopX 是一个面向 `Paper / Spigot` 服务器的 Web 商店插件，把官
 
 - `database.*`
   - 数据库连接配置，必须改成真实值
+  - 非 TLS 连接默认开启 `allow-public-key-retrieval`，以兼容 `caching_sha2_password`
+  - 如需更稳妥地在非 TLS 下认证，可设置 `server-rsa-public-key-file`
 - `webshop.embedded-http.*`
   - 内置 HTTP 服务监听地址、端口和静态资源目录
 - `webshop.admin-bootstrap.*`

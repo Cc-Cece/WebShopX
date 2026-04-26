@@ -20,9 +20,40 @@ class DatabaseManager {
 
   void start() {
     ensureDriverLoaded();
+    try {
+      this.dataSource = createDataSource(settings.jdbcUrl());
+    } catch (RuntimeException exception) {
+      if (containsGssApi(exception)) {
+        throw new IllegalStateException(
+            "Database authentication is using GSSAPI/SSPI. "
+                + "Please create a password-based SQL user and update config.yml.",
+            exception);
+      }
+      if (containsMissingRsaPublicKey(exception) && settings.canAutoRetryWithPublicKeyRetrieval()) {
+        plugin
+            .getLogger()
+            .warning(
+                "Database login requires RSA public key exchange while TLS is disabled. "
+                    + "Retrying with allowPublicKeyRetrieval=true for compatibility.");
+        this.dataSource = createDataSource(settings.jdbcUrl(true));
+        return;
+      }
+      if (containsMissingRsaPublicKey(exception)) {
+        throw new IllegalStateException(
+            "Database authentication requires RSA public key exchange. "
+                + "Enable database.use-ssl, keep database.allow-public-key-retrieval=true, "
+                + "configure database.server-rsa-public-key-file, or switch the SQL user to "
+                + "mysql_native_password.",
+            exception);
+      }
+      throw exception;
+    }
+  }
+
+  private HikariDataSource createDataSource(String jdbcUrl) {
     HikariConfig hikariConfig = new HikariConfig();
     hikariConfig.setDriverClassName("org.mariadb.jdbc.Driver");
-    hikariConfig.setJdbcUrl(settings.jdbcUrl());
+    hikariConfig.setJdbcUrl(jdbcUrl);
     hikariConfig.setUsername(settings.username());
     hikariConfig.setPassword(settings.password());
     hikariConfig.addDataSourceProperty(
@@ -32,17 +63,7 @@ class DatabaseManager {
     hikariConfig.setConnectionTimeout(10_000L);
     hikariConfig.setValidationTimeout(5_000L);
     hikariConfig.setPoolName("webshop-db");
-    try {
-      this.dataSource = new HikariDataSource(hikariConfig);
-    } catch (RuntimeException exception) {
-      if (containsGssApi(exception)) {
-        throw new IllegalStateException(
-            "Database authentication is using GSSAPI/SSPI. "
-                + "Please create a password-based SQL user and update config.yml.",
-            exception);
-      }
-      throw exception;
-    }
+    return new HikariDataSource(hikariConfig);
   }
 
   private void ensureDriverLoaded() {
@@ -54,16 +75,28 @@ class DatabaseManager {
   }
 
   private boolean containsGssApi(Throwable throwable) {
+    return containsText(throwable, "gss", "sspi", "gssapi");
+  }
+
+  private boolean containsMissingRsaPublicKey(Throwable throwable) {
+    return containsText(
+        throwable,
+        "rsa public key is not available client side",
+        "serverrsapublickeyfile",
+        "allowpublickeyretrieval");
+  }
+
+  private boolean containsText(Throwable throwable, String... needles) {
     Throwable current = throwable;
     while (current != null) {
       String className = current.getClass().getName().toLowerCase();
       String message = current.getMessage();
       String normalizedMessage = message == null ? "" : message.toLowerCase();
-      if (className.contains("gss")
-          || className.contains("sspi")
-          || normalizedMessage.contains("gssapi")
-          || normalizedMessage.contains("sspi")) {
-        return true;
+      for (String needle : needles) {
+        String normalizedNeedle = needle.toLowerCase();
+        if (className.contains(normalizedNeedle) || normalizedMessage.contains(normalizedNeedle)) {
+          return true;
+        }
       }
       current = current.getCause();
     }

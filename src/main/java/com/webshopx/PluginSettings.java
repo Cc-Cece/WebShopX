@@ -60,6 +60,8 @@ record PluginSettings(
         config.getString("database.username", "webshop"),
         config.getString("database.password", "change_me"),
         config.getBoolean("database.use-ssl", false),
+        config.getBoolean("database.allow-public-key-retrieval", true),
+        config.getString("database.server-rsa-public-key-file", ""),
         config.getInt("database.pool-size", 10));
 
     ExchangeDirection shopToGame = new ExchangeDirection(
@@ -379,17 +381,49 @@ record PluginSettings(
       String username,
       String password,
       boolean useSsl,
+      boolean allowPublicKeyRetrieval,
+      String serverRsaPublicKeyFile,
       int poolSize) {
 
     String jdbcUrl() {
+      return jdbcUrl(false);
+    }
+
+    String jdbcUrl(boolean forceAllowPublicKeyRetrieval) {
       String sslParam = useSsl ? "true" : "false";
+      boolean enablePublicKeyRetrieval =
+          !useSsl && (forceAllowPublicKeyRetrieval || allowPublicKeyRetrieval);
+      String rsaPublicKeyFile = trimmedServerRsaPublicKeyFile();
+      StringBuilder url = new StringBuilder(
+          String.format(
+              Locale.ROOT,
+              "jdbc:mariadb://%s:%d/%s?useSsl=%s&characterEncoding=utf8",
+              host,
+              port,
+              schema,
+              sslParam));
+      if (enablePublicKeyRetrieval) {
+        url.append("&allowPublicKeyRetrieval=true");
+      }
+      if (!rsaPublicKeyFile.isEmpty()) {
+        url.append("&serverRsaPublicKeyFile=").append(encodeUrlComponent(rsaPublicKeyFile));
+      }
+      return url.toString();
+    }
+
+    boolean canAutoRetryWithPublicKeyRetrieval() {
+      return !useSsl && !allowPublicKeyRetrieval && trimmedServerRsaPublicKeyFile().isEmpty();
+    }
+
+    String trimmedServerRsaPublicKeyFile() {
+      return serverRsaPublicKeyFile == null ? "" : serverRsaPublicKeyFile.trim();
+    }
+
+    private static String encodeUrlComponent(String value) {
       return String.format(
           Locale.ROOT,
-          "jdbc:mariadb://%s:%d/%s?useSsl=%s&characterEncoding=utf8",
-          host,
-          port,
-          schema,
-          sslParam);
+          "%s",
+          java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8));
     }
 
     boolean usesDefaultPlaceholders() {

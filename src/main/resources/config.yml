@@ -97,6 +97,10 @@ database:
   username: webshop
   password: change_me
   use-ssl: false
+  # Non-TLS compatibility for MySQL 8 / MariaDB accounts using caching_sha2_password.
+  allow-public-key-retrieval: true
+  # Optional: absolute path to a server RSA public key file or PEM text.
+  server-rsa-public-key-file: ""
   pool-size: 10
 
 cluster:
