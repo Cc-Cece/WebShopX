@@ -1611,13 +1611,9 @@ code {
   width: 38px;
   height: 38px;
   border-radius: 11px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 15px;
-  font-weight: 800;
+  display: block;
+  object-fit: cover;
   background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
   border: 1px solid var(--app-success-border);
   flex: 0 0 auto;
 }
@@ -1701,13 +1697,18 @@ code {
   color: var(--app-accent-fg);
 }
 
+.leaderboard-stats-row {
+  display: grid;
+  gap: 8px;
+  border-top: 1px dashed var(--md-sys-color-outline-variant);
+  padding-top: 10px;
+}
+
 .leaderboard-score-row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  border-top: 1px dashed var(--md-sys-color-outline-variant);
-  padding-top: 10px;
 }
 
 .leaderboard-score-label {
@@ -1742,6 +1743,18 @@ code {
   background: var(--app-info-bg);
   color: var(--app-info-fg);
   font-weight: 700;
+}
+
+@media (min-width: 980px) {
+  .leaderboard-stats-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .leaderboard-metric-chips {
+    justify-content: flex-end;
+  }
 }
 
 .market-top {

@@ -2002,12 +2002,12 @@ function leaderboardScoreText(entry, metric) {
 
 function leaderboardMetricLabel(metric) {
   if (metric === "SHOP_COIN") {
-    return "ShopCoin";
+    return CURRENCY_META.SHOP_COIN.label || "SHOP_COIN";
   }
   if (metric === "ONLINE_TIME") {
     return "在线时长";
   }
-  return "GameCoin";
+  return CURRENCY_META.GAME_COIN.label || "GAME_COIN";
 }
 
 function leaderboardTrendInfo(userKey, rank) {
@@ -2024,12 +2024,21 @@ function leaderboardTrendInfo(userKey, rank) {
   return { text: "持平", toneClass: "is-trend-stable" };
 }
 
-function leaderboardInitial(username) {
-  const text = String(username || "").trim();
-  if (!text) {
-    return "?";
-  }
-  return text.charAt(0).toUpperCase();
+function buildLeaderboardAvatarImage(username) {
+  const normalizedName = String(username || "").trim();
+  const img = document.createElement("img");
+  img.className = "leaderboard-player-avatar";
+  img.alt = `${normalizedName || "player"} avatar`;
+  img.loading = "lazy";
+  img.decoding = "async";
+  img.referrerPolicy = "no-referrer";
+  img.src = normalizedName
+    ? `https://nmsr.nickac.dev/face/${encodeURIComponent(normalizedName)}`
+    : getFallbackAvatar();
+  img.addEventListener("error", () => {
+    img.src = getFallbackAvatar();
+  }, { once: true });
+  return img;
 }
 
 function renderLeaderboard(payload) {
@@ -2037,6 +2046,8 @@ function renderLeaderboard(payload) {
   const metric = String(payload.metric || state.leaderboard.defaultMetric || "GAME_COIN").toUpperCase();
   const metricLabel = leaderboardMetricLabel(metric);
   const myRank = payload.myRank ?? null;
+  const showOnlineRealtime = !!(elements.leaderboardShowOnlineToggle && elements.leaderboardShowOnlineToggle.checked);
+  const shouldRenderOnlineTimeChip = metric === "ONLINE_TIME" || showOnlineRealtime;
   const nextRanks = {};
   elements.leaderboardList.innerHTML = "";
 
@@ -2081,8 +2092,7 @@ function renderLeaderboard(payload) {
     top.appendChild(rankBox);
 
     const player = createEl("div", "leaderboard-player");
-    const avatar = createEl("span", "leaderboard-player-avatar", leaderboardInitial(username));
-    avatar.setAttribute("aria-hidden", "true");
+    const avatar = buildLeaderboardAvatarImage(username);
     player.appendChild(avatar);
     const playerText = createEl("div", "leaderboard-player-text");
     playerText.appendChild(createEl("h3", "leaderboard-player-name", username));
@@ -2092,7 +2102,7 @@ function renderLeaderboard(payload) {
 
     const chipRow = createEl("div", "leaderboard-chip-row");
     chipRow.appendChild(createEl("span", `leaderboard-chip ${trend.toneClass}`, `趋势 ${trend.text}`));
-    if (elements.leaderboardShowOnlineToggle && elements.leaderboardShowOnlineToggle.checked) {
+    if (showOnlineRealtime) {
       chipRow.appendChild(
         createEl("span", `leaderboard-chip ${entry.online ? "is-online" : "is-offline"}`, entry.online ? "在线" : "离线")
       );
@@ -2107,14 +2117,16 @@ function renderLeaderboard(payload) {
     const scoreRow = createEl("div", "leaderboard-score-row");
     scoreRow.appendChild(createEl("span", "leaderboard-score-label", `${metricLabel} 当前值`));
     scoreRow.appendChild(createEl("strong", "leaderboard-score-value", leaderboardScoreText(entry, metric)));
-    card.appendChild(scoreRow);
 
     const metricChips = createEl("div", "leaderboard-metric-chips");
-    [
-      ["GAME_COIN", "GameCoin", formatCurrency(entry.gameCoin, "GAME_COIN")],
-      ["SHOP_COIN", "ShopCoin", formatCurrency(entry.shopCoin, "SHOP_COIN")],
-      ["ONLINE_TIME", "在线时长", formatOnlineMinutes(entry.onlineTimeMinutes)],
-    ].forEach(([type, label, value]) => {
+    const chips = [
+      ["GAME_COIN", CURRENCY_META.GAME_COIN.label || "GAME_COIN", formatCurrency(entry.gameCoin, "GAME_COIN")],
+      ["SHOP_COIN", CURRENCY_META.SHOP_COIN.label || "SHOP_COIN", formatCurrency(entry.shopCoin, "SHOP_COIN")],
+    ];
+    if (shouldRenderOnlineTimeChip) {
+      chips.push(["ONLINE_TIME", "在线时长", formatOnlineMinutes(entry.onlineTimeMinutes)]);
+    }
+    chips.forEach(([type, label, value]) => {
       const chip = createEl(
         "span",
         `leaderboard-metric-chip${type === metric ? " is-active" : ""}`,
@@ -2122,7 +2134,11 @@ function renderLeaderboard(payload) {
       );
       metricChips.appendChild(chip);
     });
-    card.appendChild(metricChips);
+
+    const statsRow = createEl("div", "leaderboard-stats-row");
+    statsRow.appendChild(scoreRow);
+    statsRow.appendChild(metricChips);
+    card.appendChild(statsRow);
 
     elements.leaderboardList.appendChild(card);
   });
@@ -2536,6 +2552,7 @@ function applyCurrencyMeta(meta) {
   updateSelect(elements.exchangeFrom);
   updateSelect(elements.exchangeTo);
   updateSelect(elements.marketCurrency);
+  updateSelect(elements.leaderboardMetric);
 
   const applyText = (id, text) => {
     const node = document.getElementById(id);
@@ -2553,6 +2570,12 @@ function applyCurrencyMeta(meta) {
 
   applyExchangeMeta(meta.exchange);
   updateExchangeRateHint();
+
+  if (state.activeTab === "leaderboard" && state.leaderboard.enabled) {
+    loadLeaderboard().catch(() => {
+      // ignore transient refresh failures while syncing currency labels
+    });
+  }
 }
 
 async function loadCurrencyMeta() {
