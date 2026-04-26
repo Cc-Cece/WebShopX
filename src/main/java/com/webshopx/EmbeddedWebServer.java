@@ -290,6 +290,7 @@ class EmbeddedWebServer {
       response.addProperty("shopCoin", balance.shopCoin());
       response.addProperty("gameCoin", balance.gameCoin());
       response.addProperty("boundUuid", user.boundUuid() == null ? null : user.boundUuid().toString());
+      response.add("visualPermission", resolveUserVisualPermissionJson(user));
       response.add("exchange", buildExchangeMetaJson());
       sendJson(exchange, 200, response);
     });
@@ -3783,7 +3784,14 @@ class EmbeddedWebServer {
     } else {
       response.addProperty("boundUuid", user.boundUuid().toString());
     }
+    response.add("visualPermission", resolveUserVisualPermissionJson(user));
     return response;
+  }
+
+  private JsonObject resolveUserVisualPermissionJson(AuthService.AuthUser user) {
+    VisualCustomizationService.ResolvedPermission permission =
+        visualCustomizationService.resolvePermission(user.id());
+    return userVisualPermissionJson(permission);
   }
 
   private boolean ensureMethod(HttpExchange exchange, String method) throws IOException {

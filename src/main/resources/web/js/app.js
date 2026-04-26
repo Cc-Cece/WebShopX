@@ -43,6 +43,11 @@
     iconPolicyMode: "SOFT",
     namePolicyMode: "SOFT",
   },
+  visualPermission: {
+    customIconAllowed: true,
+    customNameAllowed: true,
+    customUploadAllowed: true,
+  },
   marketAlgorithmGlossary: {
     dynamic: [],
     auction: [],
@@ -1351,8 +1356,14 @@ async function openListingVisualDialog({
   currentDisplayIconPath,
   pendingDisplayIconFile,
   pendingDisplayIconPreviewUrl,
+  visualPermission,
 }) {
   const originalDisplayIconPath = String(currentDisplayIconPath || "").trim() || null;
+  const normalizedPermission = {
+    customIconAllowed: visualPermission?.customIconAllowed !== false,
+    customNameAllowed: visualPermission?.customNameAllowed !== false,
+    customUploadAllowed: visualPermission?.customUploadAllowed !== false,
+  };
   return openMarketParamDialog({
     title: "展示设置",
     hint: "单独配置展示名称、展示材质与展示图标，保存后回到上架编辑窗口继续处理价格与交易模式。",
@@ -1369,14 +1380,23 @@ async function openListingVisualDialog({
       displayNameInput.maxLength = 128;
       displayNameInput.placeholder = "留空则跟随默认展示名称";
       displayNameInput.value = currentDisplayNameOverride || "";
-      host.appendChild(createDialogSelectField("展示名称（仅前端显示）", displayNameInput));
+      displayNameInput.disabled = !normalizedPermission.customNameAllowed;
+      const displayNameField = createDialogSelectField("展示名称（仅前端显示）", displayNameInput);
+      if (!normalizedPermission.customNameAllowed) {
+        displayNameField.appendChild(createEl("p", "field-hint", "当前账户没有修改展示名称的权限。"));
+      }
+      host.appendChild(displayNameField);
 
       const displayMaterialInput = document.createElement("input");
       displayMaterialInput.type = "text";
       displayMaterialInput.maxLength = 64;
       displayMaterialInput.placeholder = "如 DIAMOND_SWORD，留空则跟随原材质";
       displayMaterialInput.value = currentDisplayMaterial || "";
+      displayMaterialInput.disabled = !normalizedPermission.customIconAllowed;
       displayMaterialInput.addEventListener("blur", () => {
+        if (displayMaterialInput.disabled) {
+          return;
+        }
         const normalized = normalizeMaterialKey(displayMaterialInput.value || "");
         if (normalized) {
           displayMaterialInput.value = normalized;
@@ -1387,7 +1407,11 @@ async function openListingVisualDialog({
           displayMaterialInput.value = normalizeMaterialKey(String(displayMaterialInput.value || "").trim());
         }
       });
-      host.appendChild(createDialogSelectField("展示材质（仅前端显示）", displayMaterialInput));
+      const displayMaterialField = createDialogSelectField("展示材质（仅前端显示）", displayMaterialInput);
+      if (!normalizedPermission.customIconAllowed) {
+        displayMaterialField.appendChild(createEl("p", "field-hint", "当前账户没有修改展示材质或展示图标的权限。"));
+      }
+      host.appendChild(displayMaterialField);
 
       const iconField = createEl("div", "dialog-select-field");
       iconField.appendChild(createEl("span", "dialog-select-label", "展示图标（仅前端显示）"));
@@ -1409,17 +1433,28 @@ async function openListingVisualDialog({
       const iconFileInput = document.createElement("input");
       iconFileInput.type = "file";
       iconFileInput.accept = ".png,.webp,.jpg,.jpeg,.gif,image/*";
+      iconFileInput.disabled =
+          !normalizedPermission.customIconAllowed || !normalizedPermission.customUploadAllowed;
       iconField.appendChild(iconFileInput);
 
       const iconActionRow = createEl("div", "actions compact-actions");
       const iconUploadBtn = createEl("button", "btn-tonal", "上传图片");
       iconUploadBtn.type = "button";
+      iconUploadBtn.disabled =
+          !normalizedPermission.customIconAllowed || !normalizedPermission.customUploadAllowed;
       const iconClearBtn = createEl("button", "btn-tonal", "清除自定义图标");
       iconClearBtn.type = "button";
+      iconClearBtn.disabled = !normalizedPermission.customIconAllowed;
       iconActionRow.appendChild(iconUploadBtn);
       iconActionRow.appendChild(iconClearBtn);
       iconField.appendChild(iconActionRow);
-      iconField.appendChild(createEl("p", "field-hint", "上传图片会先进入待保存状态，回到主窗口保存修改后才会真正生效。"));
+      if (!normalizedPermission.customIconAllowed) {
+        iconField.appendChild(createEl("p", "field-hint", "当前账户没有修改展示图标的权限。"));
+      } else if (!normalizedPermission.customUploadAllowed) {
+        iconField.appendChild(createEl("p", "field-hint", "当前账户可以沿用或清除已有图标，但没有上传新图片的权限。"));
+      } else {
+        iconField.appendChild(createEl("p", "field-hint", "上传图片会先进入待保存状态，回到主窗口保存修改后才会真正生效。"));
+      }
       host.appendChild(iconField);
 
       const resolveListingPreviewVisual = () => {
@@ -1476,6 +1511,9 @@ async function openListingVisualDialog({
       };
 
       iconUploadBtn.addEventListener("click", async () => {
+        if (iconUploadBtn.disabled) {
+          return;
+        }
         try {
           iconUploadBtn.disabled = true;
           const file = iconFileInput.files?.[0];
@@ -1500,6 +1538,9 @@ async function openListingVisualDialog({
         }
       });
       iconClearBtn.addEventListener("click", () => {
+        if (iconClearBtn.disabled) {
+          return;
+        }
         dialogDraft.pendingDisplayIconFile = null;
         dialogDraft.pendingDisplayIconPreviewUrl = "";
         dialogDraft.displayIconPath = null;
@@ -1669,90 +1710,12 @@ async function openListingEditDialog({
   const remarkField = createDialogSelectField("备注", remarkInput);
   elements.confirmDetails.appendChild(remarkField);
 
-  const originalDisplayIconPath = String(currentDisplayIconPath || "").trim() || null;
   const iconField = createEl("div", "dialog-select-field");
   iconField.appendChild(createEl("span", "dialog-select-label", "展示设置（仅前端显示）"));
-  const iconPreviewWrap = createEl("div", "material-override-preview");
-  const iconPreviewImage = document.createElement("img");
-  iconPreviewImage.alt = "商品图标预览";
-  iconPreviewImage.src = getFallbackTexture();
-  const iconPreviewText = document.createElement("div");
-  const iconPreviewMeta = createEl("p", "meta", "当前图标预览");
-  const iconPreviewLabel = document.createElement("strong");
-  const iconPreviewDetail = createEl("p", "meta", "");
-  const iconStatus = createEl("p", "meta", "当前跟随材质图标。");
-  iconPreviewText.appendChild(iconPreviewMeta);
-  iconPreviewText.appendChild(iconPreviewLabel);
-  iconPreviewText.appendChild(iconPreviewDetail);
-  iconPreviewText.appendChild(iconStatus);
-  iconPreviewWrap.appendChild(iconPreviewImage);
-  iconPreviewWrap.appendChild(iconPreviewText);
-  iconField.appendChild(iconPreviewWrap);
-
-  const iconActionRow = createEl("div", "actions compact-actions");
   const iconConfigBtn = createEl("button", "btn-tonal", "编辑展示设置");
   iconConfigBtn.type = "button";
-  iconActionRow.appendChild(iconConfigBtn);
-  iconField.appendChild(iconActionRow);
-  const iconHint = createEl("p", "field-hint", "展示名称、展示材质和展示图标已移动到单独窗口编辑，避免和交易参数区域重叠。");
-  iconField.appendChild(iconHint);
+  iconField.appendChild(iconConfigBtn);
   elements.confirmDetails.appendChild(iconField);
-
-  const resolveListingPreviewVisual = () => {
-    const baseMaterial = normalizeMaterialKey(currentItemMaterial || "") || DEFAULT_TEXTURE_FALLBACK_MATERIAL;
-    const fallbackTitle = String(currentFallbackTitle || "").trim()
-      || String(currentDisplayNameOverride || "").trim()
-      || getLocalizedMaterialName(baseMaterial, { includeGlobalOverride: false });
-    return resolveDisplayVisual(
-      baseMaterial,
-      draft.displayNameOverride,
-      draft.displayMaterial,
-      draft.displayIconPath,
-      fallbackTitle,
-      { category: "market" }
-    );
-  };
-
-  const updateListingIconPreview = (message, tone = null) => {
-    const visual = resolveListingPreviewVisual();
-    const previewTitle = visual.title || String(currentFallbackTitle || "").trim() || "未命名商品";
-    setNodeText(iconPreviewLabel, previewTitle);
-    const materialLabel = normalizeMaterialKey(draft.displayMaterial || "") || normalizeMaterialKey(currentItemMaterial || "") || "未设置";
-    const nameLabel = String(draft.displayNameOverride || "").trim() || "跟随默认展示名称";
-    setNodeText(iconPreviewDetail, `名称：${nameLabel} | 材质：${materialLabel}`);
-    if (draft.pendingDisplayIconPreviewUrl) {
-      iconPreviewImage.src = draft.pendingDisplayIconPreviewUrl;
-    } else {
-      iconPreviewImage.src = resolveMaterialIconUrl(visual.forceIconPath)
-        || getTextureCandidates(visual.material || DEFAULT_TEXTURE_FALLBACK_MATERIAL, {
-          forceIconPath: visual.forceIconPath,
-          includeMaterialOverride: visual.includeMaterialOverride,
-        })[0]
-        || getFallbackTexture();
-    }
-
-    if (message) {
-      setMetaText(iconStatus, message, tone || "info");
-      return;
-    }
-    if (draft.pendingDisplayIconPreviewUrl) {
-      setMetaText(iconStatus, "已选择新的自定义图片，保存修改后生效。", "success");
-      return;
-    }
-    if (draft.displayIconPath) {
-      setMetaText(iconStatus, "当前使用已保存的自定义图片。", "info");
-      return;
-    }
-    if (originalDisplayIconPath) {
-      setMetaText(iconStatus, "保存修改后将移除当前自定义图标。", "warn");
-      return;
-    }
-    if (normalizeMaterialKey(draft.displayMaterial || "")) {
-      setMetaText(iconStatus, "当前跟随展示材质的图标。", "info");
-      return;
-    }
-    setMetaText(iconStatus, "当前跟随原始材质图标。", "info");
-  };
   iconConfigBtn.addEventListener("click", async () => {
     const value = await openListingVisualDialog({
       currentItemMaterial,
@@ -1762,6 +1725,7 @@ async function openListingEditDialog({
       currentDisplayIconPath: draft.displayIconPath,
       pendingDisplayIconFile: draft.pendingDisplayIconFile,
       pendingDisplayIconPreviewUrl: draft.pendingDisplayIconPreviewUrl,
+      visualPermission: state.visualPermission,
     });
     if (!value) {
       return;
@@ -1771,9 +1735,7 @@ async function openListingEditDialog({
     draft.displayIconPath = value.displayIconPath;
     draft.pendingDisplayIconFile = value.pendingDisplayIconFile;
     draft.pendingDisplayIconPreviewUrl = value.pendingDisplayIconPreviewUrl;
-    updateListingIconPreview();
   });
-  updateListingIconPreview();
 
   const modeSelect = document.createElement("select");
   [
@@ -4678,6 +4640,15 @@ function renderProfile() {
   };
 }
 
+function applyUserVisualPermission(raw) {
+  const permission = raw || {};
+  state.visualPermission = {
+    customIconAllowed: permission.customIconAllowed !== false,
+    customNameAllowed: permission.customNameAllowed !== false,
+    customUploadAllowed: permission.customUploadAllowed !== false,
+  };
+}
+
 function setSession(payload) {
   state.token = payload.sessionToken;
   const user = payload.user || {};
@@ -4687,6 +4658,7 @@ function setSession(payload) {
   } else if (Object.prototype.hasOwnProperty.call(payload, "boundUuid")) {
     state.boundUuid = payload.boundUuid || null;
   }
+  applyUserVisualPermission(user.visualPermission || payload.visualPermission || {});
 
   // 保存会话到本地存储
   const sessionData = {
@@ -4714,6 +4686,11 @@ function clearSession() {
   state.hasLoadedOrders = false;
   state.hasLoadedNotifications = false;
   state.unreadNotificationCount = 0;
+  state.visualPermission = {
+    customIconAllowed: true,
+    customNameAllowed: true,
+    customUploadAllowed: true,
+  };
   // 移除本地存储的会话
   window.localStorage.removeItem(SESSION_STORAGE_KEY);
   renderOrders(state.orders);
@@ -4872,6 +4849,9 @@ function updateWalletView(payload) {
   }
   if (Object.prototype.hasOwnProperty.call(payload, "boundUuid")) {
     state.boundUuid = payload.boundUuid || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "visualPermission")) {
+    applyUserVisualPermission(payload.visualPermission || {});
   }
 
   elements.shopCoinValue.textContent = formatAmount(payload.shopCoin || 0);
