@@ -74,6 +74,7 @@ class DeliveryService {
   void processPlayerJoin(Player player) {
     UUID playerUuid = player.getUniqueId();
     try {
+      rebindPlayerDeliveriesToLocalServer(playerUuid);
       promoteOfflineRetries(playerUuid);
       processDueDeliveries(playerUuid);
       notifyClaimHint(player);
@@ -312,6 +313,55 @@ class DeliveryService {
     });
   }
 
+  private void rebindPlayerDeliveriesToLocalServer(UUID playerUuid) {
+    String serverId = localServerId();
+    if (serverId == null || serverId.isBlank()) {
+      return;
+    }
+    databaseManager.withConnection(connection -> {
+      String ordersSql = """
+          UPDATE orders
+          SET target_server_id = ?
+          WHERE mc_uuid = ?
+            AND status IN ('PENDING', 'WAIT_CLAIM')
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(ordersSql)) {
+        statement.setString(1, serverId);
+        statement.setString(2, playerUuid.toString());
+        statement.executeUpdate();
+      }
+
+      String commandSql = """
+          UPDATE delivery_queue dq
+          JOIN orders o ON o.id = dq.order_id
+          SET dq.target_server_id = ?,
+              dq.next_retry_at = NOW()
+          WHERE dq.mc_uuid = ?
+            AND dq.status = 'PENDING'
+            AND o.status = 'PENDING'
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(commandSql)) {
+        statement.setString(1, serverId);
+        statement.setString(2, playerUuid.toString());
+        statement.executeUpdate();
+      }
+
+      String marketSql = """
+          UPDATE market_item_deliveries
+          SET target_server_id = ?,
+              next_retry_at = NOW()
+          WHERE target_uuid = ?
+            AND status = 'PENDING'
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(marketSql)) {
+        statement.setString(1, serverId);
+        statement.setString(2, playerUuid.toString());
+        statement.executeUpdate();
+      }
+      return null;
+    });
+  }
+
   @SuppressFBWarnings(
       value = "SQL_INJECTION_JDBC",
       justification = "Query template is built from constant fragments only")
@@ -382,6 +432,7 @@ class DeliveryService {
       justification = "Query template is built from constant fragments only")
   private List<CommandDeliveryTask> readDueCommandTasks(Connection connection, UUID playerUuid)
       throws SQLException {
+    String routeFilter = buildRouteFilterSql("dq");
     String filterByPlayer = playerUuid == null ? "" : " AND dq.mc_uuid = ?";
     String sql = """
         SELECT dq.id, dq.order_id, dq.item_id, dq.mc_uuid, dq.command_text,
@@ -392,10 +443,13 @@ class DeliveryService {
         WHERE dq.status = 'PENDING'
           AND o.status = 'PENDING'
           AND dq.next_retry_at <= NOW()
-        """ + filterByPlayer + " ORDER BY dq.id ASC LIMIT ?";
+        """ + routeFilter + filterByPlayer + " ORDER BY dq.id ASC LIMIT ?";
 
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       int parameterIndex = 1;
+      if (hasServerRouteFilter()) {
+        statement.setString(parameterIndex++, localServerId());
+      }
       if (playerUuid != null) {
         statement.setString(parameterIndex++, playerUuid.toString());
       }
@@ -410,6 +464,7 @@ class DeliveryService {
       justification = "Query template is built from constant fragments only")
   private List<MarketItemDeliveryTask> readDueMarketItemTasks(Connection connection, UUID playerUuid)
       throws SQLException {
+    String routeFilter = buildRouteFilterSql("md");
     String filterByPlayer = playerUuid == null ? "" : " AND md.target_uuid = ?";
     String sql = """
         SELECT md.id, md.listing_id, md.trade_id, md.target_user_id, md.target_uuid, md.item_blob, md.quantity,
@@ -417,10 +472,13 @@ class DeliveryService {
         FROM market_item_deliveries md
         WHERE md.status = 'PENDING'
           AND md.next_retry_at <= NOW()
-        """ + filterByPlayer + " ORDER BY md.id ASC LIMIT ?";
+        """ + routeFilter + filterByPlayer + " ORDER BY md.id ASC LIMIT ?";
 
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       int parameterIndex = 1;
+      if (hasServerRouteFilter()) {
+        statement.setString(parameterIndex++, localServerId());
+      }
       if (playerUuid != null) {
         statement.setString(parameterIndex++, playerUuid.toString());
       }
@@ -1131,6 +1189,26 @@ class DeliveryService {
     } catch (NumberFormatException exception) {
       return null;
     }
+  }
+
+  private String buildRouteFilterSql(String tableAlias) {
+    if (!hasServerRouteFilter()) {
+      return "";
+    }
+    String column = tableAlias + ".target_server_id";
+    if (settingsSupplier.get().clusterSettings().allowUnassignedDeliveryExecution()) {
+      return " AND (" + column + " IS NULL OR " + column + " = ?)";
+    }
+    return " AND " + column + " = ?";
+  }
+
+  private boolean hasServerRouteFilter() {
+    String serverId = localServerId();
+    return serverId != null && !serverId.isBlank();
+  }
+
+  private String localServerId() {
+    return settingsSupplier.get().clusterSettings().serverId();
   }
 
   private int countPendingClaimTasks(UUID playerUuid) {

@@ -1,7 +1,9 @@
 ﻿const state = {
   token: null,
   admin: null,
+  activeMajor: "overview",
   activeTab: "login",
+  majorLastTab: {},
   productPanel: "editor",
   selectedUser: null,
   products: [],
@@ -15,6 +17,17 @@
   materialLookup: {},
   materialMapReady: false,
   materialMapPromise: null,
+  materialVisualMap: {},
+  materialVisualMapReady: false,
+  materialVisualMapPromise: null,
+  visualPolicy: {
+    globalCustomIconEnabled: true,
+    globalCustomNameEnabled: true,
+    iconPolicyMode: "SOFT",
+    namePolicyMode: "SOFT",
+  },
+  materialOverrideRows: [],
+  selectedMaterialOverrideKey: "",
   materialAllowSet: new Set(),
   materialAllowReady: false,
   materialAllowPromise: null,
@@ -75,6 +88,17 @@ const POTION_EFFECT_OPTIONS = [
 
 const RUNTIME_CONFIG = window.WEBSHOPX_CONFIG || {};
 const API_BASE_URL = normalizeApiBaseUrl(RUNTIME_CONFIG.apiBaseUrl || "");
+const LOCAL_TEXTURE_BASE = "/textures";
+const REMOTE_TEXTURE_BASES = [
+  "https://mcasset.cloud/1.21/assets/minecraft/textures",
+  "https://mcasset.cloud/1.20.6/assets/minecraft/textures",
+];
+const MATERIAL_TEXTURE_OVERRIDES = {
+  MOSS_CARPET: ["moss_carpet"],
+  GRASS: ["short_grass", "grass"],
+  TALL_GRASS: ["tall_grass"],
+};
+const DEFAULT_TEXTURE_FALLBACK_MATERIAL = "BUNDLE";
 
 function normalizeApiBaseUrl(value) {
   let normalized = String(value || "").trim();
@@ -96,6 +120,29 @@ function resolveApiUrl(path) {
     return text;
   }
   return API_BASE_URL ? `${API_BASE_URL}${text}` : text;
+}
+
+function readThemeColor(tokenName, fallback) {
+  const rootStyles = window.getComputedStyle(document.documentElement);
+  const value = rootStyles.getPropertyValue(tokenName).trim();
+  return value || fallback;
+}
+
+function buildSvgDataUrl(svg) {
+  return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
+}
+
+function getFallbackTexture() {
+  const background = readThemeColor("--md-sys-color-surface-container-low", "rgb(243 243 250)");
+  const panel = readThemeColor("--md-sys-color-surface-container-high", "rgb(231 232 238)");
+  const text = readThemeColor("--md-sys-color-on-surface-variant", "rgb(68 71 78)");
+  return buildSvgDataUrl(
+    "<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96'>"
+      + `<rect width='96' height='96' fill='${background}'/>`
+      + `<rect x='10' y='10' width='76' height='76' fill='${panel}'/>`
+      + `<text x='48' y='57' text-anchor='middle' font-size='36' fill='${text}'>?</text>`
+    + "</svg>"
+  );
 }
 
 const POTION_EFFECT_LABELS = {
@@ -210,6 +257,8 @@ const elements = {
   productType: document.getElementById("productType"),
   productCommand: document.getElementById("productCommand"),
   productItemMaterial: document.getElementById("productItemMaterial"),
+  productDisplayMaterial: document.getElementById("productDisplayMaterial"),
+  productDisplayNameOverride: document.getElementById("productDisplayNameOverride"),
   productStockMode: document.getElementById("productStockMode"),
   productItemAmount: document.getElementById("productItemAmount"),
   productPerUserLimit: document.getElementById("productPerUserLimit"),
@@ -266,6 +315,80 @@ const elements = {
   leaderboardDefaultOrder: document.getElementById("leaderboardDefaultOrder"),
   leaderboardSaveBtn: document.getElementById("leaderboardSaveBtn"),
   leaderboardStatusView: document.getElementById("leaderboardStatusView"),
+  currencyShopCoinName: document.getElementById("currencyShopCoinName"),
+  currencyShopCoinShort: document.getElementById("currencyShopCoinShort"),
+  currencyGameCoinName: document.getElementById("currencyGameCoinName"),
+  currencyGameCoinShort: document.getElementById("currencyGameCoinShort"),
+  currencySaveBtn: document.getElementById("currencySaveBtn"),
+  currencyStatusView: document.getElementById("currencyStatusView"),
+  runtimeDefaultLocale: document.getElementById("runtimeDefaultLocale"),
+  runtimeTimeZone: document.getElementById("runtimeTimeZone"),
+  runtimeSessionExpireHours: document.getElementById("runtimeSessionExpireHours"),
+  runtimeBindRequestExpireMinutes: document.getElementById("runtimeBindRequestExpireMinutes"),
+  runtimeAccessTokenLength: document.getElementById("runtimeAccessTokenLength"),
+  runtimeDeliveryBatchSize: document.getElementById("runtimeDeliveryBatchSize"),
+  runtimeDeliveryRetrySeconds: document.getElementById("runtimeDeliveryRetrySeconds"),
+  runtimeOrderCooldownSeconds: document.getElementById("runtimeOrderCooldownSeconds"),
+  runtimeAllowSharedClaimCommand: document.getElementById("runtimeAllowSharedClaimCommand"),
+  runtimeRefundUndeliveredEnabled: document.getElementById("runtimeRefundUndeliveredEnabled"),
+  runtimeWebshopSaveBtn: document.getElementById("runtimeWebshopSaveBtn"),
+  runtimeWebshopStatusView: document.getElementById("runtimeWebshopStatusView"),
+  runtimeMarketMaxActiveListings: document.getElementById("runtimeMarketMaxActiveListings"),
+  runtimeMarketAutoRefreshThreshold: document.getElementById("runtimeMarketAutoRefreshThreshold"),
+  runtimeMarketDefaultTransferBatchSize: document.getElementById("runtimeMarketDefaultTransferBatchSize"),
+  runtimeMarketMaxTransferBatchSize: document.getElementById("runtimeMarketMaxTransferBatchSize"),
+  runtimeMarketDefaultTransitStock: document.getElementById("runtimeMarketDefaultTransitStock"),
+  runtimeMarketMaxTransitStock: document.getElementById("runtimeMarketMaxTransitStock"),
+  runtimeMarketSaveBtn: document.getElementById("runtimeMarketSaveBtn"),
+  runtimeMarketStatusView: document.getElementById("runtimeMarketStatusView"),
+  runtimeCleanupIntervalMinutes: document.getElementById("runtimeCleanupIntervalMinutes"),
+  runtimePendingBindRetentionHours: document.getElementById("runtimePendingBindRetentionHours"),
+  runtimePendingPasswordRetentionHours: document.getElementById("runtimePendingPasswordRetentionHours"),
+  runtimeBindRequestRetentionHours: document.getElementById("runtimeBindRequestRetentionHours"),
+  runtimeRedeemCodeRetentionDays: document.getElementById("runtimeRedeemCodeRetentionDays"),
+  runtimeMaintenanceSaveBtn: document.getElementById("runtimeMaintenanceSaveBtn"),
+  runtimeMaintenanceStatusView: document.getElementById("runtimeMaintenanceStatusView"),
+  runtimeLoggingEnabled: document.getElementById("runtimeLoggingEnabled"),
+  runtimeLoggingLevel: document.getElementById("runtimeLoggingLevel"),
+  runtimeLoggingDirectory: document.getElementById("runtimeLoggingDirectory"),
+  runtimeLoggingMaxFileSizeMb: document.getElementById("runtimeLoggingMaxFileSizeMb"),
+  runtimeLoggingMaxFiles: document.getElementById("runtimeLoggingMaxFiles"),
+  runtimeLoggingRetentionDays: document.getElementById("runtimeLoggingRetentionDays"),
+  runtimeLoggingSaveBtn: document.getElementById("runtimeLoggingSaveBtn"),
+  runtimeLoggingStatusView: document.getElementById("runtimeLoggingStatusView"),
+  runtimeBroadcastEnabled: document.getElementById("runtimeBroadcastEnabled"),
+  runtimeBroadcastListingCreatedTemplate: document.getElementById("runtimeBroadcastListingCreatedTemplate"),
+  runtimeBroadcastTradeSuccessTemplate: document.getElementById("runtimeBroadcastTradeSuccessTemplate"),
+  runtimeBroadcastAuctionBidTemplate: document.getElementById("runtimeBroadcastAuctionBidTemplate"),
+  runtimeBroadcastAuctionSealedBidTemplate: document.getElementById("runtimeBroadcastAuctionSealedBidTemplate"),
+  runtimeBroadcastSaveBtn: document.getElementById("runtimeBroadcastSaveBtn"),
+  runtimeBroadcastStatusView: document.getElementById("runtimeBroadcastStatusView"),
+  visualGlobalCustomIconEnabled: document.getElementById("visualGlobalCustomIconEnabled"),
+  visualGlobalCustomNameEnabled: document.getElementById("visualGlobalCustomNameEnabled"),
+  visualIconPolicyMode: document.getElementById("visualIconPolicyMode"),
+  visualNamePolicyMode: document.getElementById("visualNamePolicyMode"),
+  visualSettingsSaveBtn: document.getElementById("visualSettingsSaveBtn"),
+  visualSettingsStatusView: document.getElementById("visualSettingsStatusView"),
+  materialOverrideKeyword: document.getElementById("materialOverrideKeyword"),
+  materialOverrideRefreshBtn: document.getElementById("materialOverrideRefreshBtn"),
+  materialOverrideMaterial: document.getElementById("materialOverrideMaterial"),
+  materialOverrideDisplayName: document.getElementById("materialOverrideDisplayName"),
+  materialOverrideIconFile: document.getElementById("materialOverrideIconFile"),
+  materialOverrideUploadBtn: document.getElementById("materialOverrideUploadBtn"),
+  materialOverrideSaveBtn: document.getElementById("materialOverrideSaveBtn"),
+  materialOverrideDeleteBtn: document.getElementById("materialOverrideDeleteBtn"),
+  materialOverrideClearBtn: document.getElementById("materialOverrideClearBtn"),
+  materialOverrideStatusView: document.getElementById("materialOverrideStatusView"),
+  materialOverrideList: document.getElementById("materialOverrideList"),
+  materialOverridePreviewImage: document.getElementById("materialOverridePreviewImage"),
+  materialOverridePreviewLabel: document.getElementById("materialOverridePreviewLabel"),
+  materialCropDialog: document.getElementById("materialCropDialog"),
+  materialCropCanvas: document.getElementById("materialCropCanvas"),
+  materialCropZoom: document.getElementById("materialCropZoom"),
+  materialCropZoomValue: document.getElementById("materialCropZoomValue"),
+  materialCropResetBtn: document.getElementById("materialCropResetBtn"),
+  materialCropCancelBtn: document.getElementById("materialCropCancelBtn"),
+  materialCropApplyBtn: document.getElementById("materialCropApplyBtn"),
 
   marketStatus: document.getElementById("marketStatus"),
   marketSeller: document.getElementById("marketSeller"),
@@ -296,6 +419,10 @@ const elements = {
   walletDelta: document.getElementById("walletDelta"),
   walletReason: document.getElementById("walletReason"),
   walletAdjustBtn: document.getElementById("walletAdjustBtn"),
+  userVisualIconPermission: document.getElementById("userVisualIconPermission"),
+  userVisualNamePermission: document.getElementById("userVisualNamePermission"),
+  userVisualPermissionSaveBtn: document.getElementById("userVisualPermissionSaveBtn"),
+  userVisualPermissionStatus: document.getElementById("userVisualPermissionStatus"),
   userActionStatus: document.getElementById("userActionStatus"),
 
   adminManagerIdentifier: document.getElementById("adminManagerIdentifier"),
@@ -313,6 +440,7 @@ const elements = {
   auditRefreshBtn: document.getElementById("auditRefreshBtn"),
   auditList: document.getElementById("auditList"),
 
+  adminSubTabs: document.getElementById("adminSubTabs"),
   snackbarHost: document.getElementById("snackbarHost"),
 };
 const tabs = Array.from(document.querySelectorAll(".top-tab"));
@@ -434,17 +562,37 @@ const ADMIN_PATH_TAB_MAP = {
   "/admin/audit": "audit"
 };
 
-function switchTab(tabName, skipHistory = false) {
-  state.activeTab = tabName;
-  tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tabTarget === tabName));
-  panels.forEach((panel) => panel.classList.toggle("active", panel.dataset.tabPanel === tabName));
+const MAJOR_TAB_CHILDREN = {
+  overview: ["login", "audit"],
+  commerce: ["products", "redeem", "orders"],
+  market: ["market"],
+  users: ["users", "admins"],
+  system: ["economy"],
+};
 
-  if (!skipHistory && ADMIN_TAB_PATH_MAP[tabName]) {
-    const newPath = ADMIN_TAB_PATH_MAP[tabName];
-    if (window.location.pathname !== newPath) {
-      window.history.pushState({ tab: tabName }, "", newPath);
-    }
-  }
+const TAB_MAJOR_MAP = Object.entries(MAJOR_TAB_CHILDREN).reduce((acc, [major, children]) => {
+  children.forEach((child) => {
+    acc[child] = major;
+  });
+  return acc;
+}, {});
+
+function tabDisplayName(tabName) {
+  const labels = {
+    login: "状态",
+    audit: "审计",
+    products: "官方商品",
+    redeem: "兑换码",
+    orders: "订单",
+    market: "上架管理",
+    users: "账号管理",
+    admins: "管理员",
+    economy: "经济与配置",
+  };
+  return labels[tabName] || tabName;
+}
+
+function triggerTabDataLoad(tabName) {
   if (tabName === "products" && state.token) {
     loadProducts();
   }
@@ -462,20 +610,90 @@ function switchTab(tabName, skipHistory = false) {
   }
 }
 
-tabs.forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tabTarget)));
+function renderSubTabs(majorTab) {
+  if (!elements.adminSubTabs) {
+    return;
+  }
+  const children = MAJOR_TAB_CHILDREN[majorTab] || [];
+  elements.adminSubTabs.innerHTML = "";
+  if (children.length <= 1) {
+    elements.adminSubTabs.style.display = "none";
+    return;
+  }
+  elements.adminSubTabs.style.display = "";
+  children.forEach((leafTab) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn-segment";
+    button.dataset.tabTarget = leafTab;
+    setNodeText(button, tabDisplayName(leafTab));
+    button.addEventListener("click", () => switchTab(leafTab));
+    elements.adminSubTabs.appendChild(button);
+  });
+}
+
+function setActiveMajor(majorTab) {
+  state.activeMajor = MAJOR_TAB_CHILDREN[majorTab] ? majorTab : "overview";
+  tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.majorTarget === state.activeMajor));
+  renderSubTabs(state.activeMajor);
+}
+
+function updateSubTabActiveState(activeLeafTab) {
+  if (!elements.adminSubTabs) {
+    return;
+  }
+  const buttons = Array.from(elements.adminSubTabs.querySelectorAll("[data-tab-target]"));
+  buttons.forEach((button) => {
+    const isActive = button.dataset.tabTarget === activeLeafTab;
+    button.classList.toggle("is-active", isActive);
+    button.classList.toggle("active", isActive);
+  });
+}
+
+function switchTab(tabName, skipHistory = false) {
+  const leafTab = TAB_MAJOR_MAP[tabName] ? tabName : "login";
+  const majorTab = TAB_MAJOR_MAP[leafTab] || "overview";
+  if (state.activeMajor !== majorTab) {
+    setActiveMajor(majorTab);
+  } else {
+    renderSubTabs(majorTab);
+  }
+
+  state.activeTab = leafTab;
+  state.majorLastTab[majorTab] = leafTab;
+  updateSubTabActiveState(leafTab);
+  panels.forEach((panel) => panel.classList.toggle("active", panel.dataset.tabPanel === leafTab));
+
+  if (!skipHistory && ADMIN_TAB_PATH_MAP[leafTab]) {
+    const newPath = ADMIN_TAB_PATH_MAP[leafTab];
+    if (window.location.pathname !== newPath) {
+      window.history.pushState({ tab: leafTab }, "", newPath);
+    }
+  }
+  triggerTabDataLoad(leafTab);
+}
+
+function switchMajorTab(majorTab, skipHistory = false) {
+  const normalizedMajor = MAJOR_TAB_CHILDREN[majorTab] ? majorTab : "overview";
+  setActiveMajor(normalizedMajor);
+  const children = MAJOR_TAB_CHILDREN[normalizedMajor] || [];
+  const preferred = state.majorLastTab[normalizedMajor];
+  const nextLeafTab = preferred && children.includes(preferred) ? preferred : (children[0] || "login");
+  switchTab(nextLeafTab, skipHistory);
+}
+
+tabs.forEach((tab) => tab.addEventListener("click", () => switchMajorTab(tab.dataset.majorTarget)));
 
 window.addEventListener("popstate", (event) => {
   if (event.state && event.state.tab) {
     switchTab(event.state.tab, true);
   } else {
-    // Fallback if no state
     const path = window.location.pathname;
     const tabName = ADMIN_PATH_TAB_MAP[path] || "login";
     switchTab(tabName, true);
   }
 });
 
-// Initialize routing based on URL
 window.addEventListener("load", () => {
   const path = window.location.pathname;
   const tabName = ADMIN_PATH_TAB_MAP[path] || "login";
@@ -555,6 +773,540 @@ async function apiAdmin(path, options = {}) {
   return payload;
 }
 
+async function apiAdminUpload(path, file) {
+  const headers = {};
+  if (state.token) {
+    headers.Authorization = `Bearer ${state.token}`;
+  }
+  const contentType = String(file?.type || "").trim();
+  if (contentType) {
+    headers["Content-Type"] = contentType;
+  } else {
+    headers["Content-Type"] = "application/octet-stream";
+  }
+  const response = await fetch(resolveApiUrl(path), {
+    method: "POST",
+    headers,
+    body: file,
+  });
+  const responseType = response.headers.get("content-type") || "";
+  const payload = responseType.includes("application/json")
+    ? await response.json()
+    : { message: await response.text() };
+  if (!response.ok) {
+    const error = new Error(payload.message || payload.error || `HTTP ${response.status}`);
+    error.code = payload.error || "";
+    throw error;
+  }
+  return payload;
+}
+
+function fileNameWithExtension(name, ext) {
+  const base = String(name || "material-icon")
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .replace(/\.[^./\\]+$/, "")
+    .trim() || "material-icon";
+  return `${base}.${ext}`;
+}
+
+const materialCropState = {
+  initialized: false,
+  image: null,
+  sourceFileName: "",
+  exportSize: 128,
+  scale: 1,
+  minScale: 1,
+  maxScale: 8,
+  offsetX: 0,
+  offsetY: 0,
+  activePointers: new Map(),
+  dragActive: false,
+  dragPointerId: null,
+  dragStartX: 0,
+  dragStartY: 0,
+  dragOriginOffsetX: 0,
+  dragOriginOffsetY: 0,
+  pinchStartDistance: 0,
+  pinchStartScale: 1,
+  resolver: null,
+};
+
+function isMaterialCropDialogOpen() {
+  return Boolean(elements.materialCropDialog?.classList.contains("show"));
+}
+
+async function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("读取图片失败"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function loadImageFromDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const node = new Image();
+    node.onload = () => resolve(node);
+    node.onerror = () => reject(new Error("解析图片失败"));
+    node.src = dataUrl;
+  });
+}
+
+async function cropImageFileToSquarePngAuto(file, size = 128) {
+  const input = file;
+  if (!input || !String(input.type || "").startsWith("image/")) {
+    return input;
+  }
+  const dataUrl = await readFileAsDataUrl(input);
+  const image = await loadImageFromDataUrl(dataUrl);
+  const width = Number(image.width || 0);
+  const height = Number(image.height || 0);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new Error("图片尺寸无效");
+  }
+  const side = Math.min(width, height);
+  const sx = Math.floor((width - side) / 2);
+  const sy = Math.floor((height - side) / 2);
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("无法创建图片画布");
+  }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(image, sx, sy, side, side, 0, 0, size, size);
+  const blob = await new Promise((resolve) => {
+    canvas.toBlob(resolve, "image/png", 1.0);
+  });
+  if (!blob) {
+    throw new Error("图片裁剪失败");
+  }
+  return new File([blob], fileNameWithExtension(input.name, "png"), { type: "image/png" });
+}
+
+function getMaterialCropCanvasContext() {
+  const canvas = elements.materialCropCanvas;
+  if (!canvas) {
+    return null;
+  }
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return null;
+  }
+  return { canvas, ctx, width: canvas.width, height: canvas.height };
+}
+
+function getMaterialCropFrameRect(metrics) {
+  const base = Math.min(metrics.width, metrics.height);
+  const padding = Math.max(16, Math.round(base * 0.1));
+  const size = Math.max(120, base - padding * 2);
+  const x = Math.round((metrics.width - size) / 2);
+  const y = Math.round((metrics.height - size) / 2);
+  return { x, y, size };
+}
+
+function getPointerDistance(pointerA, pointerB) {
+  if (!pointerA || !pointerB) {
+    return 0;
+  }
+  const dx = pointerA.clientX - pointerB.clientX;
+  const dy = pointerA.clientY - pointerB.clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function getCanvasRelativePoint(canvas, clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const ratioX = canvas.width / Math.max(rect.width, 1);
+  const ratioY = canvas.height / Math.max(rect.height, 1);
+  return {
+    x: (clientX - rect.left) * ratioX,
+    y: (clientY - rect.top) * ratioY,
+  };
+}
+
+function clampMaterialCropOffsets() {
+  const metrics = getMaterialCropCanvasContext();
+  if (!metrics || !materialCropState.image) {
+    return;
+  }
+  const frame = getMaterialCropFrameRect(metrics);
+  const drawWidth = materialCropState.image.width * materialCropState.scale;
+  const drawHeight = materialCropState.image.height * materialCropState.scale;
+  const minX = frame.x + frame.size - drawWidth;
+  const maxX = frame.x;
+  const minY = frame.y + frame.size - drawHeight;
+  const maxY = frame.y;
+  materialCropState.offsetX = Math.max(minX, Math.min(maxX, materialCropState.offsetX));
+  materialCropState.offsetY = Math.max(minY, Math.min(maxY, materialCropState.offsetY));
+}
+
+function updateMaterialCropZoomUi() {
+  if (!elements.materialCropZoom || !elements.materialCropZoomValue) {
+    return;
+  }
+  const ratio = Math.max(
+    1,
+    Math.min(8, materialCropState.scale / Math.max(materialCropState.minScale, Number.EPSILON))
+  );
+  elements.materialCropZoom.value = String(Math.round(ratio * 100));
+  setNodeText(elements.materialCropZoomValue, `${Math.round(ratio * 100)}%`);
+}
+
+function renderMaterialCropCanvas() {
+  const metrics = getMaterialCropCanvasContext();
+  if (!metrics) {
+    return;
+  }
+  const { ctx, width, height } = metrics;
+  const frame = getMaterialCropFrameRect(metrics);
+  ctx.clearRect(0, 0, width, height);
+
+  const checkerSize = 16;
+  for (let y = 0; y < height; y += checkerSize) {
+    for (let x = 0; x < width; x += checkerSize) {
+      const odd = (Math.floor(x / checkerSize) + Math.floor(y / checkerSize)) % 2 === 1;
+      ctx.fillStyle = odd ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+      ctx.fillRect(x, y, checkerSize, checkerSize);
+    }
+  }
+
+  if (materialCropState.image) {
+    const drawWidth = materialCropState.image.width * materialCropState.scale;
+    const drawHeight = materialCropState.image.height * materialCropState.scale;
+    ctx.drawImage(
+      materialCropState.image,
+      materialCropState.offsetX,
+      materialCropState.offsetY,
+      drawWidth,
+      drawHeight
+    );
+  }
+
+  ctx.fillStyle = "rgba(0, 0, 0, 0.36)";
+  ctx.fillRect(0, 0, width, frame.y);
+  ctx.fillRect(0, frame.y, frame.x, frame.size);
+  ctx.fillRect(frame.x + frame.size, frame.y, width - frame.x - frame.size, frame.size);
+  ctx.fillRect(0, frame.y + frame.size, width, height - frame.y - frame.size);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.75)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(frame.x + 1, frame.y + 1, frame.size - 2, frame.size - 2);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(255,255,255,0.28)";
+  ctx.beginPath();
+  ctx.moveTo(frame.x + frame.size / 3, frame.y);
+  ctx.lineTo(frame.x + frame.size / 3, frame.y + frame.size);
+  ctx.moveTo(frame.x + (frame.size * 2) / 3, frame.y);
+  ctx.lineTo(frame.x + (frame.size * 2) / 3, frame.y + frame.size);
+  ctx.moveTo(frame.x, frame.y + frame.size / 3);
+  ctx.lineTo(frame.x + frame.size, frame.y + frame.size / 3);
+  ctx.moveTo(frame.x, frame.y + (frame.size * 2) / 3);
+  ctx.lineTo(frame.x + frame.size, frame.y + (frame.size * 2) / 3);
+  ctx.stroke();
+}
+
+function setMaterialCropScale(nextScale, anchorX, anchorY) {
+  const metrics = getMaterialCropCanvasContext();
+  if (!metrics || !materialCropState.image) {
+    return;
+  }
+  const frame = getMaterialCropFrameRect(metrics);
+  const safeAnchorX = Number.isFinite(anchorX) ? anchorX : frame.x + frame.size / 2;
+  const safeAnchorY = Number.isFinite(anchorY) ? anchorY : frame.y + frame.size / 2;
+  const previousScale = Math.max(materialCropState.scale, Number.EPSILON);
+  const normalizedScale = Math.max(
+    materialCropState.minScale,
+    Math.min(materialCropState.maxScale, nextScale)
+  );
+  const imageX = (safeAnchorX - materialCropState.offsetX) / previousScale;
+  const imageY = (safeAnchorY - materialCropState.offsetY) / previousScale;
+  materialCropState.scale = normalizedScale;
+  materialCropState.offsetX = safeAnchorX - imageX * normalizedScale;
+  materialCropState.offsetY = safeAnchorY - imageY * normalizedScale;
+  clampMaterialCropOffsets();
+  updateMaterialCropZoomUi();
+  renderMaterialCropCanvas();
+}
+
+function resetMaterialCropViewport() {
+  const metrics = getMaterialCropCanvasContext();
+  if (!metrics || !materialCropState.image) {
+    return;
+  }
+  const frame = getMaterialCropFrameRect(metrics);
+  const imageWidth = Number(materialCropState.image.width || 0);
+  const imageHeight = Number(materialCropState.image.height || 0);
+  if (!Number.isFinite(imageWidth) || !Number.isFinite(imageHeight) || imageWidth <= 0 || imageHeight <= 0) {
+    throw new Error("图片尺寸无效");
+  }
+  const minScale = Math.max(frame.size / imageWidth, frame.size / imageHeight);
+  materialCropState.minScale = minScale;
+  materialCropState.maxScale = minScale * 8;
+  materialCropState.scale = minScale;
+  materialCropState.offsetX = frame.x + (frame.size - imageWidth * minScale) / 2;
+  materialCropState.offsetY = frame.y + (frame.size - imageHeight * minScale) / 2;
+  clampMaterialCropOffsets();
+  updateMaterialCropZoomUi();
+  renderMaterialCropCanvas();
+}
+
+function closeMaterialCropDialog(resultFile = null) {
+  if (elements.materialCropDialog) {
+    elements.materialCropDialog.classList.remove("show");
+    elements.materialCropDialog.setAttribute("aria-hidden", "true");
+  }
+  materialCropState.activePointers.clear();
+  materialCropState.dragActive = false;
+  materialCropState.dragPointerId = null;
+  materialCropState.pinchStartDistance = 0;
+  materialCropState.pinchStartScale = materialCropState.scale || 1;
+  materialCropState.image = null;
+  const resolver = materialCropState.resolver;
+  materialCropState.resolver = null;
+  if (typeof resolver === "function") {
+    resolver(resultFile);
+  }
+}
+
+async function exportMaterialCropAsPngFile() {
+  const metrics = getMaterialCropCanvasContext();
+  if (!metrics || !materialCropState.image) {
+    throw new Error("裁剪器未准备好");
+  }
+  const frame = getMaterialCropFrameRect(metrics);
+  const outputSize = Math.max(32, Math.min(1024, Number(materialCropState.exportSize || 128)));
+  const sourceX = (frame.x - materialCropState.offsetX) / materialCropState.scale;
+  const sourceY = (frame.y - materialCropState.offsetY) / materialCropState.scale;
+  const sourceW = frame.size / materialCropState.scale;
+  const sourceH = frame.size / materialCropState.scale;
+  const maxSourceX = Math.max(0, materialCropState.image.width - sourceW);
+  const maxSourceY = Math.max(0, materialCropState.image.height - sourceH);
+  const safeSourceX = Math.max(0, Math.min(maxSourceX, sourceX));
+  const safeSourceY = Math.max(0, Math.min(maxSourceY, sourceY));
+
+  const outputCanvas = document.createElement("canvas");
+  outputCanvas.width = outputSize;
+  outputCanvas.height = outputSize;
+  const outputCtx = outputCanvas.getContext("2d");
+  if (!outputCtx) {
+    throw new Error("无法创建输出画布");
+  }
+  outputCtx.imageSmoothingEnabled = true;
+  outputCtx.imageSmoothingQuality = "high";
+  outputCtx.drawImage(
+    materialCropState.image,
+    safeSourceX,
+    safeSourceY,
+    sourceW,
+    sourceH,
+    0,
+    0,
+    outputSize,
+    outputSize
+  );
+  const blob = await new Promise((resolve) => {
+    outputCanvas.toBlob(resolve, "image/png", 1.0);
+  });
+  if (!blob) {
+    throw new Error("图片裁剪失败");
+  }
+  return new File([blob], fileNameWithExtension(materialCropState.sourceFileName, "png"), { type: "image/png" });
+}
+
+async function openMaterialCropDialog(file, exportSize = 128) {
+  if (!elements.materialCropDialog || !elements.materialCropCanvas) {
+    return cropImageFileToSquarePngAuto(file, exportSize);
+  }
+  if (typeof materialCropState.resolver === "function") {
+    materialCropState.resolver(null);
+    materialCropState.resolver = null;
+  }
+  const input = file;
+  if (!input || !String(input.type || "").startsWith("image/")) {
+    return input;
+  }
+  const dataUrl = await readFileAsDataUrl(input);
+  const image = await loadImageFromDataUrl(dataUrl);
+  materialCropState.activePointers.clear();
+  materialCropState.dragActive = false;
+  materialCropState.dragPointerId = null;
+  materialCropState.pinchStartDistance = 0;
+  materialCropState.image = image;
+  materialCropState.sourceFileName = input.name || "material-icon.png";
+  materialCropState.exportSize = exportSize;
+  resetMaterialCropViewport();
+  elements.materialCropDialog.classList.add("show");
+  elements.materialCropDialog.setAttribute("aria-hidden", "false");
+  return new Promise((resolve) => {
+    materialCropState.resolver = resolve;
+  });
+}
+
+function initializeMaterialCropDialog() {
+  if (materialCropState.initialized) {
+    return;
+  }
+  if (!elements.materialCropDialog || !elements.materialCropCanvas) {
+    materialCropState.initialized = true;
+    return;
+  }
+  materialCropState.initialized = true;
+
+  if (elements.materialCropZoom) {
+    elements.materialCropZoom.addEventListener("input", () => {
+      if (!materialCropState.image) {
+        return;
+      }
+      const ratio = Math.max(1, Number(elements.materialCropZoom.value || 100) / 100);
+      setMaterialCropScale(materialCropState.minScale * ratio);
+    });
+  }
+
+  if (elements.materialCropResetBtn) {
+    elements.materialCropResetBtn.addEventListener("click", () => {
+      if (!materialCropState.image) {
+        return;
+      }
+      resetMaterialCropViewport();
+    });
+  }
+
+  if (elements.materialCropCancelBtn) {
+    elements.materialCropCancelBtn.addEventListener("click", () => {
+      closeMaterialCropDialog(null);
+    });
+  }
+
+  if (elements.materialCropApplyBtn) {
+    elements.materialCropApplyBtn.addEventListener("click", async () => {
+      try {
+        const file = await exportMaterialCropAsPngFile();
+        closeMaterialCropDialog(file);
+      } catch (error) {
+        notify(error.message || "裁剪失败，请重试。", "error");
+      }
+    });
+  }
+
+  elements.materialCropDialog.addEventListener("click", (event) => {
+    if (event.target === elements.materialCropDialog) {
+      closeMaterialCropDialog(null);
+    }
+  });
+
+  const canvas = elements.materialCropCanvas;
+  canvas.style.touchAction = "none";
+  canvas.addEventListener("pointerdown", (event) => {
+    if (!materialCropState.image) {
+      return;
+    }
+    materialCropState.activePointers.set(event.pointerId, {
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+    canvas.setPointerCapture(event.pointerId);
+    if (materialCropState.activePointers.size === 1) {
+      materialCropState.dragActive = true;
+      materialCropState.dragPointerId = event.pointerId;
+      materialCropState.dragStartX = event.clientX;
+      materialCropState.dragStartY = event.clientY;
+      materialCropState.dragOriginOffsetX = materialCropState.offsetX;
+      materialCropState.dragOriginOffsetY = materialCropState.offsetY;
+    } else if (materialCropState.activePointers.size >= 2) {
+      const pointers = Array.from(materialCropState.activePointers.values());
+      materialCropState.dragActive = false;
+      materialCropState.dragPointerId = null;
+      materialCropState.pinchStartDistance = getPointerDistance(pointers[0], pointers[1]) || 1;
+      materialCropState.pinchStartScale = materialCropState.scale;
+    }
+    event.preventDefault();
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    if (!materialCropState.image) {
+      return;
+    }
+    if (materialCropState.activePointers.has(event.pointerId)) {
+      materialCropState.activePointers.set(event.pointerId, {
+        clientX: event.clientX,
+        clientY: event.clientY,
+      });
+    }
+    if (materialCropState.activePointers.size >= 2) {
+      const pointers = Array.from(materialCropState.activePointers.values());
+      const currentDistance = getPointerDistance(pointers[0], pointers[1]);
+      const safeBaseDistance = Math.max(materialCropState.pinchStartDistance || 1, 1);
+      const nextScale = materialCropState.pinchStartScale * (currentDistance / safeBaseDistance);
+      const centerClientX = (pointers[0].clientX + pointers[1].clientX) / 2;
+      const centerClientY = (pointers[0].clientY + pointers[1].clientY) / 2;
+      const center = getCanvasRelativePoint(canvas, centerClientX, centerClientY);
+      setMaterialCropScale(nextScale, center.x, center.y);
+    } else if (materialCropState.dragActive && materialCropState.dragPointerId === event.pointerId) {
+      const deltaX = event.clientX - materialCropState.dragStartX;
+      const deltaY = event.clientY - materialCropState.dragStartY;
+      materialCropState.offsetX = materialCropState.dragOriginOffsetX + deltaX;
+      materialCropState.offsetY = materialCropState.dragOriginOffsetY + deltaY;
+      clampMaterialCropOffsets();
+      renderMaterialCropCanvas();
+    }
+    event.preventDefault();
+  });
+  const handlePointerEnd = (event) => {
+    materialCropState.activePointers.delete(event.pointerId);
+    if (materialCropState.activePointers.size === 0) {
+      materialCropState.dragActive = false;
+      materialCropState.dragPointerId = null;
+      materialCropState.pinchStartDistance = 0;
+      materialCropState.pinchStartScale = materialCropState.scale;
+      return;
+    }
+    if (materialCropState.activePointers.size === 1) {
+      const [remainingId, remainingPointer] = Array.from(materialCropState.activePointers.entries())[0];
+      materialCropState.dragActive = true;
+      materialCropState.dragPointerId = remainingId;
+      materialCropState.dragStartX = remainingPointer.clientX;
+      materialCropState.dragStartY = remainingPointer.clientY;
+      materialCropState.dragOriginOffsetX = materialCropState.offsetX;
+      materialCropState.dragOriginOffsetY = materialCropState.offsetY;
+      materialCropState.pinchStartDistance = 0;
+      materialCropState.pinchStartScale = materialCropState.scale;
+      return;
+    }
+    const pointers = Array.from(materialCropState.activePointers.values());
+    materialCropState.dragActive = false;
+    materialCropState.dragPointerId = null;
+    materialCropState.pinchStartDistance = getPointerDistance(pointers[0], pointers[1]) || 1;
+    materialCropState.pinchStartScale = materialCropState.scale;
+  };
+  canvas.addEventListener("pointerup", handlePointerEnd);
+  canvas.addEventListener("pointercancel", handlePointerEnd);
+  canvas.addEventListener("wheel", (event) => {
+    if (!materialCropState.image) {
+      return;
+    }
+    const point = getCanvasRelativePoint(canvas, event.clientX, event.clientY);
+    const scaleFactor = event.deltaY < 0 ? 1.07 : 0.93;
+    setMaterialCropScale(materialCropState.scale * scaleFactor, point.x, point.y);
+    event.preventDefault();
+  }, { passive: false });
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && isMaterialCropDialogOpen()) {
+      closeMaterialCropDialog(null);
+    }
+  });
+}
+
+async function cropImageFileToSquarePng(file, size = 128) {
+  initializeMaterialCropDialog();
+  if (!elements.materialCropDialog || !elements.materialCropCanvas) {
+    return cropImageFileToSquarePngAuto(file, size);
+  }
+  return openMaterialCropDialog(file, size);
+}
+
 async function loadCurrencyMeta() {
   try {
     const payload = await fetch(resolveApiUrl("/api/meta/currency"), { method: "GET" }).then((res) => res.json());
@@ -614,6 +1366,17 @@ function applyCurrencyMetaToUi() {
   updateSelect(elements.orderCurrency);
   updateSelect(elements.marketCurrency);
   updateSelect(elements.walletCurrency);
+
+  if (elements.leaderboardDefaultMetric) {
+    Array.from(elements.leaderboardDefaultMetric.options || []).forEach((option) => {
+      if (option.value === "SHOP_COIN") {
+        option.textContent = shopName;
+      }
+      if (option.value === "GAME_COIN") {
+        option.textContent = gameName;
+      }
+    });
+  }
 
   applyText("adminRedeemShopCoinLabel", shopName);
   applyText("adminRedeemGameCoinLabel", gameName);
@@ -892,6 +1655,378 @@ function renderKeyValueCard(title, items, actions = []) {
   return card;
 }
 
+function buildOrderStatusLabel(status) {
+  const normalized = String(status || "").trim().toUpperCase();
+  const labels = {
+    PENDING: "待发放",
+    WAIT_CLAIM: "待领取",
+    DELIVERED: "已发放",
+    REFUNDED: "已退款",
+    FAILED: "失败",
+    RECYCLED: "已回收",
+  };
+  return labels[normalized] || (normalized || "-");
+}
+
+function buildOrderStatusClass(status) {
+  const normalized = String(status || "").trim().toUpperCase();
+  if (normalized === "DELIVERED") {
+    return "delivered";
+  }
+  if (normalized === "WAIT_CLAIM" || normalized === "PENDING") {
+    return "pending";
+  }
+  if (normalized === "REFUNDED" || normalized === "FAILED") {
+    return "error";
+  }
+  if (normalized === "RECYCLED") {
+    return "muted";
+  }
+  return "default";
+}
+
+function createPlayerAvatarNode(name) {
+  const displayName = String(name || "").trim() || "玩家";
+  const wrap = document.createElement("div");
+  wrap.className = "admin-player-avatar";
+
+  const fallback = document.createElement("span");
+  fallback.className = "admin-player-avatar-fallback";
+  setNodeText(fallback, displayName.slice(0, 1).toUpperCase());
+  wrap.appendChild(fallback);
+
+  const image = document.createElement("img");
+  image.alt = displayName;
+  image.loading = "lazy";
+  image.decoding = "async";
+  image.src = `https://nmsr.nickac.dev/face/${encodeURIComponent(displayName)}`;
+  image.addEventListener("load", () => {
+    wrap.classList.add("is-ready");
+  });
+  image.addEventListener("error", () => {
+    image.remove();
+  });
+  wrap.appendChild(image);
+  return wrap;
+}
+
+function createInfoItem(labelText, valueText, muted = false) {
+  const row = document.createElement("div");
+  row.className = "admin-info-item";
+  if (muted) {
+    row.classList.add("is-muted");
+  }
+  const label = document.createElement("span");
+  label.className = "admin-info-label";
+  setNodeText(label, labelText);
+  const value = document.createElement("strong");
+  value.className = "admin-info-value";
+  setNodeText(value, valueText);
+  row.appendChild(label);
+  row.appendChild(value);
+  return row;
+}
+
+function createTag(text, tone = "neutral") {
+  const tag = document.createElement("span");
+  tag.className = `admin-tag ${tone}`;
+  setNodeText(tag, text);
+  return tag;
+}
+
+function renderOrderAdminCard(order) {
+  const card = document.createElement("div");
+  card.className = "admin-card admin-order-card-v2";
+
+  const header = document.createElement("div");
+  header.className = "admin-card-hero";
+
+  const identity = document.createElement("div");
+  identity.className = "admin-card-identity";
+  identity.appendChild(createPlayerAvatarNode(order.username || order.boundUuid || order.mcUuid || "玩家"));
+
+  const identityText = document.createElement("div");
+  identityText.className = "admin-card-identity-text";
+  const title = document.createElement("strong");
+  title.className = "admin-card-title";
+  setNodeText(title, order.username ? `${order.username} (#${order.userId || "-"})` : `用户 #${order.userId || "-"}`);
+  const sub = document.createElement("p");
+  sub.className = "admin-card-subtitle";
+  setNodeText(sub, `订单 ${order.orderNo || "-"} · ${order.createdAt || "-"}`);
+  identityText.appendChild(title);
+  identityText.appendChild(sub);
+  identity.appendChild(identityText);
+  header.appendChild(identity);
+
+  const status = document.createElement("span");
+  status.className = `admin-order-status-v2 ${buildOrderStatusClass(order.status)}`;
+  setNodeText(status, buildOrderStatusLabel(order.status));
+  header.appendChild(status);
+  card.appendChild(header);
+
+  const primary = document.createElement("div");
+  primary.className = "admin-order-primary";
+  const amount = document.createElement("strong");
+  amount.className = "admin-order-amount";
+  setNodeText(amount, formatCurrency(order.totalAmount, order.currency));
+  primary.appendChild(amount);
+  const product = document.createElement("p");
+  product.className = "admin-order-product";
+  const materialName = order.itemMaterial
+    ? `${order.itemMaterial} (${getLocalizedMaterialName(order.itemMaterial)})`
+    : "无材质";
+  setNodeText(
+    product,
+    `${order.productTitle || "-"} (${order.sku || "-"}) · x${order.quantity || 0} · ${materialName}`
+  );
+  primary.appendChild(product);
+  card.appendChild(primary);
+
+  const tags = document.createElement("div");
+  tags.className = "admin-tag-row";
+  tags.appendChild(createTag(currencyName(order.currency || "SHOP_COIN"), "accent"));
+  tags.appendChild(createTag(order.productType || "-", "neutral"));
+  if (order.groupBuyVoucherStatus) {
+    tags.appendChild(createTag(`团购券 ${order.groupBuyVoucherStatus}`, "info"));
+  }
+  card.appendChild(tags);
+
+  const infoGrid = document.createElement("div");
+  infoGrid.className = "admin-info-grid";
+  infoGrid.appendChild(createInfoItem("UUID", order.boundUuid || order.mcUuid || "-", true));
+  infoGrid.appendChild(createInfoItem("备注", order.productRemark || "-", true));
+  if (order.groupBuyVoucherCode) {
+    infoGrid.appendChild(createInfoItem("团购码", order.groupBuyVoucherCode, true));
+  }
+  card.appendChild(infoGrid);
+  return card;
+}
+
+function renderProductAdminCard(product, actions = []) {
+  const card = document.createElement("div");
+  card.className = "admin-card admin-product-card-v2";
+  const visual = resolveDisplayVisual(
+    product.itemMaterial,
+    product.displayNameOverride,
+    product.displayMaterial,
+    ""
+  );
+  const visualLabel = visual.title || getLocalizedMaterialName(visual.material || product.itemMaterial || "");
+
+  const header = document.createElement("div");
+  header.className = "admin-card-hero";
+
+  const identity = document.createElement("div");
+  identity.className = "admin-card-identity";
+
+  const materialTile = document.createElement("div");
+  materialTile.className = "admin-material-tile";
+  materialTile.appendChild(
+    buildTextureImage(visual.material || product.itemMaterial, visualLabel, {
+      forceIconPath: visual.forceIconPath,
+      includeMaterialOverride: visual.includeMaterialOverride,
+    })
+  );
+  identity.appendChild(materialTile);
+
+  const identityText = document.createElement("div");
+  identityText.className = "admin-card-identity-text";
+  const title = document.createElement("strong");
+  title.className = "admin-card-title";
+  setNodeText(title, product.title || product.sku || "未命名商品");
+  const sub = document.createElement("p");
+  sub.className = "admin-card-subtitle";
+  setNodeText(sub, `SKU ${product.sku || "-"} · ID ${product.id || "-"}`);
+  identityText.appendChild(title);
+  identityText.appendChild(sub);
+  identity.appendChild(identityText);
+  header.appendChild(identity);
+
+  const status = document.createElement("span");
+  status.className = `admin-order-status-v2 ${product.active ? "delivered" : "muted"}`;
+  setNodeText(status, product.active ? "启用中" : "已停用");
+  header.appendChild(status);
+  card.appendChild(header);
+
+  const primary = document.createElement("div");
+  primary.className = "admin-order-primary";
+  const amount = document.createElement("strong");
+  amount.className = "admin-order-amount";
+  setNodeText(amount, formatCurrency(product.price, product.currency));
+  primary.appendChild(amount);
+  const desc = document.createElement("p");
+  desc.className = "admin-order-product";
+  setNodeText(desc, product.remark || "暂无备注");
+  primary.appendChild(desc);
+  card.appendChild(primary);
+
+  const tags = document.createElement("div");
+  tags.className = "admin-tag-row";
+  tags.appendChild(createTag(currencyName(product.currency), "accent"));
+  tags.appendChild(createTag(product.productType || "-", "neutral"));
+  tags.appendChild(
+    createTag(
+      (visual.material || product.itemMaterial)
+        ? `${visual.material || product.itemMaterial} (${visualLabel})`
+        : "无材质",
+      "info"
+    )
+  );
+  if (product.displayNameOverride || product.displayMaterial) {
+    tags.appendChild(createTag("含显示覆盖", "neutral"));
+  }
+  if (product.dynamicPricingEnabled) {
+    tags.appendChild(createTag(getAlgorithmLabel("dynamic", product.dynamicAlgorithm || "-"), "success"));
+  }
+  card.appendChild(tags);
+
+  const infoGrid = document.createElement("div");
+  infoGrid.className = "admin-info-grid";
+  infoGrid.appendChild(
+    createInfoItem("库存", product.itemAmount != null ? `x${product.itemAmount}` : "长期供应")
+  );
+  infoGrid.appendChild(
+    createInfoItem("剩余", product.stockRemaining != null ? `x${product.stockRemaining}` : "长期供应")
+  );
+  infoGrid.appendChild(
+    createInfoItem("单人限购", product.perUserLimit != null ? `x${product.perUserLimit}` : "不限购", true)
+  );
+  infoGrid.appendChild(
+    createInfoItem("上下架", `${product.publishAt ? formatDateTime(product.publishAt) : "立即"} / ${product.unpublishAt ? formatDateTime(product.unpublishAt) : "不下架"}`, true)
+  );
+  card.appendChild(infoGrid);
+
+  if (actions.length > 0) {
+    const actionWrap = document.createElement("div");
+    actionWrap.className = "admin-actions";
+    actions.forEach((action) => actionWrap.appendChild(action));
+    card.appendChild(actionWrap);
+  }
+  return card;
+}
+
+function buildMarketStatusLabel(status) {
+  const normalized = String(status || "").trim().toUpperCase();
+  const labels = {
+    ACTIVE: "在售",
+    SOLD: "已售",
+    UNLISTED: "已下架",
+    SUPPLY_EMPTY: "库存不足",
+  };
+  return labels[normalized] || (normalized || "-");
+}
+
+function buildMarketStatusClass(status) {
+  const normalized = String(status || "").trim().toUpperCase();
+  if (normalized === "ACTIVE") {
+    return "delivered";
+  }
+  if (normalized === "SOLD") {
+    return "pending";
+  }
+  if (normalized === "UNLISTED") {
+    return "muted";
+  }
+  return "default";
+}
+
+function renderAdminMarketCard(listing, actions = []) {
+  const card = document.createElement("div");
+  card.className = "admin-card admin-market-card-v2";
+
+  const header = document.createElement("div");
+  header.className = "admin-card-hero";
+
+  const identity = document.createElement("div");
+  identity.className = "admin-card-identity";
+  const iconWrap = document.createElement("div");
+  iconWrap.className = "market-icon";
+  const visual = resolveDisplayVisual(
+    listing.itemMaterial,
+    listing.displayNameOverride,
+    listing.displayMaterial,
+    ""
+  );
+  const materialLabel = visual.title || getLocalizedMaterialName(listing.itemMaterial || "");
+  iconWrap.appendChild(
+    buildTextureImage(visual.material, materialLabel, {
+      forceIconPath: visual.forceIconPath,
+      includeMaterialOverride: visual.includeMaterialOverride,
+    })
+  );
+  identity.appendChild(iconWrap);
+
+  const identityText = document.createElement("div");
+  identityText.className = "admin-card-identity-text";
+  const title = document.createElement("strong");
+  title.className = "admin-card-title";
+  setNodeText(title, `${materialLabel} x${Number(listing.quantity || 0)}`);
+  const sub = document.createElement("p");
+  sub.className = "admin-card-subtitle";
+  setNodeText(sub, `上架 #${listing.id || "-"} · ${listing.createdAt || "-"}`);
+  identityText.appendChild(title);
+  identityText.appendChild(sub);
+  identity.appendChild(identityText);
+  header.appendChild(identity);
+
+  const status = document.createElement("span");
+  status.className = `admin-order-status-v2 ${buildMarketStatusClass(listing.status)}`;
+  setNodeText(status, buildMarketStatusLabel(listing.status));
+  header.appendChild(status);
+  card.appendChild(header);
+
+  const primary = document.createElement("div");
+  primary.className = "admin-order-primary";
+  const amount = document.createElement("strong");
+  amount.className = "admin-order-amount";
+  setNodeText(amount, formatCurrency(listing.price, listing.currency));
+  primary.appendChild(amount);
+  const tradeLine = document.createElement("p");
+  tradeLine.className = "admin-order-product";
+  setNodeText(
+    tradeLine,
+    `卖家 ${listing.sellerName || "-"} · 买家 ${listing.buyerName || "未成交"}`
+  );
+  primary.appendChild(tradeLine);
+  card.appendChild(primary);
+
+  const tags = document.createElement("div");
+  tags.className = "admin-tag-row";
+  tags.appendChild(createTag(currencyName(listing.currency || "SHOP_COIN"), "accent"));
+  tags.appendChild(
+    createTag(
+      `${visual.material || listing.itemMaterial || "-"} (${materialLabel})`,
+      "info"
+    )
+  );
+  if (listing.displayNameOverride || listing.displayMaterial) {
+    tags.appendChild(createTag("含显示覆盖", "neutral"));
+  }
+  if (listing.remark) {
+    tags.appendChild(createTag("含备注", "neutral"));
+  }
+  card.appendChild(tags);
+
+  const infoGrid = document.createElement("div");
+  infoGrid.className = "admin-info-grid";
+  infoGrid.appendChild(createInfoItem("卖家 UUID", listing.sellerUuid || "-", true));
+  infoGrid.appendChild(createInfoItem("买家 UUID", listing.buyerUuid || "-", true));
+  infoGrid.appendChild(createInfoItem("成交时间", listing.soldAt || "-", true));
+  infoGrid.appendChild(createInfoItem("下架时间", listing.unlistedAt || "-", true));
+  if (listing.remark) {
+    infoGrid.appendChild(createInfoItem("备注", listing.remark, true));
+  }
+  card.appendChild(infoGrid);
+
+  if (actions.length > 0) {
+    const actionWrap = document.createElement("div");
+    actionWrap.className = "admin-actions";
+    actions.forEach((action) => actionWrap.appendChild(action));
+    card.appendChild(actionWrap);
+  }
+  return card;
+}
+
 const productPanels = Array.from(document.querySelectorAll("[data-product-panel]"));
 
 function setProductPanel(panelName) {
@@ -1116,6 +2251,170 @@ function aliasMaterialKey(text) {
   return key;
 }
 
+function getMaterialVisualOverride(material) {
+  const key = normalizeMaterialKey(material);
+  const aliasKey = aliasMaterialKey(key);
+  if (!key) {
+    return null;
+  }
+  return state.materialVisualMap[key] || state.materialVisualMap[aliasKey] || null;
+}
+
+function normalizeVisualPolicy(raw) {
+  const iconMode = String(raw?.iconPolicyMode || "SOFT").trim().toUpperCase() === "HARD" ? "HARD" : "SOFT";
+  const nameMode = String(raw?.namePolicyMode || "SOFT").trim().toUpperCase() === "HARD" ? "HARD" : "SOFT";
+  return {
+    globalCustomIconEnabled: raw?.globalCustomIconEnabled !== false,
+    globalCustomNameEnabled: raw?.globalCustomNameEnabled !== false,
+    iconPolicyMode: iconMode,
+    namePolicyMode: nameMode,
+  };
+}
+
+function applyVisualPolicy(raw) {
+  state.visualPolicy = normalizeVisualPolicy(raw || state.visualPolicy || {});
+}
+
+function resolveDisplayVisual(baseMaterial, displayNameOverride, displayMaterial, fallbackName = "") {
+  const policy = normalizeVisualPolicy(state.visualPolicy || {});
+  const baseKey = normalizeMaterialKey(baseMaterial);
+  const globalVisual = getMaterialVisualOverride(baseKey);
+  const customName = String(displayNameOverride || "").trim();
+  const customMaterial = normalizeMaterialKey(displayMaterial);
+  const resolvedMaterial = customMaterial || baseKey || DEFAULT_TEXTURE_FALLBACK_MATERIAL;
+  const fallback = String(fallbackName || "").trim();
+
+  let forceIconPath = "";
+  if (policy.globalCustomIconEnabled && policy.iconPolicyMode === "HARD" && globalVisual?.iconPath) {
+    forceIconPath = String(globalVisual.iconPath);
+  } else if (!customMaterial && policy.globalCustomIconEnabled && policy.iconPolicyMode === "SOFT" && globalVisual?.iconPath) {
+    forceIconPath = String(globalVisual.iconPath);
+  }
+
+  let resolvedName = "";
+  if (policy.globalCustomNameEnabled && policy.namePolicyMode === "HARD" && globalVisual?.displayNameOverride) {
+    resolvedName = String(globalVisual.displayNameOverride);
+  } else if (customName) {
+    resolvedName = customName;
+  } else if (fallback) {
+    resolvedName = fallback;
+  } else if (!customMaterial && policy.globalCustomNameEnabled && policy.namePolicyMode === "SOFT" && globalVisual?.displayNameOverride) {
+    resolvedName = String(globalVisual.displayNameOverride);
+  } else {
+    resolvedName = getLocalizedMaterialName(resolvedMaterial, { includeGlobalOverride: false });
+  }
+
+  return {
+    material: resolvedMaterial,
+    title: resolvedName || getLocalizedMaterialName(resolvedMaterial, { includeGlobalOverride: false }),
+    forceIconPath,
+    includeMaterialOverride: policy.globalCustomIconEnabled !== false,
+  };
+}
+
+function resolveMaterialIconUrl(path) {
+  const text = String(path || "").trim();
+  if (!text) {
+    return "";
+  }
+  if (/^[a-z]+:\/\//i.test(text) || text.startsWith("//")) {
+    return text;
+  }
+  if (text.startsWith("/")) {
+    return resolveApiUrl(text);
+  }
+  return resolveApiUrl(`/${text}`);
+}
+
+function buildTextureAliases(material) {
+  const key = normalizeMaterialKey(material);
+  const aliasKey = aliasMaterialKey(key);
+  const aliases = new Set();
+  if (key) {
+    aliases.add(key.toLowerCase());
+  }
+  if (aliasKey) {
+    aliases.add(aliasKey.toLowerCase());
+  }
+  if (key.startsWith("LEGACY_")) {
+    aliases.add(key.slice("LEGACY_".length).toLowerCase());
+  }
+  const override = MATERIAL_TEXTURE_OVERRIDES[key];
+  if (Array.isArray(override)) {
+    override.forEach((value) => aliases.add(String(value).toLowerCase()));
+  }
+  return Array.from(aliases);
+}
+
+function getFallbackTextureCandidates() {
+  const names = buildTextureAliases(DEFAULT_TEXTURE_FALLBACK_MATERIAL);
+  const candidates = [];
+  names.forEach((textureName) => {
+    candidates.push(`${LOCAL_TEXTURE_BASE}/item/${textureName}.png`);
+    candidates.push(`${LOCAL_TEXTURE_BASE}/block/${textureName}.png`);
+  });
+  REMOTE_TEXTURE_BASES.forEach((base) => {
+    names.forEach((textureName) => {
+      candidates.push(`${base}/item/${textureName}.png`);
+      candidates.push(`${base}/block/${textureName}.png`);
+    });
+  });
+  candidates.push(getFallbackTexture());
+  return candidates;
+}
+
+function getTextureCandidates(material, options = {}) {
+  const includeMaterialOverride = options.includeMaterialOverride !== false;
+  const visual = includeMaterialOverride ? getMaterialVisualOverride(material) : null;
+  const overrideIconUrl = resolveMaterialIconUrl(options.forceIconPath || visual?.iconPath || "");
+  const names = buildTextureAliases(material);
+  if (names.length === 0) {
+    const fallback = getFallbackTextureCandidates();
+    if (overrideIconUrl && !fallback.includes(overrideIconUrl)) {
+      fallback.unshift(overrideIconUrl);
+    }
+    return fallback;
+  }
+  const candidates = [];
+  if (overrideIconUrl) {
+    candidates.push(overrideIconUrl);
+  }
+  names.forEach((textureName) => {
+    candidates.push(`${LOCAL_TEXTURE_BASE}/item/${textureName}.png`);
+    candidates.push(`${LOCAL_TEXTURE_BASE}/block/${textureName}.png`);
+  });
+  REMOTE_TEXTURE_BASES.forEach((base) => {
+    names.forEach((textureName) => {
+      candidates.push(`${base}/item/${textureName}.png`);
+      candidates.push(`${base}/block/${textureName}.png`);
+    });
+  });
+  getFallbackTextureCandidates().forEach((candidate) => {
+    if (!candidates.includes(candidate)) {
+      candidates.push(candidate);
+    }
+  });
+  return candidates;
+}
+
+function buildTextureImage(material, altText, options = {}) {
+  const img = document.createElement("img");
+  img.className = "market-icon-image";
+  img.alt = altText;
+  img.loading = "lazy";
+  img.decoding = "async";
+  const candidates = getTextureCandidates(material, options);
+  let index = 0;
+  img.src = candidates[index];
+  img.addEventListener("error", () => {
+    index += 1;
+    if (index < candidates.length) {
+      img.src = candidates[index];
+    }
+  });
+  return img;
+}
+
 function humanizeMaterial(materialKey) {
   return I18N
     ? I18N.humanizeEnum(materialKey)
@@ -1127,13 +2426,59 @@ function humanizeMaterial(materialKey) {
       .join(" ");
 }
 
-function getLocalizedMaterialName(material) {
+function getLocalizedMaterialName(material, options = {}) {
   const key = normalizeMaterialKey(material);
   const aliasKey = aliasMaterialKey(key);
   if (!key) {
     return localizeDisplayText("未知物品");
   }
+  const includeGlobalOverride = options.includeGlobalOverride !== false
+    && normalizeVisualPolicy(state.visualPolicy || {}).globalCustomNameEnabled !== false;
+  const visual = includeGlobalOverride ? getMaterialVisualOverride(key) : null;
+  if (visual && visual.displayNameOverride) {
+    return String(visual.displayNameOverride);
+  }
   return state.materialMap[key] || state.materialMap[aliasKey] || humanizeMaterial(aliasKey || key);
+}
+
+async function ensureMaterialVisualMap() {
+  if (state.materialVisualMapReady) {
+    return;
+  }
+  if (state.materialVisualMapPromise) {
+    await state.materialVisualMapPromise;
+    return;
+  }
+  state.materialVisualMapPromise = fetch(resolveApiUrl("/api/meta/material-overrides"))
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`material visual map load failed: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then((json) => {
+      const map = {};
+      const rows = Array.isArray(json?.overrides) ? json.overrides : [];
+      rows.forEach((item) => {
+        const key = normalizeMaterialKey(item?.materialKey);
+        if (!key) {
+          return;
+        }
+        map[key] = {
+          displayNameOverride: String(item?.displayNameOverride || "").trim() || null,
+          iconPath: String(item?.iconPath || "").trim() || null,
+        };
+      });
+      state.materialVisualMap = map;
+      applyVisualPolicy(json?.policy || {});
+      state.materialVisualMapReady = true;
+    })
+    .catch(() => {
+      state.materialVisualMap = {};
+      applyVisualPolicy({});
+      state.materialVisualMapReady = true;
+    });
+  await state.materialVisualMapPromise;
 }
 
 function buildMaterialLookup() {
@@ -1197,6 +2542,14 @@ function resolveMaterialInput(raw) {
     return candidateAlias;
   }
   return "";
+}
+
+function resolveMaterialInputLoose(raw) {
+  const resolved = resolveMaterialInput(raw);
+  if (resolved) {
+    return resolved;
+  }
+  return normalizeMaterialKey(raw);
 }
 
 function populateMaterialSuggest() {
@@ -1280,19 +2633,22 @@ async function ensureMaterialMap() {
     await state.materialMapPromise;
     return;
   }
-  state.materialMapPromise = ensureMaterialAllowList()
-    .then(() => {
-      if (!I18N || !I18N.shouldLoadMaterialMap()) {
-        return {};
-      }
-      return fetch(`i18n/materials/${I18N.getLocale()}.json`).then((response) => {
-        if (!response.ok) {
-          throw new Error(`material map load failed: ${response.status}`);
+  state.materialMapPromise = Promise.all([
+    ensureMaterialAllowList()
+      .then(() => {
+        if (!I18N || !I18N.shouldLoadMaterialMap()) {
+          return {};
         }
-        return response.json();
-      });
-    })
-    .then((json) => {
+        return fetch(`i18n/materials/${I18N.getLocale()}.json`).then((response) => {
+          if (!response.ok) {
+            throw new Error(`material map load failed: ${response.status}`);
+          }
+          return response.json();
+        });
+      }),
+    ensureMaterialVisualMap(),
+  ])
+    .then(([json]) => {
       state.materialMap = json || {};
       state.materialMapReady = true;
       buildMaterialLookup();
@@ -1741,6 +3097,8 @@ function updateProductTypeFieldsVisibility(typeRaw) {
   const dynamicVisible = itemVisible;
   setProductFieldVisible(elements.productCommand, commandVisible);
   setProductFieldVisible(elements.productItemMaterial, itemVisible);
+  setProductFieldVisible(elements.productDisplayMaterial, itemVisible);
+  setProductFieldVisible(elements.productDisplayNameOverride, itemVisible);
   setProductFieldVisible(elements.productItemAmount, true);
   setProductFieldVisible(elements.productEffectType, effectVisible);
   setProductFieldVisible(elements.productEffectSeconds, effectVisible);
@@ -1838,6 +3196,8 @@ function getProductInput() {
     productType: elements.productType.value.trim(),
     commandTemplate: elements.productCommand.value.trim(),
     itemMaterial: resolveMaterialInput(elements.productItemMaterial.value),
+    displayNameOverride: String(elements.productDisplayNameOverride?.value || "").trim() || null,
+    displayMaterial: resolveMaterialInputLoose(elements.productDisplayMaterial?.value || ""),
     itemAmount: isUnlimited
       ? null
       :
@@ -1939,11 +3299,19 @@ function renderProducts() {
     if (!keyword) {
       return true;
     }
-    const materialName = getLocalizedMaterialName(product.itemMaterial || "");
+    const visual = resolveDisplayVisual(
+      product.itemMaterial,
+      product.displayNameOverride,
+      product.displayMaterial,
+      ""
+    );
+    const materialName = visual.title || getLocalizedMaterialName(visual.material || product.itemMaterial || "");
     const haystack = [
       product.title || "",
       product.sku || "",
       product.itemMaterial || "",
+      product.displayMaterial || "",
+      product.displayNameOverride || "",
       materialName,
       product.remark || "",
       product.productType || "",
@@ -2001,6 +3369,12 @@ function renderProducts() {
       elements.productType.value = product.productType;
       elements.productCommand.value = product.commandTemplate || "";
       elements.productItemMaterial.value = product.itemMaterial || "";
+      if (elements.productDisplayMaterial) {
+        elements.productDisplayMaterial.value = product.displayMaterial || "";
+      }
+      if (elements.productDisplayNameOverride) {
+        elements.productDisplayNameOverride.value = product.displayNameOverride || "";
+      }
       if (elements.productStockMode) {
         elements.productStockMode.value = product.itemAmount == null ? "UNLIMITED" : "FINITE";
       }
@@ -2042,26 +3416,7 @@ function renderProducts() {
       });
       actions.push(resetLimitBtn);
     }
-    return renderKeyValueCard(
-      `${product.title} (${product.sku})`,
-      [
-        { label: "ID", value: product.id },
-        { label: "类型", value: product.productType },
-        { label: "材质", value: product.itemMaterial ? `${product.itemMaterial} (${getLocalizedMaterialName(product.itemMaterial)})` : "-" },
-        { label: "总库存", value: product.itemAmount ? `x${product.itemAmount}` : "长期供应" },
-        { label: "剩余库存", value: product.stockRemaining != null ? `x${product.stockRemaining}` : "长期供应" },
-        { label: "单玩家限购", value: product.perUserLimit != null ? `x${product.perUserLimit}` : "不限购" },
-        { label: "币种/价格", value: `${currencyName(product.currency)} / ${formatCurrency(product.price, product.currency)}` },
-        { label: "动态价格", value: product.dynamicPricingEnabled ? "启用" : "关闭" },
-        { label: "动态算法", value: product.dynamicPricingEnabled ? getAlgorithmLabel("dynamic", product.dynamicAlgorithm || "-") : "-" },
-        { label: "热度分数", value: product.dynamicPricingEnabled ? Number(product.dynamicDemandScore || 0) : "-" },
-        { label: "备注", value: product.remark || "-" },
-        { label: "上架时间", value: product.publishAt ? formatDateTime(product.publishAt) : "立即" },
-        { label: "下架时间", value: product.unpublishAt ? formatDateTime(product.unpublishAt) : "不自动下架" },
-        { label: "启用", value: product.active ? "是" : "否" },
-      ],
-      actions
-    );
+    return renderProductAdminCard(product, actions);
   });
   renderList(elements.productList, rows);
   setMetaText(elements.productListStatus, `列表结果：${filtered.length} 个商品`, "info");
@@ -2117,25 +3472,7 @@ async function loadAdminOrders() {
   notifyAdminOrderTransitions(state.realtime.orderDigest, orders);
   state.realtime.orderDigest = buildAdminOrderDigest(orders);
   setMetaText(elements.orderStatusView, `已加载 ${orders.length} 条订单`, "info");
-  const rows = orders.map((order) =>
-    renderKeyValueCard(
-      `订单 ${order.orderNo}`,
-      [
-        { label: "用户", value: `${order.username || "-"} (#${order.userId})` },
-        { label: "UUID", value: order.boundUuid || order.mcUuid || "-" },
-        { label: "状态", value: order.status },
-        { label: "金额", value: formatCurrency(order.totalAmount, order.currency) },
-        { label: "商品", value: `${order.productTitle || "-"} (${order.sku || "-"})` },
-        { label: "类型", value: order.productType || "-" },
-        { label: "材质", value: order.itemMaterial ? `${order.itemMaterial} (${getLocalizedMaterialName(order.itemMaterial)})` : "-" },
-        { label: "备注", value: order.productRemark || "-" },
-        { label: "数量", value: `x${order.quantity}` },
-        { label: "团购码", value: order.groupBuyVoucherCode || "-" },
-        { label: "团购码状态", value: order.groupBuyVoucherStatus || "-" },
-        { label: "时间", value: order.createdAt },
-      ]
-    )
-  );
+  const rows = orders.map((order) => renderOrderAdminCard(order));
   renderList(elements.adminOrderList, rows);
 }
 
@@ -2167,14 +3504,35 @@ async function loadEconomySettings() {
     elements.marketTaxPercent.value = String(market.tradeTaxPercent ?? 0.0);
   }
 
+  const currency = payload.currency || {};
+  const shopCoinName = String(currency.shopCoinName || state.currencyMeta.SHOP_COIN?.name || "ShopCoin").trim();
+  const shopCoinShort = String(currency.shopCoinShort || state.currencyMeta.SHOP_COIN?.short || "SC").trim();
+  const gameCoinName = String(currency.gameCoinName || state.currencyMeta.GAME_COIN?.name || "GameCoin").trim();
+  const gameCoinShort = String(currency.gameCoinShort || state.currencyMeta.GAME_COIN?.short || "GC").trim();
+  state.currencyMeta.SHOP_COIN = { name: shopCoinName || "ShopCoin", short: shopCoinShort || "SC" };
+  state.currencyMeta.GAME_COIN = { name: gameCoinName || "GameCoin", short: gameCoinShort || "GC" };
+  if (elements.currencyShopCoinName) {
+    elements.currencyShopCoinName.value = state.currencyMeta.SHOP_COIN.name;
+  }
+  if (elements.currencyShopCoinShort) {
+    elements.currencyShopCoinShort.value = state.currencyMeta.SHOP_COIN.short;
+  }
+  if (elements.currencyGameCoinName) {
+    elements.currencyGameCoinName.value = state.currencyMeta.GAME_COIN.name;
+  }
+  if (elements.currencyGameCoinShort) {
+    elements.currencyGameCoinShort.value = state.currencyMeta.GAME_COIN.short;
+  }
+  applyCurrencyMetaToUi();
+
   const vault = payload.vault || {};
-  const gameCoinName = currencyName("GAME_COIN");
+  const gameCoinLabel = currencyName("GAME_COIN");
   if (elements.vaultStatusView) {
     const provider = vault.provider || "未提供";
     if (vault.hooked) {
       setMetaText(
         elements.vaultStatusView,
-        `已连接 Vault 经济：${provider}（${gameCoinName} 由 Vault 托管）`,
+        `已连接 Vault 经济：${provider}（${gameCoinLabel} 由 Vault 托管）`,
         "success"
       );
     } else if (vault.vaultPluginPresent) {
@@ -2186,7 +3544,7 @@ async function loadEconomySettings() {
     } else {
       setMetaText(
         elements.vaultStatusView,
-        `未检测到 Vault 插件，${gameCoinName} 当前使用本地钱包。`,
+        `未检测到 Vault 插件，${gameCoinLabel} 当前使用本地钱包。`,
         "warn"
       );
     }
@@ -2206,9 +3564,425 @@ async function loadEconomySettings() {
     elements.leaderboardDefaultOrder.value = String(leaderboard.defaultOrder || "DESC").toUpperCase();
   }
 
+  const webshopRuntime = payload.webshopRuntime || {};
+  if (elements.runtimeDefaultLocale) {
+    elements.runtimeDefaultLocale.value = String(webshopRuntime.defaultLocale || "zh-CN");
+  }
+  if (elements.runtimeTimeZone) {
+    elements.runtimeTimeZone.value = String(webshopRuntime.timeZone || "Asia/Shanghai");
+  }
+  if (elements.runtimeSessionExpireHours) {
+    elements.runtimeSessionExpireHours.value = String(webshopRuntime.sessionExpireHours ?? 72);
+  }
+  if (elements.runtimeBindRequestExpireMinutes) {
+    elements.runtimeBindRequestExpireMinutes.value = String(webshopRuntime.bindRequestExpireMinutes ?? 15);
+  }
+  if (elements.runtimeAccessTokenLength) {
+    elements.runtimeAccessTokenLength.value = String(webshopRuntime.accessTokenLength ?? 48);
+  }
+  if (elements.runtimeDeliveryBatchSize) {
+    elements.runtimeDeliveryBatchSize.value = String(webshopRuntime.deliveryBatchSize ?? 20);
+  }
+  if (elements.runtimeDeliveryRetrySeconds) {
+    elements.runtimeDeliveryRetrySeconds.value = String(webshopRuntime.deliveryRetrySeconds ?? 30);
+  }
+  if (elements.runtimeOrderCooldownSeconds) {
+    elements.runtimeOrderCooldownSeconds.value = String(webshopRuntime.orderCooldownSeconds ?? 15);
+  }
+  if (elements.runtimeAllowSharedClaimCommand) {
+    elements.runtimeAllowSharedClaimCommand.value = String(!!webshopRuntime.allowSharedClaimCommand);
+  }
+  if (elements.runtimeRefundUndeliveredEnabled) {
+    elements.runtimeRefundUndeliveredEnabled.value = String(webshopRuntime.refundUndeliveredEnabled !== false);
+  }
+
+  const marketRuntime = payload.marketRuntime || {};
+  const marketSupply = marketRuntime.supply || {};
+  if (elements.runtimeMarketMaxActiveListings) {
+    elements.runtimeMarketMaxActiveListings.value = String(marketRuntime.marketMaxActiveListings ?? 10);
+  }
+  if (elements.runtimeMarketAutoRefreshThreshold) {
+    elements.runtimeMarketAutoRefreshThreshold.value = String(marketSupply.autoRefreshThreshold ?? 8);
+  }
+  if (elements.runtimeMarketDefaultTransferBatchSize) {
+    elements.runtimeMarketDefaultTransferBatchSize.value = String(marketSupply.defaultTransferBatchSize ?? 64);
+  }
+  if (elements.runtimeMarketMaxTransferBatchSize) {
+    elements.runtimeMarketMaxTransferBatchSize.value = String(marketSupply.maxTransferBatchSize ?? 256);
+  }
+  if (elements.runtimeMarketDefaultTransitStock) {
+    elements.runtimeMarketDefaultTransitStock.value = String(marketSupply.defaultTransitStock ?? 256);
+  }
+  if (elements.runtimeMarketMaxTransitStock) {
+    elements.runtimeMarketMaxTransitStock.value = String(marketSupply.maxTransitStock ?? 1024);
+  }
+
+  const maintenance = payload.maintenance || {};
+  if (elements.runtimeCleanupIntervalMinutes) {
+    elements.runtimeCleanupIntervalMinutes.value = String(maintenance.cleanupIntervalMinutes ?? 30);
+  }
+  if (elements.runtimePendingBindRetentionHours) {
+    elements.runtimePendingBindRetentionHours.value = String(maintenance.pendingBindRetentionHours ?? 6);
+  }
+  if (elements.runtimePendingPasswordRetentionHours) {
+    elements.runtimePendingPasswordRetentionHours.value = String(maintenance.pendingPasswordRetentionHours ?? 6);
+  }
+  if (elements.runtimeBindRequestRetentionHours) {
+    elements.runtimeBindRequestRetentionHours.value = String(maintenance.bindRequestRetentionHours ?? 24);
+  }
+  if (elements.runtimeRedeemCodeRetentionDays) {
+    elements.runtimeRedeemCodeRetentionDays.value = String(maintenance.redeemCodeRetentionDays ?? 7);
+  }
+
+  const logging = payload.logging || {};
+  if (elements.runtimeLoggingEnabled) {
+    elements.runtimeLoggingEnabled.value = String(logging.enabled !== false);
+  }
+  if (elements.runtimeLoggingLevel) {
+    elements.runtimeLoggingLevel.value = String(logging.level || "INFO").toUpperCase();
+  }
+  if (elements.runtimeLoggingDirectory) {
+    elements.runtimeLoggingDirectory.value = String(logging.directory || "logs");
+  }
+  if (elements.runtimeLoggingMaxFileSizeMb) {
+    elements.runtimeLoggingMaxFileSizeMb.value = String(logging.maxFileSizeMb ?? 8);
+  }
+  if (elements.runtimeLoggingMaxFiles) {
+    elements.runtimeLoggingMaxFiles.value = String(logging.maxFiles ?? 8);
+  }
+  if (elements.runtimeLoggingRetentionDays) {
+    elements.runtimeLoggingRetentionDays.value = String(logging.retentionDays ?? 14);
+  }
+
+  const broadcast = payload.broadcast || {};
+  const templates = broadcast.templates || {};
+  if (elements.runtimeBroadcastEnabled) {
+    elements.runtimeBroadcastEnabled.value = String(broadcast.enabled !== false);
+  }
+  if (elements.runtimeBroadcastListingCreatedTemplate) {
+    elements.runtimeBroadcastListingCreatedTemplate.value = String(templates["listing-created"] || "");
+  }
+  if (elements.runtimeBroadcastTradeSuccessTemplate) {
+    elements.runtimeBroadcastTradeSuccessTemplate.value = String(templates["trade-success"] || "");
+  }
+  if (elements.runtimeBroadcastAuctionBidTemplate) {
+    elements.runtimeBroadcastAuctionBidTemplate.value = String(templates["auction-bid"] || "");
+  }
+  if (elements.runtimeBroadcastAuctionSealedBidTemplate) {
+    elements.runtimeBroadcastAuctionSealedBidTemplate.value = String(templates["auction-sealed-bid"] || "");
+  }
+
+  const visual = normalizeVisualPolicy(payload.visual || {});
+  state.visualPolicy = visual;
+  if (elements.visualGlobalCustomIconEnabled) {
+    elements.visualGlobalCustomIconEnabled.value = String(visual.globalCustomIconEnabled !== false);
+  }
+  if (elements.visualGlobalCustomNameEnabled) {
+    elements.visualGlobalCustomNameEnabled.value = String(visual.globalCustomNameEnabled !== false);
+  }
+  if (elements.visualIconPolicyMode) {
+    elements.visualIconPolicyMode.value = String(visual.iconPolicyMode || "SOFT").toUpperCase();
+  }
+  if (elements.visualNamePolicyMode) {
+    elements.visualNamePolicyMode.value = String(visual.namePolicyMode || "SOFT").toUpperCase();
+  }
+
+  try {
+    await loadMaterialOverrideList();
+  } catch (error) {
+    setMetaText(elements.materialOverrideStatusView, `材质映射加载失败：${error.message}`, "error");
+  }
+
   setMetaText(elements.exchangeStatusView, "已加载兑换配置", "info");
   setMetaText(elements.marketEconomyStatusView, "已加载手续费/税率配置", "info");
   setMetaText(elements.leaderboardStatusView, "已加载排行榜配置", "info");
+  setMetaText(elements.currencyStatusView, "已加载币种展示配置", "info");
+  setMetaText(elements.runtimeWebshopStatusView, "已加载站点运行参数", "info");
+  setMetaText(elements.runtimeMarketStatusView, "已加载市场运行参数", "info");
+  setMetaText(elements.runtimeMaintenanceStatusView, "已加载维护参数", "info");
+  setMetaText(elements.runtimeLoggingStatusView, "已加载日志设置", "info");
+  setMetaText(elements.runtimeBroadcastStatusView, "已加载广播设置", "info");
+  setMetaText(elements.visualSettingsStatusView, "已加载视觉策略", "info");
+}
+
+function normalizeMaterialOverrideRow(raw) {
+  const materialKey = normalizeMaterialKey(raw?.materialKey);
+  if (!materialKey) {
+    return null;
+  }
+  return {
+    materialKey,
+    displayNameOverride: String(raw?.displayNameOverride || "").trim() || null,
+    iconPath: String(raw?.iconPath || "").trim() || null,
+    updatedBy: String(raw?.updatedBy || "").trim() || null,
+    updatedAt: raw?.updatedAt || null,
+  };
+}
+
+function upsertMaterialVisualInState(row) {
+  const normalized = normalizeMaterialOverrideRow(row);
+  if (!normalized) {
+    return null;
+  }
+  state.materialVisualMap[normalized.materialKey] = {
+    displayNameOverride: normalized.displayNameOverride,
+    iconPath: normalized.iconPath,
+  };
+  return normalized;
+}
+
+function removeMaterialVisualFromState(materialKey) {
+  const key = normalizeMaterialKey(materialKey);
+  if (!key) {
+    return;
+  }
+  delete state.materialVisualMap[key];
+}
+
+function setMaterialOverridePreview(materialKey, displayNameOverride, iconPath) {
+  if (!elements.materialOverridePreviewImage || !elements.materialOverridePreviewLabel) {
+    return;
+  }
+  const key = normalizeMaterialKey(materialKey);
+  const fallbackLabel = key ? getLocalizedMaterialName(key) : localizeDisplayText("未选择材质");
+  const labelText = String(displayNameOverride || "").trim() || fallbackLabel;
+  setNodeText(elements.materialOverridePreviewLabel, `${labelText}${key ? ` (${key})` : ""}`);
+
+  if (!key) {
+    elements.materialOverridePreviewImage.src = getFallbackTexture();
+    return;
+  }
+
+  const iconUrl = resolveMaterialIconUrl(iconPath || "");
+  if (iconUrl) {
+    elements.materialOverridePreviewImage.src = iconUrl;
+    elements.materialOverridePreviewImage.onerror = () => {
+      elements.materialOverridePreviewImage.src = getTextureCandidates(key)[0] || getFallbackTexture();
+    };
+    return;
+  }
+  elements.materialOverridePreviewImage.src = getTextureCandidates(key)[0] || getFallbackTexture();
+}
+
+function populateMaterialOverrideForm(row) {
+  const normalized = normalizeMaterialOverrideRow(row);
+  state.selectedMaterialOverrideKey = normalized?.materialKey || "";
+  if (elements.materialOverrideMaterial) {
+    elements.materialOverrideMaterial.value = normalized?.materialKey || "";
+  }
+  if (elements.materialOverrideDisplayName) {
+    elements.materialOverrideDisplayName.value = normalized?.displayNameOverride || "";
+  }
+  if (elements.materialOverrideIconFile) {
+    elements.materialOverrideIconFile.value = "";
+  }
+  if (elements.materialOverrideDeleteBtn) {
+    elements.materialOverrideDeleteBtn.disabled = !normalized;
+  }
+  setMaterialOverridePreview(
+    normalized?.materialKey || "",
+    normalized?.displayNameOverride || "",
+    normalized?.iconPath || ""
+  );
+}
+
+function renderMaterialOverrideCard(row) {
+  const normalized = normalizeMaterialOverrideRow(row);
+  if (!normalized) {
+    return null;
+  }
+  const card = document.createElement("div");
+  card.className = "admin-card material-override-card";
+
+  const header = document.createElement("div");
+  header.className = "admin-row";
+  const left = document.createElement("div");
+  left.className = "material-override-card-head";
+  const icon = document.createElement("img");
+  icon.className = "material-override-icon";
+  icon.alt = normalized.materialKey;
+  icon.loading = "lazy";
+  icon.decoding = "async";
+  icon.src = resolveMaterialIconUrl(normalized.iconPath) || getTextureCandidates(normalized.materialKey)[0] || getFallbackTexture();
+  icon.addEventListener("error", () => {
+    icon.src = getTextureCandidates(normalized.materialKey)[0] || getFallbackTexture();
+  });
+  left.appendChild(icon);
+  const titleWrap = document.createElement("div");
+  const title = document.createElement("strong");
+  setNodeText(title, normalized.displayNameOverride || getLocalizedMaterialName(normalized.materialKey));
+  const sub = document.createElement("p");
+  sub.className = "meta";
+  setNodeText(sub, normalized.materialKey);
+  titleWrap.appendChild(title);
+  titleWrap.appendChild(sub);
+  left.appendChild(titleWrap);
+  header.appendChild(left);
+
+  const actionWrap = document.createElement("div");
+  actionWrap.className = "admin-actions";
+  const editBtn = document.createElement("button");
+  editBtn.className = "btn-tonal";
+  setNodeText(editBtn, "编辑");
+  editBtn.addEventListener("click", () => {
+    populateMaterialOverrideForm(normalized);
+  });
+  const removeBtn = document.createElement("button");
+  removeBtn.className = "btn-tonal";
+  setNodeText(removeBtn, "删除");
+  removeBtn.addEventListener("click", async () => {
+    try {
+      await deleteMaterialOverride(normalized.materialKey);
+    } catch (error) {
+      setMetaText(elements.materialOverrideStatusView, `删除失败：${error.message}`, "error");
+      notify(`删除失败：${error.message}`, "error");
+    }
+  });
+  actionWrap.appendChild(editBtn);
+  actionWrap.appendChild(removeBtn);
+  header.appendChild(actionWrap);
+  card.appendChild(header);
+
+  const rows = [
+    { label: "显示名称", value: normalized.displayNameOverride || "跟随默认翻译" },
+    { label: "图标来源", value: normalized.iconPath || "跟随原版材质" },
+    { label: "更新人", value: normalized.updatedBy || "-" },
+    { label: "更新时间", value: normalized.updatedAt || "-" },
+  ];
+  rows.forEach((item) => {
+    const rowNode = document.createElement("div");
+    rowNode.className = "admin-row";
+    const key = document.createElement("span");
+    key.className = "admin-key";
+    setNodeText(key, item.label);
+    const value = document.createElement("span");
+    value.className = "admin-value";
+    setNodeText(value, item.value);
+    rowNode.appendChild(key);
+    rowNode.appendChild(value);
+    card.appendChild(rowNode);
+  });
+
+  return card;
+}
+
+async function loadMaterialOverrideList() {
+  ensureAdmin();
+  const keyword = String(elements.materialOverrideKeyword?.value || "").trim();
+  const query = new URLSearchParams({ limit: "400" });
+  if (keyword) {
+    query.set("keyword", keyword);
+  }
+  const payload = await apiAdmin(`/api/admin/material-overrides/list?${query.toString()}`, { method: "GET" });
+  const rows = (payload.overrides || [])
+    .map((item) => normalizeMaterialOverrideRow(item))
+    .filter(Boolean);
+  state.materialOverrideRows = rows;
+  state.materialVisualMap = {};
+  rows.forEach((item) => upsertMaterialVisualInState(item));
+  state.materialVisualMapReady = true;
+  if (elements.materialOverrideList) {
+    const cards = rows
+      .map((item) => renderMaterialOverrideCard(item))
+      .filter(Boolean);
+    renderList(elements.materialOverrideList, cards);
+  }
+  setMetaText(elements.materialOverrideStatusView, `已加载 ${rows.length} 条材质映射`, "info");
+
+  if (state.selectedMaterialOverrideKey) {
+    const selected = rows.find((item) => item.materialKey === state.selectedMaterialOverrideKey) || null;
+    if (selected) {
+      populateMaterialOverrideForm(selected);
+    } else {
+      populateMaterialOverrideForm(null);
+    }
+  }
+}
+
+async function saveMaterialOverride() {
+  ensureAdmin();
+  const materialKey = resolveMaterialInputLoose(elements.materialOverrideMaterial?.value || "");
+  if (!materialKey) {
+    throw new Error("请先输入材质名称。");
+  }
+  const displayNameOverride = String(elements.materialOverrideDisplayName?.value || "").trim() || null;
+  let iconPath = null;
+  const selected = state.materialOverrideRows.find((item) => item.materialKey === materialKey);
+  if (selected?.iconPath) {
+    iconPath = selected.iconPath;
+  } else if (state.selectedMaterialOverrideKey) {
+    const selectedByCurrent = state.materialOverrideRows.find(
+      (item) => item.materialKey === state.selectedMaterialOverrideKey
+    );
+    if (selectedByCurrent?.materialKey === materialKey && selectedByCurrent.iconPath) {
+      iconPath = selectedByCurrent.iconPath;
+    }
+  }
+  if (!displayNameOverride && !iconPath) {
+    throw new Error("显示名称和图标不能同时为空。");
+  }
+  const payload = await apiAdmin("/api/admin/material-overrides/upsert", {
+    method: "POST",
+    body: JSON.stringify({
+      materialKey,
+      displayNameOverride,
+      iconPath,
+    }),
+  });
+  const row = upsertMaterialVisualInState(payload);
+  state.materialVisualMapReady = true;
+  state.selectedMaterialOverrideKey = row?.materialKey || materialKey;
+  setMetaText(elements.materialOverrideStatusView, "材质映射已保存", "success");
+  notify("材质映射已保存", "success");
+  await loadMaterialOverrideList();
+}
+
+async function uploadMaterialOverrideIcon() {
+  ensureAdmin();
+  const materialKey = resolveMaterialInputLoose(elements.materialOverrideMaterial?.value || "");
+  if (!materialKey) {
+    throw new Error("请先输入材质名称。");
+  }
+  const file = elements.materialOverrideIconFile?.files?.[0];
+  if (!file) {
+    throw new Error("请先选择图标文件。");
+  }
+  const croppedFile = await cropImageFileToSquarePng(file, 128);
+  if (!croppedFile) {
+    setMetaText(elements.materialOverrideStatusView, "已取消裁剪与上传", "info");
+    return;
+  }
+  const query = new URLSearchParams({
+    material: materialKey,
+    filename: croppedFile?.name || `${materialKey}.png`,
+  });
+  const payload = await apiAdminUpload(`/api/admin/material-overrides/icon?${query.toString()}`, croppedFile);
+  const row = upsertMaterialVisualInState(payload);
+  state.materialVisualMapReady = true;
+  state.selectedMaterialOverrideKey = row?.materialKey || materialKey;
+  setMetaText(elements.materialOverrideStatusView, "材质图标上传成功", "success");
+  notify("材质图标上传成功", "success");
+  await loadMaterialOverrideList();
+  const latest = state.materialOverrideRows.find((item) => item.materialKey === materialKey) || row || null;
+  populateMaterialOverrideForm(latest);
+}
+
+async function deleteMaterialOverride(materialKeyFromAction = "") {
+  ensureAdmin();
+  const materialKey = normalizeMaterialKey(materialKeyFromAction || elements.materialOverrideMaterial?.value || "");
+  if (!materialKey) {
+    throw new Error("请先选择要删除的材质映射。");
+  }
+  await apiAdmin("/api/admin/material-overrides/delete", {
+    method: "POST",
+    body: JSON.stringify({ materialKey }),
+  });
+  removeMaterialVisualFromState(materialKey);
+  state.selectedMaterialOverrideKey = "";
+  populateMaterialOverrideForm(null);
+  setMetaText(elements.materialOverrideStatusView, `已删除材质映射：${materialKey}`, "success");
+  notify(`已删除材质映射：${materialKey}`, "success");
+  await loadMaterialOverrideList();
 }
 
 async function saveExchangeSettings() {
@@ -2265,6 +4039,134 @@ async function saveLeaderboardSettings() {
   notify("排行榜配置已保存", "success");
 }
 
+async function saveCurrencyDisplaySettings() {
+  ensureAdmin();
+  const shopCoinName = String(elements.currencyShopCoinName?.value || "").trim();
+  const shopCoinShort = String(elements.currencyShopCoinShort?.value || "").trim();
+  const gameCoinName = String(elements.currencyGameCoinName?.value || "").trim();
+  const gameCoinShort = String(elements.currencyGameCoinShort?.value || "").trim();
+  if (!shopCoinName || !shopCoinShort || !gameCoinName || !gameCoinShort) {
+    throw new Error("币种名称与简称不能为空。");
+  }
+  await apiAdmin("/api/admin/economy/currency", {
+    method: "POST",
+    body: JSON.stringify({
+      shopCoinName,
+      shopCoinShort,
+      gameCoinName,
+      gameCoinShort,
+    }),
+  });
+  state.currencyMeta.SHOP_COIN = { name: shopCoinName, short: shopCoinShort };
+  state.currencyMeta.GAME_COIN = { name: gameCoinName, short: gameCoinShort };
+  applyCurrencyMetaToUi();
+  setMetaText(elements.currencyStatusView, "币种展示配置已保存", "success");
+  notify("币种展示配置已保存", "success");
+}
+
+async function saveWebshopRuntimeSettings() {
+  ensureAdmin();
+  await apiAdmin("/api/admin/system/webshop", {
+    method: "POST",
+    body: JSON.stringify({
+      defaultLocale: String(elements.runtimeDefaultLocale?.value || "zh-CN"),
+      timeZone: String(elements.runtimeTimeZone?.value || "Asia/Shanghai").trim(),
+      sessionExpireHours: Number(elements.runtimeSessionExpireHours?.value || 72),
+      bindRequestExpireMinutes: Number(elements.runtimeBindRequestExpireMinutes?.value || 15),
+      accessTokenLength: Number(elements.runtimeAccessTokenLength?.value || 48),
+      deliveryBatchSize: Number(elements.runtimeDeliveryBatchSize?.value || 20),
+      deliveryRetrySeconds: Number(elements.runtimeDeliveryRetrySeconds?.value || 30),
+      orderCooldownSeconds: Number(elements.runtimeOrderCooldownSeconds?.value || 15),
+      allowSharedClaimCommand: elements.runtimeAllowSharedClaimCommand?.value === "true",
+      refundUndeliveredEnabled: elements.runtimeRefundUndeliveredEnabled?.value === "true",
+    }),
+  });
+  setMetaText(elements.runtimeWebshopStatusView, "站点运行参数已保存", "success");
+  notify("站点运行参数已保存", "success");
+}
+
+async function saveMarketRuntimeSettings() {
+  ensureAdmin();
+  await apiAdmin("/api/admin/system/market", {
+    method: "POST",
+    body: JSON.stringify({
+      marketMaxActiveListings: Number(elements.runtimeMarketMaxActiveListings?.value || 10),
+      autoRefreshThreshold: Number(elements.runtimeMarketAutoRefreshThreshold?.value || 8),
+      defaultTransferBatchSize: Number(elements.runtimeMarketDefaultTransferBatchSize?.value || 64),
+      maxTransferBatchSize: Number(elements.runtimeMarketMaxTransferBatchSize?.value || 256),
+      defaultTransitStock: Number(elements.runtimeMarketDefaultTransitStock?.value || 256),
+      maxTransitStock: Number(elements.runtimeMarketMaxTransitStock?.value || 1024),
+    }),
+  });
+  setMetaText(elements.runtimeMarketStatusView, "市场运行参数已保存", "success");
+  notify("市场运行参数已保存", "success");
+}
+
+async function saveMaintenanceSettings() {
+  ensureAdmin();
+  await apiAdmin("/api/admin/system/maintenance", {
+    method: "POST",
+    body: JSON.stringify({
+      cleanupIntervalMinutes: Number(elements.runtimeCleanupIntervalMinutes?.value || 30),
+      pendingBindRetentionHours: Number(elements.runtimePendingBindRetentionHours?.value || 6),
+      pendingPasswordRetentionHours: Number(elements.runtimePendingPasswordRetentionHours?.value || 6),
+      bindRequestRetentionHours: Number(elements.runtimeBindRequestRetentionHours?.value || 24),
+      redeemCodeRetentionDays: Number(elements.runtimeRedeemCodeRetentionDays?.value || 7),
+    }),
+  });
+  setMetaText(elements.runtimeMaintenanceStatusView, "维护参数已保存", "success");
+  notify("维护参数已保存", "success");
+}
+
+async function saveLoggingSettings() {
+  ensureAdmin();
+  await apiAdmin("/api/admin/system/logging", {
+    method: "POST",
+    body: JSON.stringify({
+      enabled: elements.runtimeLoggingEnabled?.value === "true",
+      level: String(elements.runtimeLoggingLevel?.value || "INFO").toUpperCase(),
+      directory: String(elements.runtimeLoggingDirectory?.value || "logs").trim(),
+      maxFileSizeMb: Number(elements.runtimeLoggingMaxFileSizeMb?.value || 8),
+      maxFiles: Number(elements.runtimeLoggingMaxFiles?.value || 8),
+      retentionDays: Number(elements.runtimeLoggingRetentionDays?.value || 14),
+    }),
+  });
+  setMetaText(elements.runtimeLoggingStatusView, "日志设置已保存", "success");
+  notify("日志设置已保存", "success");
+}
+
+async function saveBroadcastSettings() {
+  ensureAdmin();
+  await apiAdmin("/api/admin/system/broadcast", {
+    method: "POST",
+    body: JSON.stringify({
+      enabled: elements.runtimeBroadcastEnabled?.value === "true",
+      listingCreatedTemplate: String(elements.runtimeBroadcastListingCreatedTemplate?.value || ""),
+      tradeSuccessTemplate: String(elements.runtimeBroadcastTradeSuccessTemplate?.value || ""),
+      auctionBidTemplate: String(elements.runtimeBroadcastAuctionBidTemplate?.value || ""),
+      auctionSealedBidTemplate: String(elements.runtimeBroadcastAuctionSealedBidTemplate?.value || ""),
+    }),
+  });
+  setMetaText(elements.runtimeBroadcastStatusView, "广播设置已保存", "success");
+  notify("广播设置已保存", "success");
+}
+
+async function saveVisualSettings() {
+  ensureAdmin();
+  const payload = await apiAdmin("/api/admin/visual/settings", {
+    method: "POST",
+    body: JSON.stringify({
+      globalCustomIconEnabled: elements.visualGlobalCustomIconEnabled?.value === "true",
+      globalCustomNameEnabled: elements.visualGlobalCustomNameEnabled?.value === "true",
+      iconPolicyMode: String(elements.visualIconPolicyMode?.value || "SOFT").toUpperCase(),
+      namePolicyMode: String(elements.visualNamePolicyMode?.value || "SOFT").toUpperCase(),
+    }),
+  });
+  state.visualPolicy = normalizeVisualPolicy(payload.visual || {});
+  setMetaText(elements.visualSettingsStatusView, "视觉策略已保存", "success");
+  notify("视觉策略已保存", "success");
+}
+
 async function loadMarket() {
   ensureAdmin();
   await ensureMaterialMap();
@@ -2315,18 +4217,7 @@ async function loadMarket() {
       });
       actions.push(unlistBtn);
     }
-    return renderKeyValueCard(
-      `上架 #${listing.id}`,
-      [
-        { label: "卖家", value: `${listing.sellerName} (${listing.sellerUuid})` },
-        { label: "买家", value: listing.buyerName ? `${listing.buyerName}` : "-" },
-        { label: "物品", value: `${listing.itemMaterial} (${getLocalizedMaterialName(listing.itemMaterial)}) x${listing.quantity}` },
-        { label: "备注", value: listing.remark || "-" },
-        { label: "价格", value: formatCurrency(listing.price, listing.currency) },
-        { label: "状态", value: listing.status },
-      ],
-      actions
-    );
+    return renderAdminMarketCard(listing, actions);
   });
   renderList(elements.adminMarketList, rows);
 }
@@ -2354,6 +4245,59 @@ function applySelectedUser(payload, sourceLabel = "查询") {
   state.selectedUser = payload;
   setMetaText(elements.userLookupStatus, `${sourceLabel}：${payload.username}`, "success");
   renderSelectedUser();
+  loadSelectedUserVisualPermission().catch((error) => {
+    setMetaText(elements.userVisualPermissionStatus, `读取视觉权限失败：${error.message}`, "error");
+  });
+}
+
+async function loadSelectedUserVisualPermission() {
+  if (!state.selectedUser || !state.selectedUser.id) {
+    if (elements.userVisualIconPermission) {
+      elements.userVisualIconPermission.value = "INHERIT";
+    }
+    if (elements.userVisualNamePermission) {
+      elements.userVisualNamePermission.value = "INHERIT";
+    }
+    setMetaText(elements.userVisualPermissionStatus, "请先选择用户", "info");
+    return;
+  }
+  const payload = await apiAdmin(`/api/admin/users/visual-permission?userId=${encodeURIComponent(state.selectedUser.id)}`, {
+    method: "GET",
+  });
+  if (elements.userVisualIconPermission) {
+    elements.userVisualIconPermission.value = String(payload.iconPermission || "INHERIT").toUpperCase();
+  }
+  if (elements.userVisualNamePermission) {
+    elements.userVisualNamePermission.value = String(payload.namePermission || "INHERIT").toUpperCase();
+  }
+  const iconAllowed = payload.customIconAllowed ? "允许" : "禁止";
+  const nameAllowed = payload.customNameAllowed ? "允许" : "禁止";
+  setMetaText(
+    elements.userVisualPermissionStatus,
+    `已加载：图标${iconAllowed} / 名称${nameAllowed}`,
+    "info"
+  );
+}
+
+async function saveSelectedUserVisualPermission() {
+  ensureAdmin();
+  const userId = requireSelectedUser();
+  const payload = await apiAdmin("/api/admin/users/visual-permission", {
+    method: "POST",
+    body: JSON.stringify({
+      userId,
+      iconPermission: String(elements.userVisualIconPermission?.value || "INHERIT").toUpperCase(),
+      namePermission: String(elements.userVisualNamePermission?.value || "INHERIT").toUpperCase(),
+    }),
+  });
+  const iconAllowed = payload.customIconAllowed ? "允许" : "禁止";
+  const nameAllowed = payload.customNameAllowed ? "允许" : "禁止";
+  setMetaText(
+    elements.userVisualPermissionStatus,
+    `保存成功：图标${iconAllowed} / 名称${nameAllowed}`,
+    "success"
+  );
+  notify("用户视觉权限已保存", "success");
 }
 
 async function lookupUser() {
@@ -2949,6 +4893,155 @@ if (elements.marketEconomySaveBtn) {
   });
 }
 
+if (elements.leaderboardSaveBtn) {
+  elements.leaderboardSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveLeaderboardSettings();
+    } catch (error) {
+      setMetaText(elements.leaderboardStatusView, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.currencySaveBtn) {
+  elements.currencySaveBtn.addEventListener("click", async () => {
+    try {
+      await saveCurrencyDisplaySettings();
+    } catch (error) {
+      setMetaText(elements.currencyStatusView, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.runtimeWebshopSaveBtn) {
+  elements.runtimeWebshopSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveWebshopRuntimeSettings();
+    } catch (error) {
+      setMetaText(elements.runtimeWebshopStatusView, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.runtimeMarketSaveBtn) {
+  elements.runtimeMarketSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveMarketRuntimeSettings();
+    } catch (error) {
+      setMetaText(elements.runtimeMarketStatusView, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.runtimeMaintenanceSaveBtn) {
+  elements.runtimeMaintenanceSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveMaintenanceSettings();
+    } catch (error) {
+      setMetaText(elements.runtimeMaintenanceStatusView, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.runtimeLoggingSaveBtn) {
+  elements.runtimeLoggingSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveLoggingSettings();
+    } catch (error) {
+      setMetaText(elements.runtimeLoggingStatusView, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.runtimeBroadcastSaveBtn) {
+  elements.runtimeBroadcastSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveBroadcastSettings();
+    } catch (error) {
+      setMetaText(elements.runtimeBroadcastStatusView, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.visualSettingsSaveBtn) {
+  elements.visualSettingsSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveVisualSettings();
+    } catch (error) {
+      setMetaText(elements.visualSettingsStatusView, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.materialOverrideRefreshBtn) {
+  elements.materialOverrideRefreshBtn.addEventListener("click", async () => {
+    try {
+      await loadMaterialOverrideList();
+      notify("材质映射列表已刷新", "success");
+    } catch (error) {
+      setMetaText(elements.materialOverrideStatusView, `加载失败：${error.message}`, "error");
+      notify(`加载失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.materialOverrideSaveBtn) {
+  elements.materialOverrideSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveMaterialOverride();
+    } catch (error) {
+      setMetaText(elements.materialOverrideStatusView, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.materialOverrideUploadBtn) {
+  elements.materialOverrideUploadBtn.addEventListener("click", async () => {
+    try {
+      await uploadMaterialOverrideIcon();
+    } catch (error) {
+      setMetaText(elements.materialOverrideStatusView, `上传失败：${error.message}`, "error");
+      notify(`上传失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.materialOverrideDeleteBtn) {
+  elements.materialOverrideDeleteBtn.addEventListener("click", async () => {
+    try {
+      await deleteMaterialOverride();
+    } catch (error) {
+      setMetaText(elements.materialOverrideStatusView, `删除失败：${error.message}`, "error");
+      notify(`删除失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.materialOverrideClearBtn) {
+  elements.materialOverrideClearBtn.addEventListener("click", () => {
+    populateMaterialOverrideForm(null);
+    setMetaText(elements.materialOverrideStatusView, "已清空编辑器", "info");
+  });
+}
+
+if (elements.materialOverrideKeyword) {
+  elements.materialOverrideKeyword.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter" || !state.token) {
+      return;
+    }
+    await loadMaterialOverrideList();
+  });
+}
+
 elements.marketRefreshBtn.addEventListener("click", async () => {
   try {
     await loadMarket();
@@ -3139,6 +5232,17 @@ elements.walletAdjustBtn.addEventListener("click", async () => {
   }
 });
 
+if (elements.userVisualPermissionSaveBtn) {
+  elements.userVisualPermissionSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveSelectedUserVisualPermission();
+    } catch (error) {
+      setMetaText(elements.userVisualPermissionStatus, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
 elements.auditRefreshBtn.addEventListener("click", async () => {
   try {
     await loadAuditLogs();
@@ -3214,6 +5318,23 @@ if (elements.productItemMaterial) {
     }
   });
 }
+if (elements.productDisplayMaterial) {
+  elements.productDisplayMaterial.addEventListener("blur", () => {
+    const raw = String(elements.productDisplayMaterial.value || "").trim();
+    if (!raw) {
+      return;
+    }
+    const resolved = resolveMaterialInputLoose(raw);
+    if (resolved) {
+      elements.productDisplayMaterial.value = resolved;
+      if (!resolveMaterialInput(raw)) {
+        notify("展示材质未在基础材质表中识别，已按输入规范化后保留。", "warn");
+      }
+    } else {
+      notify("展示材质格式无效，请检查输入。", "warn");
+    }
+  });
+}
 if (elements.marketMaterial) {
   elements.marketMaterial.addEventListener("blur", () => {
     const resolved = resolveMaterialInput(elements.marketMaterial.value);
@@ -3224,11 +5345,62 @@ if (elements.marketMaterial) {
     }
   });
 }
+if (elements.materialOverrideMaterial) {
+  elements.materialOverrideMaterial.addEventListener("blur", () => {
+    const raw = String(elements.materialOverrideMaterial.value || "").trim();
+    if (!raw) {
+      return;
+    }
+    const resolved = resolveMaterialInputLoose(raw);
+    if (resolved) {
+      elements.materialOverrideMaterial.value = resolved;
+      const existing = state.materialOverrideRows.find((item) => item.materialKey === resolved) || null;
+      if (existing) {
+        populateMaterialOverrideForm(existing);
+      } else {
+        setMaterialOverridePreview(resolved, elements.materialOverrideDisplayName?.value || "", "");
+      }
+      if (!resolveMaterialInput(raw)) {
+        notify("材质未在基础材质表中识别，仍可保存（适用于模组/混合服）。", "warn");
+      }
+    } else {
+      notify("材质格式无效，请检查输入。", "warn");
+    }
+  });
+}
+if (elements.materialOverrideDisplayName) {
+  elements.materialOverrideDisplayName.addEventListener("input", () => {
+    const materialKey = resolveMaterialInput(elements.materialOverrideMaterial?.value || "");
+    const existing = state.materialOverrideRows.find((item) => item.materialKey === materialKey) || null;
+    setMaterialOverridePreview(
+      materialKey,
+      elements.materialOverrideDisplayName.value,
+      existing?.iconPath || ""
+    );
+  });
+}
+if (elements.materialOverrideIconFile) {
+  elements.materialOverrideIconFile.addEventListener("change", () => {
+    const file = elements.materialOverrideIconFile.files?.[0];
+    if (!file || !elements.materialOverridePreviewImage) {
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        elements.materialOverridePreviewImage.src = reader.result;
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+}
 updateProductTypeFieldsVisibility(elements.productType ? elements.productType.value : "COMMAND");
 setProductPanel("editor");
 syncProductAmountSlider("input");
 switchProductDynamicParamTab("basic");
 renderProductDynamicParamEditors();
+populateMaterialOverrideForm(null);
+initializeMaterialCropDialog();
 
 applyCurrencyMetaToUi();
 loadCurrencyMeta();
@@ -3259,5 +5431,29 @@ if (elements.adminManagerStatus) {
 if (elements.adminManagerListStatus) {
   setMetaText(elements.adminManagerListStatus, "等待加载管理员列表", "info");
 }
+if (elements.currencyStatusView) {
+  setMetaText(elements.currencyStatusView, "等待操作", "info");
+}
+if (elements.runtimeWebshopStatusView) {
+  setMetaText(elements.runtimeWebshopStatusView, "等待操作", "info");
+}
+if (elements.runtimeMarketStatusView) {
+  setMetaText(elements.runtimeMarketStatusView, "等待操作", "info");
+}
+if (elements.runtimeMaintenanceStatusView) {
+  setMetaText(elements.runtimeMaintenanceStatusView, "等待操作", "info");
+}
+if (elements.runtimeLoggingStatusView) {
+  setMetaText(elements.runtimeLoggingStatusView, "等待操作", "info");
+}
+if (elements.runtimeBroadcastStatusView) {
+  setMetaText(elements.runtimeBroadcastStatusView, "等待操作", "info");
+}
+if (elements.materialOverrideStatusView) {
+  setMetaText(elements.materialOverrideStatusView, "等待加载材质映射", "info");
+}
 renderAdminProfile();
 populateAdminForm(null);
+
+
+

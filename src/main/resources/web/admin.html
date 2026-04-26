@@ -38,17 +38,14 @@
       </div>
     </header>
 
-    <nav class="top-tabs" role="tablist" aria-label="管理功能">
-      <button class="top-tab active" data-tab-target="login" type="button">管理员登录</button>
-      <button class="top-tab" data-tab-target="products" type="button">官方商品</button>
-      <button class="top-tab" data-tab-target="market" type="button">玩家市场</button>      
-      <button class="top-tab" data-tab-target="orders" type="button">订单</button>
-      <button class="top-tab" data-tab-target="redeem" type="button">兑换码</button>
-      <button class="top-tab" data-tab-target="economy" type="button">经济设置</button>
-      <button class="top-tab" data-tab-target="users" type="button">账号管理</button>
-      <button class="top-tab" data-tab-target="admins" type="button">管理员</button>
-      <button class="top-tab" data-tab-target="audit" type="button">审计日志</button>
+    <nav class="top-tabs" role="tablist" aria-label="管理大类">
+      <button class="top-tab active" data-major-target="overview" type="button">总览</button>
+      <button class="top-tab" data-major-target="commerce" type="button">商品中心</button>
+      <button class="top-tab" data-major-target="market" type="button">玩家市场</button>
+      <button class="top-tab" data-major-target="users" type="button">用户中心</button>
+      <button class="top-tab" data-major-target="system" type="button">系统配置</button>
     </nav>
+    <nav class="sub-tabs admin-sub-tabs" id="adminSubTabs" role="tablist" aria-label="管理子页面"></nav>
 
     <section class="tab-panel active" data-tab-panel="login">
       <div class="grid two-col">
@@ -286,6 +283,14 @@
               <input id="productItemMaterial" list="materialSuggestList" placeholder="例如 DIAMOND / 钻石" />
             </label>
             <label class="field">
+              <span>展示材质覆盖（可空）</span>
+              <input id="productDisplayMaterial" list="materialSuggestList" placeholder="用于前端图标展示，不影响实际发货" />
+            </label>
+            <label class="field">
+              <span>展示名称覆盖（可空）</span>
+              <input id="productDisplayNameOverride" placeholder="用于前端名称展示，不影响实际发货" />
+            </label>
+            <label class="field">
               <span>药水效果（POTION）</span>
               <input id="productEffectType" list="potionEffectSuggestList" placeholder="例如 speed" />
             </label>
@@ -507,6 +512,33 @@
         </article>
 
         <article class="md-card section-card">
+          <h2>币种展示设置</h2>
+          <p class="card-desc">统一设置玩家端与管理端显示名称/简称。</p>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>Shop 币名称</span>
+              <input id="currencyShopCoinName" maxlength="24" placeholder="例如 ShopCoin" />
+            </label>
+            <label class="field">
+              <span>Shop 币简称</span>
+              <input id="currencyShopCoinShort" maxlength="12" placeholder="例如 SC" />
+            </label>
+            <label class="field">
+              <span>Game 币名称</span>
+              <input id="currencyGameCoinName" maxlength="24" placeholder="例如 GameCoin" />
+            </label>
+            <label class="field">
+              <span>Game 币简称</span>
+              <input id="currencyGameCoinShort" maxlength="12" placeholder="例如 GC" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="currencySaveBtn" type="button">保存币种展示</button>
+          </div>
+          <p class="meta" id="currencyStatusView">等待操作</p>
+        </article>
+
+        <article class="md-card section-card">
           <h2>Vault 对接状态</h2>
           <p class="card-desc"><span id="vaultGameCoinName">游戏币</span> 与 Vault 经济系统的连接状态。</p>
           <p class="meta" id="vaultStatusView">等待加载</p>
@@ -550,6 +582,295 @@
             <button id="leaderboardSaveBtn" type="button">保存排行榜配置</button>
           </div>
           <p class="meta" id="leaderboardStatusView">等待操作</p>
+        </article>
+
+        <article class="md-card section-card">
+          <h2>站点运行参数</h2>
+          <p class="card-desc">控制会话、时区、发货与退款策略，适合多服统一下发。</p>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>默认语言</span>
+              <select id="runtimeDefaultLocale">
+                <option value="zh-CN">zh-CN</option>
+                <option value="en-US">en-US</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>业务时区</span>
+              <input id="runtimeTimeZone" placeholder="例如 Asia/Shanghai" />
+            </label>
+            <label class="field">
+              <span>会话有效期（小时）</span>
+              <input id="runtimeSessionExpireHours" type="number" min="1" step="1" value="72" />
+            </label>
+            <label class="field">
+              <span>绑定请求有效期（分钟）</span>
+              <input id="runtimeBindRequestExpireMinutes" type="number" min="1" step="1" value="15" />
+            </label>
+            <label class="field">
+              <span>访问令牌长度</span>
+              <input id="runtimeAccessTokenLength" type="number" min="16" step="1" value="48" />
+            </label>
+            <label class="field">
+              <span>单轮发货批次</span>
+              <input id="runtimeDeliveryBatchSize" type="number" min="1" step="1" value="20" />
+            </label>
+            <label class="field">
+              <span>发货重试间隔（秒）</span>
+              <input id="runtimeDeliveryRetrySeconds" type="number" min="5" step="1" value="30" />
+            </label>
+            <label class="field">
+              <span>订单冷却（秒）</span>
+              <input id="runtimeOrderCooldownSeconds" type="number" min="0" step="1" value="15" />
+            </label>
+            <label class="field">
+              <span>允许代领命令</span>
+              <select id="runtimeAllowSharedClaimCommand">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>允许未发放退款</span>
+              <select id="runtimeRefundUndeliveredEnabled">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions">
+            <button id="runtimeWebshopSaveBtn" type="button">保存运行参数</button>
+          </div>
+          <p class="meta" id="runtimeWebshopStatusView">等待操作</p>
+        </article>
+
+        <article class="md-card section-card">
+          <h2>市场运行参数</h2>
+          <p class="card-desc">控制市场上架上限与供货自动补货策略。</p>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>默认最大上架数</span>
+              <input id="runtimeMarketMaxActiveListings" type="number" min="1" step="1" value="10" />
+            </label>
+            <label class="field">
+              <span>自动补货阈值</span>
+              <input id="runtimeMarketAutoRefreshThreshold" type="number" min="0" step="1" value="8" />
+            </label>
+            <label class="field">
+              <span>默认单次提取量</span>
+              <input id="runtimeMarketDefaultTransferBatchSize" type="number" min="1" step="1" value="64" />
+            </label>
+            <label class="field">
+              <span>最大单次提取量</span>
+              <input id="runtimeMarketMaxTransferBatchSize" type="number" min="1" step="1" value="256" />
+            </label>
+            <label class="field">
+              <span>默认中转库存</span>
+              <input id="runtimeMarketDefaultTransitStock" type="number" min="1" step="1" value="256" />
+            </label>
+            <label class="field">
+              <span>最大中转库存</span>
+              <input id="runtimeMarketMaxTransitStock" type="number" min="1" step="1" value="1024" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="runtimeMarketSaveBtn" type="button">保存市场参数</button>
+          </div>
+          <p class="meta" id="runtimeMarketStatusView">等待操作</p>
+        </article>
+
+        <article class="md-card section-card">
+          <h2>维护任务</h2>
+          <p class="card-desc">控制清理频率与绑定、兑换码等数据保留时间。</p>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>清理间隔（分钟）</span>
+              <input id="runtimeCleanupIntervalMinutes" type="number" min="0" step="1" value="30" />
+            </label>
+            <label class="field">
+              <span>待绑定保留（小时）</span>
+              <input id="runtimePendingBindRetentionHours" type="number" min="1" step="1" value="6" />
+            </label>
+            <label class="field">
+              <span>待密码设置保留（小时）</span>
+              <input id="runtimePendingPasswordRetentionHours" type="number" min="1" step="1" value="6" />
+            </label>
+            <label class="field">
+              <span>绑定请求保留（小时）</span>
+              <input id="runtimeBindRequestRetentionHours" type="number" min="1" step="1" value="24" />
+            </label>
+            <label class="field">
+              <span>兑换码保留（天）</span>
+              <input id="runtimeRedeemCodeRetentionDays" type="number" min="1" step="1" value="7" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="runtimeMaintenanceSaveBtn" type="button">保存维护参数</button>
+          </div>
+          <p class="meta" id="runtimeMaintenanceStatusView">等待操作</p>
+        </article>
+
+        <article class="md-card section-card">
+          <h2>日志设置</h2>
+          <p class="card-desc">统一控制多服文件日志输出级别与保留策略。</p>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>启用文件日志</span>
+              <select id="runtimeLoggingEnabled">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>日志级别</span>
+              <select id="runtimeLoggingLevel">
+                <option value="ERROR">ERROR</option>
+                <option value="WARN">WARN</option>
+                <option value="INFO">INFO</option>
+                <option value="DEBUG">DEBUG</option>
+                <option value="TRACE">TRACE</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>日志目录</span>
+              <input id="runtimeLoggingDirectory" placeholder="例如 logs" />
+            </label>
+            <label class="field">
+              <span>单文件大小（MB）</span>
+              <input id="runtimeLoggingMaxFileSizeMb" type="number" min="1" step="1" value="8" />
+            </label>
+            <label class="field">
+              <span>滚动文件数</span>
+              <input id="runtimeLoggingMaxFiles" type="number" min="1" step="1" value="8" />
+            </label>
+            <label class="field">
+              <span>保留天数（0=不清理）</span>
+              <input id="runtimeLoggingRetentionDays" type="number" min="0" step="1" value="14" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="runtimeLoggingSaveBtn" type="button">保存日志设置</button>
+          </div>
+          <p class="meta" id="runtimeLoggingStatusView">等待操作</p>
+        </article>
+
+        <article class="md-card section-card">
+          <h2>广播模板</h2>
+          <p class="card-desc">统一控制市场广播开关与跨服消息模板。</p>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>启用广播</span>
+              <select id="runtimeBroadcastEnabled">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label class="field product-remark-field">
+              <span>上架广播模板</span>
+              <textarea id="runtimeBroadcastListingCreatedTemplate" rows="2"></textarea>
+            </label>
+            <label class="field product-remark-field">
+              <span>成交广播模板</span>
+              <textarea id="runtimeBroadcastTradeSuccessTemplate" rows="2"></textarea>
+            </label>
+            <label class="field product-remark-field">
+              <span>竞拍广播模板</span>
+              <textarea id="runtimeBroadcastAuctionBidTemplate" rows="2"></textarea>
+            </label>
+            <label class="field product-remark-field">
+              <span>密封竞拍广播模板</span>
+              <textarea id="runtimeBroadcastAuctionSealedBidTemplate" rows="2"></textarea>
+            </label>
+          </div>
+          <div class="actions">
+            <button id="runtimeBroadcastSaveBtn" type="button">保存广播设置</button>
+          </div>
+          <p class="meta" id="runtimeBroadcastStatusView">等待操作</p>
+        </article>
+
+        <article class="md-card section-card">
+          <h2>视觉自定义策略</h2>
+          <p class="card-desc">控制全局材质映射的启用状态、优先级策略，以及玩家级权限继承逻辑。</p>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>启用全局自定义图标</span>
+              <select id="visualGlobalCustomIconEnabled">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>图标策略</span>
+              <select id="visualIconPolicyMode">
+                <option value="SOFT">SOFT（玩家/商品级优先）</option>
+                <option value="HARD">HARD（全局优先）</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>启用全局自定义名称</span>
+              <select id="visualGlobalCustomNameEnabled">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>名称策略</span>
+              <select id="visualNamePolicyMode">
+                <option value="SOFT">SOFT（玩家/商品级优先）</option>
+                <option value="HARD">HARD（全局优先）</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions">
+            <button id="visualSettingsSaveBtn" type="button">保存视觉策略</button>
+          </div>
+          <p class="meta" id="visualSettingsStatusView">等待操作</p>
+        </article>
+
+        <article class="md-card section-card">
+          <div class="section-head">
+            <div>
+              <h2>材质图标与名称对照表</h2>
+              <p class="card-desc">优先级：对照表 -> 原版材质 -> 默认占位图。上传图标会自动做居中正方形裁剪。</p>
+            </div>
+            <button id="materialOverrideRefreshBtn" type="button">刷新对照表</button>
+          </div>
+
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>检索关键字</span>
+              <input id="materialOverrideKeyword" placeholder="材质Key / 显示名称" />
+            </label>
+            <label class="field">
+              <span>材质 Key</span>
+              <input id="materialOverrideMaterial" list="materialSuggestList" placeholder="例如 DIAMOND / 钻石" />
+            </label>
+            <label class="field">
+              <span>显示名称覆盖（可空）</span>
+              <input id="materialOverrideDisplayName" placeholder="留空表示跟随默认翻译" />
+            </label>
+            <label class="field">
+              <span>图标文件（png/webp/jpg/gif）</span>
+              <input id="materialOverrideIconFile" type="file" accept=".png,.webp,.jpg,.jpeg,.gif,image/*" />
+            </label>
+          </div>
+
+          <div class="material-override-preview">
+            <img id="materialOverridePreviewImage" src="" alt="材质图标预览" />
+            <div>
+              <p class="meta">当前预览</p>
+              <strong id="materialOverridePreviewLabel">未选择材质</strong>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="materialOverrideUploadBtn" class="btn-tonal" type="button">上传图标</button>
+            <button id="materialOverrideSaveBtn" type="button">保存映射</button>
+            <button id="materialOverrideDeleteBtn" class="btn-tonal" type="button" disabled>删除映射</button>
+            <button id="materialOverrideClearBtn" class="btn-tonal" type="button">清空编辑器</button>
+          </div>
+          <p class="meta" id="materialOverrideStatusView">等待加载材质映射</p>
+          <div class="admin-list" id="materialOverrideList"></div>
         </article>
       </div>
     </section>
@@ -655,6 +976,28 @@
           <div class="actions">
             <button id="walletAdjustBtn" type="button">调整余额</button>
           </div>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>自定义图标权限</span>
+              <select id="userVisualIconPermission">
+                <option value="INHERIT">继承全局</option>
+                <option value="ALLOW">允许（可绕过全局）</option>
+                <option value="DENY">禁止</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>自定义名称权限</span>
+              <select id="userVisualNamePermission">
+                <option value="INHERIT">继承全局</option>
+                <option value="ALLOW">允许（可绕过全局）</option>
+                <option value="DENY">禁止</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions">
+            <button id="userVisualPermissionSaveBtn" type="button">保存视觉权限</button>
+            <p class="meta" id="userVisualPermissionStatus">等待操作</p>
+          </div>
           <p class="meta" id="userActionStatus">等待操作</p>
         </article>
       </div>
@@ -753,6 +1096,28 @@
   <div id="snackbarHost" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
   <datalist id="materialSuggestList"></datalist>
   <datalist id="potionEffectSuggestList"></datalist>
+
+  <div id="materialCropDialog" class="dialog-backdrop" aria-hidden="true">
+    <article class="md-card dialog-card material-crop-dialog-card">
+      <h3>裁剪材质图标</h3>
+      <p>拖动画面移动位置，滚轮/滑杆缩放；移动端可双指缩放。完成后点击“应用并上传”。</p>
+      <div class="material-crop-stage-wrap">
+        <canvas id="materialCropCanvas" width="360" height="360" aria-label="材质图标裁剪画布"></canvas>
+      </div>
+      <div class="material-crop-controls">
+        <label class="field dialog-select-field">
+          <span>缩放</span>
+          <input id="materialCropZoom" type="range" min="100" max="800" step="1" value="100" />
+        </label>
+        <p class="meta" id="materialCropZoomValue">100%</p>
+      </div>
+      <div class="actions">
+        <button id="materialCropResetBtn" class="btn-tonal" type="button">重置</button>
+        <button id="materialCropCancelBtn" class="btn-tonal" type="button">取消</button>
+        <button id="materialCropApplyBtn" type="button">应用并上传</button>
+      </div>
+    </article>
+  </div>
 
   <script src="config.js"></script>
   <script src="js/i18n.js"></script>

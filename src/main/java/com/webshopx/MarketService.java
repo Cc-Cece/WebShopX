@@ -46,6 +46,7 @@ class MarketService {
   private final MessageService messageService;
   private final NotificationService notificationService;
   private final BroadcastService broadcastService;
+  private final PlayerPresenceService playerPresenceService;
   private final ItemSnapshotCodec itemSnapshotCodec;
 
   MarketService(
@@ -55,7 +56,8 @@ class MarketService {
       Supplier<PluginSettings> settingsSupplier,
       MessageService messageService,
       NotificationService notificationService,
-      BroadcastService broadcastService) {
+      BroadcastService broadcastService,
+      PlayerPresenceService playerPresenceService) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.walletService = walletService;
@@ -63,6 +65,7 @@ class MarketService {
     this.messageService = messageService;
     this.notificationService = notificationService;
     this.broadcastService = broadcastService;
+    this.playerPresenceService = playerPresenceService;
     this.itemSnapshotCodec = new ItemSnapshotCodec();
   }
 
@@ -391,7 +394,8 @@ class MarketService {
       int limit) throws SQLException {
     StringBuilder sql = new StringBuilder("""
         SELECT ml.id, ml.seller_user_id, u.username AS seller_name, ml.seller_uuid, ml.currency, ml.price,
-               ml.quantity, ml.quantity_total, ml.item_material, ml.item_meta_json,
+               ml.quantity, ml.quantity_total, ml.item_material, ml.display_name_override, ml.display_material,
+               ml.item_meta_json,
                ml.remark, ml.status, ml.created_at, ml.source_mode, ml.supply_batch_size,
                ml.supply_max_stock, ml.supply_loaded_total, ml.supply_sold_total,
          ml.supply_last_loaded_amount, ml.supply_last_loaded_at,
@@ -434,8 +438,13 @@ class MarketService {
       params.add(query.maxPrice());
     }
     if (query.keyword() != null && !query.keyword().isBlank()) {
-      sql.append(" AND (LOWER(ml.item_material) LIKE ? OR LOWER(u.username) LIKE ? OR LOWER(ml.remark) LIKE ?)");
+      sql.append(" AND (LOWER(ml.item_material) LIKE ? "
+          + "OR LOWER(COALESCE(ml.display_name_override, '')) LIKE ? "
+          + "OR LOWER(COALESCE(ml.display_material, '')) LIKE ? "
+          + "OR LOWER(u.username) LIKE ? OR LOWER(ml.remark) LIKE ?)");
       String keywordPattern = "%" + query.keyword().toLowerCase(Locale.ROOT) + "%";
+      params.add(keywordPattern);
+      params.add(keywordPattern);
       params.add(keywordPattern);
       params.add(keywordPattern);
       params.add(keywordPattern);
@@ -490,9 +499,14 @@ class MarketService {
     }
     if (keyword != null && !keyword.isBlank()) {
       clauses.add(
-          "(CAST(ml.id AS CHAR) LIKE ? OR LOWER(ml.item_material) LIKE ? OR LOWER(IFNULL(ml.remark, '')) LIKE ? "
+          "(CAST(ml.id AS CHAR) LIKE ? OR LOWER(ml.item_material) LIKE ? "
+              + "OR LOWER(IFNULL(ml.display_name_override, '')) LIKE ? "
+              + "OR LOWER(IFNULL(ml.display_material, '')) LIKE ? "
+              + "OR LOWER(IFNULL(ml.remark, '')) LIKE ? "
               + "OR LOWER(us.username) LIKE ? OR LOWER(IFNULL(ub.username, '')) LIKE ?)");
       String fuzzy = "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%";
+      params.add(fuzzy);
+      params.add(fuzzy);
       params.add(fuzzy);
       params.add(fuzzy);
       params.add(fuzzy);
@@ -502,7 +516,8 @@ class MarketService {
     String sql = """
         SELECT ml.id, ml.seller_user_id, us.username AS seller_name, ml.seller_uuid,
                ml.buyer_user_id, ub.username AS buyer_name, ml.buyer_uuid,
-               ml.currency, ml.price, ml.quantity, ml.quantity_total, ml.item_material, ml.item_meta_json,
+               ml.currency, ml.price, ml.quantity, ml.quantity_total, ml.item_material,
+               ml.display_name_override, ml.display_material, ml.item_meta_json,
                ml.remark, ml.status, ml.created_at, ml.sold_at, ml.unlisted_at,
                ml.source_mode, ml.supply_batch_size, ml.supply_max_stock, ml.supply_loaded_total,
                ml.supply_sold_total, ml.supply_last_loaded_amount, ml.supply_last_loaded_at
@@ -642,6 +657,8 @@ class MarketService {
       long price,
       CurrencyType currency,
       String remark,
+      String displayNameOverride,
+      String displayMaterial,
       Integer supplyBatchSize,
       Integer supplyMaxStock,
       String tradeMode,
@@ -672,6 +689,8 @@ class MarketService {
             price,
             currency,
             normalizedRemark,
+            displayNameOverride,
+            displayMaterial,
             supplyBatchSize,
             supplyMaxStock,
             tradeMode,
@@ -788,11 +807,11 @@ class MarketService {
     String sql = """
         INSERT INTO market_listings (
           seller_user_id, seller_uuid, currency, price, quantity, quantity_total, item_material, raw_item_blob,
-          item_meta_json, remark, item_hash, source_mode,
+          display_name_override, display_material, item_meta_json, remark, item_hash, source_mode,
           supply_world, supply_x, supply_y, supply_z, supply_batch_size, supply_max_stock,
           supply_loaded_total, supply_sold_total, supply_last_loaded_amount, supply_last_loaded_at, status
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement =
              connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -804,37 +823,39 @@ class MarketService {
       statement.setInt(6, quantityTotal);
       statement.setString(7, listingItem.getType().name());
       statement.setBytes(8, snapshot.rawItemBlob());
-      statement.setString(9, snapshot.itemMetaJson());
+      statement.setString(9, null);
       statement.setString(10, null);
-      statement.setString(11, snapshot.itemHash());
-      statement.setString(12, supplyConfig.mode().name());
+      statement.setString(11, snapshot.itemMetaJson());
+      statement.setString(12, null);
+      statement.setString(13, snapshot.itemHash());
+      statement.setString(14, supplyConfig.mode().name());
       if (supplyConfig.source() == null) {
-        statement.setString(13, null);
-        statement.setObject(14, null);
-        statement.setObject(15, null);
+        statement.setString(15, null);
         statement.setObject(16, null);
-      } else {
-        statement.setString(13, supplyConfig.source().worldName());
-        statement.setInt(14, supplyConfig.source().x());
-        statement.setInt(15, supplyConfig.source().y());
-        statement.setInt(16, supplyConfig.source().z());
-      }
-      if (supplyConfig.mode() == SupplyMode.SUPPLY) {
-        statement.setInt(17, supplyConfig.transferBatchSize());
-        statement.setInt(18, supplyConfig.transitMaxStock());
-        statement.setLong(19, supplyConfig.initialLoadedAmount());
-        statement.setLong(20, 0L);
-        statement.setInt(21, supplyConfig.initialLoadedAmount());
-        statement.setTimestamp(22, Timestamp.valueOf(LocalDateTime.now()));
-      } else {
         statement.setObject(17, null);
         statement.setObject(18, null);
-        statement.setLong(19, 0L);
-        statement.setLong(20, 0L);
-        statement.setObject(21, null);
-        statement.setTimestamp(22, null);
+      } else {
+        statement.setString(15, supplyConfig.source().worldName());
+        statement.setInt(16, supplyConfig.source().x());
+        statement.setInt(17, supplyConfig.source().y());
+        statement.setInt(18, supplyConfig.source().z());
       }
-      statement.setString(23, initialStatus);
+      if (supplyConfig.mode() == SupplyMode.SUPPLY) {
+        statement.setInt(19, supplyConfig.transferBatchSize());
+        statement.setInt(20, supplyConfig.transitMaxStock());
+        statement.setLong(21, supplyConfig.initialLoadedAmount());
+        statement.setLong(22, 0L);
+        statement.setInt(23, supplyConfig.initialLoadedAmount());
+        statement.setTimestamp(24, Timestamp.valueOf(LocalDateTime.now()));
+      } else {
+        statement.setObject(19, null);
+        statement.setObject(20, null);
+        statement.setLong(21, 0L);
+        statement.setLong(22, 0L);
+        statement.setObject(23, null);
+        statement.setTimestamp(24, null);
+      }
+      statement.setString(25, initialStatus);
       statement.executeUpdate();
       try (ResultSet keyResult = statement.getGeneratedKeys()) {
         if (!keyResult.next()) {
@@ -2119,6 +2140,8 @@ class MarketService {
       long price,
       CurrencyType currency,
       String remark,
+      String displayNameOverride,
+      String displayMaterial,
       Integer supplyBatchSize,
       Integer supplyMaxStock,
       String tradeModeRaw,
@@ -2141,6 +2164,8 @@ class MarketService {
     if (listing.sellerUserId() != sellerUserId) {
       throw new ServiceException("forbidden", "Only the owner can update listing settings");
     }
+    String normalizedDisplayNameOverride = normalizeDisplayNameOverride(displayNameOverride);
+    String normalizedDisplayMaterial = normalizeDisplayMaterial(displayMaterial);
     Integer batch = listing.supplyBatchSize();
     Integer maxStock = listing.supplyMaxStock();
     int quantityTotal = listing.quantityTotal();
@@ -2411,7 +2436,8 @@ class MarketService {
 
     String sql = """
         UPDATE market_listings
-        SET price = ?, currency = ?, remark = ?, supply_batch_size = ?, supply_max_stock = ?, quantity_total = ?,
+        SET price = ?, currency = ?, remark = ?, display_name_override = ?, display_material = ?,
+        supply_batch_size = ?, supply_max_stock = ?, quantity_total = ?,
         trade_mode = ?, dynamic_pricing_enabled = ?, dynamic_algorithm = ?, dynamic_params_json = ?,
         dynamic_base_price = ?, dynamic_floor_price = ?, dynamic_cap_price = ?, dynamic_price_step = ?,
         dynamic_demand_score = ?,
@@ -2425,55 +2451,57 @@ class MarketService {
       statement.setLong(1, effectivePrice);
       statement.setString(2, currency.name());
       statement.setString(3, remark);
+      statement.setString(4, normalizedDisplayNameOverride);
+      statement.setString(5, normalizedDisplayMaterial);
       if (batch == null) {
-        statement.setObject(4, null);
+        statement.setObject(6, null);
       } else {
-        statement.setInt(4, batch);
+        statement.setInt(6, batch);
       }
       if (maxStock == null) {
-        statement.setObject(5, null);
+        statement.setObject(7, null);
       } else {
-        statement.setInt(5, maxStock);
+        statement.setInt(7, maxStock);
       }
-      statement.setInt(6, quantityTotal);
-      statement.setString(7, tradeMode.name());
-      statement.setBoolean(8, normalizedDynamicEnabled);
-      statement.setString(9, dynamicAlgorithmType.name());
-      statement.setString(10, MarketAlgorithmRegistry.toJson(normalizedDynamicParams));
-      statement.setObject(11, normalizedDynamicBasePrice);
-      statement.setObject(12, normalizedDynamicFloorPrice);
-      statement.setObject(13, normalizedDynamicCapPrice);
-      statement.setObject(14, normalizedDynamicPriceStep);
-      statement.setLong(15, normalizedDynamicDemandScore);
-      statement.setString(16, auctionAlgorithmType.name());
-      statement.setString(17, MarketAlgorithmRegistry.toJson(normalizedAuctionParams));
-      statement.setObject(18, normalizedAuctionStartPrice);
-      statement.setObject(19, normalizedAuctionMinIncrement);
+      statement.setInt(8, quantityTotal);
+      statement.setString(9, tradeMode.name());
+      statement.setBoolean(10, normalizedDynamicEnabled);
+      statement.setString(11, dynamicAlgorithmType.name());
+      statement.setString(12, MarketAlgorithmRegistry.toJson(normalizedDynamicParams));
+      statement.setObject(13, normalizedDynamicBasePrice);
+      statement.setObject(14, normalizedDynamicFloorPrice);
+      statement.setObject(15, normalizedDynamicCapPrice);
+      statement.setObject(16, normalizedDynamicPriceStep);
+      statement.setLong(17, normalizedDynamicDemandScore);
+      statement.setString(18, auctionAlgorithmType.name());
+      statement.setString(19, MarketAlgorithmRegistry.toJson(normalizedAuctionParams));
+      statement.setObject(20, normalizedAuctionStartPrice);
+      statement.setObject(21, normalizedAuctionMinIncrement);
       if (normalizedAuctionStartedAt == null) {
-        statement.setTimestamp(20, null);
-      } else {
-        statement.setTimestamp(20, Timestamp.valueOf(normalizedAuctionStartedAt));
-      }
-      if (normalizedAuctionPublicEndAt == null) {
-        statement.setTimestamp(21, null);
-      } else {
-        statement.setTimestamp(21, Timestamp.valueOf(normalizedAuctionPublicEndAt));
-      }
-      if (normalizedAuctionEndAt == null) {
         statement.setTimestamp(22, null);
       } else {
-        statement.setTimestamp(22, Timestamp.valueOf(normalizedAuctionEndAt));
+        statement.setTimestamp(22, Timestamp.valueOf(normalizedAuctionStartedAt));
       }
-      statement.setObject(23, normalizedAuctionHighestBid);
-      statement.setObject(24, normalizedAuctionHighestBidderUserId);
-      statement.setObject(25, normalizedAuctionHighestBidderUuid == null ? null : normalizedAuctionHighestBidderUuid.toString());
-      statement.setObject(26, normalizedAuctionHighestBidId);
-      if (normalizedAuctionLastBidAt == null) {
-        statement.setTimestamp(27, null);
+      if (normalizedAuctionPublicEndAt == null) {
+        statement.setTimestamp(23, null);
       } else {
-        statement.setTimestamp(27, Timestamp.valueOf(normalizedAuctionLastBidAt));
+        statement.setTimestamp(23, Timestamp.valueOf(normalizedAuctionPublicEndAt));
       }
-      statement.setLong(28, listingId);
+      if (normalizedAuctionEndAt == null) {
+        statement.setTimestamp(24, null);
+      } else {
+        statement.setTimestamp(24, Timestamp.valueOf(normalizedAuctionEndAt));
+      }
+      statement.setObject(25, normalizedAuctionHighestBid);
+      statement.setObject(26, normalizedAuctionHighestBidderUserId);
+      statement.setObject(27, normalizedAuctionHighestBidderUuid == null ? null : normalizedAuctionHighestBidderUuid.toString());
+      statement.setObject(28, normalizedAuctionHighestBidId);
+      if (normalizedAuctionLastBidAt == null) {
+        statement.setTimestamp(29, null);
+      } else {
+        statement.setTimestamp(29, Timestamp.valueOf(normalizedAuctionLastBidAt));
+      }
+      statement.setLong(30, listingId);
       statement.executeUpdate();
     }
     MarketListing refreshed = readListingForUpdate(connection, listingId);
@@ -2482,6 +2510,8 @@ class MarketService {
         refreshed.currency(),
         refreshed.price(),
         refreshed.remark(),
+        refreshed.displayNameOverride(),
+        refreshed.displayMaterial(),
         refreshed.sourceMode(),
         refreshed.supplyBatchSize(),
         refreshed.supplyMaxStock(),
@@ -3370,11 +3400,20 @@ class MarketService {
       DeliveryType deliveryType,
       String status,
       LocalDateTime nextRetryAt) throws SQLException {
+    String targetServerId = playerPresenceService.resolveOnlineServer(connection, targetUuid);
+    if ((targetServerId == null || targetServerId.isBlank())) {
+      Player player = Bukkit.getPlayer(targetUuid);
+      if (player != null && player.isOnline()) {
+        String localServerId = settingsSupplier.get().clusterSettings().serverId();
+        targetServerId = localServerId == null || localServerId.isBlank() ? null : localServerId;
+      }
+    }
     String sql = """
         INSERT INTO market_item_deliveries (
-          listing_id, trade_id, target_user_id, target_uuid, item_blob, quantity, delivery_type, status, next_retry_at
+          listing_id, trade_id, target_user_id, target_uuid, target_server_id,
+          item_blob, quantity, delivery_type, status, next_retry_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, listingId);
@@ -3385,11 +3424,12 @@ class MarketService {
       }
       statement.setLong(3, targetUserId);
       statement.setString(4, targetUuid.toString());
-      statement.setBytes(5, itemBlob);
-      statement.setInt(6, quantity);
-      statement.setString(7, deliveryType.name());
-      statement.setString(8, status);
-      statement.setTimestamp(9, Timestamp.valueOf(nextRetryAt));
+      statement.setString(5, targetServerId);
+      statement.setBytes(6, itemBlob);
+      statement.setInt(7, quantity);
+      statement.setString(8, deliveryType.name());
+      statement.setString(9, status);
+      statement.setTimestamp(10, Timestamp.valueOf(nextRetryAt));
       statement.executeUpdate();
     }
   }
@@ -3409,7 +3449,7 @@ class MarketService {
   private MarketListing readListingForUpdate(Connection connection, long listingId) throws SQLException {
     String sql = """
         SELECT id, seller_user_id, seller_uuid, currency, price, quantity, quantity_total,
-               item_material, raw_item_blob,
+               item_material, display_name_override, display_material, raw_item_blob,
                item_meta_json, remark, item_hash, status, source_mode,
                supply_world, supply_x, supply_y, supply_z, supply_batch_size, supply_max_stock,
          supply_loaded_total, supply_sold_total, supply_last_loaded_amount, supply_last_loaded_at,
@@ -3440,6 +3480,8 @@ class MarketService {
             resultSet.getInt("quantity"),
             resultSet.getInt("quantity_total"),
             resultSet.getString("item_material"),
+            resultSet.getString("display_name_override"),
+            resultSet.getString("display_material"),
             resultSet.getBytes("raw_item_blob"),
             resultSet.getString("item_meta_json"),
             resultSet.getString("remark"),
@@ -3537,6 +3579,8 @@ class MarketService {
           resultSet.getInt("quantity"),
           resultSet.getInt("quantity_total"),
           resultSet.getString("item_material"),
+          resultSet.getString("display_name_override"),
+          resultSet.getString("display_material"),
           resultSet.getString("item_meta_json"),
           resultSet.getString("remark"),
           status,
@@ -3597,6 +3641,8 @@ class MarketService {
           resultSet.getInt("quantity"),
           resultSet.getInt("quantity_total"),
           resultSet.getString("item_material"),
+          resultSet.getString("display_name_override"),
+          resultSet.getString("display_material"),
           resultSet.getString("item_meta_json"),
           resultSet.getString("remark"),
           resultSet.getString("status"),
@@ -3648,6 +3694,38 @@ class MarketService {
     }
     if (normalized.length() > 1000) {
       throw new ServiceException("invalid_remark", "Remark must be <= 1000 chars");
+    }
+    return normalized;
+  }
+
+  private String normalizeDisplayNameOverride(String raw) {
+    if (raw == null) {
+      return null;
+    }
+    String normalized = raw.trim();
+    if (normalized.isEmpty()) {
+      return null;
+    }
+    if (normalized.length() > 128) {
+      return normalized.substring(0, 128);
+    }
+    return normalized;
+  }
+
+  private String normalizeDisplayMaterial(String raw) {
+    if (raw == null) {
+      return null;
+    }
+    String normalized = raw.trim()
+        .toUpperCase(Locale.ROOT)
+        .replace("MINECRAFT:", "")
+        .replaceAll("[^A-Z0-9]+", "_")
+        .replaceAll("^_+|_+$", "");
+    if (normalized.isEmpty()) {
+      return null;
+    }
+    if (normalized.length() > 64) {
+      return normalized.substring(0, 64);
     }
     return normalized;
   }
@@ -3856,6 +3934,8 @@ class MarketService {
       int quantity,
       int quantityTotal,
       String itemMaterial,
+      String displayNameOverride,
+      String displayMaterial,
       byte[] rawItemBlob,
       String itemMetaJson,
       String remark,
@@ -4001,6 +4081,8 @@ class MarketService {
       int quantity,
       int quantityTotal,
       String itemMaterial,
+      String displayNameOverride,
+      String displayMaterial,
       String itemMetaJson,
       String remark,
       String status,
@@ -4048,6 +4130,8 @@ class MarketService {
       int quantity,
       int quantityTotal,
       String itemMaterial,
+      String displayNameOverride,
+      String displayMaterial,
       String itemMetaJson,
       String remark,
       String status,
@@ -4110,6 +4194,8 @@ class MarketService {
       CurrencyType currency,
       long price,
       String remark,
+      String displayNameOverride,
+      String displayMaterial,
       SupplyMode sourceMode,
       Integer supplyBatchSize,
       Integer supplyMaxStock,

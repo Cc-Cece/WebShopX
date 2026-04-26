@@ -30,6 +30,7 @@ class OrderService {
   private final Supplier<PluginSettings> settingsSupplier;
   private final ProductService productService;
   private final WalletService walletService;
+  private final PlayerPresenceService playerPresenceService;
   private final SecureRandom secureRandom;
 
   OrderService(
@@ -37,12 +38,14 @@ class OrderService {
       DatabaseManager databaseManager,
       Supplier<PluginSettings> settingsSupplier,
       ProductService productService,
-      WalletService walletService) {
+      WalletService walletService,
+      PlayerPresenceService playerPresenceService) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.settingsSupplier = settingsSupplier;
     this.productService = productService;
     this.walletService = walletService;
+    this.playerPresenceService = playerPresenceService;
     this.secureRandom = new SecureRandom();
   }
 
@@ -103,6 +106,7 @@ class OrderService {
     validatePurchaseQuantity(quantity, maxQuantity);
     DeliveryMode deliveryMode = resolveDeliveryMode(deliveryModeRaw, product.productType());
     UUID playerUuid = readBoundUuidForUpdate(connection, userId);
+    String targetServerId = resolveTargetServerId(connection, playerUuid);
     consumePersonalLimitQuota(connection, userId, product, quantity);
     long unitPrice = productService.resolveOrderUnitPrice(product);
     long totalAmount = Math.multiplyExact(unitPrice, quantity);
@@ -137,7 +141,8 @@ class OrderService {
         totalAmount,
         orderStatus,
         idempotencyKey,
-        refundDeadline);
+        refundDeadline,
+        targetServerId);
     long itemId = insertOrderItem(connection, orderId, product.id(), quantity, unitPrice);
     String groupBuyVoucherCode = null;
     String groupBuyVoucherStatus = null;
@@ -158,6 +163,7 @@ class OrderService {
           orderId,
           itemId,
           playerUuid,
+          targetServerId,
           taskSpec,
           deliveryMode,
           deliveryAt);
@@ -223,6 +229,7 @@ class OrderService {
       validatePurchaseQuantity(quantity, clampedMaxQuantity);
 
       UUID playerUuid = readBoundUuidForUpdate(connection, userId);
+      String targetServerId = resolveTargetServerId(connection, playerUuid);
       Player player = Bukkit.getPlayer(playerUuid);
       if (player == null || !player.isOnline()) {
         throw new ServiceException("player_offline", "Player must be online for recycle orders");
@@ -263,7 +270,8 @@ class OrderService {
             totalAmount,
             "RECYCLED",
             normalizedKey,
-            null);
+            null,
+            targetServerId);
         insertOrderItem(connection, orderId, product.id(), quantity, unitPrice);
         productService.applyDynamicPriceEvent(
             connection,
@@ -604,7 +612,8 @@ class OrderService {
       long totalAmount,
       String status,
       String idempotencyKey,
-      LocalDateTime refundDeadline) throws SQLException {
+      LocalDateTime refundDeadline,
+      String targetServerId) throws SQLException {
     String sql = """
         INSERT INTO orders (
           order_no,
@@ -614,9 +623,10 @@ class OrderService {
           total_amount,
           status,
           idempotency_key,
+          target_server_id,
           refund_deadline
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement =
              connection.prepareStatement(sql, java.sql.Statement.RETURN_GENERATED_KEYS)) {
@@ -627,10 +637,11 @@ class OrderService {
       statement.setLong(5, totalAmount);
       statement.setString(6, status);
       statement.setString(7, idempotencyKey);
+      statement.setString(8, targetServerId);
       if (refundDeadline == null) {
-        statement.setTimestamp(8, null);
+        statement.setTimestamp(9, null);
       } else {
-        statement.setTimestamp(8, Timestamp.valueOf(refundDeadline));
+        statement.setTimestamp(9, Timestamp.valueOf(refundDeadline));
       }
       statement.executeUpdate();
       try (ResultSet keyResult = statement.getGeneratedKeys()) {
@@ -703,33 +714,51 @@ class OrderService {
       long orderId,
       long itemId,
       UUID playerUuid,
+      String targetServerId,
       DeliveryTaskSpec taskSpec,
       DeliveryMode deliveryMode,
       LocalDateTime nextRetryAt) throws SQLException {
     String status = deliveryMode == DeliveryMode.CLAIM ? "WAIT_CLAIM" : "PENDING";
     String sql = """
         INSERT INTO delivery_queue (
-          order_id, item_id, mc_uuid, command_text, delivery_kind, payload_json,
+          order_id, item_id, mc_uuid, target_server_id, command_text, delivery_kind, payload_json,
           manual_claim, quantity, status, next_retry_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, orderId);
       statement.setLong(2, itemId);
       statement.setString(3, playerUuid.toString());
-      statement.setString(4, taskSpec.commandText());
-      statement.setString(5, taskSpec.kind().name());
-      statement.setString(6, taskSpec.payloadJson());
-      statement.setBoolean(7, deliveryMode == DeliveryMode.CLAIM);
-      statement.setInt(8, taskSpec.quantity());
-      statement.setString(9, status);
-      statement.setTimestamp(10, Timestamp.valueOf(nextRetryAt));
+      statement.setString(4, targetServerId);
+      statement.setString(5, taskSpec.commandText());
+      statement.setString(6, taskSpec.kind().name());
+      statement.setString(7, taskSpec.payloadJson());
+      statement.setBoolean(8, deliveryMode == DeliveryMode.CLAIM);
+      statement.setInt(9, taskSpec.quantity());
+      statement.setString(10, status);
+      statement.setTimestamp(11, Timestamp.valueOf(nextRetryAt));
       statement.executeUpdate();
     }
     if (deliveryMode == DeliveryMode.CLAIM) {
       ClaimTokenRepository.ensureOrderToken(connection, orderId);
     }
+  }
+
+  private String resolveTargetServerId(Connection connection, UUID playerUuid) throws SQLException {
+    if (playerUuid == null) {
+      return null;
+    }
+    String onlineServer = playerPresenceService.resolveOnlineServer(connection, playerUuid);
+    if (onlineServer != null && !onlineServer.isBlank()) {
+      return onlineServer;
+    }
+    Player player = Bukkit.getPlayer(playerUuid);
+    if (player != null && player.isOnline()) {
+      String localServerId = settingsSupplier.get().clusterSettings().serverId();
+      return localServerId == null || localServerId.isBlank() ? null : localServerId;
+    }
+    return null;
   }
 
   private String normalizeIdempotencyKey(String idempotencyKey) {

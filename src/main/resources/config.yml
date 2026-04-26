@@ -1,130 +1,75 @@
 ﻿# ============================================================
-# WebShopX 配置文件
-# 说明：
-# 1) 修改后可使用 /webshopx reload（或 /ws reload）热重载大部分配置。
-# 2) 涉及数据库连接参数时，建议重启服务器。
-# 3) 币值默认按整数处理，避免浮点精度问题。
+# WebShopX 配置
+# 已迁移到数据库并可在后台管理的配置：
+#   - exchange
+#   - economy.market.trade-fee-percent / trade-tax-percent
+#   - webshop.leaderboard
+#   - currency
+# 其余运行参数仍保留在 config.yml（含 admin-bootstrap / logging / maintenance / broadcast）。
 # ============================================================
 
 webshop:
-  # Web runtime mode
-  # - internal: 使用内置服务器（默认，适合快速上手）
-  # - external: 仅提供后端服务，前端由外部 Nginx 等托管（适合生产环境，需自行配置 nginx）
+  # internal: 内置 Web/API
+  # external: 仅后端 API（静态资源走外部反代）
   server-mode: internal
-  # 外部托管前端时可填写 API 基地址，例如 https://shop.example.com 或 https://api.example.com
-  # 留空表示前端继续使用当前站点的相对路径 /api/...
   api-base-url: ""
-  # 默认语言：用于网页首选语言回退和插件内提示语言回退
-  # 当前内置：zh-CN / en-US
   default-locale: zh-CN
-
-  # 玩家登录会话有效期（小时）
   session-expire-hours: 72
-  # 注册绑定码有效期（分钟）
   bind-request-expire-minutes: 15
-  # API 会话令牌长度（建议 32-64）
   access-token-length: 48
-  # 商店业务时区：官方商品的上架/下架时间会按这个时区解释和显示
   time-zone: Asia/Shanghai
-
-  # 每轮发货处理的订单数量
   delivery-batch-size: 20
-  # 发货失败后重试间隔（秒）
   delivery-retry-seconds: 30
-  # 订单冷静期（秒，0 表示关闭）
   order-cooldown-seconds: 15
-  # 是否允许非订单本人使用领取命令在游戏内代领（非本人无法领取时也可复制命令）
   allow-shared-claim-command: false
-  # 是否允许所有未发放内容退款（PENDING / WAIT_CLAIM / 未核销团购券）
   refund-undelivered-enabled: true
-
   market:
-    # 玩家市场默认最大上架数
     max-active-listings: 10
     supply:
-      # 当供货上架库存低于该数量时，网页购买前会自动尝试补货一次
       auto-refresh-threshold: 8
-      # 供货箱模式默认单次提取量
       default-transfer-batch-size: 64
-      # 玩家可设置的单次提取量上限
       max-transfer-batch-size: 256
-      # 供货箱模式默认中转库存上限
       default-transit-stock: 256
-      # 玩家可设置的中转库存上限
       max-transit-stock: 1024
-
   leaderboard:
-    # 是否启用排行榜页面（玩家端）
     enabled: true
-    # 默认是否显示实时在线状态
     show-online-status: true
-    # 默认排行维度：GAME_COIN | SHOP_COIN | ONLINE_TIME
     default-metric: GAME_COIN
-    # 默认排序：DESC=高到低，ASC=低到高
     default-order: DESC
-
   broadcast:
-    # 是否启用市场事件广播（上架、成交、竞拍等）
     enabled: true
     templates:
       listing-created: "&6[市场]&r &e{seller}&r 上架了 &b{item}&r x{quantity}，单价 {priceText}"
       trade-success: "&6[市场]&r &e{buyer}&r 购买了 &b{item}&r x{quantity}，成交总价 {totalText}"
       auction-bid: "&6[拍卖]&r &e{bidder}&r 对拍卖 #{listingId} 出价 {bidAmountText}"
       auction-sealed-bid: "&6[拍卖]&r 拍卖 #{listingId} 收到新的密封出价"
-
   maintenance:
-    # 清理任务执行间隔（分钟）
     cleanup-interval-minutes: 30
-    # 待绑定账号保留时长（小时）
     pending-bind-retention-hours: 6
-    # 待设置密码账号保留时长（小时）
     pending-password-retention-hours: 6
-    # 绑定码记录保留时长（小时）
     bind-request-retention-hours: 24
-    # 已失效兑换码保留时长（天）
     redeem-code-retention-days: 7
-
   logging:
-    # 是否启用插件文件日志
     enabled: true
-    # 日志级别：ERROR | WARN | INFO | DEBUG | TRACE
     level: INFO
-    # 日志目录（相对于插件数据目录）
     directory: logs
-    # 单个日志文件最大体积（MB）
     max-file-size-mb: 8
-    # 最多保留的滚动文件数
     max-files: 8
-    # 超过该天数的日志文件将被维护任务清理（<=0 表示不清理）
     retention-days: 14
-
   admin-bootstrap:
-    # 首次启动自动创建管理员
     enabled: true
     username: admin
     password: admin123456
     role: SUPER_ADMIN
-
   embedded-http:
     host: 0.0.0.0
     port: 8819
     static-root: web
 
-database:
-  host: 127.0.0.1
-  port: 3306
-  schema: webshop
-  username: webshop
-  password: change_me
-  use-ssl: false
-  pool-size: 10
-
 exchange:
-  # ShopCoin -> GameCoin
   shopcoin-to-gamecoin:
     enabled: true
     ratio: 1.0
-  # GameCoin -> ShopCoin
   gamecoin-to-shopcoin:
     enabled: false
     ratio: 1.0
@@ -139,20 +84,37 @@ currency:
 
 economy:
   market:
-    # 手续费（卖家侧，百分比）
     trade-fee-percent: 0.0
-    # 税率（买家侧，百分比）
     trade-tax-percent: 0.0
   inflation-control:
-    # 可选：burn | treasury
     mode: burn
     treasury-user-id: 0
+
+database:
+  host: 127.0.0.1
+  port: 3306
+  schema: webshop
+  username: webshop
+  password: change_me
+  use-ssl: false
+  pool-size: 10
+
+cluster:
+  # standalone | master | node
+  role: standalone
+  server-id: standalone
+  presence-ttl-seconds: 120
 
 redis:
   enabled: false
   host: 127.0.0.1
   port: 6379
   password: ""
+  # 市场广播频道
+  broadcast-channel: webshopx:market:broadcast
+  # 集群配置刷新等控制事件频道
+  cluster-channel: webshopx:cluster:event
+  # 兼容旧字段（可删）
   channel: webshopx:market:broadcast
 
 sample-products:

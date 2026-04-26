@@ -1,0 +1,777 @@
+package com.webshopx;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.time.ZoneId;
+
+class RuntimeConfigService {
+  private static final String META_LEGACY_MIGRATED = "runtime_config_migrated_v1";
+  private static final String KEY_EXCHANGE = "exchange";
+  private static final String KEY_MARKET_ECONOMY = "market_economy";
+  private static final String KEY_LEADERBOARD = "leaderboard";
+  private static final String KEY_CURRENCY_DISPLAY = "currency_display";
+  private static final String KEY_WEBSHOP_RUNTIME = "webshop_runtime";
+  private static final String KEY_MARKET_RUNTIME = "market_runtime";
+  private static final String KEY_MAINTENANCE = "maintenance";
+  private static final String KEY_LOGGING = "logging";
+  private static final String KEY_BROADCAST = "broadcast";
+
+  private final DatabaseManager databaseManager;
+  private final Gson gson;
+
+  RuntimeConfigService(DatabaseManager databaseManager) {
+    this.databaseManager = databaseManager;
+    this.gson = new GsonBuilder().disableHtmlEscaping().create();
+  }
+
+  boolean bootstrapFromLegacyConfigIfNeeded(PluginSettings settings) {
+    return databaseManager.inTransaction(connection -> {
+      if (isLegacyMigrationCompleted(connection)) {
+        return false;
+      }
+      upsertConfig(connection, KEY_EXCHANGE, serializeExchange(settings.exchangeSettings()));
+      upsertConfig(
+          connection,
+          KEY_MARKET_ECONOMY,
+          serializeMarketEconomy(settings.economySettings().marketSettings()));
+      upsertConfig(
+          connection,
+          KEY_LEADERBOARD,
+          serializeLeaderboard(settings.leaderboardSettings()));
+      upsertConfig(
+          connection,
+          KEY_CURRENCY_DISPLAY,
+          serializeCurrencyDisplay(settings.currencyDisplaySettings()));
+      upsertConfig(connection, KEY_WEBSHOP_RUNTIME, serializeWebshopRuntime(settings));
+      upsertConfig(connection, KEY_MARKET_RUNTIME, serializeMarketRuntime(settings));
+      upsertConfig(connection, KEY_MAINTENANCE, serializeMaintenance(settings.maintenanceSettings()));
+      upsertConfig(connection, KEY_LOGGING, serializeLogging(settings.loggingSettings()));
+      upsertConfig(connection, KEY_BROADCAST, serializeBroadcast(settings.broadcastSettings()));
+      writeMetaValue(connection, META_LEGACY_MIGRATED, "1");
+      return true;
+    });
+  }
+
+  boolean isLegacyMigrationCompleted() {
+    return databaseManager.withConnection(this::isLegacyMigrationCompleted);
+  }
+
+  void ensureDefaults(PluginSettings settings) {
+    databaseManager.inTransaction(connection -> {
+      insertIfMissing(connection, KEY_EXCHANGE, serializeExchange(settings.exchangeSettings()));
+      insertIfMissing(
+          connection,
+          KEY_MARKET_ECONOMY,
+          serializeMarketEconomy(settings.economySettings().marketSettings()));
+      insertIfMissing(
+          connection,
+          KEY_LEADERBOARD,
+          serializeLeaderboard(settings.leaderboardSettings()));
+      insertIfMissing(
+          connection,
+          KEY_CURRENCY_DISPLAY,
+          serializeCurrencyDisplay(settings.currencyDisplaySettings()));
+      insertIfMissing(connection, KEY_WEBSHOP_RUNTIME, serializeWebshopRuntime(settings));
+      insertIfMissing(connection, KEY_MARKET_RUNTIME, serializeMarketRuntime(settings));
+      insertIfMissing(connection, KEY_MAINTENANCE, serializeMaintenance(settings.maintenanceSettings()));
+      insertIfMissing(connection, KEY_LOGGING, serializeLogging(settings.loggingSettings()));
+      insertIfMissing(connection, KEY_BROADCAST, serializeBroadcast(settings.broadcastSettings()));
+      return null;
+    });
+  }
+
+  RuntimeSnapshot loadSnapshot(PluginSettings defaults) {
+    return databaseManager.withConnection(connection -> loadSnapshot(connection, defaults));
+  }
+
+  PluginSettings applyTo(PluginSettings defaults) {
+    RuntimeSnapshot snapshot = loadSnapshot(defaults);
+    return defaults.withBusinessSettings(
+        snapshot.defaultLocale(),
+        snapshot.sessionExpireHours(),
+        snapshot.bindRequestExpireMinutes(),
+        snapshot.accessTokenLength(),
+        snapshot.deliveryBatchSize(),
+        snapshot.deliveryRetrySeconds(),
+        snapshot.orderCooldownSeconds(),
+        snapshot.allowSharedClaimCommand(),
+        snapshot.refundUndeliveredEnabled(),
+        snapshot.timeZone(),
+        snapshot.marketMaxActiveListings(),
+        snapshot.marketSupplySettings(),
+        snapshot.exchangeSettings(),
+        snapshot.economySettings(),
+        snapshot.leaderboardSettings(),
+        snapshot.currencyDisplaySettings(),
+        snapshot.maintenanceSettings(),
+        snapshot.loggingSettings(),
+        snapshot.broadcastSettings());
+  }
+
+  long updateExchange(PluginSettings.ExchangeSettings exchangeSettings) {
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_EXCHANGE, serializeExchange(exchangeSettings)));
+  }
+
+  long updateMarketEconomy(PluginSettings.MarketEconomySettings marketEconomySettings) {
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_MARKET_ECONOMY, serializeMarketEconomy(marketEconomySettings)));
+  }
+
+  long updateLeaderboard(PluginSettings.LeaderboardSettings leaderboardSettings) {
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_LEADERBOARD, serializeLeaderboard(leaderboardSettings)));
+  }
+
+  long updateCurrencyDisplay(PluginSettings.CurrencyDisplaySettings currencyDisplaySettings) {
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_CURRENCY_DISPLAY, serializeCurrencyDisplay(currencyDisplaySettings)));
+  }
+
+  long updateWebshopRuntime(RuntimeSettingsUpdate update) {
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_WEBSHOP_RUNTIME, serializeWebshopRuntime(update)));
+  }
+
+  long updateMarketRuntime(int marketMaxActiveListings, PluginSettings.MarketSupplySettings marketSupplySettings) {
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_MARKET_RUNTIME, serializeMarketRuntime(marketMaxActiveListings, marketSupplySettings)));
+  }
+
+  long updateMaintenance(PluginSettings.MaintenanceSettings maintenanceSettings) {
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_MAINTENANCE, serializeMaintenance(maintenanceSettings)));
+  }
+
+  long updateLogging(PluginSettings.LoggingSettings loggingSettings) {
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_LOGGING, serializeLogging(loggingSettings)));
+  }
+
+  long updateBroadcast(PluginSettings.BroadcastSettings broadcastSettings) {
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_BROADCAST, serializeBroadcast(broadcastSettings)));
+  }
+
+  private RuntimeSnapshot loadSnapshot(Connection connection, PluginSettings defaults) throws SQLException {
+    Map<String, ConfigRow> rows = readConfigRows(connection);
+
+    PluginSettings.ExchangeSettings exchangeSettings = parseExchange(
+        rows.get(KEY_EXCHANGE),
+        defaults.exchangeSettings());
+    PluginSettings.MarketEconomySettings marketEconomySettings = parseMarketEconomy(
+        rows.get(KEY_MARKET_ECONOMY),
+        defaults.economySettings().marketSettings());
+    PluginSettings.LeaderboardSettings leaderboardSettings = parseLeaderboard(
+        rows.get(KEY_LEADERBOARD),
+        defaults.leaderboardSettings());
+    PluginSettings.CurrencyDisplaySettings currencyDisplaySettings = parseCurrencyDisplay(
+        rows.get(KEY_CURRENCY_DISPLAY),
+        defaults.currencyDisplaySettings());
+    RuntimeSettingsUpdate webshopRuntime = parseWebshopRuntime(rows.get(KEY_WEBSHOP_RUNTIME), defaults);
+    MarketRuntimeSnapshot marketRuntime = parseMarketRuntime(rows.get(KEY_MARKET_RUNTIME), defaults);
+    PluginSettings.MaintenanceSettings maintenanceSettings = parseMaintenance(
+        rows.get(KEY_MAINTENANCE),
+        defaults.maintenanceSettings());
+    PluginSettings.LoggingSettings loggingSettings = parseLogging(
+        rows.get(KEY_LOGGING),
+        defaults.loggingSettings());
+    PluginSettings.BroadcastSettings broadcastSettings = parseBroadcast(
+        rows.get(KEY_BROADCAST),
+        defaults.broadcastSettings());
+
+    PluginSettings.EconomySettings economySettings = new PluginSettings.EconomySettings(
+        marketEconomySettings,
+        defaults.economySettings().inflationSettings());
+
+    long maxVersion = 0L;
+    for (ConfigRow row : rows.values()) {
+      if (row.version() > maxVersion) {
+        maxVersion = row.version();
+      }
+    }
+
+    return new RuntimeSnapshot(
+        webshopRuntime.defaultLocale(),
+        webshopRuntime.sessionExpireHours(),
+        webshopRuntime.bindRequestExpireMinutes(),
+        webshopRuntime.accessTokenLength(),
+        webshopRuntime.deliveryBatchSize(),
+        webshopRuntime.deliveryRetrySeconds(),
+        webshopRuntime.orderCooldownSeconds(),
+        webshopRuntime.allowSharedClaimCommand(),
+        webshopRuntime.refundUndeliveredEnabled(),
+        webshopRuntime.timeZone(),
+        marketRuntime.marketMaxActiveListings(),
+        marketRuntime.marketSupplySettings(),
+        exchangeSettings,
+        economySettings,
+        leaderboardSettings,
+        currencyDisplaySettings,
+        maintenanceSettings,
+        loggingSettings,
+        broadcastSettings,
+        maxVersion);
+  }
+
+  private boolean isLegacyMigrationCompleted(Connection connection) throws SQLException {
+    String value = readMetaValue(connection, META_LEGACY_MIGRATED);
+    return value != null && !value.isBlank();
+  }
+
+  private void insertIfMissing(Connection connection, String key, String jsonValue) throws SQLException {
+    String sql = """
+        INSERT INTO runtime_config (config_key, config_value, version)
+        VALUES (?, ?, 1)
+        ON DUPLICATE KEY UPDATE config_key = config_key
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, key);
+      statement.setString(2, jsonValue);
+      statement.executeUpdate();
+    }
+  }
+
+  private void upsertConfig(Connection connection, String key, String jsonValue) throws SQLException {
+    String sql = """
+        INSERT INTO runtime_config (config_key, config_value, version)
+        VALUES (?, ?, 1)
+        ON DUPLICATE KEY UPDATE
+          config_value = VALUES(config_value),
+          version = version + 1,
+          updated_at = CURRENT_TIMESTAMP
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, key);
+      statement.setString(2, jsonValue);
+      statement.executeUpdate();
+    }
+  }
+
+  private String readMetaValue(Connection connection, String key) throws SQLException {
+    String sql = "SELECT meta_value FROM webshop_meta WHERE meta_key = ? LIMIT 1";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, key);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return null;
+        }
+        return resultSet.getString("meta_value");
+      }
+    }
+  }
+
+  private void writeMetaValue(Connection connection, String key, String value) throws SQLException {
+    String sql = """
+        INSERT INTO webshop_meta (meta_key, meta_value)
+        VALUES (?, ?)
+        ON DUPLICATE KEY UPDATE
+          meta_value = VALUES(meta_value)
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, key);
+      statement.setString(2, value);
+      statement.executeUpdate();
+    }
+  }
+
+
+  private long updateConfig(Connection connection, String key, String jsonValue) throws SQLException {
+    String sql = """
+        INSERT INTO runtime_config (config_key, config_value, version)
+        VALUES (?, ?, 1)
+        ON DUPLICATE KEY UPDATE
+          config_value = VALUES(config_value),
+          version = version + 1,
+          updated_at = CURRENT_TIMESTAMP
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, key);
+      statement.setString(2, jsonValue);
+      statement.executeUpdate();
+    }
+
+    String readSql = "SELECT version FROM runtime_config WHERE config_key = ? LIMIT 1";
+    try (PreparedStatement statement = connection.prepareStatement(readSql)) {
+      statement.setString(1, key);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return 0L;
+        }
+        return resultSet.getLong("version");
+      }
+    }
+  }
+
+  private Map<String, ConfigRow> readConfigRows(Connection connection) throws SQLException {
+    String sql = """
+        SELECT config_key, config_value, version
+        FROM runtime_config
+        WHERE config_key IN (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, KEY_EXCHANGE);
+      statement.setString(2, KEY_MARKET_ECONOMY);
+      statement.setString(3, KEY_LEADERBOARD);
+      statement.setString(4, KEY_CURRENCY_DISPLAY);
+      statement.setString(5, KEY_WEBSHOP_RUNTIME);
+      statement.setString(6, KEY_MARKET_RUNTIME);
+      statement.setString(7, KEY_MAINTENANCE);
+      statement.setString(8, KEY_LOGGING);
+      statement.setString(9, KEY_BROADCAST);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        Map<String, ConfigRow> rows = new HashMap<>();
+        while (resultSet.next()) {
+          rows.put(
+              resultSet.getString("config_key"),
+              new ConfigRow(
+                  resultSet.getString("config_value"),
+                  resultSet.getLong("version")));
+        }
+        return rows;
+      }
+    }
+  }
+
+  private String serializeExchange(PluginSettings.ExchangeSettings settings) {
+    JsonObject root = new JsonObject();
+
+    JsonObject shopToGame = new JsonObject();
+    shopToGame.addProperty("enabled", settings.shopToGame().enabled());
+    shopToGame.addProperty("ratio", settings.shopToGame().ratio());
+
+    JsonObject gameToShop = new JsonObject();
+    gameToShop.addProperty("enabled", settings.gameToShop().enabled());
+    gameToShop.addProperty("ratio", settings.gameToShop().ratio());
+
+    root.add("shopToGame", shopToGame);
+    root.add("gameToShop", gameToShop);
+    return gson.toJson(root);
+  }
+
+  private PluginSettings.ExchangeSettings parseExchange(
+      ConfigRow row,
+      PluginSettings.ExchangeSettings fallback) {
+    if (row == null || row.configValue() == null || row.configValue().isBlank()) {
+      return fallback;
+    }
+    try {
+      JsonObject root = JsonParser.parseString(row.configValue()).getAsJsonObject();
+      JsonObject shopToGame = root.has("shopToGame") && root.get("shopToGame").isJsonObject()
+          ? root.getAsJsonObject("shopToGame")
+          : null;
+      JsonObject gameToShop = root.has("gameToShop") && root.get("gameToShop").isJsonObject()
+          ? root.getAsJsonObject("gameToShop")
+          : null;
+      PluginSettings.ExchangeDirection fallbackShopToGame = fallback.shopToGame();
+      PluginSettings.ExchangeDirection fallbackGameToShop = fallback.gameToShop();
+      PluginSettings.ExchangeDirection parsedShopToGame = new PluginSettings.ExchangeDirection(
+          readBoolean(shopToGame, "enabled", fallbackShopToGame.enabled()),
+          readDouble(shopToGame, "ratio", fallbackShopToGame.ratio()));
+      PluginSettings.ExchangeDirection parsedGameToShop = new PluginSettings.ExchangeDirection(
+          readBoolean(gameToShop, "enabled", fallbackGameToShop.enabled()),
+          readDouble(gameToShop, "ratio", fallbackGameToShop.ratio()));
+      return new PluginSettings.ExchangeSettings(parsedShopToGame, parsedGameToShop);
+    } catch (Exception exception) {
+      return fallback;
+    }
+  }
+
+  private String serializeMarketEconomy(PluginSettings.MarketEconomySettings settings) {
+    JsonObject root = new JsonObject();
+    root.addProperty("tradeFeePercent", settings.tradeFeePercent());
+    root.addProperty("tradeTaxPercent", settings.tradeTaxPercent());
+    return gson.toJson(root);
+  }
+
+  private PluginSettings.MarketEconomySettings parseMarketEconomy(
+      ConfigRow row,
+      PluginSettings.MarketEconomySettings fallback) {
+    if (row == null || row.configValue() == null || row.configValue().isBlank()) {
+      return fallback;
+    }
+    try {
+      JsonObject root = JsonParser.parseString(row.configValue()).getAsJsonObject();
+      return new PluginSettings.MarketEconomySettings(
+          readDouble(root, "tradeFeePercent", fallback.tradeFeePercent()),
+          readDouble(root, "tradeTaxPercent", fallback.tradeTaxPercent()));
+    } catch (Exception exception) {
+      return fallback;
+    }
+  }
+
+  private String serializeLeaderboard(PluginSettings.LeaderboardSettings settings) {
+    JsonObject root = new JsonObject();
+    root.addProperty("enabled", settings.enabled());
+    root.addProperty("showOnlineStatus", settings.showOnlineStatus());
+    root.addProperty("defaultMetric", settings.defaultMetric().name());
+    root.addProperty("defaultOrder", settings.defaultOrder().name());
+    return gson.toJson(root);
+  }
+
+  private PluginSettings.LeaderboardSettings parseLeaderboard(
+      ConfigRow row,
+      PluginSettings.LeaderboardSettings fallback) {
+    if (row == null || row.configValue() == null || row.configValue().isBlank()) {
+      return fallback;
+    }
+    try {
+      JsonObject root = JsonParser.parseString(row.configValue()).getAsJsonObject();
+      return new PluginSettings.LeaderboardSettings(
+          readBoolean(root, "enabled", fallback.enabled()),
+          readBoolean(root, "showOnlineStatus", fallback.showOnlineStatus()),
+          PluginSettings.LeaderboardMetric.fromRaw(readString(root, "defaultMetric", fallback.defaultMetric().name())),
+          PluginSettings.SortDirection.fromRaw(readString(root, "defaultOrder", fallback.defaultOrder().name())));
+    } catch (Exception exception) {
+      return fallback;
+    }
+  }
+
+  private String serializeCurrencyDisplay(PluginSettings.CurrencyDisplaySettings settings) {
+    JsonObject root = new JsonObject();
+    root.addProperty("shopCoinName", settings.shopCoinName());
+    root.addProperty("shopCoinShort", settings.shopCoinShort());
+    root.addProperty("gameCoinName", settings.gameCoinName());
+    root.addProperty("gameCoinShort", settings.gameCoinShort());
+    return gson.toJson(root);
+  }
+
+  private PluginSettings.CurrencyDisplaySettings parseCurrencyDisplay(
+      ConfigRow row,
+      PluginSettings.CurrencyDisplaySettings fallback) {
+    if (row == null || row.configValue() == null || row.configValue().isBlank()) {
+      return fallback;
+    }
+    try {
+      JsonObject root = JsonParser.parseString(row.configValue()).getAsJsonObject();
+      return new PluginSettings.CurrencyDisplaySettings(
+          readString(root, "shopCoinName", fallback.shopCoinName()),
+          readString(root, "shopCoinShort", fallback.shopCoinShort()),
+          readString(root, "gameCoinName", fallback.gameCoinName()),
+          readString(root, "gameCoinShort", fallback.gameCoinShort()));
+    } catch (Exception exception) {
+      return fallback;
+    }
+  }
+
+  private String serializeWebshopRuntime(PluginSettings settings) {
+    RuntimeSettingsUpdate update = new RuntimeSettingsUpdate(
+        settings.defaultLocale(),
+        settings.sessionExpireHours(),
+        settings.bindRequestExpireMinutes(),
+        settings.accessTokenLength(),
+        settings.deliveryBatchSize(),
+        settings.deliveryRetrySeconds(),
+        settings.orderCooldownSeconds(),
+        settings.allowSharedClaimCommand(),
+        settings.refundUndeliveredEnabled(),
+        settings.timeZone());
+    return serializeWebshopRuntime(update);
+  }
+
+  private String serializeWebshopRuntime(RuntimeSettingsUpdate update) {
+    JsonObject root = new JsonObject();
+    root.addProperty("defaultLocale", update.defaultLocale());
+    root.addProperty("sessionExpireHours", update.sessionExpireHours());
+    root.addProperty("bindRequestExpireMinutes", update.bindRequestExpireMinutes());
+    root.addProperty("accessTokenLength", update.accessTokenLength());
+    root.addProperty("deliveryBatchSize", update.deliveryBatchSize());
+    root.addProperty("deliveryRetrySeconds", update.deliveryRetrySeconds());
+    root.addProperty("orderCooldownSeconds", update.orderCooldownSeconds());
+    root.addProperty("allowSharedClaimCommand", update.allowSharedClaimCommand());
+    root.addProperty("refundUndeliveredEnabled", update.refundUndeliveredEnabled());
+    root.addProperty("timeZone", update.timeZone().getId());
+    return gson.toJson(root);
+  }
+
+  private RuntimeSettingsUpdate parseWebshopRuntime(ConfigRow row, PluginSettings fallback) {
+    if (row == null || row.configValue() == null || row.configValue().isBlank()) {
+      return new RuntimeSettingsUpdate(
+          fallback.defaultLocale(),
+          fallback.sessionExpireHours(),
+          fallback.bindRequestExpireMinutes(),
+          fallback.accessTokenLength(),
+          fallback.deliveryBatchSize(),
+          fallback.deliveryRetrySeconds(),
+          fallback.orderCooldownSeconds(),
+          fallback.allowSharedClaimCommand(),
+          fallback.refundUndeliveredEnabled(),
+          fallback.timeZone());
+    }
+    try {
+      JsonObject root = JsonParser.parseString(row.configValue()).getAsJsonObject();
+      return new RuntimeSettingsUpdate(
+          readString(root, "defaultLocale", fallback.defaultLocale()),
+          readInt(root, "sessionExpireHours", fallback.sessionExpireHours()),
+          readInt(root, "bindRequestExpireMinutes", fallback.bindRequestExpireMinutes()),
+          readInt(root, "accessTokenLength", fallback.accessTokenLength()),
+          readInt(root, "deliveryBatchSize", fallback.deliveryBatchSize()),
+          readInt(root, "deliveryRetrySeconds", fallback.deliveryRetrySeconds()),
+          readInt(root, "orderCooldownSeconds", fallback.orderCooldownSeconds()),
+          readBoolean(root, "allowSharedClaimCommand", fallback.allowSharedClaimCommand()),
+          readBoolean(root, "refundUndeliveredEnabled", fallback.refundUndeliveredEnabled()),
+          readZoneId(root, "timeZone", fallback.timeZone()));
+    } catch (Exception exception) {
+      return new RuntimeSettingsUpdate(
+          fallback.defaultLocale(),
+          fallback.sessionExpireHours(),
+          fallback.bindRequestExpireMinutes(),
+          fallback.accessTokenLength(),
+          fallback.deliveryBatchSize(),
+          fallback.deliveryRetrySeconds(),
+          fallback.orderCooldownSeconds(),
+          fallback.allowSharedClaimCommand(),
+          fallback.refundUndeliveredEnabled(),
+          fallback.timeZone());
+    }
+  }
+
+  private String serializeMarketRuntime(PluginSettings settings) {
+    return serializeMarketRuntime(settings.marketMaxActiveListings(), settings.marketSupplySettings());
+  }
+
+  private String serializeMarketRuntime(int marketMaxActiveListings, PluginSettings.MarketSupplySettings marketSupplySettings) {
+    JsonObject root = new JsonObject();
+    root.addProperty("marketMaxActiveListings", marketMaxActiveListings);
+    JsonObject supply = new JsonObject();
+    supply.addProperty("autoRefreshThreshold", marketSupplySettings.autoRefreshThreshold());
+    supply.addProperty("defaultTransferBatchSize", marketSupplySettings.defaultTransferBatchSize());
+    supply.addProperty("maxTransferBatchSize", marketSupplySettings.maxTransferBatchSize());
+    supply.addProperty("defaultTransitStock", marketSupplySettings.defaultTransitStock());
+    supply.addProperty("maxTransitStock", marketSupplySettings.maxTransitStock());
+    root.add("supply", supply);
+    return gson.toJson(root);
+  }
+
+  private MarketRuntimeSnapshot parseMarketRuntime(ConfigRow row, PluginSettings fallback) {
+    if (row == null || row.configValue() == null || row.configValue().isBlank()) {
+      return new MarketRuntimeSnapshot(fallback.marketMaxActiveListings(), fallback.marketSupplySettings());
+    }
+    try {
+      JsonObject root = JsonParser.parseString(row.configValue()).getAsJsonObject();
+      JsonObject supply = root.has("supply") && root.get("supply").isJsonObject()
+          ? root.getAsJsonObject("supply")
+          : null;
+      PluginSettings.MarketSupplySettings fallbackSupply = fallback.marketSupplySettings();
+      return new MarketRuntimeSnapshot(
+          readInt(root, "marketMaxActiveListings", fallback.marketMaxActiveListings()),
+          new PluginSettings.MarketSupplySettings(
+              readInt(supply, "autoRefreshThreshold", fallbackSupply.autoRefreshThreshold()),
+              readInt(supply, "defaultTransferBatchSize", fallbackSupply.defaultTransferBatchSize()),
+              readInt(supply, "maxTransferBatchSize", fallbackSupply.maxTransferBatchSize()),
+              readInt(supply, "defaultTransitStock", fallbackSupply.defaultTransitStock()),
+              readInt(supply, "maxTransitStock", fallbackSupply.maxTransitStock())));
+    } catch (Exception exception) {
+      return new MarketRuntimeSnapshot(fallback.marketMaxActiveListings(), fallback.marketSupplySettings());
+    }
+  }
+
+  private String serializeMaintenance(PluginSettings.MaintenanceSettings settings) {
+    JsonObject root = new JsonObject();
+    root.addProperty("cleanupIntervalMinutes", settings.cleanupIntervalMinutes());
+    root.addProperty("pendingBindRetentionHours", settings.pendingBindRetentionHours());
+    root.addProperty("pendingPasswordRetentionHours", settings.pendingPasswordRetentionHours());
+    root.addProperty("bindRequestRetentionHours", settings.bindRequestRetentionHours());
+    root.addProperty("redeemCodeRetentionDays", settings.redeemCodeRetentionDays());
+    return gson.toJson(root);
+  }
+
+  private PluginSettings.MaintenanceSettings parseMaintenance(
+      ConfigRow row,
+      PluginSettings.MaintenanceSettings fallback) {
+    if (row == null || row.configValue() == null || row.configValue().isBlank()) {
+      return fallback;
+    }
+    try {
+      JsonObject root = JsonParser.parseString(row.configValue()).getAsJsonObject();
+      return new PluginSettings.MaintenanceSettings(
+          readInt(root, "cleanupIntervalMinutes", fallback.cleanupIntervalMinutes()),
+          readInt(root, "pendingBindRetentionHours", fallback.pendingBindRetentionHours()),
+          readInt(root, "pendingPasswordRetentionHours", fallback.pendingPasswordRetentionHours()),
+          readInt(root, "bindRequestRetentionHours", fallback.bindRequestRetentionHours()),
+          readInt(root, "redeemCodeRetentionDays", fallback.redeemCodeRetentionDays()));
+    } catch (Exception exception) {
+      return fallback;
+    }
+  }
+
+  private String serializeLogging(PluginSettings.LoggingSettings settings) {
+    JsonObject root = new JsonObject();
+    root.addProperty("enabled", settings.enabled());
+    root.addProperty("level", settings.level().name());
+    root.addProperty("directory", settings.directory());
+    root.addProperty("maxFileSizeMb", settings.maxFileSizeMb());
+    root.addProperty("maxFiles", settings.maxFiles());
+    root.addProperty("retentionDays", settings.retentionDays());
+    return gson.toJson(root);
+  }
+
+  private PluginSettings.LoggingSettings parseLogging(
+      ConfigRow row,
+      PluginSettings.LoggingSettings fallback) {
+    if (row == null || row.configValue() == null || row.configValue().isBlank()) {
+      return fallback;
+    }
+    try {
+      JsonObject root = JsonParser.parseString(row.configValue()).getAsJsonObject();
+      return new PluginSettings.LoggingSettings(
+          readBoolean(root, "enabled", fallback.enabled()),
+          PluginSettings.LogLevel.fromRaw(readString(root, "level", fallback.level().name())),
+          readString(root, "directory", fallback.directory()),
+          readInt(root, "maxFileSizeMb", fallback.maxFileSizeMb()),
+          readInt(root, "maxFiles", fallback.maxFiles()),
+          readInt(root, "retentionDays", fallback.retentionDays()));
+    } catch (Exception exception) {
+      return fallback;
+    }
+  }
+
+  private String serializeBroadcast(PluginSettings.BroadcastSettings settings) {
+    JsonObject root = new JsonObject();
+    root.addProperty("enabled", settings.enabled());
+    JsonObject templates = new JsonObject();
+    for (Map.Entry<String, String> entry : settings.templates().entrySet()) {
+      templates.addProperty(entry.getKey(), entry.getValue());
+    }
+    root.add("templates", templates);
+    return gson.toJson(root);
+  }
+
+  private PluginSettings.BroadcastSettings parseBroadcast(
+      ConfigRow row,
+      PluginSettings.BroadcastSettings fallback) {
+    if (row == null || row.configValue() == null || row.configValue().isBlank()) {
+      return fallback;
+    }
+    try {
+      JsonObject root = JsonParser.parseString(row.configValue()).getAsJsonObject();
+      Map<String, String> templates = new LinkedHashMap<>();
+      JsonObject templateObject = root.has("templates") && root.get("templates").isJsonObject()
+          ? root.getAsJsonObject("templates")
+          : null;
+      if (templateObject != null) {
+        for (Map.Entry<String, JsonElement> entry : templateObject.entrySet()) {
+          if (entry.getValue() != null && !entry.getValue().isJsonNull()) {
+            templates.put(entry.getKey(), entry.getValue().getAsString());
+          }
+        }
+      }
+      if (templates.isEmpty()) {
+        templates.putAll(fallback.templates());
+      }
+      return new PluginSettings.BroadcastSettings(
+          readBoolean(root, "enabled", fallback.enabled()),
+          templates);
+    } catch (Exception exception) {
+      return fallback;
+    }
+  }
+
+  private boolean readBoolean(JsonObject jsonObject, String field, boolean fallback) {
+    if (jsonObject == null || !jsonObject.has(field) || jsonObject.get(field).isJsonNull()) {
+      return fallback;
+    }
+    try {
+      return jsonObject.get(field).getAsBoolean();
+    } catch (Exception exception) {
+      return fallback;
+    }
+  }
+
+  private double readDouble(JsonObject jsonObject, String field, double fallback) {
+    if (jsonObject == null || !jsonObject.has(field) || jsonObject.get(field).isJsonNull()) {
+      return fallback;
+    }
+    try {
+      return jsonObject.get(field).getAsDouble();
+    } catch (Exception exception) {
+      return fallback;
+    }
+  }
+
+  private int readInt(JsonObject jsonObject, String field, int fallback) {
+    if (jsonObject == null || !jsonObject.has(field) || jsonObject.get(field).isJsonNull()) {
+      return fallback;
+    }
+    try {
+      return jsonObject.get(field).getAsInt();
+    } catch (Exception exception) {
+      return fallback;
+    }
+  }
+
+  private String readString(JsonObject jsonObject, String field, String fallback) {
+    if (jsonObject == null || !jsonObject.has(field) || jsonObject.get(field).isJsonNull()) {
+      return fallback;
+    }
+    try {
+      String value = jsonObject.get(field).getAsString();
+      return value == null || value.isBlank() ? fallback : value;
+    } catch (Exception exception) {
+      return fallback;
+    }
+  }
+
+  private ZoneId readZoneId(JsonObject jsonObject, String field, ZoneId fallback) {
+    String raw = readString(jsonObject, field, fallback.getId());
+    try {
+      return ZoneId.of(raw);
+    } catch (Exception exception) {
+      return fallback;
+    }
+  }
+
+  record RuntimeSnapshot(
+      String defaultLocale,
+      int sessionExpireHours,
+      int bindRequestExpireMinutes,
+      int accessTokenLength,
+      int deliveryBatchSize,
+      int deliveryRetrySeconds,
+      int orderCooldownSeconds,
+      boolean allowSharedClaimCommand,
+      boolean refundUndeliveredEnabled,
+      ZoneId timeZone,
+      int marketMaxActiveListings,
+      PluginSettings.MarketSupplySettings marketSupplySettings,
+      PluginSettings.ExchangeSettings exchangeSettings,
+      PluginSettings.EconomySettings economySettings,
+      PluginSettings.LeaderboardSettings leaderboardSettings,
+      PluginSettings.CurrencyDisplaySettings currencyDisplaySettings,
+      PluginSettings.MaintenanceSettings maintenanceSettings,
+      PluginSettings.LoggingSettings loggingSettings,
+      PluginSettings.BroadcastSettings broadcastSettings,
+      long maxVersion) {
+  }
+
+  record RuntimeSettingsUpdate(
+      String defaultLocale,
+      int sessionExpireHours,
+      int bindRequestExpireMinutes,
+      int accessTokenLength,
+      int deliveryBatchSize,
+      int deliveryRetrySeconds,
+      int orderCooldownSeconds,
+      boolean allowSharedClaimCommand,
+      boolean refundUndeliveredEnabled,
+      ZoneId timeZone) {
+  }
+
+  private record MarketRuntimeSnapshot(
+      int marketMaxActiveListings,
+      PluginSettings.MarketSupplySettings marketSupplySettings) {
+  }
+
+  private record ConfigRow(String configValue, long version) {
+  }
+}

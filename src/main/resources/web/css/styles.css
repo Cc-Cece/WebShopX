@@ -578,7 +578,8 @@ button:disabled {
   background: var(--app-segment-hover);
 }
 
-.btn-segment.active {
+.btn-segment.active,
+.btn-segment.is-active {
   background: var(--md-sys-color-primary);
   color: var(--md-sys-color-on-primary);
   border-color: var(--md-sys-color-primary);
@@ -589,6 +590,22 @@ button:disabled {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.admin-sub-tabs {
+  margin-top: -2px;
+  padding: 8px 10px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--radius-medium);
+  background: color-mix(in srgb, var(--app-card-soft-bg) 90%, transparent);
+  box-shadow: var(--md-elevation-1);
+}
+
+.admin-sub-tabs .btn-segment {
+  min-height: 36px;
+  border-radius: 999px;
+  font-size: 13px;
+  padding-inline: 12px;
 }
 
 .sub-panel {
@@ -1429,6 +1446,308 @@ code {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.admin-card-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.admin-card-identity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-card-identity-text {
+  min-width: 0;
+}
+
+.admin-card-title {
+  display: block;
+  font-size: 15px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.admin-card-subtitle {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.admin-player-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  overflow: hidden;
+  position: relative;
+  flex: 0 0 auto;
+  background: var(--md-sys-color-surface-container-low);
+}
+
+.admin-player-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  image-rendering: pixelated;
+  display: block;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.admin-player-avatar.is-ready img {
+  opacity: 1;
+}
+
+.admin-player-avatar-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.admin-player-avatar.is-ready .admin-player-avatar-fallback {
+  display: none;
+}
+
+.admin-material-tile {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background:
+    linear-gradient(
+      170deg,
+      color-mix(in srgb, var(--md-sys-color-tertiary-container) 32%, transparent) 0%,
+      var(--md-sys-color-surface-container-low) 80%
+    );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--md-sys-color-on-surface);
+  text-align: center;
+  padding: 4px;
+}
+
+.material-override-preview {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-medium);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container-low);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.material-override-preview img {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  image-rendering: pixelated;
+  object-fit: cover;
+  background: var(--md-sys-color-surface-container-high);
+  flex: 0 0 auto;
+}
+
+.material-override-card .material-override-card-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.material-override-card .material-override-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  image-rendering: pixelated;
+  object-fit: cover;
+  background: var(--md-sys-color-surface-container-high);
+  flex: 0 0 auto;
+}
+
+.material-crop-dialog-card {
+  width: min(560px, 100%);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background:
+    linear-gradient(
+      168deg,
+      var(--app-card-raised-bg) 0%,
+      var(--app-card-soft-bg) 100%
+    );
+}
+
+.material-crop-stage-wrap {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--radius-medium);
+  background: var(--md-sys-color-surface-container-low);
+  padding: 10px;
+  display: flex;
+  justify-content: center;
+}
+
+#materialCropCanvas {
+  width: min(100%, 360px);
+  aspect-ratio: 1 / 1;
+  height: auto;
+  border-radius: var(--radius-small);
+  cursor: grab;
+}
+
+#materialCropCanvas:active {
+  cursor: grabbing;
+}
+
+.material-crop-controls {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.material-crop-controls .meta {
+  margin: 0;
+  min-width: 56px;
+  text-align: right;
+}
+
+.admin-order-status-v2 {
+  border-radius: 999px;
+  padding: 4px 10px;
+  border: 1px solid var(--app-neutral-border);
+  background: var(--app-neutral-bg);
+  color: var(--app-neutral-fg);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-order-status-v2.pending {
+  border-color: var(--app-warn-border);
+  background: var(--app-warn-bg);
+  color: var(--app-warn-fg);
+}
+
+.admin-order-status-v2.delivered {
+  border-color: var(--app-success-border);
+  background: var(--app-success-bg);
+  color: var(--app-success-fg);
+}
+
+.admin-order-status-v2.error {
+  border-color: var(--app-error-border);
+  background: var(--app-error-bg);
+  color: var(--app-error-fg);
+}
+
+.admin-order-status-v2.muted {
+  border-color: var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.admin-order-primary {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-order-amount {
+  font-size: 22px;
+  line-height: 1;
+  color: var(--app-price-fg);
+}
+
+.admin-order-product {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.admin-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 8px;
+  border: 1px solid var(--app-neutral-border);
+  background: var(--app-neutral-bg);
+  color: var(--app-neutral-fg);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.admin-tag.accent {
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-bg);
+  color: var(--app-accent-fg);
+}
+
+.admin-tag.info {
+  border-color: var(--app-info-border);
+  background: var(--app-info-bg);
+  color: var(--app-info-fg);
+}
+
+.admin-tag.success {
+  border-color: var(--app-success-border);
+  background: var(--app-success-bg);
+  color: var(--app-success-fg);
+}
+
+.admin-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-items: start;
+}
+
+.admin-info-item {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--radius-small);
+  background: var(--md-sys-color-surface-container-low);
+  padding: 8px 10px;
+  display: grid;
+  gap: 3px;
+}
+
+.admin-info-item.is-muted {
+  background: color-mix(in srgb, var(--md-sys-color-surface-container-low) 84%, transparent);
+}
+
+.admin-info-label {
+  font-size: 11px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.admin-info-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--md-sys-color-on-surface);
+  word-break: break-word;
 }
 
 .admin-permission-groups {
@@ -2590,6 +2909,7 @@ pre {
     background: color-mix(in srgb, var(--md-sys-color-surface-container-high) 90%, transparent);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
+    justify-content: flex-start;
   }
 
   .page-admin .top-tab {
@@ -2621,8 +2941,42 @@ pre {
     background: var(--md-sys-color-secondary-container);
   }
 
+  .page-admin .admin-sub-tabs {
+    margin: -2px 8px 0;
+    padding: 6px;
+    gap: 6px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    justify-content: flex-start;
+  }
+
+  .page-admin .admin-sub-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .page-admin .admin-sub-tabs .btn-segment {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding-inline: 10px;
+    font-size: 12px;
+  }
+
   .page-admin .snackbar-host {
     bottom: calc(84px + env(safe-area-inset-bottom));
+  }
+
+  .page-admin .admin-card-hero {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .page-admin .admin-order-status-v2 {
+    align-self: flex-start;
+  }
+
+  .page-admin .admin-info-grid {
+    grid-template-columns: 1fr;
   }
 }
 

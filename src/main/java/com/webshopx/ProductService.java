@@ -78,7 +78,8 @@ class ProductService {
             + "AND (unpublish_at IS NULL OR unpublish_at > ?)";
     String sql = """
        SELECT id, sku, title, remark, currency, price, product_type, command_template,
-         item_material, item_amount, stock_remaining, per_user_limit,
+         item_material, display_name_override, display_material,
+         item_amount, stock_remaining, per_user_limit,
          effect_type, effect_seconds, effect_amplifier,
          dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
          dynamic_base_price, dynamic_floor_price, dynamic_cap_price,
@@ -111,6 +112,8 @@ class ProductService {
       String normalizedRemark = normalizeRemark(input.remark());
       String normalizedCommand = normalizeCommandTemplate(input.commandTemplate(), productType);
       String normalizedItemMaterial = normalizeItemMaterial(input.itemMaterial(), productType);
+      String normalizedDisplayNameOverride = normalizeDisplayNameOverride(input.displayNameOverride());
+      String normalizedDisplayMaterial = normalizeDisplayMaterial(input.displayMaterial());
       Integer normalizedItemAmount = normalizeItemAmount(input.itemAmount(), productType);
       Integer normalizedPerUserLimit = normalizePerUserLimit(input.perUserLimit());
       String normalizedEffectType = normalizeEffectType(input.effectType(), productType);
@@ -143,14 +146,15 @@ class ProductService {
         String insertSql = """
             INSERT INTO products (
               sku, title, remark, currency, price, product_type, command_template,
-              item_material, item_amount, stock_remaining, per_user_limit,
+              item_material, display_name_override, display_material,
+              item_amount, stock_remaining, per_user_limit,
               effect_type, effect_seconds, effect_amplifier,
               dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
               dynamic_base_price, dynamic_floor_price, dynamic_cap_price,
               dynamic_price_step, dynamic_demand_score,
               publish_at, unpublish_at, active
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
         try (PreparedStatement statement = connection.prepareStatement(insertSql)) {
           statement.setString(1, normalizedSku);
@@ -161,71 +165,74 @@ class ProductService {
           statement.setString(6, productType.name());
           statement.setString(7, normalizedCommand);
           statement.setString(8, normalizedItemMaterial);
+          statement.setString(9, normalizedDisplayNameOverride);
+          statement.setString(10, normalizedDisplayMaterial);
           if (normalizedItemAmount == null) {
-            statement.setObject(9, null);
-            statement.setObject(10, null);
+            statement.setObject(11, null);
+            statement.setObject(12, null);
           } else {
-            statement.setInt(9, normalizedItemAmount);
-            statement.setInt(10, adjustedStockRemaining == null ? normalizedItemAmount : adjustedStockRemaining);
+            statement.setInt(11, normalizedItemAmount);
+            statement.setInt(12, adjustedStockRemaining == null ? normalizedItemAmount : adjustedStockRemaining);
           }
           if (normalizedPerUserLimit == null) {
-            statement.setObject(11, null);
-          } else {
-            statement.setInt(11, normalizedPerUserLimit);
-          }
-          statement.setString(12, normalizedEffectType);
-          if (normalizedEffectSeconds == null) {
             statement.setObject(13, null);
           } else {
-            statement.setInt(13, normalizedEffectSeconds);
+            statement.setInt(13, normalizedPerUserLimit);
+          }
+          statement.setString(14, normalizedEffectType);
+          if (normalizedEffectSeconds == null) {
+            statement.setObject(15, null);
+          } else {
+            statement.setInt(15, normalizedEffectSeconds);
           }
           if (normalizedEffectAmplifier == null) {
-            statement.setObject(14, null);
+            statement.setObject(16, null);
           } else {
-            statement.setInt(14, normalizedEffectAmplifier);
+            statement.setInt(16, normalizedEffectAmplifier);
           }
-          statement.setBoolean(15, dynamicSettings.enabled());
-          statement.setString(16, dynamicSettings.algorithmType().name());
-          statement.setString(17, MarketAlgorithmRegistry.toJson(dynamicSettings.params()));
+          statement.setBoolean(17, dynamicSettings.enabled());
+          statement.setString(18, dynamicSettings.algorithmType().name());
+          statement.setString(19, MarketAlgorithmRegistry.toJson(dynamicSettings.params()));
           if (dynamicSettings.basePrice() == null) {
-            statement.setObject(18, null);
-          } else {
-            statement.setLong(18, dynamicSettings.basePrice());
-          }
-          if (dynamicSettings.floorPrice() == null) {
-            statement.setObject(19, null);
-          } else {
-            statement.setLong(19, dynamicSettings.floorPrice());
-          }
-          if (dynamicSettings.capPrice() == null) {
             statement.setObject(20, null);
           } else {
-            statement.setLong(20, dynamicSettings.capPrice());
+            statement.setLong(20, dynamicSettings.basePrice());
           }
-          if (dynamicSettings.priceStep() == null) {
+          if (dynamicSettings.floorPrice() == null) {
             statement.setObject(21, null);
           } else {
-            statement.setLong(21, dynamicSettings.priceStep());
+            statement.setLong(21, dynamicSettings.floorPrice());
           }
-          statement.setLong(22, dynamicSettings.demandScore());
-          if (input.publishAt() == null) {
+          if (dynamicSettings.capPrice() == null) {
+            statement.setObject(22, null);
+          } else {
+            statement.setLong(22, dynamicSettings.capPrice());
+          }
+          if (dynamicSettings.priceStep() == null) {
             statement.setObject(23, null);
           } else {
-            statement.setObject(23, input.publishAt());
+            statement.setLong(23, dynamicSettings.priceStep());
+          }
+          statement.setLong(24, dynamicSettings.demandScore());
+          if (input.publishAt() == null) {
+            statement.setObject(25, null);
+          } else {
+            statement.setObject(25, input.publishAt());
           }
           if (input.unpublishAt() == null) {
-            statement.setObject(24, null);
+            statement.setObject(26, null);
           } else {
-            statement.setObject(24, input.unpublishAt());
+            statement.setObject(26, input.unpublishAt());
           }
-          statement.setBoolean(25, input.active());
+          statement.setBoolean(27, input.active());
           statement.executeUpdate();
         }
       } else {
         String updateSql = """
             UPDATE products
             SET title = ?, remark = ?, currency = ?, price = ?, product_type = ?, command_template = ?,
-                item_material = ?, item_amount = ?, stock_remaining = ?, per_user_limit = ?, effect_type = ?,
+                item_material = ?, display_name_override = ?, display_material = ?,
+                item_amount = ?, stock_remaining = ?, per_user_limit = ?, effect_type = ?,
                 effect_seconds = ?, effect_amplifier = ?,
                 dynamic_pricing_enabled = ?, dynamic_algorithm = ?, dynamic_params_json = ?,
                 dynamic_base_price = ?, dynamic_floor_price = ?, dynamic_cap_price = ?,
@@ -241,65 +248,67 @@ class ProductService {
           statement.setString(5, productType.name());
           statement.setString(6, normalizedCommand);
           statement.setString(7, normalizedItemMaterial);
+          statement.setString(8, normalizedDisplayNameOverride);
+          statement.setString(9, normalizedDisplayMaterial);
           if (normalizedItemAmount == null) {
-            statement.setObject(8, null);
-            statement.setObject(9, null);
+            statement.setObject(10, null);
+            statement.setObject(11, null);
           } else {
-            statement.setInt(8, normalizedItemAmount);
-            statement.setInt(9, adjustedStockRemaining == null ? normalizedItemAmount : adjustedStockRemaining);
+            statement.setInt(10, normalizedItemAmount);
+            statement.setInt(11, adjustedStockRemaining == null ? normalizedItemAmount : adjustedStockRemaining);
           }
           if (normalizedPerUserLimit == null) {
-            statement.setObject(10, null);
-          } else {
-            statement.setInt(10, normalizedPerUserLimit);
-          }
-          statement.setString(11, normalizedEffectType);
-          if (normalizedEffectSeconds == null) {
             statement.setObject(12, null);
           } else {
-            statement.setInt(12, normalizedEffectSeconds);
+            statement.setInt(12, normalizedPerUserLimit);
+          }
+          statement.setString(13, normalizedEffectType);
+          if (normalizedEffectSeconds == null) {
+            statement.setObject(14, null);
+          } else {
+            statement.setInt(14, normalizedEffectSeconds);
           }
           if (normalizedEffectAmplifier == null) {
-            statement.setObject(13, null);
+            statement.setObject(15, null);
           } else {
-            statement.setInt(13, normalizedEffectAmplifier);
+            statement.setInt(15, normalizedEffectAmplifier);
           }
-          statement.setBoolean(14, dynamicSettings.enabled());
-          statement.setString(15, dynamicSettings.algorithmType().name());
-          statement.setString(16, MarketAlgorithmRegistry.toJson(dynamicSettings.params()));
+          statement.setBoolean(16, dynamicSettings.enabled());
+          statement.setString(17, dynamicSettings.algorithmType().name());
+          statement.setString(18, MarketAlgorithmRegistry.toJson(dynamicSettings.params()));
           if (dynamicSettings.basePrice() == null) {
-            statement.setObject(17, null);
-          } else {
-            statement.setLong(17, dynamicSettings.basePrice());
-          }
-          if (dynamicSettings.floorPrice() == null) {
-            statement.setObject(18, null);
-          } else {
-            statement.setLong(18, dynamicSettings.floorPrice());
-          }
-          if (dynamicSettings.capPrice() == null) {
             statement.setObject(19, null);
           } else {
-            statement.setLong(19, dynamicSettings.capPrice());
+            statement.setLong(19, dynamicSettings.basePrice());
           }
-          if (dynamicSettings.priceStep() == null) {
+          if (dynamicSettings.floorPrice() == null) {
             statement.setObject(20, null);
           } else {
-            statement.setLong(20, dynamicSettings.priceStep());
+            statement.setLong(20, dynamicSettings.floorPrice());
           }
-          statement.setLong(21, dynamicSettings.demandScore());
-          if (input.publishAt() == null) {
+          if (dynamicSettings.capPrice() == null) {
+            statement.setObject(21, null);
+          } else {
+            statement.setLong(21, dynamicSettings.capPrice());
+          }
+          if (dynamicSettings.priceStep() == null) {
             statement.setObject(22, null);
           } else {
-            statement.setObject(22, input.publishAt());
+            statement.setLong(22, dynamicSettings.priceStep());
+          }
+          statement.setLong(23, dynamicSettings.demandScore());
+          if (input.publishAt() == null) {
+            statement.setObject(24, null);
+          } else {
+            statement.setObject(24, input.publishAt());
           }
           if (input.unpublishAt() == null) {
-            statement.setObject(23, null);
+            statement.setObject(25, null);
           } else {
-            statement.setObject(23, input.unpublishAt());
+            statement.setObject(25, input.unpublishAt());
           }
-          statement.setBoolean(24, input.active());
-          statement.setLong(25, existing.id());
+          statement.setBoolean(26, input.active());
+          statement.setLong(27, existing.id());
           statement.executeUpdate();
         }
       }
@@ -393,7 +402,8 @@ class ProductService {
     String lockClause = forUpdate ? " FOR UPDATE" : "";
     String sql = """
        SELECT id, sku, title, remark, currency, price, product_type, command_template,
-         item_material, item_amount, stock_remaining, per_user_limit,
+         item_material, display_name_override, display_material,
+         item_amount, stock_remaining, per_user_limit,
          effect_type, effect_seconds, effect_amplifier,
          dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
          dynamic_base_price, dynamic_floor_price, dynamic_cap_price,
@@ -420,7 +430,8 @@ class ProductService {
   private ProductView readProductById(Connection connection, long productId) throws SQLException {
     String sql = """
      SELECT id, sku, title, remark, currency, price, product_type, command_template,
-       item_material, item_amount, stock_remaining, per_user_limit,
+        item_material, display_name_override, display_material,
+        item_amount, stock_remaining, per_user_limit,
        effect_type, effect_seconds, effect_amplifier,
        dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
        dynamic_base_price, dynamic_floor_price, dynamic_cap_price,
@@ -456,7 +467,8 @@ class ProductService {
     String lockClause = forUpdate ? " FOR UPDATE" : "";
     String sql = """
        SELECT id, sku, title, remark, currency, price, product_type, command_template,
-         item_material, item_amount, stock_remaining, per_user_limit,
+         item_material, display_name_override, display_material,
+         item_amount, stock_remaining, per_user_limit,
          effect_type, effect_seconds, effect_amplifier,
          dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
          dynamic_base_price, dynamic_floor_price, dynamic_cap_price,
@@ -504,6 +516,8 @@ class ProductService {
     String productTypeRaw = resultSet.getString("product_type");
     ProductType productType = ProductType.fromRaw(productTypeRaw);
     String itemMaterial = resultSet.getString("item_material");
+    String displayNameOverride = resultSet.getString("display_name_override");
+    String displayMaterial = resultSet.getString("display_material");
     int itemAmountValue = resultSet.getInt("item_amount");
     Integer itemAmount = resultSet.wasNull() ? null : itemAmountValue;
     int stockRemainingValue = resultSet.getInt("stock_remaining");
@@ -536,6 +550,8 @@ class ProductService {
         productType,
         resultSet.getString("command_template"),
         itemMaterial,
+        displayNameOverride,
+        displayMaterial,
         itemAmount,
         stockRemaining,
         perUserLimit,
@@ -638,6 +654,38 @@ class ProductService {
     }
     if (normalized.length() > 1000) {
       throw new ServiceException("invalid_product", "Remark must be <= 1000 chars");
+    }
+    return normalized;
+  }
+
+  private String normalizeDisplayNameOverride(String raw) {
+    if (raw == null) {
+      return null;
+    }
+    String normalized = raw.trim();
+    if (normalized.isEmpty()) {
+      return null;
+    }
+    if (normalized.length() > 128) {
+      return normalized.substring(0, 128);
+    }
+    return normalized;
+  }
+
+  private String normalizeDisplayMaterial(String raw) {
+    if (raw == null) {
+      return null;
+    }
+    String normalized = raw.trim()
+        .toUpperCase(Locale.ROOT)
+        .replace("MINECRAFT:", "")
+        .replaceAll("[^A-Z0-9]+", "_")
+        .replaceAll("^_+|_+$", "");
+    if (normalized.isEmpty()) {
+      return null;
+    }
+    if (normalized.length() > 64) {
+      return normalized.substring(0, 64);
     }
     return normalized;
   }
@@ -971,6 +1019,8 @@ class ProductService {
       String productType,
       String commandTemplate,
       String itemMaterial,
+      String displayNameOverride,
+      String displayMaterial,
       Integer itemAmount,
       Integer perUserLimit,
       String effectType,
@@ -998,6 +1048,8 @@ class ProductService {
       ProductType productType,
       String commandTemplate,
       String itemMaterial,
+      String displayNameOverride,
+      String displayMaterial,
       Integer itemAmount,
       Integer stockRemaining,
       Integer perUserLimit,
@@ -1027,6 +1079,8 @@ class ProductService {
           productType,
           commandTemplate,
           itemMaterial,
+          displayNameOverride,
+          displayMaterial,
           itemAmount,
           stockRemaining,
           perUserLimit,

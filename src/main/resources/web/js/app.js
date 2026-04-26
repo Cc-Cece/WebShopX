@@ -28,6 +28,15 @@
   materialNameMap: {},
   materialNameMapReady: false,
   materialNameMapPromise: null,
+  materialVisualMap: {},
+  materialVisualMapReady: false,
+  materialVisualMapPromise: null,
+  visualPolicy: {
+    globalCustomIconEnabled: true,
+    globalCustomNameEnabled: true,
+    iconPolicyMode: "SOFT",
+    namePolicyMode: "SOFT",
+  },
   marketAlgorithmGlossary: {
     dynamic: [],
     auction: [],
@@ -269,7 +278,7 @@ const ERROR_TIPS_BY_SCENE = {
     invalid_listing: "上架 ID 无效，请刷新列表后重试。",
     listing_missing: "该上架不存在，可能已被移除。",
     listing_unavailable: "该上架已下架或已售出。",
-    forbidden: "仅上架者本人可以改价。",
+    forbidden: "当前无权修改该上架，可能因非本人或视觉自定义策略受限。",
     invalid_price: "价格必须大于 0。",
     invalid_trade_mode: "交易模式无效，仅支持 DIRECT 或 AUCTION。",
     invalid_dynamic_base: "动态基准价必须大于 0。",
@@ -1342,6 +1351,8 @@ async function openListingEditDialog({
   currentAuctionStartPrice,
   currentAuctionMinIncrement,
   currentAuctionEndAt,
+  currentDisplayNameOverride,
+  currentDisplayMaterial,
 }) {
   await ensureMarketAlgorithmGlossary();
   const dynamicCatalog = getAlgorithmCatalog("dynamic");
@@ -1367,10 +1378,20 @@ async function openListingEditDialog({
     if (rawRemark === null) {
       return Promise.resolve(null);
     }
+    const rawDisplayName = window.prompt("请输入展示名称（留空则跟随默认）", currentDisplayNameOverride || "");
+    if (rawDisplayName === null) {
+      return Promise.resolve(null);
+    }
+    const rawDisplayMaterial = window.prompt("请输入展示材质（留空则跟随原材质）", currentDisplayMaterial || "");
+    if (rawDisplayMaterial === null) {
+      return Promise.resolve(null);
+    }
     return Promise.resolve({
       price: Math.floor(Number(rawPrice)),
       currency: String(rawCurrency || "GAME_COIN").trim().toUpperCase(),
       remark: rawRemark.trim() || null,
+      displayNameOverride: rawDisplayName.trim() || null,
+      displayMaterial: normalizeMaterialKey(rawDisplayMaterial) || null,
       supplyBatchSize: null,
       supplyMaxStock: null,
       tradeMode: "DIRECT",
@@ -1441,6 +1462,33 @@ async function openListingEditDialog({
   remarkInput.value = currentRemark || "";
   const remarkField = createDialogSelectField("备注", remarkInput);
   elements.confirmDetails.appendChild(remarkField);
+
+  const displayNameInput = document.createElement("input");
+  displayNameInput.type = "text";
+  displayNameInput.maxLength = 128;
+  displayNameInput.placeholder = "留空则跟随默认展示名称";
+  displayNameInput.value = currentDisplayNameOverride || "";
+  const displayNameField = createDialogSelectField("展示名称（仅前端显示）", displayNameInput);
+  elements.confirmDetails.appendChild(displayNameField);
+
+  const displayMaterialInput = document.createElement("input");
+  displayMaterialInput.type = "text";
+  displayMaterialInput.maxLength = 64;
+  displayMaterialInput.placeholder = "如 DIAMOND_SWORD，留空则跟随原材质";
+  displayMaterialInput.value = currentDisplayMaterial || "";
+  displayMaterialInput.addEventListener("blur", () => {
+    const normalized = normalizeMaterialKey(displayMaterialInput.value || "");
+    if (normalized) {
+      displayMaterialInput.value = normalized;
+      return;
+    }
+    if (String(displayMaterialInput.value || "").trim()) {
+      notify("展示材质未识别，将按输入值规范化后提交。", "warn");
+      displayMaterialInput.value = normalizeMaterialKey(String(displayMaterialInput.value || "").trim());
+    }
+  });
+  const displayMaterialField = createDialogSelectField("展示材质（仅前端显示）", displayMaterialInput);
+  elements.confirmDetails.appendChild(displayMaterialField);
 
   const modeSelect = document.createElement("select");
   [
@@ -1687,6 +1735,8 @@ async function openListingEditDialog({
       price: Math.floor(price),
       currency: currencySelect.value,
       remark: remarkInput.value.trim() || null,
+      displayNameOverride: displayNameInput.value.trim() || null,
+      displayMaterial: normalizeMaterialKey(displayMaterialInput.value || "") || null,
       supplyBatchSize: supplyBatchInput ? Math.floor(batchSize) : null,
       supplyMaxStock: supplyMaxInput ? Math.floor(maxStock) : null,
       tradeMode: mappedTradeMode,
@@ -2716,13 +2766,156 @@ function humanizeMaterial(materialKey) {
     .join(" ");
 }
 
-function getLocalizedMaterialName(material) {
+function getMaterialVisualOverride(material) {
+  const key = normalizeMaterialKey(material);
+  const aliasKey = aliasMaterialKey(key);
+  if (!key) {
+    return null;
+  }
+  return state.materialVisualMap[key] || state.materialVisualMap[aliasKey] || null;
+}
+
+function normalizeVisualPolicy(raw) {
+  const iconMode = String(raw?.iconPolicyMode || "SOFT").trim().toUpperCase() === "HARD" ? "HARD" : "SOFT";
+  const nameMode = String(raw?.namePolicyMode || "SOFT").trim().toUpperCase() === "HARD" ? "HARD" : "SOFT";
+  return {
+    globalCustomIconEnabled: raw?.globalCustomIconEnabled !== false,
+    globalCustomNameEnabled: raw?.globalCustomNameEnabled !== false,
+    iconPolicyMode: iconMode,
+    namePolicyMode: nameMode,
+  };
+}
+
+function applyVisualPolicy(raw) {
+  state.visualPolicy = normalizeVisualPolicy(raw || state.visualPolicy || {});
+}
+
+function resolveMaterialIconUrl(path) {
+  const text = String(path || "").trim();
+  if (!text) {
+    return "";
+  }
+  if (/^[a-z]+:\/\//i.test(text) || text.startsWith("//")) {
+    return text;
+  }
+  if (text.startsWith("/")) {
+    return resolveApiUrl(text);
+  }
+  return resolveApiUrl(`/${text}`);
+}
+
+function getLocalizedMaterialName(material, options = {}) {
   const key = normalizeMaterialKey(material);
   const aliasKey = aliasMaterialKey(key);
   if (!key) {
     return localizeDisplayText("未知物品");
   }
+  const includeGlobalOverride = options.includeGlobalOverride !== false
+    && normalizeVisualPolicy(state.visualPolicy || {}).globalCustomNameEnabled !== false;
+  const visual = includeGlobalOverride ? getMaterialVisualOverride(key) : null;
+  if (visual && visual.displayNameOverride) {
+    return String(visual.displayNameOverride);
+  }
   return state.materialNameMap[key] || state.materialNameMap[aliasKey] || humanizeMaterial(aliasKey || key);
+}
+
+function resolveDisplayVisual(baseMaterial, displayNameOverride, displayMaterial, fallbackName = "") {
+  const policy = normalizeVisualPolicy(state.visualPolicy || {});
+  const baseKey = normalizeMaterialKey(baseMaterial) || DEFAULT_TEXTURE_FALLBACK_MATERIAL;
+  const globalVisual = getMaterialVisualOverride(baseKey);
+  const customName = String(displayNameOverride || "").trim();
+  const customMaterial = normalizeMaterialKey(displayMaterial);
+  const fallback = String(fallbackName || "").trim();
+  const resolvedMaterial = customMaterial || baseKey || DEFAULT_TEXTURE_FALLBACK_MATERIAL;
+
+  let forceIconPath = "";
+  if (policy.globalCustomIconEnabled && policy.iconPolicyMode === "HARD" && globalVisual?.iconPath) {
+    forceIconPath = String(globalVisual.iconPath);
+  } else if (!customMaterial && policy.globalCustomIconEnabled && policy.iconPolicyMode === "SOFT" && globalVisual?.iconPath) {
+    forceIconPath = String(globalVisual.iconPath);
+  }
+
+  let resolvedName = "";
+  if (policy.globalCustomNameEnabled && policy.namePolicyMode === "HARD" && globalVisual?.displayNameOverride) {
+    resolvedName = String(globalVisual.displayNameOverride);
+  } else if (customName) {
+    resolvedName = customName;
+  } else if (fallback) {
+    resolvedName = fallback;
+  } else if (!customMaterial && policy.globalCustomNameEnabled && policy.namePolicyMode === "SOFT" && globalVisual?.displayNameOverride) {
+    resolvedName = String(globalVisual.displayNameOverride);
+  } else {
+    resolvedName = getLocalizedMaterialName(resolvedMaterial, { includeGlobalOverride: false });
+  }
+
+  return {
+    material: resolvedMaterial,
+    title: resolvedName || getLocalizedMaterialName(resolvedMaterial, { includeGlobalOverride: false }),
+    forceIconPath,
+    includeMaterialOverride: policy.globalCustomIconEnabled !== false,
+  };
+}
+
+function resolveListingDisplayVisual(listing, metaDisplayName = "") {
+  return resolveDisplayVisual(
+    listing?.itemMaterial,
+    listing?.displayNameOverride,
+    listing?.displayMaterial,
+    metaDisplayName
+  );
+}
+
+function resolveProductDisplayVisual(product) {
+  const baseMaterial = resolveProductTextureMaterial(product);
+  return resolveDisplayVisual(
+    baseMaterial,
+    product?.displayNameOverride,
+    product?.displayMaterial,
+    product?.title || ""
+  );
+}
+
+async function ensureMaterialVisualMap() {
+  if (state.materialVisualMapReady) {
+    return;
+  }
+  if (state.materialVisualMapPromise) {
+    await state.materialVisualMapPromise;
+    return;
+  }
+  state.materialVisualMapPromise = fetch(resolveApiUrl("/api/meta/material-overrides"))
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`material visual map load failed: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then((json) => {
+      const map = {};
+      const overrides = Array.isArray(json?.overrides) ? json.overrides : [];
+      overrides.forEach((item) => {
+        const materialKey = normalizeMaterialKey(item?.materialKey);
+        if (!materialKey) {
+          return;
+        }
+        map[materialKey] = {
+          displayNameOverride: String(item?.displayNameOverride || "").trim() || null,
+          iconPath: String(item?.iconPath || "").trim() || null,
+        };
+      });
+      state.materialVisualMap = map;
+      applyVisualPolicy(json?.policy || {});
+      state.materialVisualMapReady = true;
+      log(`Material visual overrides loaded: ${Object.keys(map).length}`);
+    })
+    .catch((error) => {
+      state.materialVisualMap = {};
+      applyVisualPolicy({});
+      state.materialVisualMapReady = true;
+      log(`Material visual overrides unavailable: ${error.message}`, "WARN");
+    });
+
+  await state.materialVisualMapPromise;
 }
 
 async function ensureMaterialNameMap() {
@@ -2736,25 +2929,29 @@ async function ensureMaterialNameMap() {
   if (!I18N || !I18N.shouldLoadMaterialMap()) {
     state.materialNameMap = {};
     state.materialNameMapReady = true;
+    await ensureMaterialVisualMap();
     return;
   }
-  state.materialNameMapPromise = fetch(`i18n/materials/${I18N.getLocale()}.json`)
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`material glossary load failed: ${response.status}`);
-      }
-      return response.json();
-    })
-    .then((json) => {
-      state.materialNameMap = json || {};
-      state.materialNameMapReady = true;
-      log(`Material glossary loaded: ${Object.keys(state.materialNameMap).length}`);
-    })
-    .catch((error) => {
-      state.materialNameMap = {};
-      state.materialNameMapReady = true;
-      log(`Material glossary unavailable: ${error.message}`, "WARN");
-    });
+  state.materialNameMapPromise = Promise.all([
+    fetch(`i18n/materials/${I18N.getLocale()}.json`)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`material glossary load failed: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then((json) => {
+        state.materialNameMap = json || {};
+        state.materialNameMapReady = true;
+        log(`Material glossary loaded: ${Object.keys(state.materialNameMap).length}`);
+      })
+      .catch((error) => {
+        state.materialNameMap = {};
+        state.materialNameMapReady = true;
+        log(`Material glossary unavailable: ${error.message}`, "WARN");
+      }),
+    ensureMaterialVisualMap(),
+  ]);
 
   await state.materialNameMapPromise;
 }
@@ -3055,13 +3252,23 @@ function buildTextureAliases(material) {
   return Array.from(aliases);
 }
 
-function getTextureCandidates(material) {
+function getTextureCandidates(material, options = {}) {
+  const includeMaterialOverride = options.includeMaterialOverride !== false;
+  const visual = includeMaterialOverride ? getMaterialVisualOverride(material) : null;
+  const overrideIconUrl = resolveMaterialIconUrl(options.forceIconPath || visual?.iconPath || "");
   const names = buildTextureAliases(material);
   if (names.length === 0) {
-    return getFallbackTextureCandidates();
+    const fallback = getFallbackTextureCandidates();
+    if (overrideIconUrl && !fallback.includes(overrideIconUrl)) {
+      fallback.unshift(overrideIconUrl);
+    }
+    return fallback;
   }
 
   const candidates = [];
+  if (overrideIconUrl) {
+    candidates.push(overrideIconUrl);
+  }
   for (const textureName of names) {
     candidates.push(`${LOCAL_TEXTURE_BASE}/item/${textureName}.png`);
     candidates.push(`${LOCAL_TEXTURE_BASE}/block/${textureName}.png`);
@@ -3100,14 +3307,14 @@ function getFallbackTextureCandidates() {
   return candidates;
 }
 
-function buildTextureImage(material, altText) {
+function buildTextureImage(material, altText, options = {}) {
   const img = document.createElement("img");
   img.className = "market-icon-image";
   img.alt = altText;
   img.loading = "lazy";
   img.decoding = "async";
 
-  const candidates = getTextureCandidates(material);
+  const candidates = getTextureCandidates(material, options);
   let index = 0;
   img.src = candidates[index];
 
@@ -3866,6 +4073,8 @@ function renderProducts(products) {
 
   for (const product of filteredProducts) {
     const card = createEl("article", "product-card official-card");
+    const visual = resolveProductDisplayVisual(product);
+    const productTitle = visual.title || product.title || product.sku || "未知商品";
     const isGroupBuyVoucher = String(product.productType || "").toUpperCase() === "GROUP_BUY_VOUCHER";
     const isRecycleItem = String(product.productType || "").toUpperCase() === "RECYCLE_ITEM";
     const dynamicEnabled = !!product.dynamicPricingEnabled;
@@ -3875,12 +4084,15 @@ function renderProducts(products) {
 
     const infoRow = createEl("div", "product-info-row");
     const icon = createEl("div", "product-icon");
-    icon.appendChild(buildTextureImage(resolveProductTextureMaterial(product), product.title));
+    icon.appendChild(buildTextureImage(visual.material, productTitle, {
+      forceIconPath: visual.forceIconPath,
+      includeMaterialOverride: visual.includeMaterialOverride,
+    }));
     infoRow.appendChild(icon);
 
     const infoMain = createEl("div", "product-info-main");
-    const title = createEl("h3", "product-title", product.title);
-    title.title = product.title;
+    const title = createEl("h3", "product-title", productTitle);
+    title.title = productTitle;
     infoMain.appendChild(title);
 
     const currencyLabel = (CURRENCY_META[product.currency] || { label: product.currency }).label;
@@ -3986,12 +4198,16 @@ function filterProducts(products) {
     if (!keyword) {
       return true;
     }
+    const visualTitle = resolveProductDisplayVisual(product).title || product.title || product.sku || "";
     const haystack = [
-      product.title,
+      visualTitle,
       product.sku,
       product.remark,
       product.itemMaterial,
+      product.displayMaterial,
+      product.displayNameOverride,
       getLocalizedMaterialName(product.itemMaterial),
+      product.displayMaterial ? getLocalizedMaterialName(product.displayMaterial, { includeGlobalOverride: false }) : "",
       productTypeLabel(product.productType),
     ]
       .filter(Boolean)
@@ -4055,7 +4271,8 @@ function renderListings(listings, container = elements.marketList) {
     const isPaused = normalizedStatus === "PAUSED";
 
     const displayName = stripColorCodes(meta.displayName || "");
-    const localizedName = displayName || getLocalizedMaterialName(listing.itemMaterial);
+    const listingVisual = resolveListingDisplayVisual(listing, displayName);
+    const localizedName = listingVisual.title;
     const quantityTotal = Number(listing.quantityTotal || listing.quantity || 0);
 
     if (!isOwner && !isAuction) {
@@ -4076,7 +4293,10 @@ function renderListings(listings, container = elements.marketList) {
 
       const infoRow = createEl("div", "product-info-row");
       const icon = createEl("div", "product-icon");
-      icon.appendChild(buildTextureImage(listing.itemMaterial, localizedName));
+      icon.appendChild(buildTextureImage(listingVisual.material, localizedName, {
+        forceIconPath: listingVisual.forceIconPath,
+        includeMaterialOverride: listingVisual.includeMaterialOverride,
+      }));
       infoRow.appendChild(icon);
 
       const infoMain = createEl("div", "product-info-main");
@@ -4161,7 +4381,10 @@ function renderListings(listings, container = elements.marketList) {
 
     const main = createEl("div", "market-main");
     const icon = createEl("div", "market-icon");
-    icon.appendChild(buildTextureImage(listing.itemMaterial, localizedName));
+    icon.appendChild(buildTextureImage(listingVisual.material, localizedName, {
+      forceIconPath: listingVisual.forceIconPath,
+      includeMaterialOverride: listingVisual.includeMaterialOverride,
+    }));
     main.appendChild(icon);
 
     const detail = createEl("div", "market-detail");
@@ -4365,6 +4588,8 @@ function renderListings(listings, container = elements.marketList) {
       editBtn.dataset.auctionStartPrice = String(listing.auctionStartPrice || "");
       editBtn.dataset.auctionMinIncrement = String(listing.auctionMinIncrement || "");
       editBtn.dataset.auctionEndAt = listing.auctionEndAt || "";
+      editBtn.dataset.currentDisplayNameOverride = listing.displayNameOverride || "";
+      editBtn.dataset.currentDisplayMaterial = listing.displayMaterial || "";
       actions.appendChild(editBtn);
 
       if (isSupply && normalizedStatus !== "UNLISTED" && normalizedStatus !== "SOLD") {
@@ -4599,6 +4824,7 @@ function renderSelectedStore(listings) {
 async function loadProducts(options = {}) {
   const announce = !!options.announce;
   try {
+    await ensureMaterialNameMap();
     const payload = await api("/api/products", { method: "GET" });
     state.products = payload.products || [];
     renderProducts(state.products);
@@ -5064,6 +5290,8 @@ async function loadOrders(options = {}) {
 }
 
 async function confirmPurchase(product, quantity) {
+  const productVisual = resolveProductDisplayVisual(product);
+  const displayTitle = productVisual.title || product.title || product.sku || "未知商品";
   const qty = Number(quantity || 1);
   const productType = String(product.productType || "").toUpperCase();
   const isRecycle = productType === "RECYCLE_ITEM";
@@ -5073,7 +5301,7 @@ async function confirmPurchase(product, quantity) {
   const allowClaim = !isRecycle && productType !== "GROUP_BUY_VOUCHER";
   const currentBalance = getWalletBalanceForCurrency(product.currency);
   const details = [
-    `商品：${product.title}`,
+    `商品：${displayTitle}`,
     `SKU：${product.sku}`,
     `数量：x${qty}`,
     `${isRecycle ? "回收单价" : "单价"}：${formatCurrency(unitPrice, product.currency)}`,
@@ -5132,7 +5360,8 @@ async function confirmMarketBuy(listing, buyQuantity) {
   await ensureMaterialNameMap();
   const meta = parseMeta(listing.itemMetaJson);
   const displayName = stripColorCodes(meta.displayName || "");
-  const localizedName = displayName || getLocalizedMaterialName(listing.itemMaterial);
+  const listingVisual = resolveListingDisplayVisual(listing, displayName);
+  const localizedName = listingVisual.title;
   const qty = Number(buyQuantity || 1);
   const cooldown = Number(state.orderPolicy.cooldownSeconds || 0);
   const subtotalAmount = Number(listing.price || 0) * qty;
@@ -5181,7 +5410,8 @@ async function confirmMarketBid(listing, bidAmount) {
   await ensureMaterialNameMap();
   const meta = parseMeta(listing.itemMetaJson);
   const displayName = stripColorCodes(meta.displayName || "");
-  const localizedName = displayName || getLocalizedMaterialName(listing.itemMaterial);
+  const listingVisual = resolveListingDisplayVisual(listing, displayName);
+  const localizedName = listingVisual.title;
   const auctionAlgorithm = String(listing.auctionAlgorithm || "ENGLISH_AUCTION_V1").toUpperCase();
   const isSealedBid = auctionAlgorithm === "VICKREY_AUCTION_V1";
   const minIncrement = Math.max(1, Number(listing.auctionMinIncrement || 1));
@@ -5493,6 +5723,8 @@ async function updateListing(
   price,
   currency,
   remark,
+  displayNameOverride,
+  displayMaterial,
   supplyBatchSize,
   supplyMaxStock,
   tradeMode,
@@ -5517,6 +5749,8 @@ async function updateListing(
       price,
       currency,
       remark,
+      displayNameOverride,
+      displayMaterial,
       supplyBatchSize,
       supplyMaxStock,
       tradeMode,
@@ -5977,7 +6211,8 @@ elements.productList.addEventListener("click", async (event) => {
   button.disabled = true;
   setNodeText(button, isRecycle ? "回收中..." : "下单中...");
   try {
-    await createOrder(productId, qtyValue, deliveryMode, product.title, product.productType);
+    const productDisplayTitle = resolveProductDisplayVisual(product).title || product.title;
+    await createOrder(productId, qtyValue, deliveryMode, productDisplayTitle, product.productType);
   } catch (error) {
     const message = resolveErrorMessage(error, "order_create");
     const failPrefix = isRecycle ? "回收失败" : "下单失败";
@@ -6166,6 +6401,8 @@ elements.marketList.addEventListener("click", async (event) => {
         currentAuctionStartPrice: Number(button.dataset.auctionStartPrice || 0) || null,
         currentAuctionMinIncrement: Number(button.dataset.auctionMinIncrement || 0) || null,
         currentAuctionEndAt: button.dataset.auctionEndAt || null,
+        currentDisplayNameOverride: button.dataset.currentDisplayNameOverride || "",
+        currentDisplayMaterial: button.dataset.currentDisplayMaterial || "",
       });
       if (!result) {
         notify("已取消修改。", "info");
@@ -6176,6 +6413,8 @@ elements.marketList.addEventListener("click", async (event) => {
         result.price,
         result.currency,
         result.remark,
+        result.displayNameOverride,
+        result.displayMaterial,
         result.supplyBatchSize,
         result.supplyMaxStock,
         result.tradeMode,

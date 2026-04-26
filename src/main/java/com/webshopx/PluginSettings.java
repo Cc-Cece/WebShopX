@@ -11,6 +11,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 
 record PluginSettings(
     ServerMode serverMode,
+    ClusterSettings clusterSettings,
     String apiBaseUrl,
     String defaultLocale,
     int sessionExpireHours,
@@ -28,6 +29,7 @@ record PluginSettings(
     CurrencyDisplaySettings currencyDisplaySettings,
     MaintenanceSettings maintenanceSettings,
     LoggingSettings loggingSettings,
+    BroadcastSettings broadcastSettings,
     AdminBootstrapSettings adminBootstrapSettings,
     EmbeddedWebSettings embeddedWebSettings,
     DatabaseSettings databaseSettings,
@@ -39,6 +41,12 @@ record PluginSettings(
   static PluginSettings fromConfig(FileConfiguration config) {
     String rawMode = config.getString("webshop.server-mode", "internal");
     ServerMode mode = ServerMode.fromRaw(rawMode);
+    ClusterRole clusterRole = ClusterRole.fromRaw(config.getString("cluster.role", "standalone"));
+    String clusterServerId = normalizeServerId(config.getString("cluster.server-id"), clusterRole);
+    ClusterSettings clusterSettings = new ClusterSettings(
+        clusterRole,
+        clusterServerId,
+        Math.max(30, config.getInt("cluster.presence-ttl-seconds", 120)));
 
     EmbeddedWebSettings webSettings = new EmbeddedWebSettings(
         config.getString("webshop.embedded-http.host", "0.0.0.0"),
@@ -64,10 +72,16 @@ record PluginSettings(
     RedisSettings redisSettings = new RedisSettings(
         config.getBoolean("redis.enabled", false),
         config.getString("redis.host", "127.0.0.1"),
-        config.getInt("redis.port", 6379));
+        config.getInt("redis.port", 6379),
+        config.getString("redis.password", ""),
+        firstNonBlank(
+            config.getString("redis.broadcast-channel"),
+            config.getString("redis.channel"),
+            "webshopx:market:broadcast"),
+        config.getString("redis.cluster-channel", "webshopx:cluster:event"));
 
     AdminBootstrapSettings adminBootstrapSettings = new AdminBootstrapSettings(
-        config.getBoolean("webshop.admin-bootstrap.enabled", true),
+        config.getBoolean("webshop.admin-bootstrap.enabled", false),
         config.getString("webshop.admin-bootstrap.username", "admin"),
         config.getString("webshop.admin-bootstrap.password", "admin123456"),
         config.getString("webshop.admin-bootstrap.role", "SUPER_ADMIN"));
@@ -110,9 +124,13 @@ record PluginSettings(
         config.getInt("webshop.logging.max-file-size-mb", 8),
         config.getInt("webshop.logging.max-files", 8),
         config.getInt("webshop.logging.retention-days", 14));
+    BroadcastSettings broadcastSettings = new BroadcastSettings(
+        config.getBoolean("webshop.broadcast.enabled", true),
+        readBroadcastTemplates(config.getConfigurationSection("webshop.broadcast.templates")));
 
     return new PluginSettings(
         mode,
+        clusterSettings,
         normalizeApiBaseUrl(config.getString("webshop.api-base-url", "")),
         normalizeLocale(config.getString("webshop.default-locale", "zh-CN")),
         config.getInt("webshop.session-expire-hours", 72),
@@ -130,6 +148,7 @@ record PluginSettings(
         currencyDisplaySettings,
         maintenanceSettings,
         loggingSettings,
+        broadcastSettings,
         adminBootstrapSettings,
         webSettings,
         databaseSettings,
@@ -137,6 +156,56 @@ record PluginSettings(
         new EconomySettings(marketEconomySettings, inflationSettings),
         redisSettings,
         readProductSeeds(config));
+  }
+
+  PluginSettings withBusinessSettings(
+      String defaultLocale,
+      int sessionExpireHours,
+      int bindRequestExpireMinutes,
+      int accessTokenLength,
+      int deliveryBatchSize,
+      int deliveryRetrySeconds,
+      int orderCooldownSeconds,
+      boolean allowSharedClaimCommand,
+      boolean refundUndeliveredEnabled,
+      ZoneId timeZone,
+      int marketMaxActiveListings,
+      MarketSupplySettings marketSupplySettings,
+      ExchangeSettings exchangeSettings,
+      EconomySettings economySettings,
+      LeaderboardSettings leaderboardSettings,
+      CurrencyDisplaySettings currencyDisplaySettings,
+      MaintenanceSettings maintenanceSettings,
+      LoggingSettings loggingSettings,
+      BroadcastSettings broadcastSettings) {
+    return new PluginSettings(
+        serverMode,
+        clusterSettings,
+        apiBaseUrl,
+        defaultLocale,
+        sessionExpireHours,
+        bindRequestExpireMinutes,
+        accessTokenLength,
+        deliveryBatchSize,
+        deliveryRetrySeconds,
+        orderCooldownSeconds,
+        allowSharedClaimCommand,
+        refundUndeliveredEnabled,
+        timeZone,
+        marketMaxActiveListings,
+        marketSupplySettings,
+        leaderboardSettings,
+        currencyDisplaySettings,
+        maintenanceSettings,
+        loggingSettings,
+        broadcastSettings,
+        adminBootstrapSettings,
+        embeddedWebSettings,
+        databaseSettings,
+        exchangeSettings,
+        economySettings,
+        redisSettings,
+        productSeeds);
   }
 
   private static String normalizeApiBaseUrl(String rawApiBaseUrl) {
@@ -216,6 +285,37 @@ record PluginSettings(
     return value.toString();
   }
 
+  private static Map<String, String> readBroadcastTemplates(ConfigurationSection section) {
+    Map<String, String> templates = new java.util.LinkedHashMap<>();
+    if (section == null) {
+      return templates;
+    }
+    for (String key : section.getKeys(false)) {
+      String value = section.getString(key);
+      if (value != null && !value.isBlank()) {
+        templates.put(key, value);
+      }
+    }
+    return templates;
+  }
+
+  private static String firstNonBlank(String first, String second, String fallback) {
+    if (first != null && !first.isBlank()) {
+      return first.trim();
+    }
+    if (second != null && !second.isBlank()) {
+      return second.trim();
+    }
+    return fallback;
+  }
+
+  private static String normalizeServerId(String raw, ClusterRole role) {
+    if (raw != null && !raw.isBlank()) {
+      return raw.trim();
+    }
+    return role.name().toLowerCase(Locale.ROOT);
+  }
+
   enum ServerMode {
     INTERNAL,
     EXTERNAL;
@@ -235,6 +335,34 @@ record PluginSettings(
         return INTERNAL;
       }
       return INTERNAL;
+    }
+  }
+
+  enum ClusterRole {
+    STANDALONE,
+    MASTER,
+    NODE;
+
+    static ClusterRole fromRaw(String raw) {
+      if (raw == null || raw.isBlank()) {
+        return STANDALONE;
+      }
+      String normalized = raw.trim().toLowerCase(Locale.ROOT);
+      return switch (normalized) {
+        case "master", "primary" -> MASTER;
+        case "node", "slave", "worker" -> NODE;
+        default -> STANDALONE;
+      };
+    }
+  }
+
+  record ClusterSettings(ClusterRole role, String serverId, int presenceTtlSeconds) {
+    boolean shouldStartWebApi() {
+      return role == ClusterRole.STANDALONE || role == ClusterRole.MASTER;
+    }
+
+    boolean allowUnassignedDeliveryExecution() {
+      return role == ClusterRole.STANDALONE;
     }
   }
 
@@ -311,6 +439,15 @@ record PluginSettings(
       int maxFileSizeMb,
       int maxFiles,
       int retentionDays) {
+  }
+
+  record BroadcastSettings(boolean enabled, Map<String, String> templates) {
+    String template(String key) {
+      if (templates == null || key == null) {
+        return "";
+      }
+      return templates.getOrDefault(key, "");
+    }
   }
 
   enum LogLevel {
@@ -405,7 +542,13 @@ record PluginSettings(
     }
   }
 
-  record RedisSettings(boolean enabled, String host, int port) {
+  record RedisSettings(
+      boolean enabled,
+      String host,
+      int port,
+      String password,
+      String broadcastChannel,
+      String clusterChannel) {
   }
 
   record ProductSeed(String sku, String title, CurrencyType currency, long price, String commandTemplate) {

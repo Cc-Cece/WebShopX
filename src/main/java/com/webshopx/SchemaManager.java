@@ -22,6 +22,7 @@ class SchemaManager {
     createAdminAuditLogs(connection);
     createWebSessions(connection);
     createBindRequests(connection);
+    createPlayerPresence(connection);
     createWallets(connection);
     createWalletLedger(connection);
     createRedeemCodes(connection);
@@ -29,6 +30,11 @@ class SchemaManager {
     migrateRedeemCodes(connection);
     migrateRedeemUsage(connection);
     createSchemaMeta(connection);
+    createRuntimeConfig(connection);
+    createUserVisualPermissions(connection);
+    migrateUserVisualPermissions(connection);
+    createMaterialVisualOverrides(connection);
+    migrateMaterialVisualOverrides(connection);
     createProducts(connection);
     migrateProducts(connection);
     createProductUserUsage(connection);
@@ -188,6 +194,23 @@ class SchemaManager {
     execute(connection, sql);
   }
 
+  private void createPlayerPresence(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS player_presence (
+          mc_uuid CHAR(36) NOT NULL,
+          username VARCHAR(32) NOT NULL,
+          server_id VARCHAR(64) NOT NULL,
+          online BOOLEAN NOT NULL DEFAULT FALSE,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (mc_uuid),
+          KEY idx_player_presence_server_online (server_id, online, updated_at),
+          KEY idx_player_presence_online_updated (online, updated_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
   private void createWallets(Connection connection) throws SQLException {
     String sql = """
         CREATE TABLE IF NOT EXISTS wallets (
@@ -276,6 +299,109 @@ class SchemaManager {
     execute(connection, sql);
   }
 
+  private void createRuntimeConfig(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS runtime_config (
+          config_key VARCHAR(64) NOT NULL,
+          config_value LONGTEXT NOT NULL,
+          version BIGINT NOT NULL DEFAULT 1,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (config_key)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void createUserVisualPermissions(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS user_visual_permissions (
+          user_id BIGINT NOT NULL,
+          icon_permission VARCHAR(16) NOT NULL DEFAULT 'INHERIT',
+          name_permission VARCHAR(16) NOT NULL DEFAULT 'INHERIT',
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (user_id),
+          CONSTRAINT fk_user_visual_permissions_user
+            FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void migrateUserVisualPermissions(Connection connection) throws SQLException {
+    if (!columnExists(connection, "user_visual_permissions", "icon_permission")) {
+      execute(
+          connection,
+          "ALTER TABLE user_visual_permissions "
+              + "ADD COLUMN icon_permission VARCHAR(16) NOT NULL DEFAULT 'INHERIT' AFTER user_id");
+    }
+    if (!columnExists(connection, "user_visual_permissions", "name_permission")) {
+      execute(
+          connection,
+          "ALTER TABLE user_visual_permissions "
+              + "ADD COLUMN name_permission VARCHAR(16) NOT NULL DEFAULT 'INHERIT' AFTER icon_permission");
+    }
+    execute(
+        connection,
+        "UPDATE user_visual_permissions SET icon_permission = 'INHERIT' "
+            + "WHERE icon_permission IS NULL OR icon_permission = ''");
+    execute(
+        connection,
+        "UPDATE user_visual_permissions SET name_permission = 'INHERIT' "
+            + "WHERE name_permission IS NULL OR name_permission = ''");
+  }
+
+  private void createMaterialVisualOverrides(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS material_visual_overrides (
+          material_key VARCHAR(64) NOT NULL,
+          display_name_override VARCHAR(128) NULL,
+          icon_path VARCHAR(255) NULL,
+          updated_by VARCHAR(64) NULL,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (material_key),
+          KEY idx_material_visual_updated (updated_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void migrateMaterialVisualOverrides(Connection connection) throws SQLException {
+    if (!columnExists(connection, "material_visual_overrides", "display_name_override")) {
+      execute(
+          connection,
+          "ALTER TABLE material_visual_overrides "
+              + "ADD COLUMN display_name_override VARCHAR(128) NULL AFTER material_key");
+    }
+    if (!columnExists(connection, "material_visual_overrides", "icon_path")) {
+      if (columnExists(connection, "material_visual_overrides", "icon_file_name")) {
+        execute(
+            connection,
+            "ALTER TABLE material_visual_overrides "
+                + "CHANGE COLUMN icon_file_name icon_path VARCHAR(255) NULL");
+      } else {
+        execute(
+            connection,
+            "ALTER TABLE material_visual_overrides "
+                + "ADD COLUMN icon_path VARCHAR(255) NULL AFTER display_name_override");
+      }
+    }
+    if (!columnExists(connection, "material_visual_overrides", "updated_by")) {
+      execute(
+          connection,
+          "ALTER TABLE material_visual_overrides "
+              + "ADD COLUMN updated_by VARCHAR(64) NULL AFTER icon_path");
+    }
+    if (!indexExists(connection, "material_visual_overrides", "idx_material_visual_updated")) {
+      execute(
+          connection,
+          "ALTER TABLE material_visual_overrides "
+              + "ADD INDEX idx_material_visual_updated (updated_at)");
+    }
+  }
+
   private void migrateRedeemCodes(Connection connection) throws SQLException {
     if (!columnExists(connection, "redeem_codes", "per_user_max_uses")) {
       execute(
@@ -310,6 +436,8 @@ class SchemaManager {
           product_type VARCHAR(24) NOT NULL DEFAULT 'COMMAND',
           command_template TEXT NOT NULL,
           item_material VARCHAR(64) NULL,
+          display_name_override VARCHAR(128) NULL,
+          display_material VARCHAR(64) NULL,
           item_amount INT NULL,
           stock_remaining INT NULL,
           per_user_limit INT NULL,
@@ -355,6 +483,18 @@ class SchemaManager {
           connection,
           "ALTER TABLE products "
               + "ADD COLUMN item_material VARCHAR(64) NULL AFTER command_template");
+    }
+    if (!columnExists(connection, "products", "display_name_override")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN display_name_override VARCHAR(128) NULL AFTER item_material");
+    }
+    if (!columnExists(connection, "products", "display_material")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN display_material VARCHAR(64) NULL AFTER display_name_override");
     }
     if (!columnExists(connection, "products", "item_amount")) {
       execute(
@@ -522,6 +662,7 @@ class SchemaManager {
           total_amount BIGINT NOT NULL,
           status VARCHAR(24) NOT NULL,
           idempotency_key VARCHAR(96) NOT NULL,
+          target_server_id VARCHAR(64) NULL,
           claim_token VARCHAR(64) NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           refund_deadline DATETIME NULL,
@@ -532,6 +673,7 @@ class SchemaManager {
           UNIQUE KEY uniq_orders_idempotency (user_id, idempotency_key),
           UNIQUE KEY uniq_orders_claim_token (claim_token),
           KEY idx_orders_user_id (user_id),
+          KEY idx_orders_target_server (target_server_id, status, created_at),
           CONSTRAINT fk_orders_user_id
             FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -555,10 +697,20 @@ class SchemaManager {
           connection,
           "ALTER TABLE orders ADD COLUMN claim_token VARCHAR(64) NULL AFTER idempotency_key");
     }
+    if (!columnExists(connection, "orders", "target_server_id")) {
+      execute(
+          connection,
+          "ALTER TABLE orders ADD COLUMN target_server_id VARCHAR(64) NULL AFTER idempotency_key");
+    }
     if (!indexExists(connection, "orders", "uniq_orders_claim_token")) {
       execute(
           connection,
           "ALTER TABLE orders ADD UNIQUE KEY uniq_orders_claim_token (claim_token)");
+    }
+    if (!indexExists(connection, "orders", "idx_orders_target_server")) {
+      execute(
+          connection,
+          "ALTER TABLE orders ADD INDEX idx_orders_target_server (target_server_id, status, created_at)");
     }
   }
 
@@ -588,6 +740,7 @@ class SchemaManager {
           order_id BIGINT NOT NULL,
           item_id BIGINT NOT NULL,
           mc_uuid CHAR(36) NOT NULL,
+          target_server_id VARCHAR(64) NULL,
           command_text TEXT NOT NULL,
           delivery_kind VARCHAR(24) NOT NULL DEFAULT 'COMMAND',
           payload_json JSON NULL,
@@ -603,6 +756,7 @@ class SchemaManager {
           PRIMARY KEY (id),
           UNIQUE KEY uniq_delivery_order_item (order_id, item_id),
           KEY idx_delivery_due (status, next_retry_at),
+          KEY idx_delivery_target_due (target_server_id, status, next_retry_at),
           KEY idx_delivery_claim (mc_uuid, status, created_at),
           CONSTRAINT fk_delivery_order_id
             FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
@@ -614,6 +768,12 @@ class SchemaManager {
   }
 
   private void migrateDeliveryQueue(Connection connection) throws SQLException {
+    if (!columnExists(connection, "delivery_queue", "target_server_id")) {
+      execute(
+          connection,
+          "ALTER TABLE delivery_queue "
+              + "ADD COLUMN target_server_id VARCHAR(64) NULL AFTER mc_uuid");
+    }
     if (!columnExists(connection, "delivery_queue", "delivery_kind")) {
       execute(
           connection,
@@ -644,6 +804,12 @@ class SchemaManager {
           "ALTER TABLE delivery_queue "
               + "ADD INDEX idx_delivery_claim (mc_uuid, status, created_at)");
     }
+    if (!indexExists(connection, "delivery_queue", "idx_delivery_target_due")) {
+      execute(
+          connection,
+          "ALTER TABLE delivery_queue "
+              + "ADD INDEX idx_delivery_target_due (target_server_id, status, next_retry_at)");
+    }
     execute(
         connection,
         "UPDATE orders o "
@@ -668,6 +834,8 @@ class SchemaManager {
           quantity INT NOT NULL,
           quantity_total INT NOT NULL DEFAULT 0,
           item_material VARCHAR(64) NOT NULL,
+          display_name_override VARCHAR(128) NULL,
+          display_material VARCHAR(64) NULL,
           raw_item_blob LONGBLOB NOT NULL,
           item_meta_json JSON NOT NULL,
           remark TEXT NULL,
@@ -717,6 +885,18 @@ class SchemaManager {
           connection,
           "ALTER TABLE market_listings "
               + "ADD COLUMN remark TEXT NULL AFTER item_meta_json");
+    }
+    if (!columnExists(connection, "market_listings", "display_name_override")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN display_name_override VARCHAR(128) NULL AFTER item_material");
+    }
+    if (!columnExists(connection, "market_listings", "display_material")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN display_material VARCHAR(64) NULL AFTER display_name_override");
     }
     if (!columnExists(connection, "market_listings", "quantity_total")) {
       execute(
@@ -1241,6 +1421,7 @@ class SchemaManager {
           trade_id BIGINT NULL,
           target_user_id BIGINT NOT NULL,
           target_uuid CHAR(36) NOT NULL,
+          target_server_id VARCHAR(64) NULL,
           item_blob LONGBLOB NOT NULL,
           quantity INT NOT NULL,
           delivery_type VARCHAR(16) NOT NULL,
@@ -1255,6 +1436,7 @@ class SchemaManager {
           KEY idx_market_delivery_trade_type (trade_id, delivery_type),
           KEY idx_market_delivery_listing_type (listing_id, delivery_type),
           KEY idx_market_delivery_due (status, next_retry_at),
+          KEY idx_market_delivery_target_due (target_server_id, status, next_retry_at),
           KEY idx_market_delivery_claim (target_uuid, status, created_at),
           CONSTRAINT fk_market_delivery_listing
             FOREIGN KEY (listing_id) REFERENCES market_listings(id) ON DELETE CASCADE,
@@ -1273,6 +1455,12 @@ class SchemaManager {
           connection,
           "ALTER TABLE market_item_deliveries "
               + "ADD COLUMN trade_id BIGINT NULL AFTER listing_id");
+    }
+    if (!columnExists(connection, "market_item_deliveries", "target_server_id")) {
+      execute(
+          connection,
+          "ALTER TABLE market_item_deliveries "
+              + "ADD COLUMN target_server_id VARCHAR(64) NULL AFTER target_uuid");
     }
     if (!columnExists(connection, "market_item_deliveries", "claimed_at")) {
       execute(
@@ -1300,6 +1488,12 @@ class SchemaManager {
           connection,
           "ALTER TABLE market_item_deliveries "
               + "ADD INDEX idx_market_delivery_claim (target_uuid, status, created_at)");
+    }
+    if (!indexExists(connection, "market_item_deliveries", "idx_market_delivery_target_due")) {
+      execute(
+          connection,
+          "ALTER TABLE market_item_deliveries "
+              + "ADD INDEX idx_market_delivery_target_due (target_server_id, status, next_retry_at)");
     }
 
     execute(

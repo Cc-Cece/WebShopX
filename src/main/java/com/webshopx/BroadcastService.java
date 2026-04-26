@@ -44,13 +44,14 @@ class BroadcastService {
         redisBridge.close();
         redisBridge = null;
       }
-      if (!settingsSupplier.get().redisSettings().enabled()) {
+      PluginSettings.RedisSettings redisSettings = settingsSupplier.get().redisSettings();
+      if (!redisSettings.enabled()) {
         return;
       }
-      String host = plugin.getConfig().getString("redis.host", "127.0.0.1");
-      int port = plugin.getConfig().getInt("redis.port", 6379);
-      String password = plugin.getConfig().getString("redis.password", "");
-      String channel = plugin.getConfig().getString("redis.channel", "webshopx:market:broadcast");
+      String host = redisSettings.host();
+      int port = redisSettings.port();
+      String password = redisSettings.password();
+      String channel = redisSettings.broadcastChannel();
       if (channel == null || channel.isBlank()) {
         plugin.getLogger().warning("Redis channel is empty, skip cross-server broadcast.");
         return;
@@ -77,7 +78,7 @@ class BroadcastService {
     if (!isBroadcastEnabled()) {
       return;
     }
-    String template = plugin.getConfig().getString(TEMPLATE_PREFIX + templateKey, "");
+    String template = settingsSupplier.get().broadcastSettings().template(templateKey);
     if (template == null || template.isBlank()) {
       return;
     }
@@ -102,7 +103,8 @@ class BroadcastService {
   }
 
   private boolean isBroadcastEnabled() {
-    return plugin.getConfig().getBoolean("webshop.broadcast.enabled", true);
+    PluginSettings.BroadcastSettings settings = settingsSupplier.get().broadcastSettings();
+    return settings != null && settings.enabled();
   }
 
   private String applyTemplate(String template, Map<String, ?> placeholders) {

@@ -9,6 +9,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -17,12 +18,16 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -43,7 +48,14 @@ class EmbeddedWebServer {
   private final AdminService adminService;
   private final AdminAuditService adminAuditService;
   private final LeaderboardService leaderboardService;
+  private final MaterialVisualService materialVisualService;
+  private final VisualCustomizationService visualCustomizationService;
+  private final RuntimeConfigService runtimeConfigService;
+  private final ClusterEventBusService clusterEventBusService;
   private final Gson gson;
+  private static final int MATERIAL_ICON_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
+  private static final Set<String> MATERIAL_ICON_ALLOWED_EXTENSIONS =
+      Set.of("png", "webp", "jpg", "jpeg", "gif");
 
   private HttpServer server;
   private ExecutorService executorService;
@@ -61,7 +73,11 @@ class EmbeddedWebServer {
       NotificationService notificationService,
       AdminService adminService,
       AdminAuditService adminAuditService,
-      LeaderboardService leaderboardService) {
+      LeaderboardService leaderboardService,
+      MaterialVisualService materialVisualService,
+      VisualCustomizationService visualCustomizationService,
+      RuntimeConfigService runtimeConfigService,
+      ClusterEventBusService clusterEventBusService) {
     this.plugin = plugin;
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
@@ -74,6 +90,10 @@ class EmbeddedWebServer {
     this.adminService = adminService;
     this.adminAuditService = adminAuditService;
     this.leaderboardService = leaderboardService;
+    this.materialVisualService = materialVisualService;
+    this.visualCustomizationService = visualCustomizationService;
+    this.runtimeConfigService = runtimeConfigService;
+    this.clusterEventBusService = clusterEventBusService;
     this.gson = new GsonBuilder().disableHtmlEscaping().create();
   }
 
@@ -106,6 +126,7 @@ class EmbeddedWebServer {
     server.createContext("/api/notifications/mark-read", this::handleNotificationsMarkRead);
     server.createContext("/api/meta/currency", this::handleCurrencyMeta);
     server.createContext("/api/meta/materials", this::handleMaterialMeta);
+    server.createContext("/api/meta/material-overrides", this::handleMaterialOverrideMeta);
     server.createContext("/api/leaderboard/config", this::handleLeaderboardConfig);
     server.createContext("/api/leaderboard/list", this::handleLeaderboardList);
     server.createContext("/api/market/listings", this::handleMarketListings);
@@ -133,6 +154,17 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/economy/exchange", this::handleAdminExchangeUpdate);
     server.createContext("/api/admin/economy/market", this::handleAdminMarketEconomyUpdate);
     server.createContext("/api/admin/economy/leaderboard", this::handleAdminLeaderboardSettingsUpdate);
+    server.createContext("/api/admin/economy/currency", this::handleAdminCurrencyDisplayUpdate);
+    server.createContext("/api/admin/system/webshop", this::handleAdminWebshopRuntimeUpdate);
+    server.createContext("/api/admin/system/market", this::handleAdminMarketRuntimeUpdate);
+    server.createContext("/api/admin/system/maintenance", this::handleAdminMaintenanceSettingsUpdate);
+    server.createContext("/api/admin/system/logging", this::handleAdminLoggingSettingsUpdate);
+    server.createContext("/api/admin/system/broadcast", this::handleAdminBroadcastSettingsUpdate);
+    server.createContext("/api/admin/visual/settings", this::handleAdminVisualSettingsUpdate);
+    server.createContext("/api/admin/material-overrides/list", this::handleAdminMaterialOverridesList);
+    server.createContext("/api/admin/material-overrides/upsert", this::handleAdminMaterialOverridesUpsert);
+    server.createContext("/api/admin/material-overrides/delete", this::handleAdminMaterialOverridesDelete);
+    server.createContext("/api/admin/material-overrides/icon", this::handleAdminMaterialOverrideIconUpload);
     server.createContext("/api/admin/market/listings", this::handleAdminMarketListings);
     server.createContext("/api/admin/market/unlist", this::handleAdminMarketUnlist);
     server.createContext("/api/admin/users/lookup", this::handleAdminUserLookup);
@@ -141,6 +173,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/users/unbind", this::handleAdminUnbind);
     server.createContext("/api/admin/users/logout", this::handleAdminForceLogout);
     server.createContext("/api/admin/users/wallet-adjust", this::handleAdminWalletAdjust);
+    server.createContext("/api/admin/users/visual-permission", this::handleAdminUserVisualPermission);
     server.createContext("/api/admin/audit/list", this::handleAdminAuditList);
     server.createContext("/api/admin/notifications/announce", this::handleAdminNotificationAnnounce);
     server.createContext("/api/admin/admin-users/meta", this::handleAdminUsersMeta);
@@ -724,6 +757,21 @@ class EmbeddedWebServer {
     });
   }
 
+  private void handleMaterialOverrideMeta(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject response = new JsonObject();
+      response.add("overrides", materialOverrideListJson(materialVisualService.listAll()));
+      response.add("policy", visualSettingsJson(visualCustomizationService.readSettings()));
+      sendJson(exchange, 200, response);
+    });
+  }
+
   private void handleLeaderboardConfig(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
       return;
@@ -818,6 +866,90 @@ class EmbeddedWebServer {
     return json;
   }
 
+  private JsonObject webshopRuntimeJson(PluginSettings settings) {
+    JsonObject json = new JsonObject();
+    json.addProperty("defaultLocale", settings.defaultLocale());
+    json.addProperty("sessionExpireHours", settings.sessionExpireHours());
+    json.addProperty("bindRequestExpireMinutes", settings.bindRequestExpireMinutes());
+    json.addProperty("accessTokenLength", settings.accessTokenLength());
+    json.addProperty("deliveryBatchSize", settings.deliveryBatchSize());
+    json.addProperty("deliveryRetrySeconds", settings.deliveryRetrySeconds());
+    json.addProperty("orderCooldownSeconds", settings.orderCooldownSeconds());
+    json.addProperty("allowSharedClaimCommand", settings.allowSharedClaimCommand());
+    json.addProperty("refundUndeliveredEnabled", settings.refundUndeliveredEnabled());
+    json.addProperty("timeZone", settings.timeZone().getId());
+    return json;
+  }
+
+  private JsonObject marketRuntimeJson(PluginSettings settings) {
+    JsonObject json = new JsonObject();
+    json.addProperty("marketMaxActiveListings", settings.marketMaxActiveListings());
+    PluginSettings.MarketSupplySettings supply = settings.marketSupplySettings();
+    JsonObject supplyJson = new JsonObject();
+    supplyJson.addProperty("autoRefreshThreshold", supply.autoRefreshThreshold());
+    supplyJson.addProperty("defaultTransferBatchSize", supply.defaultTransferBatchSize());
+    supplyJson.addProperty("maxTransferBatchSize", supply.maxTransferBatchSize());
+    supplyJson.addProperty("defaultTransitStock", supply.defaultTransitStock());
+    supplyJson.addProperty("maxTransitStock", supply.maxTransitStock());
+    json.add("supply", supplyJson);
+    return json;
+  }
+
+  private JsonObject maintenanceSettingsJson(PluginSettings.MaintenanceSettings settings) {
+    JsonObject json = new JsonObject();
+    json.addProperty("cleanupIntervalMinutes", settings.cleanupIntervalMinutes());
+    json.addProperty("pendingBindRetentionHours", settings.pendingBindRetentionHours());
+    json.addProperty("pendingPasswordRetentionHours", settings.pendingPasswordRetentionHours());
+    json.addProperty("bindRequestRetentionHours", settings.bindRequestRetentionHours());
+    json.addProperty("redeemCodeRetentionDays", settings.redeemCodeRetentionDays());
+    return json;
+  }
+
+  private JsonObject loggingSettingsJson(PluginSettings.LoggingSettings settings) {
+    JsonObject json = new JsonObject();
+    json.addProperty("enabled", settings.enabled());
+    json.addProperty("level", settings.level().name());
+    json.addProperty("directory", settings.directory());
+    json.addProperty("maxFileSizeMb", settings.maxFileSizeMb());
+    json.addProperty("maxFiles", settings.maxFiles());
+    json.addProperty("retentionDays", settings.retentionDays());
+    return json;
+  }
+
+  private JsonObject broadcastSettingsJson(PluginSettings.BroadcastSettings settings) {
+    JsonObject json = new JsonObject();
+    json.addProperty("enabled", settings.enabled());
+    JsonObject templates = new JsonObject();
+    for (Map.Entry<String, String> entry : settings.templates().entrySet()) {
+      templates.addProperty(entry.getKey(), entry.getValue());
+    }
+    json.add("templates", templates);
+    return json;
+  }
+
+  private JsonObject visualSettingsJson(VisualCustomizationService.VisualSettings settings) {
+    VisualCustomizationService.VisualSettings normalized = settings == null
+        ? VisualCustomizationService.VisualSettings.defaults()
+        : settings;
+    JsonObject json = new JsonObject();
+    json.addProperty("globalCustomIconEnabled", normalized.globalCustomIconEnabled());
+    json.addProperty("globalCustomNameEnabled", normalized.globalCustomNameEnabled());
+    json.addProperty("iconPolicyMode", normalized.iconPolicyMode().name());
+    json.addProperty("namePolicyMode", normalized.namePolicyMode().name());
+    return json;
+  }
+
+  private JsonObject userVisualPermissionJson(VisualCustomizationService.ResolvedPermission resolved) {
+    JsonObject json = new JsonObject();
+    json.addProperty("userId", resolved.userId());
+    json.addProperty("iconPermission", resolved.iconPermission().name());
+    json.addProperty("namePermission", resolved.namePermission().name());
+    json.addProperty("customIconAllowed", resolved.customIconAllowed());
+    json.addProperty("customNameAllowed", resolved.customNameAllowed());
+    json.add("settings", visualSettingsJson(resolved.settings()));
+    return json;
+  }
+
   private void handleMarketListings(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
       return;
@@ -874,6 +1006,16 @@ class EmbeddedWebServer {
         row.addProperty("quantity", listing.quantity());
         row.addProperty("quantityTotal", listing.quantityTotal());
         row.addProperty("itemMaterial", listing.itemMaterial());
+        if (listing.displayNameOverride() == null) {
+          row.add("displayNameOverride", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("displayNameOverride", listing.displayNameOverride());
+        }
+        if (listing.displayMaterial() == null) {
+          row.add("displayMaterial", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("displayMaterial", listing.displayMaterial());
+        }
         row.addProperty("itemMetaJson", listing.itemMetaJson());
         if (listing.remark() == null) {
           row.add("remark", JsonNull.INSTANCE);
@@ -1206,6 +1348,12 @@ class EmbeddedWebServer {
       long price = getLong(payload, "price", 0L);
       CurrencyType currency = CurrencyType.fromConfig(getString(payload, "currency"));
       String remark = getOptionalString(payload, "remark").orElse(null);
+      String displayNameOverride = payload.has("displayNameOverride")
+          ? getOptionalString(payload, "displayNameOverride").orElse(null)
+          : null;
+      String displayMaterial = payload.has("displayMaterial")
+          ? getOptionalString(payload, "displayMaterial").orElse(null)
+          : null;
       Integer supplyBatchSize = payload.has("supplyBatchSize") && !payload.get("supplyBatchSize").isJsonNull()
           ? (int) getLong(payload, "supplyBatchSize", 0L)
           : null;
@@ -1252,12 +1400,32 @@ class EmbeddedWebServer {
           ? getLong(payload, "auctionMinIncrement", 0L)
           : null;
         LocalDateTime auctionEndAt = getOptionalDateTime(payload, "auctionEndAt");
+
+      boolean wantsCustomName = displayNameOverride != null && !displayNameOverride.isBlank();
+      boolean wantsCustomIcon = displayMaterial != null && !displayMaterial.isBlank();
+      if (wantsCustomName || wantsCustomIcon) {
+        VisualCustomizationService.ResolvedPermission permission =
+            visualCustomizationService.resolvePermission(user.id());
+        if (wantsCustomName && !permission.customNameAllowed()) {
+          throw new ServiceException(
+              "forbidden",
+              "Custom listing name is disabled by current visual customization policy");
+        }
+        if (wantsCustomIcon && !permission.customIconAllowed()) {
+          throw new ServiceException(
+              "forbidden",
+              "Custom listing icon is disabled by current visual customization policy");
+        }
+      }
+
       MarketService.ListingSettingsUpdateResult result = marketService.updateListingSettings(
           user.id(),
           listingId,
           price,
           currency,
           remark,
+          displayNameOverride,
+          displayMaterial,
           supplyBatchSize,
           supplyMaxStock,
           tradeMode,
@@ -1298,6 +1466,16 @@ class EmbeddedWebServer {
         response.add("remark", JsonNull.INSTANCE);
       } else {
         response.addProperty("remark", result.remark());
+      }
+      if (result.displayNameOverride() == null) {
+        response.add("displayNameOverride", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("displayNameOverride", result.displayNameOverride());
+      }
+      if (result.displayMaterial() == null) {
+        response.add("displayMaterial", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("displayMaterial", result.displayMaterial());
       }
       if (result.supplyBatchSize() == null) {
         response.add("supplyBatchSize", JsonNull.INSTANCE);
@@ -1622,6 +1800,8 @@ class EmbeddedWebServer {
           getOptionalString(payload, "productType").orElse("COMMAND"),
           getOptionalString(payload, "commandTemplate").orElse(""),
           getOptionalString(payload, "itemMaterial").orElse(null),
+          getOptionalString(payload, "displayNameOverride").orElse(null),
+          getOptionalString(payload, "displayMaterial").orElse(null),
           payload.has("itemAmount") && !payload.get("itemAmount").isJsonNull()
               ? (int) getLong(payload, "itemAmount", 0L)
               : null,
@@ -1797,6 +1977,12 @@ class EmbeddedWebServer {
       response.add("currency", currencyJson);
       response.add("vault", vaultJson);
       response.add("leaderboard", leaderboardSettingsJson(settings));
+      response.add("webshopRuntime", webshopRuntimeJson(settings));
+      response.add("marketRuntime", marketRuntimeJson(settings));
+      response.add("maintenance", maintenanceSettingsJson(settings.maintenanceSettings()));
+      response.add("logging", loggingSettingsJson(settings.loggingSettings()));
+      response.add("broadcast", broadcastSettingsJson(settings.broadcastSettings()));
+      response.add("visual", visualSettingsJson(visualCustomizationService.readSettings()));
       sendJson(exchange, 200, response);
 
       adminAuditService.log(admin, "ECONOMY_READ", "economy", null, null, clientIp(exchange));
@@ -1815,16 +2001,14 @@ class EmbeddedWebServer {
       AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
 
       boolean shopEnabled = getBoolean(payload, "shopToGameEnabled");
-      double shopRatio = getDouble(payload, "shopToGameRatio");
+      double shopRatio = Math.max(0.0, getDouble(payload, "shopToGameRatio"));
       boolean gameEnabled = getBoolean(payload, "gameToShopEnabled");
-      double gameRatio = getDouble(payload, "gameToShopRatio");
-
-      updateConfig(config -> {
-        config.set("exchange.shopcoin-to-gamecoin.enabled", shopEnabled);
-        config.set("exchange.shopcoin-to-gamecoin.ratio", Math.max(0.0, shopRatio));
-        config.set("exchange.gamecoin-to-shopcoin.enabled", gameEnabled);
-        config.set("exchange.gamecoin-to-shopcoin.ratio", Math.max(0.0, gameRatio));
-      });
+      double gameRatio = Math.max(0.0, getDouble(payload, "gameToShopRatio"));
+      PluginSettings.ExchangeSettings exchangeSettings = new PluginSettings.ExchangeSettings(
+          new PluginSettings.ExchangeDirection(shopEnabled, shopRatio),
+          new PluginSettings.ExchangeDirection(gameEnabled, gameRatio));
+      long version = runtimeConfigService.updateExchange(exchangeSettings);
+      publishRuntimeConfigRefresh(version);
 
       JsonObject detail = new JsonObject();
       detail.addProperty("shopToGameEnabled", shopEnabled);
@@ -1849,13 +2033,12 @@ class EmbeddedWebServer {
     withServiceHandling(exchange, () -> {
       JsonObject payload = readJson(exchange);
       AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
-      double fee = getDouble(payload, "tradeFeePercent");
-      double tax = getDouble(payload, "tradeTaxPercent");
-
-      updateConfig(config -> {
-        config.set("economy.market.trade-fee-percent", clampPercent(fee));
-        config.set("economy.market.trade-tax-percent", clampPercent(tax));
-      });
+      double fee = clampPercent(getDouble(payload, "tradeFeePercent"));
+      double tax = clampPercent(getDouble(payload, "tradeTaxPercent"));
+      PluginSettings.MarketEconomySettings marketEconomySettings =
+          new PluginSettings.MarketEconomySettings(fee, tax);
+      long version = runtimeConfigService.updateMarketEconomy(marketEconomySettings);
+      publishRuntimeConfigRefresh(version);
 
       JsonObject detail = new JsonObject();
       detail.addProperty("tradeFeePercent", fee);
@@ -1884,15 +2067,15 @@ class EmbeddedWebServer {
       String defaultMetric = getString(payload, "defaultMetric");
       String defaultOrder = getString(payload, "defaultOrder");
 
-      PluginSettings.LeaderboardMetric.fromRaw(defaultMetric);
-      PluginSettings.SortDirection.fromRaw(defaultOrder);
-
-      updateConfig(config -> {
-        config.set("webshop.leaderboard.enabled", enabled);
-        config.set("webshop.leaderboard.show-online-status", showOnlineStatus);
-        config.set("webshop.leaderboard.default-metric", defaultMetric.trim().toUpperCase(Locale.ROOT));
-        config.set("webshop.leaderboard.default-order", defaultOrder.trim().toUpperCase(Locale.ROOT));
-      });
+      PluginSettings.LeaderboardMetric metric = PluginSettings.LeaderboardMetric.fromRaw(defaultMetric);
+      PluginSettings.SortDirection order = PluginSettings.SortDirection.fromRaw(defaultOrder);
+      PluginSettings.LeaderboardSettings leaderboardSettings = new PluginSettings.LeaderboardSettings(
+          enabled,
+          showOnlineStatus,
+          metric,
+          order);
+      long version = runtimeConfigService.updateLeaderboard(leaderboardSettings);
+      publishRuntimeConfigRefresh(version);
 
       JsonObject detail = new JsonObject();
       detail.addProperty("enabled", enabled);
@@ -1904,6 +2087,488 @@ class EmbeddedWebServer {
       JsonObject response = new JsonObject();
       response.addProperty("status", "ok");
       sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminCurrencyDisplayUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+
+      String shopCoinName = getString(payload, "shopCoinName");
+      String shopCoinShort = getString(payload, "shopCoinShort");
+      String gameCoinName = getString(payload, "gameCoinName");
+      String gameCoinShort = getString(payload, "gameCoinShort");
+
+      String normalizedShopCoinName = normalizeCurrencyField(shopCoinName, "shopCoinName", 24);
+      String normalizedShopCoinShort = normalizeCurrencyField(shopCoinShort, "shopCoinShort", 12);
+      String normalizedGameCoinName = normalizeCurrencyField(gameCoinName, "gameCoinName", 24);
+      String normalizedGameCoinShort = normalizeCurrencyField(gameCoinShort, "gameCoinShort", 12);
+
+      PluginSettings.CurrencyDisplaySettings currencyDisplaySettings = new PluginSettings.CurrencyDisplaySettings(
+          normalizedShopCoinName,
+          normalizedShopCoinShort,
+          normalizedGameCoinName,
+          normalizedGameCoinShort);
+      long version = runtimeConfigService.updateCurrencyDisplay(currencyDisplaySettings);
+      publishRuntimeConfigRefresh(version);
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("shopCoinName", normalizedShopCoinName);
+      detail.addProperty("shopCoinShort", normalizedShopCoinShort);
+      detail.addProperty("gameCoinName", normalizedGameCoinName);
+      detail.addProperty("gameCoinShort", normalizedGameCoinShort);
+      adminAuditService.log(admin, "CURRENCY_DISPLAY_UPDATE", "currency", null, detail, clientIp(exchange));
+
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminWebshopRuntimeUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+
+      String defaultLocale = readLocaleField(getString(payload, "defaultLocale"), "defaultLocale");
+      int sessionExpireHours = clampInt(getLong(payload, "sessionExpireHours", 72L), 1, 24 * 365, "sessionExpireHours");
+      int bindRequestExpireMinutes = clampInt(
+          getLong(payload, "bindRequestExpireMinutes", 15L), 1, 24 * 60 * 30, "bindRequestExpireMinutes");
+      int accessTokenLength = clampInt(getLong(payload, "accessTokenLength", 48L), 16, 256, "accessTokenLength");
+      int deliveryBatchSize = clampInt(getLong(payload, "deliveryBatchSize", 20L), 1, 1000, "deliveryBatchSize");
+      int deliveryRetrySeconds = clampInt(getLong(payload, "deliveryRetrySeconds", 30L), 5, 86400, "deliveryRetrySeconds");
+      int orderCooldownSeconds = clampInt(getLong(payload, "orderCooldownSeconds", 15L), 0, 86400, "orderCooldownSeconds");
+      boolean allowSharedClaimCommand = getBoolean(payload, "allowSharedClaimCommand");
+      boolean refundUndeliveredEnabled = getBoolean(payload, "refundUndeliveredEnabled");
+      ZoneId timeZone = readTimeZoneField(getString(payload, "timeZone"), "timeZone");
+
+      RuntimeConfigService.RuntimeSettingsUpdate update = new RuntimeConfigService.RuntimeSettingsUpdate(
+          defaultLocale,
+          sessionExpireHours,
+          bindRequestExpireMinutes,
+          accessTokenLength,
+          deliveryBatchSize,
+          deliveryRetrySeconds,
+          orderCooldownSeconds,
+          allowSharedClaimCommand,
+          refundUndeliveredEnabled,
+          timeZone);
+      long version = runtimeConfigService.updateWebshopRuntime(update);
+      publishRuntimeConfigRefresh(version);
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("defaultLocale", defaultLocale);
+      detail.addProperty("timeZone", timeZone.getId());
+      detail.addProperty("deliveryBatchSize", deliveryBatchSize);
+      detail.addProperty("deliveryRetrySeconds", deliveryRetrySeconds);
+      detail.addProperty("orderCooldownSeconds", orderCooldownSeconds);
+      adminAuditService.log(admin, "WEBSHOP_RUNTIME_UPDATE", "webshop_runtime", null, detail, clientIp(exchange));
+
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminMarketRuntimeUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      int marketMaxActiveListings = clampInt(
+          getLong(payload, "marketMaxActiveListings", 10L), 1, 1000, "marketMaxActiveListings");
+      PluginSettings.MarketSupplySettings supplySettings = new PluginSettings.MarketSupplySettings(
+          clampInt(getLong(payload, "autoRefreshThreshold", 8L), 0, 4096, "autoRefreshThreshold"),
+          clampInt(getLong(payload, "defaultTransferBatchSize", 64L), 1, 4096, "defaultTransferBatchSize"),
+          clampInt(getLong(payload, "maxTransferBatchSize", 256L), 1, 4096, "maxTransferBatchSize"),
+          clampInt(getLong(payload, "defaultTransitStock", 256L), 1, 65535, "defaultTransitStock"),
+          clampInt(getLong(payload, "maxTransitStock", 1024L), 1, 65535, "maxTransitStock"));
+      long version = runtimeConfigService.updateMarketRuntime(marketMaxActiveListings, supplySettings);
+      publishRuntimeConfigRefresh(version);
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("marketMaxActiveListings", marketMaxActiveListings);
+      adminAuditService.log(admin, "MARKET_RUNTIME_UPDATE", "market_runtime", null, detail, clientIp(exchange));
+
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminMaintenanceSettingsUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      PluginSettings.MaintenanceSettings maintenanceSettings = new PluginSettings.MaintenanceSettings(
+          clampInt(getLong(payload, "cleanupIntervalMinutes", 30L), 0, 10080, "cleanupIntervalMinutes"),
+          clampInt(getLong(payload, "pendingBindRetentionHours", 6L), 1, 24 * 365, "pendingBindRetentionHours"),
+          clampInt(getLong(payload, "pendingPasswordRetentionHours", 6L), 1, 24 * 365, "pendingPasswordRetentionHours"),
+          clampInt(getLong(payload, "bindRequestRetentionHours", 24L), 1, 24 * 365, "bindRequestRetentionHours"),
+          clampInt(getLong(payload, "redeemCodeRetentionDays", 7L), 1, 3650, "redeemCodeRetentionDays"));
+      long version = runtimeConfigService.updateMaintenance(maintenanceSettings);
+      publishRuntimeConfigRefresh(version);
+
+      adminAuditService.log(admin, "MAINTENANCE_UPDATE", "maintenance", null, maintenanceSettingsJson(maintenanceSettings), clientIp(exchange));
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminLoggingSettingsUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      PluginSettings.LoggingSettings loggingSettings = new PluginSettings.LoggingSettings(
+          getBoolean(payload, "enabled"),
+          PluginSettings.LogLevel.fromRaw(getString(payload, "level")),
+          normalizeLogDirectory(getString(payload, "directory")),
+          clampInt(getLong(payload, "maxFileSizeMb", 8L), 1, 1024, "maxFileSizeMb"),
+          clampInt(getLong(payload, "maxFiles", 8L), 1, 128, "maxFiles"),
+          clampInt(getLong(payload, "retentionDays", 14L), 0, 3650, "retentionDays"));
+      long version = runtimeConfigService.updateLogging(loggingSettings);
+      publishRuntimeConfigRefresh(version);
+
+      adminAuditService.log(admin, "LOGGING_UPDATE", "logging", null, loggingSettingsJson(loggingSettings), clientIp(exchange));
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminBroadcastSettingsUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      Map<String, String> templates = new LinkedHashMap<>();
+      templates.put("listing-created", getString(payload, "listingCreatedTemplate"));
+      templates.put("trade-success", getString(payload, "tradeSuccessTemplate"));
+      templates.put("auction-bid", getString(payload, "auctionBidTemplate"));
+      templates.put("auction-sealed-bid", getString(payload, "auctionSealedBidTemplate"));
+      PluginSettings.BroadcastSettings broadcastSettings =
+          new PluginSettings.BroadcastSettings(getBoolean(payload, "enabled"), templates);
+      long version = runtimeConfigService.updateBroadcast(broadcastSettings);
+      publishRuntimeConfigRefresh(version);
+
+      adminAuditService.log(admin, "BROADCAST_UPDATE", "broadcast", null, broadcastSettingsJson(broadcastSettings), clientIp(exchange));
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminVisualSettingsUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    String method = exchange.getRequestMethod();
+    if (method.equalsIgnoreCase("GET")) {
+      withServiceHandling(exchange, () -> {
+        requireAdmin(exchange, null, AdminPermission.ECONOMY_MANAGE);
+        JsonObject response = new JsonObject();
+        response.add("visual", visualSettingsJson(visualCustomizationService.readSettings()));
+        sendJson(exchange, 200, response);
+      });
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      VisualCustomizationService.VisualSettings settings = new VisualCustomizationService.VisualSettings(
+          getBoolean(payload, "globalCustomIconEnabled"),
+          getBoolean(payload, "globalCustomNameEnabled"),
+          VisualCustomizationService.VisualPolicyMode.fromRaw(
+              getOptionalString(payload, "iconPolicyMode").orElse("SOFT")),
+          VisualCustomizationService.VisualPolicyMode.fromRaw(
+              getOptionalString(payload, "namePolicyMode").orElse("SOFT")));
+      long version = visualCustomizationService.updateSettings(settings);
+      publishRuntimeConfigRefresh(version);
+
+      JsonObject detail = visualSettingsJson(settings);
+      adminAuditService.log(admin, "VISUAL_SETTINGS_UPDATE", "visual_settings", null, detail, clientIp(exchange));
+
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      response.add("visual", visualSettingsJson(settings));
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminUserVisualPermission(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    String method = exchange.getRequestMethod();
+    if (method.equalsIgnoreCase("GET")) {
+      withServiceHandling(exchange, () -> {
+        requireAdmin(exchange, null, AdminPermission.USER_SUPPORT);
+        Map<String, String> query = parseQuery(exchange);
+        long userId = parseLong(query.get("userId")) == null ? -1L : parseLong(query.get("userId"));
+        if (userId <= 0L) {
+          String identifier = query.get("identifier");
+          if (identifier == null || identifier.isBlank()) {
+            throw new ServiceException("bad_request", "Missing userId or identifier");
+          }
+          userId = adminService.lookupUser(identifier.trim())
+              .map(AdminService.UserSupportView::userId)
+              .orElseThrow(() -> new ServiceException("not_found", "User not found"));
+        }
+        VisualCustomizationService.ResolvedPermission resolved =
+            visualCustomizationService.resolvePermission(userId);
+        JsonObject response = userVisualPermissionJson(resolved);
+        sendJson(exchange, 200, response);
+      });
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.USER_SUPPORT);
+      long userId = resolveUserId(payload);
+      VisualCustomizationService.VisualPermission iconPermission =
+          VisualCustomizationService.VisualPermission.fromRaw(
+              getOptionalString(payload, "iconPermission").orElse("INHERIT"));
+      VisualCustomizationService.VisualPermission namePermission =
+          VisualCustomizationService.VisualPermission.fromRaw(
+              getOptionalString(payload, "namePermission").orElse("INHERIT"));
+      visualCustomizationService.upsertUserPermission(userId, iconPermission, namePermission);
+      VisualCustomizationService.ResolvedPermission resolved =
+          visualCustomizationService.resolvePermission(userId);
+      JsonObject response = userVisualPermissionJson(resolved);
+      sendJson(exchange, 200, response);
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("userId", userId);
+      detail.addProperty("iconPermission", iconPermission.name());
+      detail.addProperty("namePermission", namePermission.name());
+      adminAuditService.log(
+          admin,
+          "USER_VISUAL_PERMISSION_UPDATE",
+          "user_visual_permission",
+          String.valueOf(userId),
+          detail,
+          clientIp(exchange));
+    });
+  }
+
+  private void handleAdminMaterialOverridesList(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AdminService.AdminUser admin = requireAdmin(exchange, null, AdminPermission.ECONOMY_MANAGE);
+      Map<String, String> query = parseQuery(exchange);
+      String keyword = query.get("keyword");
+      int limit = parseInt(query.get("limit"), 200);
+      List<MaterialVisualService.MaterialVisualEntry> entries = materialVisualService.list(keyword, limit);
+      JsonObject response = new JsonObject();
+      response.add("overrides", materialOverrideListJson(entries));
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminMaterialOverridesUpsert(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      String materialKey = normalizeMaterialField(getString(payload, "materialKey"), "materialKey");
+      MaterialVisualService.MaterialVisualEntry existing =
+          materialVisualService.findByMaterialKey(materialKey).orElse(null);
+
+      boolean hasDisplayField = payload.has("displayNameOverride");
+      String displayNameOverride = hasDisplayField
+          ? normalizeMaterialDisplayName(payload.get("displayNameOverride"))
+          : (existing == null ? null : existing.displayNameOverride());
+      boolean hasIconField = payload.has("iconPath");
+      String iconPath = hasIconField
+          ? normalizeMaterialIconPath(payload.get("iconPath"))
+          : (existing == null ? null : existing.iconPath());
+
+      if ((displayNameOverride == null || displayNameOverride.isBlank())
+          && (iconPath == null || iconPath.isBlank())) {
+        throw new ServiceException("bad_request", "Display name and icon path cannot both be empty");
+      }
+
+      MaterialVisualService.MaterialVisualEntry saved =
+          materialVisualService.upsert(materialKey, displayNameOverride, iconPath, admin.username());
+      JsonObject response = materialOverrideJson(saved);
+      sendJson(exchange, 200, response);
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("materialKey", saved.materialKey());
+      if (saved.displayNameOverride() == null) {
+        detail.add("displayNameOverride", JsonNull.INSTANCE);
+      } else {
+        detail.addProperty("displayNameOverride", saved.displayNameOverride());
+      }
+      if (saved.iconPath() == null) {
+        detail.add("iconPath", JsonNull.INSTANCE);
+      } else {
+        detail.addProperty("iconPath", saved.iconPath());
+      }
+      adminAuditService.log(
+          admin,
+          "MATERIAL_OVERRIDE_UPSERT",
+          "material_override",
+          saved.materialKey(),
+          detail,
+          clientIp(exchange));
+    });
+  }
+
+  private void handleAdminMaterialOverridesDelete(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      String materialKey = normalizeMaterialField(getString(payload, "materialKey"), "materialKey");
+      MaterialVisualService.MaterialVisualEntry existing =
+          materialVisualService.findByMaterialKey(materialKey).orElse(null);
+      boolean deleted = materialVisualService.delete(materialKey);
+      if (deleted && existing != null && existing.iconPath() != null) {
+        deleteManagedMaterialIcon(existing.iconPath());
+      }
+      JsonObject response = new JsonObject();
+      response.addProperty("deleted", deleted);
+      response.addProperty("materialKey", materialKey);
+      sendJson(exchange, 200, response);
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("materialKey", materialKey);
+      detail.addProperty("deleted", deleted);
+      adminAuditService.log(
+          admin,
+          "MATERIAL_OVERRIDE_DELETE",
+          "material_override",
+          materialKey,
+          detail,
+          clientIp(exchange));
+    });
+  }
+
+  private void handleAdminMaterialOverrideIconUpload(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AdminService.AdminUser admin = requireAdmin(exchange, null, AdminPermission.ECONOMY_MANAGE);
+      Map<String, String> query = parseQuery(exchange);
+      String materialKey = normalizeMaterialField(query.get("material"), "material");
+      String ext = resolveIconUploadExtension(
+          query.get("filename"),
+          exchange.getRequestHeaders().getFirst("X-File-Name"),
+          exchange.getRequestHeaders().getFirst("Content-Type"));
+      byte[] content = readRequestBodyWithLimit(exchange, MATERIAL_ICON_MAX_UPLOAD_BYTES);
+      if (content.length == 0) {
+        throw new ServiceException("bad_request", "Empty file content");
+      }
+
+      Path iconRoot = resolveMaterialIconRoot();
+      String fileName = materialKey.toLowerCase(Locale.ROOT)
+          + "-"
+          + System.currentTimeMillis()
+          + "-"
+          + UUID.randomUUID().toString().substring(0, 8)
+          + "."
+          + ext;
+      Path output = iconRoot.resolve(fileName).normalize();
+      if (!output.startsWith(iconRoot)) {
+        throw new ServiceException("bad_request", "Invalid upload target");
+      }
+      Files.write(
+          output,
+          content,
+          StandardOpenOption.CREATE,
+          StandardOpenOption.TRUNCATE_EXISTING,
+          StandardOpenOption.WRITE);
+
+      String iconPath = "/uploads/material-icons/" + fileName;
+      MaterialVisualService.MaterialVisualEntry existing =
+          materialVisualService.findByMaterialKey(materialKey).orElse(null);
+      String displayNameOverride = existing == null ? null : existing.displayNameOverride();
+      MaterialVisualService.MaterialVisualEntry saved =
+          materialVisualService.upsert(materialKey, displayNameOverride, iconPath, admin.username());
+
+      if (existing != null
+          && existing.iconPath() != null
+          && !existing.iconPath().isBlank()
+          && !existing.iconPath().equals(saved.iconPath())) {
+        deleteManagedMaterialIcon(existing.iconPath());
+      }
+
+      JsonObject response = materialOverrideJson(saved);
+      sendJson(exchange, 200, response);
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("materialKey", saved.materialKey());
+      detail.addProperty("iconPath", saved.iconPath());
+      detail.addProperty("sizeBytes", content.length);
+      adminAuditService.log(
+          admin,
+          "MATERIAL_OVERRIDE_ICON_UPLOAD",
+          "material_override",
+          saved.materialKey(),
+          detail,
+          clientIp(exchange));
     });
   }
 
@@ -2060,6 +2725,16 @@ class EmbeddedWebServer {
         row.addProperty("quantity", listing.quantity());
         row.addProperty("quantityTotal", listing.quantityTotal());
         row.addProperty("itemMaterial", listing.itemMaterial());
+        if (listing.displayNameOverride() == null) {
+          row.add("displayNameOverride", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("displayNameOverride", listing.displayNameOverride());
+        }
+        if (listing.displayMaterial() == null) {
+          row.add("displayMaterial", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("displayMaterial", listing.displayMaterial());
+        }
         row.addProperty("itemMetaJson", listing.itemMetaJson());
         if (listing.remark() == null) {
           row.add("remark", JsonNull.INSTANCE);
@@ -2702,6 +3377,16 @@ class EmbeddedWebServer {
     } else {
       row.addProperty("itemMaterial", product.itemMaterial());
     }
+    if (product.displayNameOverride() == null) {
+      row.add("displayNameOverride", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("displayNameOverride", product.displayNameOverride());
+    }
+    if (product.displayMaterial() == null) {
+      row.add("displayMaterial", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("displayMaterial", product.displayMaterial());
+    }
     if (product.itemAmount() == null) {
       row.add("itemAmount", JsonNull.INSTANCE);
     } else {
@@ -3034,12 +3719,246 @@ class EmbeddedWebServer {
     return Math.max(0.0, Math.min(100.0, value));
   }
 
-  private void updateConfig(java.util.function.Consumer<org.bukkit.configuration.file.FileConfiguration> updater) {
-    org.bukkit.configuration.file.FileConfiguration config = plugin.getConfig();
-    updater.accept(config);
-    plugin.saveConfig();
+  private String normalizeCurrencyField(String value, String fieldName, int maxLength) {
+    if (value == null) {
+      throw new ServiceException("bad_request", "Missing field: " + fieldName);
+    }
+    String normalized = value.trim();
+    if (normalized.isBlank()) {
+      throw new ServiceException("bad_request", "Field must not be empty: " + fieldName);
+    }
+    if (normalized.length() > maxLength) {
+      throw new ServiceException(
+          "bad_request",
+          "Field is too long (max " + maxLength + "): " + fieldName);
+    }
+    return normalized;
+  }
+
+  private int clampInt(long value, int min, int max, String fieldName) {
+    if (value < min || value > max) {
+      throw new ServiceException("bad_request", "Field out of range: " + fieldName);
+    }
+    return (int) value;
+  }
+
+  private String readLocaleField(String value, String fieldName) {
+    String normalized = String.valueOf(value == null ? "" : value).trim().replace('_', '-');
+    if (normalized.equalsIgnoreCase("zh") || normalized.regionMatches(true, 0, "zh-", 0, 3)) {
+      return "zh-CN";
+    }
+    if (normalized.equalsIgnoreCase("en") || normalized.regionMatches(true, 0, "en-", 0, 3)) {
+      return "en-US";
+    }
+    throw new ServiceException("bad_request", "Unsupported locale: " + fieldName);
+  }
+
+  private ZoneId readTimeZoneField(String value, String fieldName) {
+    try {
+      return ZoneId.of(String.valueOf(value == null ? "" : value).trim());
+    } catch (Exception exception) {
+      throw new ServiceException("bad_request", "Invalid timezone: " + fieldName);
+    }
+  }
+
+  private String normalizeLogDirectory(String value) {
+    String normalized = String.valueOf(value == null ? "" : value).trim();
+    if (normalized.isBlank()) {
+      throw new ServiceException("bad_request", "Field must not be empty: directory");
+    }
+    if (normalized.contains("..") || normalized.startsWith("/") || normalized.startsWith("\\")) {
+      throw new ServiceException("bad_request", "Invalid log directory");
+    }
+    return normalized;
+  }
+
+  private JsonArray materialOverrideListJson(List<MaterialVisualService.MaterialVisualEntry> entries) {
+    JsonArray array = new JsonArray();
+    for (MaterialVisualService.MaterialVisualEntry entry : entries) {
+      array.add(materialOverrideJson(entry));
+    }
+    return array;
+  }
+
+  private JsonObject materialOverrideJson(MaterialVisualService.MaterialVisualEntry entry) {
+    JsonObject row = new JsonObject();
+    row.addProperty("materialKey", entry.materialKey());
+    if (entry.displayNameOverride() == null) {
+      row.add("displayNameOverride", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("displayNameOverride", entry.displayNameOverride());
+    }
+    if (entry.iconPath() == null) {
+      row.add("iconPath", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("iconPath", entry.iconPath());
+    }
+    if (entry.updatedBy() == null) {
+      row.add("updatedBy", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("updatedBy", entry.updatedBy());
+    }
+    if (entry.updatedAt() == null) {
+      row.add("updatedAt", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("updatedAt", entry.updatedAt().toString());
+    }
+    return row;
+  }
+
+  private String normalizeMaterialField(String value, String fieldName) {
+    String normalized = String.valueOf(value == null ? "" : value)
+        .trim()
+        .toUpperCase(Locale.ROOT)
+        .replace("MINECRAFT:", "")
+        .replaceAll("[^A-Z0-9]+", "_")
+        .replaceAll("^_+|_+$", "");
+    if (normalized.isBlank() || normalized.length() > 64) {
+      throw new ServiceException("bad_request", "Invalid material field: " + fieldName);
+    }
+    return normalized;
+  }
+
+  private String normalizeMaterialDisplayName(JsonElement element) {
+    if (element == null || element.isJsonNull()) {
+      return null;
+    }
+    String text = element.getAsString().trim();
+    if (text.isBlank()) {
+      return null;
+    }
+    if (text.length() > 128) {
+      throw new ServiceException("bad_request", "displayNameOverride is too long");
+    }
+    return text;
+  }
+
+  private String normalizeMaterialIconPath(JsonElement element) {
+    if (element == null || element.isJsonNull()) {
+      return null;
+    }
+    String text = element.getAsString().trim();
+    if (text.isBlank()) {
+      return null;
+    }
+    if (text.length() > 255) {
+      throw new ServiceException("bad_request", "iconPath is too long");
+    }
+    if (!text.startsWith("/")) {
+      throw new ServiceException("bad_request", "iconPath must start with '/'");
+    }
+    if (text.contains("..")) {
+      throw new ServiceException("bad_request", "iconPath is invalid");
+    }
+    return text;
+  }
+
+  private String resolveIconUploadExtension(String queryFilename, String headerFilename, String contentType) {
+    String extension = extractFileExtension(queryFilename);
+    if (extension == null) {
+      extension = extractFileExtension(headerFilename);
+    }
+    if (extension == null) {
+      extension = extensionFromContentType(contentType);
+    }
+    if (extension == null || !MATERIAL_ICON_ALLOWED_EXTENSIONS.contains(extension)) {
+      throw new ServiceException("bad_request", "Unsupported icon file type");
+    }
+    return extension;
+  }
+
+  private String extractFileExtension(String rawFilename) {
+    String fileName = String.valueOf(rawFilename == null ? "" : rawFilename).trim().replace('\\', '/');
+    if (fileName.isBlank()) {
+      return null;
+    }
+    int slash = fileName.lastIndexOf('/');
+    if (slash >= 0 && slash < fileName.length() - 1) {
+      fileName = fileName.substring(slash + 1);
+    }
+    int dot = fileName.lastIndexOf('.');
+    if (dot < 0 || dot >= fileName.length() - 1) {
+      return null;
+    }
+    String extension = fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
+    return extension.isBlank() ? null : extension;
+  }
+
+  private String extensionFromContentType(String contentType) {
+    String normalized = String.valueOf(contentType == null ? "" : contentType)
+        .trim()
+        .toLowerCase(Locale.ROOT);
+    if (normalized.startsWith("image/png")) {
+      return "png";
+    }
+    if (normalized.startsWith("image/webp")) {
+      return "webp";
+    }
+    if (normalized.startsWith("image/jpeg") || normalized.startsWith("image/jpg")) {
+      return "jpg";
+    }
+    if (normalized.startsWith("image/gif")) {
+      return "gif";
+    }
+    return null;
+  }
+
+  private byte[] readRequestBodyWithLimit(HttpExchange exchange, int maxBytes) throws IOException {
+    try (InputStream inputStream = exchange.getRequestBody();
+         ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+      byte[] buffer = new byte[8192];
+      int total = 0;
+      int read;
+      while ((read = inputStream.read(buffer)) >= 0) {
+        total += read;
+        if (total > maxBytes) {
+          throw new ServiceException("bad_request", "File is too large");
+        }
+        outputStream.write(buffer, 0, read);
+      }
+      return outputStream.toByteArray();
+    }
+  }
+
+  private Path resolveMaterialIconRoot() throws IOException {
+    if (staticRoot == null) {
+      throw new ServiceException("internal_error", "Static root is not initialized");
+    }
+    Path iconRoot = staticRoot.resolve("uploads").resolve("material-icons").normalize();
+    if (!iconRoot.startsWith(staticRoot)) {
+      throw new ServiceException("bad_request", "Invalid icon storage path");
+    }
+    Files.createDirectories(iconRoot);
+    return iconRoot;
+  }
+
+  private void deleteManagedMaterialIcon(String iconPath) {
+    String normalized = String.valueOf(iconPath == null ? "" : iconPath).trim().replace('\\', '/');
+    if (!normalized.startsWith("/uploads/material-icons/")) {
+      return;
+    }
+    String fileName = normalized.substring(normalized.lastIndexOf('/') + 1);
+    if (fileName.isBlank()) {
+      return;
+    }
+    try {
+      Path iconRoot = resolveMaterialIconRoot();
+      Path target = iconRoot.resolve(fileName).normalize();
+      if (!target.startsWith(iconRoot)) {
+        return;
+      }
+      Files.deleteIfExists(target);
+    } catch (Exception exception) {
+      plugin.getLogger().warning("Failed to cleanup old material icon: " + exception.getMessage());
+    }
+  }
+
+  private void publishRuntimeConfigRefresh(long version) {
     if (plugin instanceof WebShopPlugin webShopPlugin) {
-      org.bukkit.Bukkit.getScheduler().runTask(plugin, webShopPlugin::reloadRuntimeConfig);
+      org.bukkit.Bukkit.getScheduler().runTask(plugin, webShopPlugin::reloadRuntimeBusinessSettings);
+    }
+    if (clusterEventBusService != null) {
+      clusterEventBusService.publishConfigRefresh(version);
     }
   }
 

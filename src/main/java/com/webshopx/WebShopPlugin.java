@@ -4,12 +4,16 @@ import com.tchristofferson.configupdater.ConfigUpdater;
 import java.io.File;
 import java.io.IOException;
 import io.papermc.lib.PaperLib;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 import java.util.logging.Level;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bstats.bukkit.Metrics;
 import org.bstats.charts.SimplePie;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -22,6 +26,9 @@ public class WebShopPlugin extends JavaPlugin {
 
   private PluginSettings settings;
   private DatabaseManager databaseManager;
+  private RuntimeConfigService runtimeConfigService;
+  private PlayerPresenceService playerPresenceService;
+  private ClusterEventBusService clusterEventBusService;
   private AuthService authService;
   private WalletService walletService;
   private MessageService messageService;
@@ -29,6 +36,8 @@ public class WebShopPlugin extends JavaPlugin {
   private ProductService productService;
   private OrderService orderService;
   private MarketService marketService;
+  private MaterialVisualService materialVisualService;
+  private VisualCustomizationService visualCustomizationService;
   private NotificationService notificationService;
   private MailboxService mailboxService;
   private BroadcastService broadcastService;
@@ -61,16 +70,35 @@ public class WebShopPlugin extends JavaPlugin {
       messageService = new MessageService(this, this::settings);
 
       initializeDatabase();
+      runtimeConfigService = new RuntimeConfigService(databaseManager);
+      boolean migratedLegacyConfig = runtimeConfigService.bootstrapFromLegacyConfigIfNeeded(settings);
+      if (migratedLegacyConfig || runtimeConfigService.isLegacyMigrationCompleted()) {
+        pruneLegacyBusinessConfigAndBackup();
+      }
+      runtimeConfigService.ensureDefaults(settings);
+      settings = runtimeConfigService.applyTo(settings);
+      playerPresenceService = new PlayerPresenceService(databaseManager, this::settings);
+      clusterEventBusService = new ClusterEventBusService(
+          this,
+          this::settings,
+          this::handleClusterConfigRefreshEvent);
 
       authService = new AuthService(databaseManager, this::settings);
       walletService = new WalletService(this, databaseManager, this::settings);
       redeemCodeService = new RedeemCodeService(databaseManager, walletService);
       productService = new ProductService(databaseManager);
-      orderService = new OrderService(this, databaseManager, this::settings, productService, walletService);
+      orderService = new OrderService(
+          this,
+          databaseManager,
+          this::settings,
+          productService,
+          walletService,
+          playerPresenceService);
       notificationService = new NotificationService(databaseManager);
       mailboxService = new MailboxService(databaseManager);
       broadcastService = new BroadcastService(this, this::settings);
       broadcastService.reload();
+      clusterEventBusService.reload();
       marketService = new MarketService(
           this,
           databaseManager,
@@ -78,7 +106,10 @@ public class WebShopPlugin extends JavaPlugin {
           this::settings,
           messageService,
           notificationService,
-          broadcastService);
+          broadcastService,
+          playerPresenceService);
+      materialVisualService = new MaterialVisualService(databaseManager);
+      visualCustomizationService = new VisualCustomizationService(databaseManager);
       marketGuiService = new MarketGuiService(marketService, this::settings, messageService);
       deliveryService = new DeliveryService(
           this,
@@ -104,18 +135,26 @@ public class WebShopPlugin extends JavaPlugin {
           notificationService,
           adminService,
           adminAuditService,
-          leaderboardService);
+          leaderboardService,
+          materialVisualService,
+          visualCustomizationService,
+          runtimeConfigService,
+          clusterEventBusService);
 
       // Products are managed via admin backend; no seed import from config.
       adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());
 
       registerCommands();
       getServer().getPluginManager().registerEvents(
-          new PlayerJoinListener(this, deliveryService),
+          new PlayerJoinListener(this, deliveryService, playerPresenceService),
+          this);
+      getServer().getPluginManager().registerEvents(
+          new PlayerQuitListener(this, playerPresenceService),
           this);
       getServer().getPluginManager().registerEvents(
           new MarketGuiListener(marketGuiService, marketService, messageService),
           this);
+      synchronizeOnlinePresence();
       startDeliveryLoop();
       startMaintenanceLoop();
       startMarketCycleLoop();
@@ -150,11 +189,21 @@ public class WebShopPlugin extends JavaPlugin {
     if (embeddedWebServer != null) {
       embeddedWebServer.stop();
     }
-    if (databaseManager != null) {
-      databaseManager.close();
-    }
     if (broadcastService != null) {
       broadcastService.shutdown();
+    }
+    if (clusterEventBusService != null) {
+      clusterEventBusService.shutdown();
+    }
+    if (playerPresenceService != null && settings != null) {
+      try {
+        playerPresenceService.markServerOffline(settings.clusterSettings().serverId());
+      } catch (Exception exception) {
+        getLogger().warning("Failed to mark local server offline: " + exception.getMessage());
+      }
+    }
+    if (databaseManager != null) {
+      databaseManager.close();
     }
     if (pluginLogService != null) {
       pluginLogService.close();
@@ -163,7 +212,16 @@ public class WebShopPlugin extends JavaPlugin {
 
   void reloadRuntimeConfig() {
     refreshMainConfig();
-    settings = PluginSettings.fromConfig(getConfig());
+    PluginSettings fileSettings = PluginSettings.fromConfig(getConfig());
+    if (runtimeConfigService != null) {
+      if (runtimeConfigService.isLegacyMigrationCompleted()) {
+        pruneLegacyBusinessConfigAndBackup();
+        fileSettings = PluginSettings.fromConfig(getConfig());
+      }
+      runtimeConfigService.ensureDefaults(fileSettings);
+      fileSettings = runtimeConfigService.applyTo(fileSettings);
+    }
+    settings = fileSettings;
     if (pluginLogService != null) {
       pluginLogService.apply(settings.loggingSettings());
     }
@@ -177,9 +235,42 @@ public class WebShopPlugin extends JavaPlugin {
     if (broadcastService != null) {
       broadcastService.reload();
     }
+    if (clusterEventBusService != null) {
+      clusterEventBusService.reload();
+    }
+    synchronizeOnlinePresence();
     startMaintenanceLoop();
     startMarketCycleLoop();
     restartWebRuntime();
+  }
+
+  void reloadRuntimeBusinessSettings() {
+    if (runtimeConfigService == null || settings == null) {
+      return;
+    }
+    try {
+      settings = runtimeConfigService.applyTo(settings);
+      if (pluginLogService != null) {
+        pluginLogService.apply(settings.loggingSettings());
+      }
+      startMaintenanceLoop();
+      startMarketCycleLoop();
+      restartWebRuntime();
+    } catch (Exception exception) {
+      getLogger().log(Level.WARNING, "Failed to reload runtime business settings from database.", exception);
+    }
+  }
+
+  private void handleClusterConfigRefreshEvent(String sourceServerId, long version) {
+    getServer().getScheduler().runTask(this, () -> {
+      getLogger().info(
+          "Received cluster config refresh from "
+              + sourceServerId
+              + " (version="
+              + version
+              + "), reloading runtime business settings.");
+      reloadRuntimeBusinessSettings();
+    });
   }
 
   private void refreshMainConfig() {
@@ -209,6 +300,84 @@ public class WebShopPlugin extends JavaPlugin {
     }
     rootCommand.setExecutor(shopCommandHandler);
     rootCommand.setTabCompleter(shopCommandHandler);
+  }
+
+  private void synchronizeOnlinePresence() {
+    if (playerPresenceService == null) {
+      return;
+    }
+    for (Player player : getServer().getOnlinePlayers()) {
+      try {
+        playerPresenceService.markOnline(player.getUniqueId(), player.getName());
+      } catch (Exception exception) {
+        getLogger().warning("Failed to sync online presence for " + player.getName() + ": " + exception.getMessage());
+      }
+    }
+  }
+
+  private void pruneLegacyBusinessConfigAndBackup() {
+    File configFile = new File(getDataFolder(), MAIN_CONFIG_RESOURCE);
+    if (!configFile.exists()) {
+      return;
+    }
+
+    File backupFile = new File(getDataFolder(), "config.legacy.bak.yml");
+    if (!backupFile.exists()) {
+      try {
+        Files.copy(configFile.toPath(), backupFile.toPath(), StandardCopyOption.COPY_ATTRIBUTES);
+        getLogger().info("Legacy config backup created: " + backupFile.getName());
+      } catch (IOException exception) {
+        getLogger().warning("Failed to create legacy config backup: " + exception.getMessage());
+      }
+    }
+
+    FileConfiguration config = getConfig();
+    boolean changed = false;
+    for (String path : minimalConfigRemovalPaths()) {
+      changed |= clearPath(config, path);
+    }
+
+    if (!changed) {
+      return;
+    }
+    saveConfig();
+    reloadConfig();
+    getLogger().info("Legacy runtime config migrated to database, config.yml has been pruned to minimal startup fields.");
+  }
+
+  private String[] minimalConfigRemovalPaths() {
+    return new String[] {
+        // Keep startup/environment settings in config.yml, but move business/runtime
+        // settings into DB once migration is completed.
+        "webshop.default-locale",
+        "webshop.session-expire-hours",
+        "webshop.bind-request-expire-minutes",
+        "webshop.access-token-length",
+        "webshop.time-zone",
+        "webshop.delivery-batch-size",
+        "webshop.delivery-retry-seconds",
+        "webshop.order-cooldown-seconds",
+        "webshop.allow-shared-claim-command",
+        "webshop.refund-undelivered-enabled",
+        "webshop.market",
+        "webshop.leaderboard",
+        "webshop.broadcast",
+        "webshop.maintenance",
+        "webshop.logging",
+        "exchange",
+        "currency",
+        "economy.market",
+        "webshop.leaderboard",
+        "sample-products"
+    };
+  }
+
+  private boolean clearPath(FileConfiguration config, String path) {
+    if (!config.contains(path)) {
+      return false;
+    }
+    config.set(path, null);
+    return true;
   }
 
   private void startDeliveryLoop() {
@@ -270,6 +439,13 @@ public class WebShopPlugin extends JavaPlugin {
     if (embeddedWebServer != null) {
       embeddedWebServer.stop();
     }
+    if (!settings.clusterSettings().shouldStartWebApi()) {
+      getLogger().info(
+          "Cluster role is "
+              + settings.clusterSettings().role().name().toLowerCase(Locale.ROOT)
+              + ", embedded Web/API is disabled on this node.");
+      return;
+    }
 
     Path staticRoot = staticAssetInstaller.install(settings.embeddedWebSettings().staticRoot(), settings);
     textureAssetManager.ensureLocalTextureCacheAsync(staticRoot, resolveMinecraftVersion());
@@ -305,6 +481,8 @@ public class WebShopPlugin extends JavaPlugin {
     try {
       metrics = new Metrics(this, BSTATS_PLUGIN_ID);
       metrics.addCustomChart(new SimplePie("server_mode", () -> settings.serverMode().name().toLowerCase(Locale.ROOT)));
+      metrics.addCustomChart(
+          new SimplePie("cluster_role", () -> settings.clusterSettings().role().name().toLowerCase(Locale.ROOT)));
       metrics.addCustomChart(new SimplePie("default_locale", settings::defaultLocale));
       getLogger().info("bStats metrics enabled.");
     } catch (Exception exception) {
