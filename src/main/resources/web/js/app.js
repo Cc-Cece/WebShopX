@@ -64,6 +64,7 @@
     defaultMetric: "GAME_COIN",
     defaultOrder: "DESC",
     timer: null,
+    focusTimer: null,
     busy: false,
     previousRanks: {},
     myRank: null,
@@ -1999,63 +2000,141 @@ function leaderboardScoreText(entry, metric) {
   return formatCurrency(entry.gameCoin, "GAME_COIN");
 }
 
-function leaderboardTrendText(userId, rank) {
-  const previous = state.leaderboard.previousRanks[userId];
+function leaderboardMetricLabel(metric) {
+  if (metric === "SHOP_COIN") {
+    return "ShopCoin";
+  }
+  if (metric === "ONLINE_TIME") {
+    return "在线时长";
+  }
+  return "GameCoin";
+}
+
+function leaderboardTrendInfo(userKey, rank) {
+  const previous = state.leaderboard.previousRanks[userKey];
   if (!previous) {
-    return "NEW";
+    return { text: "NEW", toneClass: "is-trend-new" };
   }
   if (rank < previous) {
-    return `↑ ${previous - rank}`;
+    return { text: `↑ ${previous - rank}`, toneClass: "is-trend-up" };
   }
   if (rank > previous) {
-    return `↓ ${rank - previous}`;
+    return { text: `↓ ${rank - previous}`, toneClass: "is-trend-down" };
   }
-  return "-";
+  return { text: "持平", toneClass: "is-trend-stable" };
+}
+
+function leaderboardInitial(username) {
+  const text = String(username || "").trim();
+  if (!text) {
+    return "?";
+  }
+  return text.charAt(0).toUpperCase();
 }
 
 function renderLeaderboard(payload) {
-  const rows = payload.entries || [];
+  const rows = Array.isArray(payload.entries) ? payload.entries : [];
   const metric = String(payload.metric || state.leaderboard.defaultMetric || "GAME_COIN").toUpperCase();
+  const metricLabel = leaderboardMetricLabel(metric);
+  const myRank = payload.myRank ?? null;
   const nextRanks = {};
   elements.leaderboardList.innerHTML = "";
 
+  state.leaderboard.myRank = myRank;
+  const rankText = myRank ? `我的名次：#${myRank}` : "我的名次：未上榜";
+  setNodeText(elements.leaderboardMyRankView, rankText);
+
   if (!rows.length) {
+    state.leaderboard.previousRanks = nextRanks;
     setMetaText(elements.leaderboardView, "当前没有可显示的排行榜数据。", "warn");
     return;
   }
 
-  rows.forEach((entry) => {
-    nextRanks[entry.userId] = entry.rank;
+  rows.forEach((entry, index) => {
+    const rank = Number(entry.rank || index + 1);
+    const username = String(entry.username || `玩家${rank}`);
+    const userKey = entry.userId == null ? `anonymous-${rank}-${username}` : String(entry.userId);
+    const trend = leaderboardTrendInfo(userKey, rank);
+    nextRanks[userKey] = rank;
+
     const card = createEl("article", "market-card leaderboard-card");
-    card.dataset.userId = String(entry.userId);
-
-    const title = createEl("h3", "", `#${entry.rank} ${entry.username}`);
-    card.appendChild(title);
-
-    const trend = createEl("p", "meta", `趋势：${leaderboardTrendText(entry.userId, entry.rank)}`);
-    card.appendChild(trend);
-
-    const score = createEl("p", "", `当前值：${leaderboardScoreText(entry, metric)}`);
-    card.appendChild(score);
-
-    if (elements.leaderboardShowOnlineToggle && elements.leaderboardShowOnlineToggle.checked) {
-      const onlineText = entry.online ? "在线" : "离线";
-      const online = createEl("p", "meta", `状态：${onlineText}`);
-      card.appendChild(online);
+    card.dataset.userId = userKey;
+    card.dataset.rank = String(rank);
+    if (myRank && rank === Number(myRank)) {
+      card.classList.add("is-me");
     }
+    if (rank >= 1 && rank <= 3) {
+      card.classList.add(`podium-${rank}`);
+    }
+
+    const top = createEl("div", "leaderboard-card-top");
+
+    const rankBox = createEl("div", "leaderboard-rank");
+    rankBox.appendChild(createEl("strong", "", `#${rank}`));
+    if (rank === 1) {
+      rankBox.appendChild(createEl("span", "leaderboard-medal", "冠军"));
+    } else if (rank === 2) {
+      rankBox.appendChild(createEl("span", "leaderboard-medal", "亚军"));
+    } else if (rank === 3) {
+      rankBox.appendChild(createEl("span", "leaderboard-medal", "季军"));
+    }
+    top.appendChild(rankBox);
+
+    const player = createEl("div", "leaderboard-player");
+    const avatar = createEl("span", "leaderboard-player-avatar", leaderboardInitial(username));
+    avatar.setAttribute("aria-hidden", "true");
+    player.appendChild(avatar);
+    const playerText = createEl("div", "leaderboard-player-text");
+    playerText.appendChild(createEl("h3", "leaderboard-player-name", username));
+    playerText.appendChild(createEl("p", "leaderboard-player-sub", `榜单名次 第 ${rank} 名`));
+    player.appendChild(playerText);
+    top.appendChild(player);
+
+    const chipRow = createEl("div", "leaderboard-chip-row");
+    chipRow.appendChild(createEl("span", `leaderboard-chip ${trend.toneClass}`, `趋势 ${trend.text}`));
+    if (elements.leaderboardShowOnlineToggle && elements.leaderboardShowOnlineToggle.checked) {
+      chipRow.appendChild(
+        createEl("span", `leaderboard-chip ${entry.online ? "is-online" : "is-offline"}`, entry.online ? "在线" : "离线")
+      );
+    }
+    if (myRank && rank === Number(myRank)) {
+      chipRow.appendChild(createEl("span", "leaderboard-chip is-me-chip", "我的位置"));
+    }
+    top.appendChild(chipRow);
+
+    card.appendChild(top);
+
+    const scoreRow = createEl("div", "leaderboard-score-row");
+    scoreRow.appendChild(createEl("span", "leaderboard-score-label", `${metricLabel} 当前值`));
+    scoreRow.appendChild(createEl("strong", "leaderboard-score-value", leaderboardScoreText(entry, metric)));
+    card.appendChild(scoreRow);
+
+    const metricChips = createEl("div", "leaderboard-metric-chips");
+    [
+      ["GAME_COIN", "GameCoin", formatCurrency(entry.gameCoin, "GAME_COIN")],
+      ["SHOP_COIN", "ShopCoin", formatCurrency(entry.shopCoin, "SHOP_COIN")],
+      ["ONLINE_TIME", "在线时长", formatOnlineMinutes(entry.onlineTimeMinutes)],
+    ].forEach(([type, label, value]) => {
+      const chip = createEl(
+        "span",
+        `leaderboard-metric-chip${type === metric ? " is-active" : ""}`,
+        `${label} ${value}`
+      );
+      metricChips.appendChild(chip);
+    });
+    card.appendChild(metricChips);
 
     elements.leaderboardList.appendChild(card);
   });
 
   state.leaderboard.previousRanks = nextRanks;
-  state.leaderboard.myRank = payload.myRank ?? null;
-  const rankText = state.leaderboard.myRank ? `我的名次：#${state.leaderboard.myRank}` : "我的名次：未上榜";
-  setNodeText(elements.leaderboardMyRankView, rankText);
 
   let statusText = `已加载 ${rows.length} / ${payload.total || rows.length} 条`;
   if (payload.requestedRange && payload.effectiveRange && payload.requestedRange !== payload.effectiveRange) {
     statusText += "（当前维度仅支持总榜）";
   }
+  const refreshedAt = new Date().toLocaleTimeString(I18N ? I18N.getIntlLocale() : "zh-CN", { hour12: false });
+  statusText += ` · 刷新于 ${refreshedAt}`;
   setMetaText(elements.leaderboardView, statusText, "info");
 }
 
@@ -2088,20 +2167,26 @@ function locateMyLeaderboardRank() {
     notify("当前未找到你的榜单名次。", "warn");
     return;
   }
-  const card = elements.leaderboardList?.querySelector(`[data-user-id]`);
-  if (!card) {
+  if (!elements.leaderboardList || !elements.leaderboardList.querySelector("[data-rank]")) {
     notify("请先加载榜单后再定位。", "warn");
     return;
   }
-  const cards = Array.from(elements.leaderboardList.querySelectorAll("[data-user-id]"));
-  const target = cards.find((node) => {
-    const title = node.querySelector("h3")?.textContent || "";
-    return title.startsWith(`#${state.leaderboard.myRank} `);
-  });
+  const target = elements.leaderboardList.querySelector(`[data-rank="${state.leaderboard.myRank}"]`);
   if (!target) {
     notify("当前分页未包含你的名次。", "warn");
     return;
   }
+  if (state.leaderboard.focusTimer) {
+    clearTimeout(state.leaderboard.focusTimer);
+    state.leaderboard.focusTimer = null;
+  }
+  target.classList.remove("is-focus");
+  void target.offsetWidth;
+  target.classList.add("is-focus");
+  state.leaderboard.focusTimer = window.setTimeout(() => {
+    target.classList.remove("is-focus");
+    state.leaderboard.focusTimer = null;
+  }, 1500);
   target.scrollIntoView({ behavior: "smooth", block: "center" });
   notify(`已定位到 #${state.leaderboard.myRank}`, "success");
 }
