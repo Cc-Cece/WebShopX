@@ -10,9 +10,12 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -48,11 +51,14 @@ class MarketService {
   private final PlayerPresenceService playerPresenceService;
   private final UserMarketSettingsService userMarketSettingsService;
   private final ItemSnapshotCodec itemSnapshotCodec;
+  private final MarketTagService marketTagService;
+  private final MarketLimitationService marketLimitationService;
 
   MarketService(
       JavaPlugin plugin,
       DatabaseManager databaseManager,
       WalletService walletService,
+      RuntimeConfigService runtimeConfigService,
       Supplier<PluginSettings> settingsSupplier,
       MessageService messageService,
       NotificationService notificationService,
@@ -69,10 +75,197 @@ class MarketService {
     this.playerPresenceService = playerPresenceService;
     this.userMarketSettingsService = userMarketSettingsService;
     this.itemSnapshotCodec = new ItemSnapshotCodec();
+    this.marketTagService = new MarketTagService(runtimeConfigService, itemSnapshotCodec);
+    this.marketLimitationService = new MarketLimitationService(runtimeConfigService, itemSnapshotCodec);
+  }
+
+  void refreshRuntimePolicies() {
+    marketTagService.invalidateCache();
+    marketLimitationService.invalidateCache();
   }
 
   JavaPlugin plugin() {
     return plugin;
+  }
+
+  ListingCreateResult createBuyListing(
+      long ownerUserId,
+      String itemMaterialRaw,
+      long price,
+      int quantity,
+      CurrencyType currency,
+      String tagCode) {
+    if (price <= 0L) {
+      throw new ServiceException("invalid_price", "Price must be positive");
+    }
+    if (quantity <= 0 || quantity > 64) {
+      throw new ServiceException("invalid_quantity", "Quantity must be between 1 and 64");
+    }
+    String itemMaterial = String.valueOf(itemMaterialRaw).trim().toUpperCase(Locale.ROOT);
+    Material material = Material.matchMaterial(itemMaterial);
+    if (material == null || material == Material.AIR) {
+      throw new ServiceException("invalid_item", "Item material is invalid");
+    }
+    ItemStack templateItem = new ItemStack(material, 1);
+    ItemSnapshotCodec.Snapshot snapshot = itemSnapshotCodec.serialize(templateItem);
+
+    ListingCreateResult result = databaseManager.inTransaction(connection -> {
+      BoundUser owner = readBoundUserById(connection, ownerUserId, true);
+      int listingLimit = resolveListingLimit(owner);
+      int activeListings = countActiveListings(connection, owner.userId());
+      if (activeListings >= listingLimit) {
+        throw new ServiceException("listing_limit", "Active listing count reaches limit");
+      }
+
+      MarketLimitationService.Decision limitationDecision = evaluateLimitationDecision(
+          owner.boundUuid(),
+          MarketSide.BUY,
+          TradeMode.DIRECT,
+          currency,
+          tagCode,
+          templateItem.getType().name(),
+          snapshot.rawItemBlob(),
+          snapshot.itemMetaJson());
+      applyLimitationDecision(
+          limitationDecision,
+          MarketSide.BUY,
+          TradeMode.DIRECT,
+          currency,
+          tagCode);
+
+      String resolvedTag = limitationDecision.forcedTag() == null
+          ? tagCode
+          : limitationDecision.forcedTag();
+      MarketTagService.TagAssignment assignment = marketTagService.resolveTag(
+          resolvedTag,
+          snapshot.rawItemBlob(),
+          snapshot.itemMetaJson(),
+          templateItem.getType().name());
+      marketTagService.syncDictionary(connection);
+
+      long subtotal = Math.multiplyExact(price, quantity);
+      long tax = calculatePercent(subtotal, settingsSupplier.get().economySettings().marketSettings().tradeTaxPercent());
+      long escrow = Math.addExact(subtotal, tax);
+
+      long listingId = createListingInTransaction(
+          connection,
+          owner,
+          currency,
+          price,
+          templateItem,
+          snapshot,
+          listingLimit,
+          SupplyConfig.manual(),
+          MarketSide.BUY,
+          assignment.code(),
+          assignment.tagVersion(),
+          escrow,
+          escrow,
+          quantity);
+      applyCreateCostIfNeeded(
+          connection,
+          owner.userId(),
+          currency,
+          limitationDecision.createCost(),
+          listingId);
+      walletService.applyDelta(
+          connection,
+          owner.userId(),
+          currency,
+          -escrow,
+          "MARKET_BUY_ESCROW",
+          "mkt-buy-escrow:" + listingId,
+          true);
+      return new ListingCreateResult(
+          listingId,
+          templateItem.getType().name(),
+          quantity,
+          currency,
+          price,
+          MarketSide.BUY,
+          assignment.code(),
+          escrow,
+          escrow);
+    });
+    String ownerName = databaseManager.withConnection(connection -> readBoundUserById(connection, ownerUserId, false))
+        .username();
+    publishListingCreatedEvent(ownerUserId, ownerName, result, TradeMode.DIRECT);
+    plugin.getLogger().info(
+        "MARKET_BUY_ORDER_CREATE ownerUserId="
+            + ownerUserId
+            + ", listingId="
+            + result.listingId()
+            + ", side=BUY, currency="
+            + result.currency().name()
+            + ", quantity="
+            + result.quantity()
+            + ", price="
+            + result.price()
+            + ", escrow="
+            + result.escrowTotal());
+    return result;
+  }
+
+  TradeResult fulfillBuyOrder(
+      long sellerUserId,
+      long listingId,
+      int quantity,
+      String idempotencyKey,
+      String deliveryModeRaw) {
+    if (listingId <= 0L) {
+      throw new ServiceException("invalid_listing", "Listing id must be positive");
+    }
+    if (quantity <= 0 || quantity > 64) {
+      throw new ServiceException("invalid_quantity", "Quantity must be between 1 and 64");
+    }
+    String normalizedIdempotency = normalizeIdempotencyKey(idempotencyKey);
+    TradeResult result = databaseManager.inTransaction(connection -> fulfillBuyOrderInTransaction(
+        connection,
+        sellerUserId,
+        listingId,
+        quantity,
+        normalizedIdempotency,
+        deliveryModeRaw));
+    if (result.state() == TradeState.CREATED) {
+      publishTradeCreatedEvent(result.tradeId());
+      plugin.getLogger().info(
+          "MARKET_BUY_ORDER_FILL sellerUserId="
+              + sellerUserId
+              + ", listingId="
+              + result.listingId()
+              + ", side=BUY, currency="
+              + result.currency().name()
+              + ", quantity="
+              + result.quantity()
+              + ", price="
+              + result.unitPrice());
+    }
+    return result;
+  }
+
+  List<MarketTagService.TagMeta> listMarketTagsMeta() {
+    return databaseManager.withConnection(connection -> marketTagService.listTagMeta(connection));
+  }
+
+  TagRecalcResult recalcTags(String scopeRaw) {
+    String normalizedScope = String.valueOf(scopeRaw == null ? "active" : scopeRaw)
+        .trim()
+        .toLowerCase(Locale.ROOT);
+    if (!normalizedScope.equals("active") && !normalizedScope.equals("all")) {
+      throw new ServiceException("bad_request", "Scope must be active or all");
+    }
+    TagRecalcResult result =
+        databaseManager.inTransaction(connection -> recalcTagsInTransaction(connection, normalizedScope));
+    plugin.getLogger().info(
+        "MARKET_TAG_RECALC scope="
+            + normalizedScope
+            + ", scanned="
+            + result.scanned()
+            + ", changed="
+            + result.changed()
+            + ", elapsedMs="
+            + result.elapsedMs());
+    return result;
   }
 
   ListingCreateResult createListingFromPlayer(
@@ -80,6 +273,15 @@ class MarketService {
       long price,
       int amount,
       CurrencyType currency) {
+    return createListingFromPlayer(player, price, amount, currency, null);
+  }
+
+  ListingCreateResult createListingFromPlayer(
+      Player player,
+      long price,
+      int amount,
+      CurrencyType currency,
+      String requestedTagCode) {
     if (price <= 0L) {
       throw new ServiceException("invalid_price", "Price must be positive");
     }
@@ -110,7 +312,7 @@ class MarketService {
 
     removeFromMainHand(player, amount);
     try {
-      long listingId = databaseManager.inTransaction(connection -> createListingInTransaction(
+      ListingCreateResult result = databaseManager.inTransaction(connection -> createSellListingInTransaction(
           connection,
           boundUser,
           currency,
@@ -118,9 +320,8 @@ class MarketService {
           listingItem,
           snapshot,
           listingLimit,
-          SupplyConfig.manual()));
-      ListingCreateResult result =
-          new ListingCreateResult(listingId, listingItem.getType().name(), amount, currency, price);
+          SupplyConfig.manual(),
+          requestedTagCode));
       publishListingCreatedEvent(boundUser.userId(), player.getName(), result, TradeMode.DIRECT);
       return result;
     } catch (Exception exception) {
@@ -148,7 +349,7 @@ class MarketService {
       throw new ServiceException("not_bound", "Please set your web password in-game before listing items");
     }
     int listingLimit = resolveListingLimit(boundUser);
-    long listingId = databaseManager.inTransaction(connection -> createListingInTransaction(
+    ListingCreateResult result = databaseManager.inTransaction(connection -> createSellListingInTransaction(
         connection,
         boundUser,
         currency,
@@ -156,9 +357,8 @@ class MarketService {
         storedItem,
         snapshot,
         listingLimit,
-        SupplyConfig.manual()));
-    ListingCreateResult result =
-        new ListingCreateResult(listingId, storedItem.getType().name(), storedItem.getAmount(), currency, price);
+        SupplyConfig.manual(),
+        null));
     publishListingCreatedEvent(boundUser.userId(), player.getName(), result, TradeMode.DIRECT);
     return result;
   }
@@ -194,10 +394,10 @@ class MarketService {
         templateItem,
         normalizedSupply.transferBatchSize());
     if (transfer.loadedAmount() <= 0) {
-      throw new ServiceException("supply_empty", "渚涜揣绠遍噷娌℃湁鍖归厤鐨勮揣鐗╁彲涓婃灦");
+      throw new ServiceException("supply_empty", "No matching stock was found in the selected supply container");
     }
     try {
-      long listingId = databaseManager.inTransaction(connection -> createListingInTransaction(
+      ListingCreateResult result = databaseManager.inTransaction(connection -> createSellListingInTransaction(
           connection,
           seller,
           currency,
@@ -210,13 +410,8 @@ class MarketService {
               normalizedSupply.transferBatchSize(),
               normalizedSupply.transitMaxStock(),
               new SupplySource(source.worldName(), source.x(), source.y(), source.z()),
-              transfer.loadedAmount())));
-      ListingCreateResult result = new ListingCreateResult(
-          listingId,
-          transfer.loadedItem().getType().name(),
-          transfer.loadedAmount(),
-          currency,
-          price);
+              transfer.loadedAmount()),
+          null));
       publishListingCreatedEvent(seller.userId(), player.getName(), result, TradeMode.DIRECT);
       return result;
     } catch (Exception exception) {
@@ -238,7 +433,7 @@ class MarketService {
       throw new ServiceException("supply_missing", "Supply container is unavailable");
     }
     if (templateItem == null || templateItem.getType() == Material.AIR) {
-      throw new ServiceException("invalid_item", "妯℃澘鐗╁搧涓嶈兘涓虹┖");
+      throw new ServiceException("invalid_item", "濡剝婢橀悧鈺佹惂娑撳秷鍏樻稉铏光敄");
     }
     SupplyConfig normalizedSupply = normalizeSupplyConfig(0, 0);
     ItemStack template = templateItem.clone();
@@ -260,7 +455,7 @@ class MarketService {
       ItemSnapshotCodec.Snapshot snapshot = transfer.loadedAmount() > 0
           ? transfer.snapshot()
           : itemSnapshotCodec.serialize(template);
-      long listingId = databaseManager.inTransaction(connection -> createListingInTransaction(
+      ListingCreateResult result = databaseManager.inTransaction(connection -> createSellListingInTransaction(
           connection,
           seller,
           currency,
@@ -273,13 +468,8 @@ class MarketService {
               normalizedSupply.transferBatchSize(),
               normalizedSupply.transitMaxStock(),
               source,
-              transfer.loadedAmount())));
-      ListingCreateResult result = new ListingCreateResult(
-          listingId,
-          storedItem.getType().name(),
-          transfer.loadedAmount(),
-          currency,
-          price);
+              transfer.loadedAmount()),
+          null));
       publishListingCreatedEvent(seller.userId(), player.getName(), result, TradeMode.DIRECT);
       return result;
     } catch (Exception exception) {
@@ -302,6 +492,9 @@ class MarketService {
             false,
             "created",
             false,
+            null,
+            null,
+            null,
             null,
             null,
             null,
@@ -396,12 +589,15 @@ class MarketService {
       int limit) throws SQLException {
     StringBuilder sql = new StringBuilder("""
         SELECT ml.id, ml.seller_user_id, u.username AS seller_name, ml.seller_uuid, ml.currency, ml.price,
-               ml.quantity, ml.quantity_total, ml.item_material, ml.display_name_override, ml.display_material,
+               ml.quantity, ml.quantity_total, ml.escrow_total, ml.escrow_remaining,
+               ml.item_material, ml.display_name_override, ml.display_material,
                ml.display_icon_path, ml.item_meta_json,
-               ml.remark, ml.status, ml.created_at, ml.source_mode, ml.supply_batch_size,
+               ml.remark, ml.status, ml.created_at,
+               ml.market_side, ml.tag_code, ml.tag_version,
+               ml.source_mode, ml.supply_batch_size,
                ml.supply_max_stock, ml.supply_loaded_total, ml.supply_sold_total,
-         ml.supply_last_loaded_amount, ml.supply_last_loaded_at,
-           ml.trade_mode, ml.dynamic_pricing_enabled, ml.dynamic_algorithm, ml.dynamic_params_json,
+          ml.supply_last_loaded_amount, ml.supply_last_loaded_at,
+            ml.trade_mode, ml.dynamic_pricing_enabled, ml.dynamic_algorithm, ml.dynamic_params_json,
            ml.dynamic_base_price, ml.dynamic_floor_price, ml.dynamic_cap_price, ml.dynamic_price_step,
            ml.dynamic_demand_score,
            ml.auction_algorithm, ml.auction_params_json,
@@ -426,6 +622,30 @@ class MarketService {
     if (query.currency() != null) {
       sql.append(" AND ml.currency = ?");
       params.add(query.currency().name());
+    }
+    if (query.side() != null) {
+      sql.append(" AND ml.market_side = ?");
+      params.add(query.side().name());
+    }
+    if (query.tag() != null && !query.tag().isBlank()) {
+      sql.append(" AND ml.tag_code = ?");
+      params.add(query.tag());
+    }
+    if (query.tags() != null && !query.tags().isEmpty()) {
+      List<String> tags = query.tags().stream()
+          .filter(value -> value != null && !value.isBlank())
+          .toList();
+      if (!tags.isEmpty()) {
+        sql.append(" AND ml.tag_code IN (");
+        for (int i = 0; i < tags.size(); i++) {
+          if (i > 0) {
+            sql.append(", ");
+          }
+          sql.append("?");
+        }
+        sql.append(")");
+        params.addAll(tags);
+      }
     }
     if (query.material() != null && !query.material().isBlank()) {
       sql.append(" AND ml.item_material = ?");
@@ -518,7 +738,9 @@ class MarketService {
     String sql = """
         SELECT ml.id, ml.seller_user_id, us.username AS seller_name, ml.seller_uuid,
                ml.buyer_user_id, ub.username AS buyer_name, ml.buyer_uuid,
-               ml.currency, ml.price, ml.quantity, ml.quantity_total, ml.item_material,
+               ml.currency, ml.price, ml.quantity, ml.quantity_total,
+               ml.market_side, ml.tag_code, ml.tag_version, ml.escrow_total, ml.escrow_remaining,
+               ml.item_material,
                ml.display_name_override, ml.display_material, ml.display_icon_path, ml.item_meta_json,
                ml.remark, ml.status, ml.created_at, ml.sold_at, ml.unlisted_at,
                ml.source_mode, ml.supply_batch_size, ml.supply_max_stock, ml.supply_loaded_total,
@@ -658,6 +880,7 @@ class MarketService {
       long listingId,
       long price,
       CurrencyType currency,
+      String tagCode,
       String remark,
       String displayNameOverride,
       String displayMaterial,
@@ -691,6 +914,7 @@ class MarketService {
             listingId,
             price,
             currency,
+            tagCode,
             normalizedRemark,
             displayNameOverride,
             displayMaterial,
@@ -814,6 +1038,78 @@ class MarketService {
     }
   }
 
+  private ListingCreateResult createSellListingInTransaction(
+      Connection connection,
+      BoundUser seller,
+      CurrencyType currency,
+      long price,
+      ItemStack listingItem,
+      ItemSnapshotCodec.Snapshot snapshot,
+      int listingLimit,
+      SupplyConfig supplyConfig,
+      String requestedTagCode) throws SQLException {
+    MarketLimitationService.Decision limitationDecision = evaluateLimitationDecision(
+        seller.boundUuid(),
+        MarketSide.SELL,
+        TradeMode.DIRECT,
+        currency,
+        requestedTagCode,
+        listingItem.getType().name(),
+        snapshot.rawItemBlob(),
+        snapshot.itemMetaJson());
+    applyLimitationDecision(
+        limitationDecision,
+        MarketSide.SELL,
+        TradeMode.DIRECT,
+        currency,
+        requestedTagCode);
+    String requestedTag = limitationDecision.forcedTag() == null
+        ? requestedTagCode
+        : limitationDecision.forcedTag();
+    MarketTagService.TagAssignment assignment = marketTagService.resolveTag(
+        requestedTag,
+        snapshot.rawItemBlob(),
+        snapshot.itemMetaJson(),
+        listingItem.getType().name());
+    marketTagService.syncDictionary(connection);
+
+    long listingId = createListingInTransaction(
+        connection,
+        seller,
+        currency,
+        price,
+        listingItem,
+        snapshot,
+        listingLimit,
+        supplyConfig,
+        MarketSide.SELL,
+        assignment.code(),
+        assignment.tagVersion(),
+        0L,
+        0L,
+        null);
+    applyCreateCostIfNeeded(
+        connection,
+        seller.userId(),
+        currency,
+        limitationDecision.createCost(),
+        listingId);
+
+    int createdQuantity = supplyConfig.mode() == SupplyMode.SUPPLY
+        ? Math.max(0, supplyConfig.initialLoadedAmount())
+        : listingItem.getAmount();
+    return new ListingCreateResult(
+        listingId,
+        listingItem.getType().name(),
+        createdQuantity,
+        currency,
+        price,
+        MarketSide.SELL,
+        assignment.code(),
+        0L,
+        0L);
+  }
+
   private long createListingInTransaction(
       Connection connection,
       BoundUser seller,
@@ -822,32 +1118,57 @@ class MarketService {
       ItemStack listingItem,
       ItemSnapshotCodec.Snapshot snapshot,
       int listingLimit,
-      SupplyConfig supplyConfig) throws SQLException {
+      SupplyConfig supplyConfig,
+      MarketSide marketSide,
+      String tagCode,
+      int tagVersion,
+      long escrowTotal,
+      long escrowRemaining,
+      Integer quantityOverride) throws SQLException {
     int activeListings = countActiveListings(connection, seller.userId());
     if (activeListings >= listingLimit) {
-      throw new ServiceException(
-          "listing_limit",
-          "褰撳墠涓婃灦鏁伴噺宸茶揪涓婇檺 (" + listingLimit + ")");
+      throw new ServiceException("listing_limit", "Active listing count reaches limit (" + listingLimit + ")");
+    }
+    if (marketSide == MarketSide.BUY && supplyConfig.mode() != SupplyMode.MANUAL) {
+      throw new ServiceException("buy_requires_manual_source", "BUY listings must use MANUAL source mode");
     }
 
-    int initialQuantity = supplyConfig.mode() == SupplyMode.SUPPLY
-        ? Math.max(0, supplyConfig.initialLoadedAmount())
-        : listingItem.getAmount();
-    int quantityTotal = supplyConfig.mode() == SupplyMode.SUPPLY
-        ? supplyConfig.transitMaxStock()
-        : listingItem.getAmount();
-    String initialStatus = supplyConfig.mode() == SupplyMode.SUPPLY && initialQuantity <= 0
-        ? "PAUSED"
-        : "ACTIVE";
+    int initialQuantity;
+    int quantityTotal;
+    if (quantityOverride != null) {
+      initialQuantity = Math.max(0, quantityOverride);
+      quantityTotal = Math.max(0, quantityOverride);
+    } else {
+      initialQuantity = supplyConfig.mode() == SupplyMode.SUPPLY
+          ? Math.max(0, supplyConfig.initialLoadedAmount())
+          : listingItem.getAmount();
+      quantityTotal = supplyConfig.mode() == SupplyMode.SUPPLY
+          ? supplyConfig.transitMaxStock()
+          : listingItem.getAmount();
+    }
+
+    String initialStatus = marketSide == MarketSide.BUY
+        ? "ACTIVE"
+        : (supplyConfig.mode() == SupplyMode.SUPPLY && initialQuantity <= 0 ? "PAUSED" : "ACTIVE");
+    String normalizedTag = normalizeTagCode(tagCode);
+    if (normalizedTag == null) {
+      normalizedTag = "default";
+    }
+    int normalizedTagVersion = Math.max(1, tagVersion);
+    long normalizedEscrowTotal = marketSide == MarketSide.BUY ? Math.max(0L, escrowTotal) : 0L;
+    long normalizedEscrowRemaining = marketSide == MarketSide.BUY ? Math.max(0L, escrowRemaining) : 0L;
 
     String sql = """
         INSERT INTO market_listings (
-          seller_user_id, seller_uuid, currency, price, quantity, quantity_total, item_material, raw_item_blob,
-          display_name_override, display_material, display_icon_path, item_meta_json, remark, item_hash, source_mode,
+          seller_user_id, seller_uuid, currency, price, quantity, quantity_total, escrow_total, escrow_remaining,
+          item_material, raw_item_blob,
+          display_name_override, display_material, display_icon_path, item_meta_json, remark, item_hash,
+          tag_code, tag_version, source_mode,
           supply_world, supply_x, supply_y, supply_z, supply_batch_size, supply_max_stock,
-          supply_loaded_total, supply_sold_total, supply_last_loaded_amount, supply_last_loaded_at, status
+          supply_loaded_total, supply_sold_total, supply_last_loaded_amount, supply_last_loaded_at,
+          status, market_side
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement =
              connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -857,42 +1178,47 @@ class MarketService {
       statement.setLong(4, price);
       statement.setInt(5, initialQuantity);
       statement.setInt(6, quantityTotal);
-      statement.setString(7, listingItem.getType().name());
-      statement.setBytes(8, snapshot.rawItemBlob());
-      statement.setString(9, null);
-      statement.setString(10, null);
+      statement.setLong(7, normalizedEscrowTotal);
+      statement.setLong(8, normalizedEscrowRemaining);
+      statement.setString(9, listingItem.getType().name());
+      statement.setBytes(10, snapshot.rawItemBlob());
       statement.setString(11, null);
-      statement.setString(12, snapshot.itemMetaJson());
+      statement.setString(12, null);
       statement.setString(13, null);
-      statement.setString(14, snapshot.itemHash());
-      statement.setString(15, supplyConfig.mode().name());
+      statement.setString(14, snapshot.itemMetaJson());
+      statement.setString(15, null);
+      statement.setString(16, snapshot.itemHash());
+      statement.setString(17, normalizedTag);
+      statement.setInt(18, normalizedTagVersion);
+      statement.setString(19, supplyConfig.mode().name());
       if (supplyConfig.source() == null) {
-        statement.setString(16, null);
-        statement.setObject(17, null);
-        statement.setObject(18, null);
-        statement.setObject(19, null);
+        statement.setString(20, null);
+        statement.setObject(21, null);
+        statement.setObject(22, null);
+        statement.setObject(23, null);
       } else {
-        statement.setString(16, supplyConfig.source().worldName());
-        statement.setInt(17, supplyConfig.source().x());
-        statement.setInt(18, supplyConfig.source().y());
-        statement.setInt(19, supplyConfig.source().z());
+        statement.setString(20, supplyConfig.source().worldName());
+        statement.setInt(21, supplyConfig.source().x());
+        statement.setInt(22, supplyConfig.source().y());
+        statement.setInt(23, supplyConfig.source().z());
       }
       if (supplyConfig.mode() == SupplyMode.SUPPLY) {
-        statement.setInt(20, supplyConfig.transferBatchSize());
-        statement.setInt(21, supplyConfig.transitMaxStock());
-        statement.setLong(22, supplyConfig.initialLoadedAmount());
-        statement.setLong(23, 0L);
-        statement.setInt(24, supplyConfig.initialLoadedAmount());
-        statement.setTimestamp(25, Timestamp.valueOf(LocalDateTime.now()));
+        statement.setInt(24, supplyConfig.transferBatchSize());
+        statement.setInt(25, supplyConfig.transitMaxStock());
+        statement.setLong(26, supplyConfig.initialLoadedAmount());
+        statement.setLong(27, 0L);
+        statement.setInt(28, supplyConfig.initialLoadedAmount());
+        statement.setTimestamp(29, Timestamp.valueOf(LocalDateTime.now()));
       } else {
-        statement.setObject(20, null);
-        statement.setObject(21, null);
-        statement.setLong(22, 0L);
-        statement.setLong(23, 0L);
         statement.setObject(24, null);
-        statement.setTimestamp(25, null);
+        statement.setObject(25, null);
+        statement.setLong(26, 0L);
+        statement.setLong(27, 0L);
+        statement.setObject(28, null);
+        statement.setTimestamp(29, null);
       }
-      statement.setString(26, initialStatus);
+      statement.setString(30, initialStatus);
+      statement.setString(31, marketSide.name());
       statement.executeUpdate();
       try (ResultSet keyResult = statement.getGeneratedKeys()) {
         if (!keyResult.next()) {
@@ -901,6 +1227,228 @@ class MarketService {
         return keyResult.getLong(1);
       }
     }
+  }
+
+  private MarketLimitationService.Decision evaluateLimitationDecision(
+      UUID actorUuid,
+      MarketSide side,
+      TradeMode tradeMode,
+      CurrencyType currency,
+      String tagCode,
+      String itemMaterial,
+      byte[] rawItemBlob,
+      String itemMetaJson) {
+    boolean bypass = hasLimitationBypass(actorUuid);
+    MarketLimitationService.Decision decision = marketLimitationService.evaluate(
+        new MarketLimitationService.DecisionContext(
+            actorUuid,
+            side.name(),
+            tradeMode.name(),
+            currency.name(),
+            tagCode,
+            itemMaterial,
+            rawItemBlob,
+            itemMetaJson),
+        bypass);
+    if (!decision.allowed()) {
+      plugin.getLogger().info(
+          "MARKET_LIMITATION_DENY actor="
+              + actorUuid
+              + ", side="
+              + side.name()
+              + ", tradeMode="
+              + tradeMode.name()
+              + ", currency="
+              + currency.name()
+              + ", code="
+              + decision.denyCode()
+              + ", ruleId="
+              + decision.ruleId()
+              + ", priority="
+              + decision.rulePriority());
+    }
+    return decision;
+  }
+
+  private void applyLimitationDecision(
+      MarketLimitationService.Decision decision,
+      MarketSide side,
+      TradeMode tradeMode,
+      CurrencyType currency,
+      String tagCode) {
+    if (!decision.allowed()) {
+      throw new ServiceException(
+          decision.denyCode() == null ? "limitation_item_forbidden" : decision.denyCode(),
+          "Listing is denied by market limitation");
+    }
+    if (!decision.allowedSides().isEmpty() && !decision.allowedSides().contains(side.name())) {
+      throw new ServiceException("limitation_side_not_allowed", "Market side is not allowed");
+    }
+    if (!decision.allowedTradeModes().isEmpty() && !decision.allowedTradeModes().contains(tradeMode.name())) {
+      throw new ServiceException("limitation_trade_mode_not_allowed", "Trade mode is not allowed");
+    }
+    if (!decision.allowedCurrencies().isEmpty() && !decision.allowedCurrencies().contains(currency.name())) {
+      throw new ServiceException("limitation_currency_not_allowed", "Currency is not allowed");
+    }
+    String normalizedTag = normalizeTagCode(tagCode);
+    if (normalizedTag != null && !decision.allowedTags().isEmpty()
+        && !decision.allowedTags().contains(normalizedTag)) {
+      throw new ServiceException("invalid_tag", "Tag is not allowed");
+    }
+  }
+
+  private void applyCreateCostIfNeeded(
+      Connection connection,
+      long ownerUserId,
+      CurrencyType listingCurrency,
+      MarketLimitationService.CreateCost createCost,
+      long listingId) throws SQLException {
+    if (createCost == null || !createCost.enabled() || createCost.amount() <= 0L) {
+      return;
+    }
+    CurrencyType costCurrency;
+    if ("INHERIT".equalsIgnoreCase(createCost.currency())) {
+      costCurrency = listingCurrency;
+    } else {
+      costCurrency = CurrencyType.fromConfig(createCost.currency());
+    }
+    walletService.applyDelta(
+        connection,
+        ownerUserId,
+        costCurrency,
+        -createCost.amount(),
+        "MARKET_CREATE_COST",
+        "mkt-create-cost:" + listingId,
+        true);
+  }
+
+  private String normalizeTagCode(String raw) {
+    if (raw == null) {
+      return null;
+    }
+    String normalized = raw.trim().toLowerCase(Locale.ROOT);
+    if (normalized.isEmpty()) {
+      return null;
+    }
+    normalized = normalized.replaceAll("[^a-z0-9_-]+", "_");
+    normalized = normalized.replaceAll("^_+|_+$", "");
+    return normalized.isEmpty() ? null : normalized;
+  }
+
+  private boolean hasLimitationBypass(UUID actorUuid) {
+    if (actorUuid == null) {
+      return false;
+    }
+    Player player = Bukkit.getPlayer(actorUuid);
+    return player != null && player.hasPermission("webshop.market.limitation.bypass");
+  }
+
+  private TagRecalcResult recalcTagsInTransaction(Connection connection, String scope) throws SQLException {
+    long started = System.currentTimeMillis();
+    marketTagService.syncDictionary(connection);
+    int targetVersion = marketTagService.currentTagVersion();
+
+    String sql;
+    if ("active".equals(scope)) {
+      sql = """
+          SELECT id, raw_item_blob, item_meta_json, item_material, tag_code, tag_version
+          FROM market_listings
+          WHERE status IN ('ACTIVE', 'PAUSED')
+          FOR UPDATE
+          """;
+    } else {
+      sql = """
+          SELECT id, raw_item_blob, item_meta_json, item_material, tag_code, tag_version
+          FROM market_listings
+          FOR UPDATE
+          """;
+    }
+    int scanned = 0;
+    int changed = 0;
+    String updateSql = """
+        UPDATE market_listings
+        SET tag_code = ?, tag_version = ?
+        WHERE id = ?
+        """;
+    try (PreparedStatement query = connection.prepareStatement(sql);
+         ResultSet resultSet = query.executeQuery();
+         PreparedStatement update = connection.prepareStatement(updateSql)) {
+      while (resultSet.next()) {
+        scanned++;
+        long listingId = resultSet.getLong("id");
+        String currentTag = normalizeTagCode(resultSet.getString("tag_code"));
+        int currentVersion = resultSet.getInt("tag_version");
+        MarketTagService.TagAssignment assignment = marketTagService.resolveTag(
+            null,
+            resultSet.getBytes("raw_item_blob"),
+            resultSet.getString("item_meta_json"),
+            resultSet.getString("item_material"));
+        if (!assignment.code().equals(currentTag) || currentVersion != targetVersion) {
+          update.setString(1, assignment.code());
+          update.setInt(2, targetVersion);
+          update.setLong(3, listingId);
+          update.addBatch();
+          changed++;
+        }
+      }
+      update.executeBatch();
+    }
+    return new TagRecalcResult(scanned, changed, Math.max(0L, System.currentTimeMillis() - started));
+  }
+
+  private long refundBuyEscrowIfNeeded(Connection connection, MarketListing listing, String reason)
+      throws SQLException {
+    if (listing.marketSide() != MarketSide.BUY) {
+      return 0L;
+    }
+    long refundable = Math.max(0L, listing.escrowRemaining());
+    if (refundable <= 0L) {
+      return 0L;
+    }
+    walletService.applyDelta(
+        connection,
+        listing.sellerUserId(),
+        listing.currency(),
+        refundable,
+        "MARKET_BUY_REFUND_ESCROW",
+        "mkt-buy-refund:" + listing.id() + ":" + reason,
+        false);
+    String sql = "UPDATE market_listings SET escrow_remaining = 0 WHERE id = ?";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, listing.id());
+      statement.executeUpdate();
+    }
+    plugin.getLogger().info(
+        "MARKET_BUY_ORDER_REFUND_ESCROW listingId="
+            + listing.id()
+            + ", ownerUserId="
+            + listing.sellerUserId()
+            + ", side=BUY, currency="
+            + listing.currency().name()
+            + ", amount="
+            + refundable
+            + ", reason="
+            + reason);
+    enqueueBuyEscrowRefundNotification(listing, refundable);
+    return refundable;
+  }
+
+  private void enqueueBuyEscrowRefundNotification(MarketListing listing, long refundable) {
+    if (listing == null || refundable <= 0L) {
+      return;
+    }
+    Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, () -> {
+      try {
+        notificationService.createNotification(
+            listing.sellerUserId(),
+            "MARKET_BUY_ORDER_REFUND_ESCROW",
+            "BUY Escrow Refunded",
+            "Listing #" + listing.id() + " refunded escrow: "
+                + formatAmount(refundable, listing.currency()) + ".");
+      } catch (Exception ignored) {
+        // Keep business path stable even when notification fails.
+      }
+    }, 1L);
   }
 
   private TradeResult buyListingInTransaction(
@@ -947,6 +1495,9 @@ class MarketService {
     }
     if (!listing.status().equals("ACTIVE")) {
       throw new ServiceException("listing_unavailable", "Supply mode is not enabled for this listing");
+    }
+    if (listing.marketSide() == MarketSide.BUY) {
+      throw new ServiceException("buy_order_not_active", "BUY listings must be fulfilled via sell-to-buy");
     }
     if (listing.isAuction()) {
       MarketAlgorithmRegistry.AuctionAlgorithmType algorithmType = listing.auctionAlgorithmType();
@@ -1044,6 +1595,153 @@ class MarketService {
         tradeStatus,
         refundDeadline,
         deliveryMode == DeliveryMode.CLAIM ? 0 : cooldownSeconds);
+  }
+
+  private TradeResult fulfillBuyOrderInTransaction(
+      Connection connection,
+      long sellerUserId,
+      long listingId,
+      int fulfillQuantity,
+      String idempotencyKey,
+      String deliveryModeRaw) throws SQLException {
+    int cooldownSeconds = normalizedOrderCooldownSeconds();
+    MarketListing listing = readListingForUpdate(connection, listingId);
+    if (listing.marketSide() != MarketSide.BUY) {
+      throw new ServiceException("buy_order_not_active", "Only BUY listings can be fulfilled");
+    }
+    String fulfillIdempotency = "fulfill:" + sellerUserId + ":" + idempotencyKey;
+    ExistingTrade existingTrade = readExistingTrade(connection, listing.sellerUserId(), fulfillIdempotency);
+    if (existingTrade != null) {
+      long buyerTotal = existingTrade.buyerTotal() > 0
+          ? existingTrade.buyerTotal()
+          : existingTrade.totalPrice();
+      long sellerReceive = existingTrade.sellerReceive() > 0
+          ? existingTrade.sellerReceive()
+          : existingTrade.totalPrice();
+      int effectiveCooldown = existingTrade.refundDeadline() == null ? 0 : cooldownSeconds;
+      return new TradeResult(
+          TradeState.EXISTING,
+          existingTrade.tradeId(),
+          existingTrade.listingId(),
+          CurrencyType.valueOf(existingTrade.currency()),
+          existingTrade.unitPrice(),
+          existingTrade.quantity(),
+          existingTrade.totalPrice(),
+          buyerTotal,
+          sellerReceive,
+          existingTrade.feeAmount(),
+          existingTrade.taxAmount(),
+          existingTrade.status(),
+          existingTrade.refundDeadline(),
+          effectiveCooldown);
+    }
+    if (!"ACTIVE".equalsIgnoreCase(listing.status())) {
+      throw new ServiceException("buy_order_not_active", "BUY listing is not active");
+    }
+    if (listing.sellerUserId() == sellerUserId) {
+      throw new ServiceException("cannot_fulfill_own_buy_order", "You cannot fulfill your own BUY listing");
+    }
+    if (fulfillQuantity > listing.quantity()) {
+      throw new ServiceException("insufficient_quantity", "Listing does not have enough remaining quantity");
+    }
+    BoundUser seller = readBoundUserById(connection, sellerUserId, true);
+    BoundUser owner = readBoundUserById(connection, listing.sellerUserId(), true);
+
+    PluginSettings.MarketEconomySettings marketEconomy = settingsSupplier.get().economySettings().marketSettings();
+    long tradeSubtotal = Math.multiplyExact(listing.price(), fulfillQuantity);
+    long fee = calculatePercent(tradeSubtotal, marketEconomy.tradeFeePercent());
+    long tax = calculatePercent(tradeSubtotal, marketEconomy.tradeTaxPercent());
+    long buyerTotal = Math.addExact(tradeSubtotal, tax);
+    if (listing.escrowRemaining() < buyerTotal) {
+      throw new ServiceException("buy_escrow_insufficient", "BUY escrow does not cover this fulfill amount");
+    }
+    long sellerReceive = Math.max(0L, tradeSubtotal - fee);
+    LocalDateTime now = LocalDateTime.now();
+    DeliveryMode deliveryMode = resolveDeliveryMode(deliveryModeRaw);
+    LocalDateTime refundDeadline = deliveryMode == DeliveryMode.IMMEDIATE && cooldownSeconds > 0
+        ? now.plusSeconds(cooldownSeconds)
+        : null;
+    String tradeStatus = deliveryMode == DeliveryMode.CLAIM ? "WAIT_CLAIM" : "PENDING";
+    boolean consumedItems = false;
+    try {
+      consumeBuyFulfillItems(seller.boundUuid(), listing.rawItemBlob(), fulfillQuantity);
+      consumedItems = true;
+
+      long tradeId = insertTrade(
+          connection,
+          listing.id(),
+          owner.userId(),
+          seller.userId(),
+          listing.currency(),
+          listing.price(),
+          fulfillQuantity,
+          tradeSubtotal,
+          buyerTotal,
+          sellerReceive,
+          fee,
+          tax,
+          fulfillIdempotency,
+          tradeStatus,
+          refundDeadline);
+
+      int remainingQuantity = listing.quantity() - fulfillQuantity;
+      long remainingEscrow = listing.escrowRemaining() - buyerTotal;
+      String updateSql = """
+          UPDATE market_listings
+          SET quantity = ?,
+              status = ?,
+              sold_at = CASE WHEN ? THEN NOW() ELSE sold_at END,
+              buyer_user_id = NULL,
+              buyer_uuid = NULL,
+              escrow_remaining = ?
+          WHERE id = ?
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
+        statement.setInt(1, remainingQuantity);
+        statement.setString(2, remainingQuantity <= 0 ? "SOLD" : "ACTIVE");
+        statement.setBoolean(3, remainingQuantity <= 0);
+        statement.setLong(4, Math.max(0L, remainingEscrow));
+        statement.setLong(5, listing.id());
+        statement.executeUpdate();
+      }
+      if (remainingQuantity <= 0) {
+        MarketListing refreshed = readListingForUpdate(connection, listing.id());
+        refundBuyEscrowIfNeeded(connection, refreshed, "sold");
+      }
+
+      LocalDateTime deliveryAt = refundDeadline == null ? now : refundDeadline;
+      enqueueMarketItemDelivery(
+          connection,
+          listing.id(),
+          tradeId,
+          owner.userId(),
+          owner.boundUuid(),
+          listing.rawItemBlob(),
+          fulfillQuantity,
+          DeliveryType.SALE,
+          deliveryMode == DeliveryMode.CLAIM ? "WAIT_CLAIM" : "PENDING",
+          deliveryAt);
+      return new TradeResult(
+          TradeState.CREATED,
+          tradeId,
+          listing.id(),
+          listing.currency(),
+          listing.price(),
+          fulfillQuantity,
+          tradeSubtotal,
+          buyerTotal,
+          sellerReceive,
+          fee,
+          tax,
+          tradeStatus,
+          refundDeadline,
+          deliveryMode == DeliveryMode.CLAIM ? 0 : cooldownSeconds);
+    } catch (Exception exception) {
+      if (consumedItems) {
+        restoreBuyFulfillItemsSafely(seller.boundUuid(), listing.rawItemBlob(), fulfillQuantity);
+      }
+      throw exception;
+    }
   }
 
   private TradeResult buyDutchAuctionInTransaction(
@@ -1334,12 +2032,13 @@ class MarketService {
           && (previousHighestBidderUserId == null || previousHighestBidderUserId != bidder.userId())) {
         notifyPlayerAsync(
             previousHighestBidderUuid,
-            "浣犵殑鎷嶅崠鍑轰环宸茶瓒呰秺锛岀郴缁熷凡鑷姩閫€鍥?"
+            "You were outbid on auction #"
+                + listing.id()
+                + ". Previous highest bid was "
                 + previousHighestBid
                 + " "
                 + listing.currency().name()
-                + "銆備笂鏋?#"
-                + listing.id());
+                + ".");
       }
     } else {
       String updateSql = """
@@ -2055,18 +2754,24 @@ class MarketService {
       statement.setLong(1, listing.id());
       statement.executeUpdate();
     }
-
-    enqueueMarketItemDelivery(
-        connection,
-        listing.id(),
-        null,
-        seller.userId(),
-        seller.boundUuid(),
-        listing.rawItemBlob(),
-        listing.quantity(),
-        DeliveryType.UNLIST,
-        "PENDING",
-        LocalDateTime.now());
+    listing = readListingForUpdate(connection, listing.id());
+    if (listing.marketSide() == MarketSide.BUY) {
+      refundBuyEscrowIfNeeded(connection, listing, "seller-unlist");
+      return new UnlistResult(listing.id(), listing.currency(), listing.price(), listing.quantity());
+    }
+    if (listing.quantity() > 0) {
+      enqueueMarketItemDelivery(
+          connection,
+          listing.id(),
+          null,
+          seller.userId(),
+          seller.boundUuid(),
+          listing.rawItemBlob(),
+          listing.quantity(),
+          DeliveryType.UNLIST,
+          "PENDING",
+          LocalDateTime.now());
+    }
     return new UnlistResult(listing.id(), listing.currency(), listing.price(), listing.quantity());
   }
 
@@ -2130,6 +2835,24 @@ class MarketService {
     if (listing.sellerUserId() != sellerUserId) {
       throw new ServiceException("forbidden", "Only the owner can update listing price");
     }
+    if (listing.marketSide() == MarketSide.BUY) {
+      throw new ServiceException("buy_requires_fixed_price", "BUY listing price is fixed after creation");
+    }
+    MarketLimitationService.Decision limitationDecision = evaluateLimitationDecision(
+        listing.sellerUuid(),
+        listing.marketSide(),
+        listing.tradeMode(),
+        listing.currency(),
+        listing.tagCode(),
+        listing.itemMaterial(),
+        listing.rawItemBlob(),
+        listing.itemMetaJson());
+    applyLimitationDecision(
+        limitationDecision,
+        listing.marketSide(),
+        listing.tradeMode(),
+        listing.currency(),
+        listing.tagCode());
 
     String sql = """
         UPDATE market_listings
@@ -2176,6 +2899,7 @@ class MarketService {
       long listingId,
       long price,
       CurrencyType currency,
+      String tagCodeRaw,
       String remark,
       String displayNameOverride,
       String displayMaterial,
@@ -2202,9 +2926,16 @@ class MarketService {
     if (listing.sellerUserId() != sellerUserId) {
       throw new ServiceException("forbidden", "Only the owner can update listing settings");
     }
+    if (listing.marketSide() == MarketSide.BUY && price != listing.price()) {
+      throw new ServiceException("buy_requires_fixed_price", "BUY listing price is fixed after creation");
+    }
     String normalizedDisplayNameOverride = normalizeDisplayNameOverride(displayNameOverride);
     String normalizedDisplayMaterial = normalizeDisplayMaterial(displayMaterial);
     String normalizedDisplayIconPath = normalizeDisplayIconPath(displayIconPath);
+    String normalizedRequestedTag = normalizeTagCode(tagCodeRaw);
+    if (normalizedRequestedTag == null) {
+      normalizedRequestedTag = listing.tagCode();
+    }
     Integer batch = listing.supplyBatchSize();
     Integer maxStock = listing.supplyMaxStock();
     int quantityTotal = listing.quantityTotal();
@@ -2218,10 +2949,60 @@ class MarketService {
     }
 
     TradeMode tradeMode = resolveTradeMode(tradeModeRaw, listing.tradeMode());
+    if (listing.marketSide() == MarketSide.BUY) {
+      if (listing.sourceMode() != SupplyMode.MANUAL) {
+        throw new ServiceException("buy_requires_manual_source", "BUY listings must use MANUAL source mode");
+      }
+      if (tradeMode != TradeMode.DIRECT) {
+        throw new ServiceException("buy_requires_direct_mode", "BUY listings only support DIRECT trade mode");
+      }
+      boolean dynamicConfigTouched = Boolean.TRUE.equals(dynamicPricingEnabled)
+          || (dynamicAlgorithmRaw != null && !dynamicAlgorithmRaw.isBlank())
+          || dynamicParamsJson != null
+          || dynamicBasePrice != null
+          || dynamicFloorPrice != null
+          || dynamicCapPrice != null
+          || dynamicPriceStep != null;
+      if (dynamicConfigTouched) {
+        throw new ServiceException("buy_requires_fixed_price", "BUY listings do not support dynamic pricing");
+      }
+      boolean auctionConfigTouched = (auctionAlgorithmRaw != null && !auctionAlgorithmRaw.isBlank())
+          || auctionParamsJson != null
+          || auctionStartPrice != null
+          || auctionMinIncrement != null
+          || auctionEndAt != null;
+      if (auctionConfigTouched) {
+        throw new ServiceException("buy_requires_direct_mode", "BUY listings do not support auction parameters");
+      }
+    }
     if (tradeMode == TradeMode.AUCTION && listing.isSupply()) {
       throw new ServiceException("invalid_trade_mode", "Supply listings do not support auction mode");
     }
 
+    MarketLimitationService.Decision limitationDecision = evaluateLimitationDecision(
+        listing.sellerUuid(),
+        listing.marketSide(),
+        tradeMode,
+        currency,
+        normalizedRequestedTag,
+        listing.itemMaterial(),
+        listing.rawItemBlob(),
+        listing.itemMetaJson());
+    applyLimitationDecision(
+        limitationDecision,
+        listing.marketSide(),
+        tradeMode,
+        currency,
+        normalizedRequestedTag);
+    String resolvedTag = limitationDecision.forcedTag() == null
+        ? normalizedRequestedTag
+        : limitationDecision.forcedTag();
+    MarketTagService.TagAssignment tagAssignment = marketTagService.resolveTag(
+        resolvedTag,
+        listing.rawItemBlob(),
+        listing.itemMetaJson(),
+        listing.itemMaterial());
+    marketTagService.syncDictionary(connection);
     if (tradeMode != TradeMode.AUCTION && listing.isAuction()) {
       refundAuctionBidsIfPresent(connection, listing, "mode-switch");
       listing = readListingForUpdate(connection, listing.id());
@@ -2261,6 +3042,14 @@ class MarketService {
     UUID normalizedAuctionHighestBidderUuid = listing.auctionHighestBidderUuid();
     Long normalizedAuctionHighestBidId = listing.auctionHighestBidId();
     LocalDateTime normalizedAuctionLastBidAt = listing.auctionLastBidAt();
+    if (listing.marketSide() == MarketSide.BUY) {
+      normalizedDynamicEnabled = false;
+      normalizedDynamicBasePrice = null;
+      normalizedDynamicFloorPrice = null;
+      normalizedDynamicCapPrice = null;
+      normalizedDynamicPriceStep = null;
+      normalizedDynamicDemandScore = 0L;
+    }
 
     long effectivePrice = price;
     if (tradeMode == TradeMode.AUCTION) {
@@ -2475,12 +3264,11 @@ class MarketService {
 
     String sql = """
         UPDATE market_listings
-        SET price = ?, currency = ?, remark = ?, display_name_override = ?, display_material = ?,
-        display_icon_path = ?, supply_batch_size = ?, supply_max_stock = ?, quantity_total = ?,
-        trade_mode = ?, dynamic_pricing_enabled = ?, dynamic_algorithm = ?, dynamic_params_json = ?,
-        dynamic_base_price = ?, dynamic_floor_price = ?, dynamic_cap_price = ?, dynamic_price_step = ?,
-        dynamic_demand_score = ?,
-        auction_algorithm = ?, auction_params_json = ?,
+        SET price = ?, currency = ?, tag_code = ?, tag_version = ?, remark = ?, display_name_override = ?,
+        display_material = ?, display_icon_path = ?, supply_batch_size = ?, supply_max_stock = ?,
+        quantity_total = ?, trade_mode = ?, dynamic_pricing_enabled = ?, dynamic_algorithm = ?,
+        dynamic_params_json = ?, dynamic_base_price = ?, dynamic_floor_price = ?, dynamic_cap_price = ?,
+        dynamic_price_step = ?, dynamic_demand_score = ?, auction_algorithm = ?, auction_params_json = ?,
         auction_start_price = ?, auction_min_increment = ?, auction_started_at = ?, auction_public_end_at = ?,
         auction_end_at = ?, auction_highest_bid = ?, auction_highest_bidder_user_id = ?,
         auction_highest_bidder_uuid = ?, auction_highest_bid_id = ?, auction_last_bid_at = ?
@@ -2489,59 +3277,61 @@ class MarketService {
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, effectivePrice);
       statement.setString(2, currency.name());
-      statement.setString(3, remark);
-      statement.setString(4, normalizedDisplayNameOverride);
-      statement.setString(5, normalizedDisplayMaterial);
-      statement.setString(6, normalizedDisplayIconPath);
+      statement.setString(3, tagAssignment.code());
+      statement.setInt(4, tagAssignment.tagVersion());
+      statement.setString(5, remark);
+      statement.setString(6, normalizedDisplayNameOverride);
+      statement.setString(7, normalizedDisplayMaterial);
+      statement.setString(8, normalizedDisplayIconPath);
       if (batch == null) {
-        statement.setObject(7, null);
+        statement.setObject(9, null);
       } else {
-        statement.setInt(7, batch);
+        statement.setInt(9, batch);
       }
       if (maxStock == null) {
-        statement.setObject(8, null);
+        statement.setObject(10, null);
       } else {
-        statement.setInt(8, maxStock);
+        statement.setInt(10, maxStock);
       }
-      statement.setInt(9, quantityTotal);
-      statement.setString(10, tradeMode.name());
-      statement.setBoolean(11, normalizedDynamicEnabled);
-      statement.setString(12, dynamicAlgorithmType.name());
-      statement.setString(13, MarketAlgorithmRegistry.toJson(normalizedDynamicParams));
-      statement.setObject(14, normalizedDynamicBasePrice);
-      statement.setObject(15, normalizedDynamicFloorPrice);
-      statement.setObject(16, normalizedDynamicCapPrice);
-      statement.setObject(17, normalizedDynamicPriceStep);
-      statement.setLong(18, normalizedDynamicDemandScore);
-      statement.setString(19, auctionAlgorithmType.name());
-      statement.setString(20, MarketAlgorithmRegistry.toJson(normalizedAuctionParams));
-      statement.setObject(21, normalizedAuctionStartPrice);
-      statement.setObject(22, normalizedAuctionMinIncrement);
+      statement.setInt(11, quantityTotal);
+      statement.setString(12, tradeMode.name());
+      statement.setBoolean(13, normalizedDynamicEnabled);
+      statement.setString(14, dynamicAlgorithmType.name());
+      statement.setString(15, MarketAlgorithmRegistry.toJson(normalizedDynamicParams));
+      statement.setObject(16, normalizedDynamicBasePrice);
+      statement.setObject(17, normalizedDynamicFloorPrice);
+      statement.setObject(18, normalizedDynamicCapPrice);
+      statement.setObject(19, normalizedDynamicPriceStep);
+      statement.setLong(20, normalizedDynamicDemandScore);
+      statement.setString(21, auctionAlgorithmType.name());
+      statement.setString(22, MarketAlgorithmRegistry.toJson(normalizedAuctionParams));
+      statement.setObject(23, normalizedAuctionStartPrice);
+      statement.setObject(24, normalizedAuctionMinIncrement);
       if (normalizedAuctionStartedAt == null) {
-        statement.setTimestamp(23, null);
-      } else {
-        statement.setTimestamp(23, Timestamp.valueOf(normalizedAuctionStartedAt));
-      }
-      if (normalizedAuctionPublicEndAt == null) {
-        statement.setTimestamp(24, null);
-      } else {
-        statement.setTimestamp(24, Timestamp.valueOf(normalizedAuctionPublicEndAt));
-      }
-      if (normalizedAuctionEndAt == null) {
         statement.setTimestamp(25, null);
       } else {
-        statement.setTimestamp(25, Timestamp.valueOf(normalizedAuctionEndAt));
+        statement.setTimestamp(25, Timestamp.valueOf(normalizedAuctionStartedAt));
       }
-      statement.setObject(26, normalizedAuctionHighestBid);
-      statement.setObject(27, normalizedAuctionHighestBidderUserId);
-      statement.setObject(28, normalizedAuctionHighestBidderUuid == null ? null : normalizedAuctionHighestBidderUuid.toString());
-      statement.setObject(29, normalizedAuctionHighestBidId);
-      if (normalizedAuctionLastBidAt == null) {
-        statement.setTimestamp(30, null);
+      if (normalizedAuctionPublicEndAt == null) {
+        statement.setTimestamp(26, null);
       } else {
-        statement.setTimestamp(30, Timestamp.valueOf(normalizedAuctionLastBidAt));
+        statement.setTimestamp(26, Timestamp.valueOf(normalizedAuctionPublicEndAt));
       }
-      statement.setLong(31, listingId);
+      if (normalizedAuctionEndAt == null) {
+        statement.setTimestamp(27, null);
+      } else {
+        statement.setTimestamp(27, Timestamp.valueOf(normalizedAuctionEndAt));
+      }
+      statement.setObject(28, normalizedAuctionHighestBid);
+      statement.setObject(29, normalizedAuctionHighestBidderUserId);
+      statement.setObject(30, normalizedAuctionHighestBidderUuid == null ? null : normalizedAuctionHighestBidderUuid.toString());
+      statement.setObject(31, normalizedAuctionHighestBidId);
+      if (normalizedAuctionLastBidAt == null) {
+        statement.setTimestamp(32, null);
+      } else {
+        statement.setTimestamp(32, Timestamp.valueOf(normalizedAuctionLastBidAt));
+      }
+      statement.setLong(33, listingId);
       statement.executeUpdate();
     }
     MarketListing refreshed = readListingForUpdate(connection, listingId);
@@ -2549,6 +3339,9 @@ class MarketService {
         refreshed.id(),
         refreshed.currency(),
         refreshed.price(),
+        refreshed.marketSide(),
+        refreshed.tagCode(),
+        refreshed.tagVersion(),
         refreshed.remark(),
         refreshed.displayNameOverride(),
         refreshed.displayMaterial(),
@@ -3192,6 +3985,101 @@ class MarketService {
         .equals(itemSnapshotCodec.serialize(templateUnit).itemHash());
   }
 
+  private void consumeBuyFulfillItems(UUID sellerUuid, byte[] templateBlob, int quantity) {
+    if (quantity <= 0) {
+      throw new ServiceException("invalid_quantity", "Quantity must be positive");
+    }
+    runSync(() -> {
+      Player player = sellerUuid == null ? null : Bukkit.getPlayer(sellerUuid);
+      if (player == null || !player.isOnline()) {
+        throw new ServiceException("fulfill_item_not_match", "Seller must be online with matching items");
+      }
+      ItemStack template = decodeBuyFulfillTemplate(templateBlob);
+      int available = 0;
+      for (int slot = 0; slot < player.getInventory().getSize(); slot++) {
+        ItemStack stack = player.getInventory().getItem(slot);
+        if (!isSameSupplyItem(stack, template)) {
+          continue;
+        }
+        available += stack.getAmount();
+        if (available >= quantity) {
+          break;
+        }
+      }
+      if (available < quantity) {
+        throw new ServiceException("fulfill_item_not_match", "Seller inventory does not match BUY template");
+      }
+      int remaining = quantity;
+      for (int slot = 0; slot < player.getInventory().getSize() && remaining > 0; slot++) {
+        ItemStack stack = player.getInventory().getItem(slot);
+        if (!isSameSupplyItem(stack, template)) {
+          continue;
+        }
+        int consumed = Math.min(remaining, stack.getAmount());
+        int left = stack.getAmount() - consumed;
+        if (left <= 0) {
+          player.getInventory().setItem(slot, null);
+        } else {
+          ItemStack updated = stack.clone();
+          updated.setAmount(left);
+          player.getInventory().setItem(slot, updated);
+        }
+        remaining -= consumed;
+      }
+      if (remaining > 0) {
+        throw new ServiceException("fulfill_item_not_match", "Seller inventory changed during fulfill");
+      }
+      return null;
+    });
+  }
+
+  private void restoreBuyFulfillItemsSafely(UUID sellerUuid, byte[] templateBlob, int quantity) {
+    if (quantity <= 0) {
+      return;
+    }
+    try {
+      runSync(() -> {
+        Player player = sellerUuid == null ? null : Bukkit.getPlayer(sellerUuid);
+        if (player == null || !player.isOnline()) {
+          return null;
+        }
+        ItemStack template = decodeBuyFulfillTemplate(templateBlob);
+        int remaining = quantity;
+        while (remaining > 0) {
+          ItemStack chunk = template.clone();
+          chunk.setAmount(Math.min(chunk.getMaxStackSize(), remaining));
+          remaining -= chunk.getAmount();
+          player.getInventory().addItem(chunk)
+              .values()
+              .forEach(leftover -> player.getWorld().dropItemNaturally(player.getLocation(), leftover));
+        }
+        return null;
+      });
+    } catch (Exception exception) {
+      plugin.getLogger().warning(
+          "Failed to restore fulfilled BUY items for player "
+              + sellerUuid
+              + ": "
+              + exception.getMessage());
+    }
+  }
+
+  private ItemStack decodeBuyFulfillTemplate(byte[] templateBlob) {
+    try {
+      ItemStack template = itemSnapshotCodec.deserialize(templateBlob);
+      if (template == null || template.getType() == Material.AIR) {
+        throw new ServiceException("fulfill_item_not_match", "BUY template item is invalid");
+      }
+      template = template.clone();
+      template.setAmount(1);
+      return template;
+    } catch (ServiceException exception) {
+      throw exception;
+    } catch (Exception exception) {
+      throw new ServiceException("fulfill_item_not_match", "BUY template item cannot be parsed");
+    }
+  }
+
   private <T> T runSync(java.util.concurrent.Callable<T> task) {
     if (Bukkit.isPrimaryThread()) {
       try {
@@ -3208,7 +4096,7 @@ class MarketService {
       Thread.currentThread().interrupt();
       throw new ServiceException("sync_interrupted", "Supply operation interrupted; please try again later");
     } catch (TimeoutException exception) {
-      throw new ServiceException("sync_timeout", "渚涜揣鎿嶄綔瓒呮椂锛岃绋嶅悗閲嶈瘯");
+      throw new ServiceException("sync_timeout", "Sync task timed out; please try again later");
     } catch (ExecutionException exception) {
       Throwable cause = exception.getCause();
       if (cause instanceof ServiceException serviceException) {
@@ -3415,18 +4303,24 @@ class MarketService {
       statement.setLong(1, listing.id());
       statement.executeUpdate();
     }
-
-    enqueueMarketItemDelivery(
-        connection,
-        listing.id(),
-        null,
-        listing.sellerUserId(),
-        listing.sellerUuid(),
-        listing.rawItemBlob(),
-        listing.quantity(),
-        DeliveryType.UNLIST,
-        "PENDING",
-        LocalDateTime.now());
+    listing = readListingForUpdate(connection, listing.id());
+    if (listing.marketSide() == MarketSide.BUY) {
+      refundBuyEscrowIfNeeded(connection, listing, "admin-unlist");
+      return new UnlistResult(listing.id(), listing.currency(), listing.price(), listing.quantity());
+    }
+    if (listing.quantity() > 0) {
+      enqueueMarketItemDelivery(
+          connection,
+          listing.id(),
+          null,
+          listing.sellerUserId(),
+          listing.sellerUuid(),
+          listing.rawItemBlob(),
+          listing.quantity(),
+          DeliveryType.UNLIST,
+          "PENDING",
+          LocalDateTime.now());
+    }
     return new UnlistResult(listing.id(), listing.currency(), listing.price(), listing.quantity());
   }
 
@@ -3490,6 +4384,7 @@ class MarketService {
   private MarketListing readListingForUpdate(Connection connection, long listingId) throws SQLException {
     String sql = """
         SELECT id, seller_user_id, seller_uuid, currency, price, quantity, quantity_total,
+               market_side, tag_code, tag_version, escrow_total, escrow_remaining,
                item_material, display_name_override, display_material, display_icon_path, raw_item_blob,
                item_meta_json, remark, item_hash, status, source_mode,
                supply_world, supply_x, supply_y, supply_z, supply_batch_size, supply_max_stock,
@@ -3520,6 +4415,11 @@ class MarketService {
             resultSet.getLong("price"),
             resultSet.getInt("quantity"),
             resultSet.getInt("quantity_total"),
+            MarketSide.fromRaw(resultSet.getString("market_side")),
+            normalizeTagCode(resultSet.getString("tag_code")),
+            resultSet.getInt("tag_version"),
+            resultSet.getLong("escrow_total"),
+            resultSet.getLong("escrow_remaining"),
             resultSet.getString("item_material"),
             resultSet.getString("display_name_override"),
             resultSet.getString("display_material"),
@@ -3620,6 +4520,11 @@ class MarketService {
           displayPrice,
           resultSet.getInt("quantity"),
           resultSet.getInt("quantity_total"),
+          MarketSide.fromRaw(resultSet.getString("market_side")),
+          normalizeTagCode(resultSet.getString("tag_code")),
+          resultSet.getInt("tag_version"),
+          resultSet.getLong("escrow_total"),
+          resultSet.getLong("escrow_remaining"),
           resultSet.getString("item_material"),
           resultSet.getString("display_name_override"),
           resultSet.getString("display_material"),
@@ -3683,6 +4588,11 @@ class MarketService {
           resultSet.getLong("price"),
           resultSet.getInt("quantity"),
           resultSet.getInt("quantity_total"),
+          MarketSide.fromRaw(resultSet.getString("market_side")),
+          normalizeTagCode(resultSet.getString("tag_code")),
+          resultSet.getInt("tag_version"),
+          resultSet.getLong("escrow_total"),
+          resultSet.getLong("escrow_remaining"),
           resultSet.getString("item_material"),
           resultSet.getString("display_name_override"),
           resultSet.getString("display_material"),
@@ -3971,6 +4881,11 @@ class MarketService {
       long price,
       int quantity,
       int quantityTotal,
+      MarketSide marketSide,
+      String tagCode,
+      int tagVersion,
+      long escrowTotal,
+      long escrowRemaining,
       String itemMaterial,
       String displayNameOverride,
       String displayMaterial,
@@ -4094,7 +5009,11 @@ class MarketService {
       String material,
       int quantity,
       CurrencyType currency,
-      long price) {
+      long price,
+      MarketSide side,
+      String tag,
+      long escrowTotal,
+      long escrowRemaining) {
   }
 
   record ListingQuery(
@@ -4107,6 +5026,9 @@ class MarketService {
       Long maxPrice,
       String material,
       String keyword,
+      MarketSide side,
+      String tag,
+      List<String> tags,
       int limit) {
   }
 
@@ -4119,6 +5041,11 @@ class MarketService {
       long price,
       int quantity,
       int quantityTotal,
+      MarketSide side,
+      String tag,
+      int tagVersion,
+      long escrowTotal,
+      long escrowRemaining,
       String itemMaterial,
       String displayNameOverride,
       String displayMaterial,
@@ -4169,6 +5096,11 @@ class MarketService {
       long price,
       int quantity,
       int quantityTotal,
+      MarketSide side,
+      String tag,
+      int tagVersion,
+      long escrowTotal,
+      long escrowRemaining,
       String itemMaterial,
       String displayNameOverride,
       String displayMaterial,
@@ -4208,6 +5140,9 @@ class MarketService {
   record UnlistResult(long listingId, CurrencyType currency, long price, int quantity) {
   }
 
+  record TagRecalcResult(int scanned, int changed, long elapsedMs) {
+  }
+
   record ListingPriceUpdateResult(long listingId, CurrencyType currency, long price) {
   }
 
@@ -4234,6 +5169,9 @@ class MarketService {
       long listingId,
       CurrencyType currency,
       long price,
+      MarketSide side,
+      String tag,
+      int tagVersion,
       String remark,
       String displayNameOverride,
       String displayMaterial,
@@ -4331,6 +5269,7 @@ class MarketService {
     }
   }
 }
+
 
 
 

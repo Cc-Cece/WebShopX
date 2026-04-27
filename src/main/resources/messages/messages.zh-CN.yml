@@ -61,6 +61,7 @@ command:
     admin:
       - "§e/webshopx reload §7- 重载配置与内置网页"
       - "§e/webshopx redeem create <shop> <game> [max] [perUserMax] [minutes] [code] §7- 创建兑换码"
+      - "§e/webshopx market recalc-tags [active|all] §7- 重算市场标签"
 
 chat:
   delivery:
@@ -225,6 +226,13 @@ enum:
   market_mode:
     manual: "普通上架"
     supply: "供货箱"
+  market:
+    side:
+      SELL: "出售单"
+      BUY: "收购单"
+  market_side:
+    sell: "出售单"
+    buy: "收购单"
 
 error:
   market:
@@ -250,6 +258,20 @@ error:
     sync_interrupted: "供货操作被中断，请稍后重试。"
     listing_empty: "当前上架没有可恢复的库存。"
     listing_limit: "当前上架数量已达到上限。"
+    buy_requires_direct_mode: "收购单仅支持一口价交易模式。"
+    buy_requires_manual_source: "收购单仅支持手动来源。"
+    buy_requires_fixed_price: "收购单创建后不允许改价或启用动态定价。"
+    buy_escrow_insufficient: "收购单冻结金额不足，无法完成本次交货。"
+    buy_order_not_active: "该收购单当前不可交货。"
+    cannot_fulfill_own_buy_order: "不能向自己的收购单交货。"
+    fulfill_item_not_match: "交货物品与收购单模板不匹配。"
+    invalid_market_side: "上架方向无效，只支持 SELL 或 BUY。"
+    invalid_tag: "分类标签无效或不允许。"
+    tag_disabled: "该分类标签已停用。"
+    limitation_item_forbidden: "该物品不符合上架规则。"
+    limitation_currency_not_allowed: "当前币种不允许用于该上架。"
+    limitation_trade_mode_not_allowed: "当前交易模式不允许用于该上架。"
+    limitation_side_not_allowed: "当前上架方向不允许。"
   delivery:
     claim_token_invalid: "领取命令无效或已失效，请重新复制。"
     claim_forbidden: "该领取命令仅限订单本人使用。"

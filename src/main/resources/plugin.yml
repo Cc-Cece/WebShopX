@@ -17,3 +17,9 @@ permissions:
   webshop.use:
     description: Allows normal player operations for WebShop
     default: true
+  webshop.market.auction:
+    description: Allows using auction mode when limitation rules require permission
+    default: op
+  webshop.market.limitation.bypass:
+    description: Bypasses market limitation rules for create/edit operations
+    default: op

@@ -28,6 +28,10 @@
   materialNameMap: {},
   materialNameMapReady: false,
   materialNameMapPromise: null,
+  marketMaterialAllowSet: new Set(),
+  marketMaterialLookup: {},
+  marketMaterialAllowReady: false,
+  marketMaterialAllowPromise: null,
   materialVisualMap: {},
   materialVisualMapReady: false,
   materialVisualMapPromise: null,
@@ -54,6 +58,9 @@
   },
   marketAlgorithmGlossaryReady: false,
   marketAlgorithmGlossaryPromise: null,
+  marketTags: [],
+  marketTagsReady: false,
+  marketTagsPromise: null,
   hasLoadedProducts: false,
   hasLoadedMarket: false,
   hasLoadedOrders: false,
@@ -227,6 +234,9 @@ const ERROR_TIPS_COMMON = {
   wallet_missing: "钱包不存在，请联系管理员检查数据。",
   user_missing: "账号数据不存在，请联系管理员处理。",
   feature_disabled: "该功能当前已被管理员关闭。",
+  invalid_market_side: "上架方向无效，只支持 SELL 或 BUY。",
+  invalid_tag: "分类标签无效或不允许。",
+  tag_disabled: "该分类标签已停用。",
 };
 
 const ERROR_TIPS_BY_SCENE = {
@@ -264,10 +274,22 @@ const ERROR_TIPS_BY_SCENE = {
     listing_missing: "该上架不存在，可能已被移除。",
     listing_unavailable: "该上架已下架或已售出。",
     auction_only_bid: "该上架为拍卖模式，请使用出价竞拍。",
+    buy_order_not_active: "该收购单当前不可成交，请刷新后重试。",
+    buy_requires_direct_mode: "收购单仅支持一口价模式。",
     invalid_trade: "不能购买自己上架的物品。",
     invalid_idempotency: "请求参数异常，请刷新后重试。",
     invalid_quantity: "购买数量需在 1-64 之间。",
     insufficient_quantity: "当前上架可购买数量不足，请刷新后重试。",
+  },
+  market_sell_to_buy: {
+    invalid_listing: "收购单 ID 无效，请刷新列表后重试。",
+    listing_missing: "该收购单不存在，可能已被移除。",
+    buy_order_not_active: "该收购单当前不可交货。",
+    cannot_fulfill_own_buy_order: "不能向自己的收购单交货。",
+    fulfill_item_not_match: "交货物品与收购单模板不匹配。",
+    invalid_quantity: "交货数量需在 1-64 之间。",
+    insufficient_quantity: "收购单剩余数量不足，请刷新后重试。",
+    buy_escrow_insufficient: "收购单冻结金额不足，请稍后重试。",
   },
   market_bid: {
     invalid_listing: "上架 ID 无效，请刷新列表后重试。",
@@ -292,6 +314,15 @@ const ERROR_TIPS_BY_SCENE = {
     forbidden: "当前无权修改该上架，可能因非本人或视觉自定义策略受限。",
     invalid_price: "价格必须大于 0。",
     invalid_trade_mode: "交易模式无效，仅支持 DIRECT 或 AUCTION。",
+    limitation_item_forbidden: "当前物品不满足上架规则。",
+    limitation_currency_not_allowed: "该币种不允许用于当前上架。",
+    limitation_trade_mode_not_allowed: "该交易模式不允许用于当前上架。",
+    limitation_side_not_allowed: "该上架方向不允许执行当前操作。",
+    invalid_tag: "分类标签无效或不允许。",
+    tag_disabled: "该分类标签已停用。",
+    buy_requires_fixed_price: "收购单创建后不能改价或开启动态定价。",
+    buy_requires_direct_mode: "收购单仅支持 DIRECT 模式。",
+    buy_requires_manual_source: "收购单仅支持手动来源。",
     invalid_dynamic_base: "动态基准价必须大于 0。",
     invalid_dynamic_floor: "动态地板价必须大于 0。",
     invalid_dynamic_cap: "动态封顶价必须大于 0。",
@@ -334,6 +365,19 @@ const ERROR_TIPS_BY_SCENE = {
   },
   market_load: {
     not_found: "市场接口不可用，请稍后重试。",
+  },
+  market_create: {
+    invalid_market_side: "上架方向无效，只支持 SELL 或 BUY。",
+    buy_requires_direct_mode: "收购单仅支持 DIRECT 模式。",
+    buy_requires_manual_source: "收购单仅支持手动来源。",
+    buy_requires_fixed_price: "收购单不支持动态定价或拍卖。",
+    invalid_quantity: "数量需在 1-64 之间。",
+    invalid_tag: "分类标签无效或不允许。",
+    tag_disabled: "该分类标签已停用。",
+    limitation_item_forbidden: "当前物品不满足上架规则。",
+    limitation_currency_not_allowed: "该币种不允许用于当前上架。",
+    limitation_trade_mode_not_allowed: "该交易模式不允许用于当前上架。",
+    limitation_side_not_allowed: "该上架方向不允许执行当前操作。",
   },
   notifications_load: {
     not_found: "通知接口不可用，请稍后重试。",
@@ -467,6 +511,8 @@ const elements = {
   productClearBtn: document.getElementById("productClearBtn"),
   marketList: document.getElementById("marketList"),
   marketKeyword: document.getElementById("marketKeyword"),
+  marketSide: document.getElementById("marketSide"),
+  marketTag: document.getElementById("marketTag"),
   marketMaterial: document.getElementById("marketMaterial"),
   marketCurrency: document.getElementById("marketCurrency"),
   marketMinPrice: document.getElementById("marketMinPrice"),
@@ -477,6 +523,7 @@ const elements = {
   marketApplyBtn: document.getElementById("marketApplyBtn"),
   marketClearBtn: document.getElementById("marketClearBtn"),
   marketStoreBtn: document.getElementById("marketStoreBtn"),
+  marketCreateBuyBtn: document.getElementById("marketCreateBuyBtn"),
   marketHideOwnToggle: document.getElementById("marketHideOwnToggle"),
   marketSectionTitle: document.getElementById("marketSectionTitle"),
   marketSectionDesc: document.getElementById("marketSectionDesc"),
@@ -522,6 +569,7 @@ const elements = {
   materialCropResetBtn: document.getElementById("materialCropResetBtn"),
   materialCropCancelBtn: document.getElementById("materialCropCancelBtn"),
   materialCropApplyBtn: document.getElementById("materialCropApplyBtn"),
+  materialSuggestList: document.getElementById("materialSuggestList"),
 };
 
 const tabs = Array.from(document.querySelectorAll(".top-tab"));
@@ -540,6 +588,55 @@ function isAuctionScope() {
 
 function normalizeListingTradeMode(listing) {
   return String(listing?.tradeMode || "DIRECT").toUpperCase();
+}
+
+function normalizeListingSide(listing) {
+  return String(listing?.side || "SELL").toUpperCase();
+}
+
+function formatListingSide(side) {
+  return String(side || "SELL").toUpperCase() === "BUY" ? "收购单" : "出售单";
+}
+
+function formatListingTopStatus(status, side) {
+  const normalizedStatus = String(status || "").toUpperCase();
+  const normalizedSide = String(side || "SELL").toUpperCase();
+  if (normalizedStatus === "ACTIVE") {
+    return normalizedSide === "BUY"
+      ? localizeDisplayText("回收")
+      : localizeDisplayText("在售");
+  }
+  if (normalizedStatus === "PAUSED") {
+    return localizeDisplayText("暂停");
+  }
+  if (normalizedStatus === "UNLISTED") {
+    return localizeDisplayText("下架");
+  }
+  return formatListingStatus(normalizedStatus);
+}
+
+function normalizeTagCode(tag) {
+  return String(tag || "").trim().toLowerCase();
+}
+
+function getMarketTagMeta(tagCode) {
+  const normalizedTag = normalizeTagCode(tagCode);
+  if (!normalizedTag) {
+    return null;
+  }
+  return (state.marketTags || []).find((tag) => normalizeTagCode(tag.code) === normalizedTag) || null;
+}
+
+function getMarketTagDisplayName(tagCode) {
+  const normalizedTag = normalizeTagCode(tagCode);
+  if (!normalizedTag) {
+    return "未分类";
+  }
+  const meta = getMarketTagMeta(normalizedTag);
+  if (meta && meta.displayName) {
+    return meta.displayName;
+  }
+  return normalizedTag;
 }
 
 function filterListingsByTradeScope(listings, tradeScope) {
@@ -584,16 +681,24 @@ function updateMarketSectionContext() {
       setNodeText(elements.marketStoreBtn, "拍卖店铺");
     }
     setNodeText(document.getElementById("marketMineBtn"), "我的拍卖");
+    if (elements.marketCreateBuyBtn) {
+      elements.marketCreateBuyBtn.disabled = true;
+      elements.marketCreateBuyBtn.title = "拍卖页不支持创建收购单，请切换到玩家市场。";
+    }
     return;
   }
 
   setNodeText(elements.marketSectionTitle, "玩家市场（C2C）");
-  setNodeText(elements.marketSectionDesc, "玩家自行上架的商品。");
+  setNodeText(elements.marketSectionDesc, "玩家自行上架的商品。出售单需在游戏内创建；收购单可在网页直接发布。");
   setNodeText(document.getElementById("marketListBtn"), "市场在售");
   if (elements.marketStoreBtn) {
     setNodeText(elements.marketStoreBtn, "玩家店铺");
   }
   setNodeText(document.getElementById("marketMineBtn"), "我的上架");
+  if (elements.marketCreateBuyBtn) {
+    elements.marketCreateBuyBtn.disabled = false;
+    elements.marketCreateBuyBtn.title = "";
+  }
 }
 
 function localizeDisplayText(text) {
@@ -970,11 +1075,15 @@ function openMarketParamDialog({ title, hint, confirmText, setupForm, resolveVal
   const context = setupForm(elements.marketParamDetails);
 
   marketParamSubmitHandler = () => {
-    const value = resolveValue(context);
-    if (value === undefined) {
-      return;
+    try {
+      const value = resolveValue(context);
+      if (value === undefined) {
+        return;
+      }
+      closeMarketParamDialog(value);
+    } catch (error) {
+      notify(error?.message || "参数校验失败，请检查输入后重试。", "error");
     }
-    closeMarketParamDialog(value);
   };
 
   setNodeText(elements.marketParamSaveBtn, confirmText || "保存参数");
@@ -3225,6 +3334,177 @@ async function ensureMaterialNameMap() {
   await state.materialNameMapPromise;
 }
 
+function populateMarketMaterialSuggest() {
+  if (!elements.materialSuggestList) {
+    return;
+  }
+  elements.materialSuggestList.innerHTML = "";
+  state.marketMaterialLookup = {};
+  const keys = Array.from(state.marketMaterialAllowSet || []);
+  keys
+    .filter(Boolean)
+    .sort((a, b) => String(a).localeCompare(String(b), I18N ? I18N.getIntlLocale() : "zh-CN"))
+    .forEach((key) => {
+      const option = document.createElement("option");
+      const localizedName = getLocalizedMaterialName(key, { includeGlobalOverride: false });
+      const label = localizedName && localizedName !== key ? `${localizedName} (${key})` : key;
+      option.value = key;
+      option.label = label;
+      setNodeText(option, label);
+      elements.materialSuggestList.appendChild(option);
+      state.marketMaterialLookup[String(key).toLowerCase()] = key;
+      state.marketMaterialLookup[humanizeMaterial(key).toLowerCase()] = key;
+      if (localizedName && localizedName !== key) {
+        state.marketMaterialLookup[String(localizedName).toLowerCase()] = key;
+      }
+      state.marketMaterialLookup[String(label).toLowerCase()] = key;
+    });
+}
+
+async function ensureMarketMaterialAllowList() {
+  if (state.marketMaterialAllowReady) {
+    return;
+  }
+  if (state.marketMaterialAllowPromise) {
+    await state.marketMaterialAllowPromise;
+    return;
+  }
+  state.marketMaterialAllowPromise = fetch(resolveApiUrl("/api/meta/materials"))
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`material allow list load failed: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then((json) => {
+      const list = Array.isArray(json?.materials) ? json.materials : [];
+      const allow = new Set();
+      list.forEach((item) => {
+        const normalized = normalizeMaterialKey(item);
+        if (normalized) {
+          allow.add(normalized);
+        }
+      });
+      state.marketMaterialAllowSet = allow;
+      state.marketMaterialAllowReady = true;
+      populateMarketMaterialSuggest();
+    })
+    .catch((error) => {
+      state.marketMaterialAllowSet = new Set();
+      state.marketMaterialAllowReady = true;
+      log(`市场材质白名单加载失败：${error.message}`, "WARN");
+    });
+  await state.marketMaterialAllowPromise;
+}
+
+function resolveMarketAllowedMaterial(raw) {
+  const text = String(raw || "").trim();
+  if (!text) {
+    return "";
+  }
+  const withKeyMatch = text.match(/\(([A-Z0-9_:-]+)\)\s*$/i);
+  const candidateFromSuffix = withKeyMatch ? normalizeMaterialKey(withKeyMatch[1]) : "";
+  const normalized = candidateFromSuffix || normalizeMaterialKey(text);
+  if (!normalized) {
+    const mapped = state.marketMaterialLookup[String(text).toLowerCase()] || "";
+    if (mapped) {
+      if (state.marketMaterialAllowSet.size <= 0 || state.marketMaterialAllowSet.has(mapped)) {
+        return mapped;
+      }
+      const mappedAlias = aliasMaterialKey(mapped);
+      if (mappedAlias && state.marketMaterialAllowSet.has(mappedAlias)) {
+        return mappedAlias;
+      }
+    }
+    return "";
+  }
+  if (state.marketMaterialAllowSet.size <= 0) {
+    return normalized;
+  }
+  if (state.marketMaterialAllowSet.has(normalized)) {
+    return normalized;
+  }
+  const alias = aliasMaterialKey(normalized);
+  if (alias && state.marketMaterialAllowSet.has(alias)) {
+    return alias;
+  }
+  return "";
+}
+
+function populateMarketTagSelect(selectNode, includeAllOption) {
+  if (!selectNode) {
+    return;
+  }
+  const previous = String(selectNode.value || "");
+  selectNode.innerHTML = "";
+  if (includeAllOption) {
+    const allOption = document.createElement("option");
+    allOption.value = "";
+    allOption.textContent = "全部分类";
+    selectNode.appendChild(allOption);
+  }
+  (state.marketTags || []).forEach((tag) => {
+    if (!tag || !tag.code) {
+      return;
+    }
+    const option = document.createElement("option");
+    option.value = String(tag.code);
+    option.textContent = `${tag.displayName || tag.code} (${tag.code})`;
+    selectNode.appendChild(option);
+  });
+  const hasPrevious = previous && Array.from(selectNode.options).some((option) => option.value === previous);
+  selectNode.value = hasPrevious ? previous : "";
+}
+
+async function ensureMarketTagsMeta() {
+  if (state.marketTagsReady) {
+    return;
+  }
+  if (state.marketTagsPromise) {
+    await state.marketTagsPromise;
+    return;
+  }
+  state.marketTagsPromise = fetch(resolveApiUrl("/api/meta/market-tags"))
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`market tags load failed: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then((json) => {
+      const rows = Array.isArray(json?.tags) ? json.tags : [];
+      state.marketTags = rows
+        .map((item) => ({
+          code: normalizeTagCode(item?.code),
+          displayName: String(item?.displayName || item?.code || "").trim(),
+          enabled: item?.enabled !== false,
+          priority: Number(item?.priority || 9999),
+          activeSellCount: Number(item?.activeSellCount || item?.activeCount?.SELL || 0),
+          activeBuyCount: Number(item?.activeBuyCount || item?.activeCount?.BUY || 0),
+        }))
+        .filter((item) => !!item.code)
+        .sort((left, right) => {
+          const leftPriority = Number.isFinite(left.priority) ? left.priority : 9999;
+          const rightPriority = Number.isFinite(right.priority) ? right.priority : 9999;
+          if (leftPriority !== rightPriority) {
+            return leftPriority - rightPriority;
+          }
+          return left.code.localeCompare(right.code, I18N ? I18N.getIntlLocale() : "zh-CN");
+        });
+      state.marketTagsReady = true;
+      populateMarketTagSelect(elements.marketTag, true);
+      log(`市场标签已加载：${state.marketTags.length} 个。`);
+    })
+    .catch((error) => {
+      state.marketTags = [];
+      state.marketTagsReady = true;
+      populateMarketTagSelect(elements.marketTag, true);
+      log(`市场标签加载失败：${error.message}`, "WARN");
+    });
+
+  await state.marketTagsPromise;
+}
+
 function normalizeAlgorithmParamSchema(raw, index) {
   const key = String(raw?.key || `param_${index}`).trim();
   if (!key) {
@@ -5054,6 +5334,20 @@ function filterProducts(products) {
   return filtered;
 }
 
+function shouldHideListingInPublic(listing) {
+  if (state.marketMode !== "public") {
+    return false;
+  }
+  if (!state.hideOwnMarketListings || !state.username) {
+    return false;
+  }
+  if (String(listing?.sellerName || "") !== String(state.username || "")) {
+    return false;
+  }
+  // Keep BUY listings visible so creators can see and track their own buy orders in public market.
+  return normalizeListingSide(listing) !== "BUY";
+}
+
 function renderListings(listings, container = elements.marketList) {
   if (container === elements.marketList) {
     container.classList.remove("storefront-grid");
@@ -5061,10 +5355,7 @@ function renderListings(listings, container = elements.marketList) {
   container.innerHTML = "";
   const scopedListings = filterListingsByTradeScope(listings, state.marketTradeScope);
   const visibleListings = container === elements.marketList
-    && state.marketMode === "public"
-    && state.hideOwnMarketListings
-    && state.username
-    ? scopedListings.filter((listing) => listing.sellerName !== state.username)
+    ? scopedListings.filter((listing) => !shouldHideListingInPublic(listing))
     : scopedListings;
 
   if (!visibleListings || visibleListings.length === 0) {
@@ -5076,6 +5367,8 @@ function renderListings(listings, container = elements.marketList) {
   for (const listing of visibleListings) {
     const meta = parseMeta(listing.itemMetaJson);
     const isOwner = !!state.username && listing.sellerName === state.username;
+    const marketSide = normalizeListingSide(listing);
+    const isBuySide = marketSide === "BUY";
     const normalizedStatus = String(listing.status || "").toUpperCase();
     const isSupply = String(listing.sourceMode || "").toUpperCase() === "SUPPLY";
     const tradeMode = String(listing.tradeMode || "DIRECT").toUpperCase();
@@ -5102,8 +5395,11 @@ function renderListings(listings, container = elements.marketList) {
       top.appendChild(createEl(
         "span",
         `market-chip ${statusClass}`,
-        formatListingStatus(displayStatus)
+        formatListingTopStatus(displayStatus, marketSide)
       ));
+      if (listing.tag) {
+        top.appendChild(createEl("span", "market-chip", getMarketTagDisplayName(listing.tag)));
+      }
       if (isSupply) {
         top.appendChild(createEl("span", "market-chip official", "自动补货"));
       }
@@ -5126,7 +5422,7 @@ function renderListings(listings, container = elements.marketList) {
       if (listing.remark) {
         compactRemarkParts.push(String(listing.remark));
       }
-      compactRemarkParts.push(`卖家：${listing.sellerName}`);
+      compactRemarkParts.push(`${isBuySide ? "发布者" : "卖家"}：${listing.sellerName}`);
       infoMain.appendChild(createEl("p", "product-remark", compactRemarkParts.join(" ")));
       infoRow.appendChild(infoMain);
       card.appendChild(infoRow);
@@ -5165,10 +5461,14 @@ function renderListings(listings, container = elements.marketList) {
       }
       actionRow.appendChild(quantitySelector.total);
 
-      const buyBtn = createEl("button", "market-action-btn product-buy-btn", isActive ? "立即购买" : "不可购买");
+      const buyBtn = createEl(
+        "button",
+        "market-action-btn product-buy-btn",
+        isActive ? (isBuySide ? "卖给收购单" : "立即购买") : "不可购买"
+      );
       buyBtn.type = "button";
       buyBtn.disabled = !isActive;
-      buyBtn.dataset.action = "buy";
+      buyBtn.dataset.action = isBuySide ? "sellToBuy" : "buy";
       buyBtn.dataset.listingId = String(listing.id);
       buyBtn.dataset.currency = listing.currency;
       buyBtn.dataset.unitPrice = String(listing.price);
@@ -5187,8 +5487,11 @@ function renderListings(listings, container = elements.marketList) {
     top.appendChild(createEl(
       "span",
       `market-chip ${statusClass}`,
-      formatListingStatus(displayStatus)
+      formatListingTopStatus(displayStatus, marketSide)
     ));
+    if (listing.tag) {
+      top.appendChild(createEl("span", "market-chip", getMarketTagDisplayName(listing.tag)));
+    }
     if (isSupply) {
       top.appendChild(createEl("span", "market-chip official", "自动补货"));
     }
@@ -5215,6 +5518,18 @@ function renderListings(listings, container = elements.marketList) {
     detail.appendChild(code);
     if (listing.remark) {
       detail.appendChild(createEl("p", "market-remark", listing.remark));
+    }
+    if (listing.tag) {
+      detail.appendChild(createEl("p", "market-sub", `分类：${getMarketTagDisplayName(listing.tag)} (${listing.tag})`));
+    }
+    if (isBuySide) {
+      detail.appendChild(
+        createEl(
+          "p",
+          "market-sub",
+          `冻结金额：${formatCurrency(Number(listing.escrowRemaining || 0), listing.currency)} / ${formatCurrency(Number(listing.escrowTotal || 0), listing.currency)}`
+        )
+      );
     }
     if (isSupply) {
       if (isOwner) {
@@ -5378,7 +5693,7 @@ function renderListings(listings, container = elements.marketList) {
 
     const footer = createEl("div", "market-footer");
     const seller = createEl("div", "market-seller");
-    seller.appendChild(createEl("span", "", `卖家：${listing.sellerName}`));
+    seller.appendChild(createEl("span", "", `${isBuySide ? "发布者" : "卖家"}：${listing.sellerName}`));
     seller.appendChild(createEl("span", "", isOwner ? "我的上架" : "公开市场"));
     footer.appendChild(seller);
 
@@ -5503,9 +5818,9 @@ function renderListings(listings, container = elements.marketList) {
           totalClassName: "market-total",
         });
 
-        const buyBtn = createEl("button", "market-action-btn", "立即购买");
+        const buyBtn = createEl("button", "market-action-btn", isBuySide ? "卖给收购单" : "立即购买");
         buyBtn.type = "button";
-        buyBtn.dataset.action = "buy";
+        buyBtn.dataset.action = isBuySide ? "sellToBuy" : "buy";
         buyBtn.dataset.listingId = String(listing.id);
         buyBtn.dataset.currency = listing.currency;
         buyBtn.dataset.unitPrice = String(listing.price);
@@ -5669,6 +5984,7 @@ async function loadMarket(mode, options = {}) {
   try {
     await ensureMaterialNameMap();
     await ensureMarketAlgorithmGlossary();
+    await ensureMarketTagsMeta();
     const normalizedMode = mode === "stores" ? "stores" : (mode === "mine" ? "mine" : "public");
     if (normalizedMode === "mine") {
       ensureToken();
@@ -5682,6 +5998,8 @@ async function loadMarket(mode, options = {}) {
     const keyword = elements.marketKeyword ? elements.marketKeyword.value.trim() : "";
     const materialInput = elements.marketMaterial ? elements.marketMaterial.value.trim() : "";
     const material = materialInput ? normalizeMaterialKey(materialInput) : "";
+    const side = elements.marketSide ? String(elements.marketSide.value || "").trim().toUpperCase() : "";
+    const tag = elements.marketTag ? normalizeTagCode(elements.marketTag.value) : "";
     const currency = elements.marketCurrency ? elements.marketCurrency.value.trim() : "";
     const minPrice = elements.marketMinPrice ? elements.marketMinPrice.value.trim() : "";
     const maxPrice = elements.marketMaxPrice ? elements.marketMaxPrice.value.trim() : "";
@@ -5692,6 +6010,12 @@ async function loadMarket(mode, options = {}) {
     }
     if (material) {
       params.set("material", material);
+    }
+    if (side === "SELL" || side === "BUY") {
+      params.set("side", side);
+    }
+    if (tag) {
+      params.set("tag", tag);
     }
     if (currency) {
       params.set("currency", currency);
@@ -5736,8 +6060,8 @@ async function loadMarket(mode, options = {}) {
     } else {
       renderListings(state.listings);
       const label = getMarketModeLabel(normalizedMode);
-      const visibleCount = normalizedMode === "public" && state.hideOwnMarketListings && state.username
-        ? state.listings.filter((listing) => listing.sellerName !== state.username).length
+      const visibleCount = normalizedMode === "public"
+        ? state.listings.filter((listing) => !shouldHideListingInPublic(listing)).length
         : state.listings.length;
       setMetaText(elements.marketView, `${label}：${visibleCount} 条`, "info");
     }
@@ -6228,6 +6552,49 @@ async function confirmMarketBuy(listing, buyQuantity) {
   });
 }
 
+async function confirmSellToBuy(listing, sellQuantity) {
+  await ensureMaterialNameMap();
+  const meta = parseMeta(listing.itemMetaJson);
+  const displayName = stripColorCodes(meta.displayName || "");
+  const listingVisual = resolveListingDisplayVisual(listing, displayName);
+  const localizedName = listingVisual.title;
+  const qty = Number(sellQuantity || 1);
+  const subtotalAmount = Number(listing.price || 0) * qty;
+  const taxAmount = calculatePercentAmount(subtotalAmount, state.orderPolicy.marketTaxPercent);
+  const feeAmount = calculatePercentAmount(subtotalAmount, state.orderPolicy.marketFeePercent);
+  const sellerReceive = Math.max(0, subtotalAmount - feeAmount);
+  const details = [
+    `物品：${localizedName}`,
+    `数量：x${qty}`,
+    `收购单价：${formatCurrency(listing.price, listing.currency)}`,
+    `发布者：${listing.sellerName}`,
+    "你交货后会直接获得货款，物品会进入对方收货队列。",
+  ];
+  if (listing.remark) {
+    details.push(`备注：${listing.remark}`);
+  }
+  return openDeliveryConfirmDialog({
+    title: "确认卖给收购单",
+    message: "请确认交货信息，确认后将立即从你背包扣除对应物品。",
+    details,
+    confirmText: "确认交货",
+    initialValue: "IMMEDIATE",
+    allowClaim: true,
+    summary: {
+      currency: listing.currency,
+      subtotal: subtotalAmount,
+      taxAmount,
+      feeAmount,
+      taxLabel: `税额（买家承担，${state.orderPolicy.marketTaxPercent}%）`,
+      feeLabel: `手续费（卖家承担，${state.orderPolicy.marketFeePercent}%）`,
+      finalLabel: "预计入账",
+      finalAmount: sellerReceive,
+      isCredit: true,
+      noteText: "本次成交会扣减收购单冻结金额，剩余冻结金额会在收购单结束后退回发布者。",
+    },
+  });
+}
+
 async function confirmMarketBid(listing, bidAmount) {
   await ensureMaterialNameMap();
   const meta = parseMeta(listing.itemMetaJson);
@@ -6347,6 +6714,196 @@ async function createOrder(productId, quantity, deliveryMode, productTitle, prod
   return payload;
 }
 
+async function openCreateBuyListingDialog() {
+  await ensureMaterialNameMap();
+  await ensureMarketMaterialAllowList();
+  await ensureMarketTagsMeta();
+  const preferredCurrency = String(elements.marketCurrency?.value || "GAME_COIN").trim().toUpperCase();
+  return openMarketParamDialog({
+    title: "发布收购单",
+    hint: "在网页直接发布收购单。出售单仍需在游戏内创建。",
+    confirmText: "发布收购单",
+    setupForm: (container) => {
+      container.innerHTML = "";
+
+      const materialField = createEl("label", "field");
+      const materialInput = document.createElement("input");
+      materialInput.id = "marketCreateBuyMaterialInput";
+      materialInput.placeholder = "请从预选材质中选择";
+      materialInput.setAttribute("list", "materialSuggestList");
+      materialInput.autocomplete = "off";
+      materialInput.addEventListener("blur", () => {
+        const raw = String(materialInput.value || "").trim();
+        if (!raw) {
+          return;
+        }
+        const resolved = resolveMarketAllowedMaterial(raw);
+        if (resolved) {
+          materialInput.value = resolved;
+          return;
+        }
+        notify("该材质不在可选列表内，请从预选建议中选择。", "warn");
+      });
+      materialField.appendChild(materialInput);
+      materialField.appendChild(createEl("span", "field-label", "收购物品"));
+      container.appendChild(materialField);
+
+      const row = createEl("div", "field-grid three-col field-grid-smart");
+
+      const priceField = createEl("label", "field");
+      const priceInput = document.createElement("input");
+      priceInput.id = "marketCreateBuyPriceInput";
+      priceInput.type = "number";
+      priceInput.min = "1";
+      priceInput.step = "1";
+      priceInput.value = "1";
+      priceField.appendChild(priceInput);
+      priceField.appendChild(createEl("span", "field-label", "单价"));
+      row.appendChild(priceField);
+
+      const quantityField = createEl("label", "field");
+      const quantityInput = document.createElement("input");
+      quantityInput.id = "marketCreateBuyQuantityInput";
+      quantityInput.type = "number";
+      quantityInput.min = "1";
+      quantityInput.max = "64";
+      quantityInput.step = "1";
+      quantityInput.value = "1";
+      quantityField.appendChild(quantityInput);
+      quantityField.appendChild(createEl("span", "field-label", "数量"));
+      row.appendChild(quantityField);
+
+      const currencyField = createEl("label", "field field-select");
+      const currencySelect = document.createElement("select");
+      currencySelect.id = "marketCreateBuyCurrencySelect";
+      ["SHOP_COIN", "GAME_COIN"].forEach((currencyKey) => {
+        const option = document.createElement("option");
+        option.value = currencyKey;
+        option.textContent = (CURRENCY_META[currencyKey] || { label: currencyKey }).label;
+        currencySelect.appendChild(option);
+      });
+      currencySelect.value = preferredCurrency === "SHOP_COIN" || preferredCurrency === "GAME_COIN"
+        ? preferredCurrency
+        : "GAME_COIN";
+      currencyField.appendChild(currencySelect);
+      currencyField.appendChild(createEl("span", "field-label", "币种"));
+      row.appendChild(currencyField);
+
+      container.appendChild(row);
+
+      const tagField = createEl("label", "field field-select");
+      const tagSelect = document.createElement("select");
+      tagSelect.id = "marketCreateBuyTagSelect";
+      tagSelect.innerHTML = "<option value=\"\">自动分类</option>";
+      (state.marketTags || [])
+        .filter((tag) => tag.enabled !== false)
+        .forEach((tag) => {
+          const option = document.createElement("option");
+          option.value = tag.code;
+          option.textContent = `${tag.displayName || tag.code} (${tag.code})`;
+          tagSelect.appendChild(option);
+        });
+      tagField.appendChild(tagSelect);
+      tagField.appendChild(createEl("span", "field-label", "分类标签（可选）"));
+      container.appendChild(tagField);
+
+      const tip = createEl("p", "meta", "提示：发布后其他玩家可直接“卖给收购单”，你的冻结金额会随成交递减。");
+      container.appendChild(tip);
+      materialInput.focus();
+      return container;
+    },
+    resolveValue: (container) => {
+      const materialInput = container.querySelector("#marketCreateBuyMaterialInput");
+      const priceInput = container.querySelector("#marketCreateBuyPriceInput");
+      const quantityInput = container.querySelector("#marketCreateBuyQuantityInput");
+      const currencySelect = container.querySelector("#marketCreateBuyCurrencySelect");
+      const tagSelect = container.querySelector("#marketCreateBuyTagSelect");
+
+      const itemMaterial = resolveMarketAllowedMaterial(materialInput ? materialInput.value : "");
+      const price = Number(priceInput ? priceInput.value : 0);
+      const quantity = Number(quantityInput ? quantityInput.value : 0);
+      const currency = String(currencySelect ? currencySelect.value : "SHOP_COIN").trim().toUpperCase();
+      const tag = normalizeTagCode(tagSelect ? tagSelect.value : "");
+
+      if (!itemMaterial) {
+        notify("请从预选材质中选择一个有效物品。", "warn");
+        return undefined;
+      }
+      if (!Number.isFinite(price) || price <= 0) {
+        notify("单价必须大于 0。", "warn");
+        return undefined;
+      }
+      if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 64) {
+        notify("数量需在 1-64 之间。", "warn");
+        return undefined;
+      }
+      if (currency !== "SHOP_COIN" && currency !== "GAME_COIN") {
+        notify("币种无效，请重新选择。", "warn");
+        return undefined;
+      }
+      return {
+        itemMaterial,
+        price: Math.floor(price),
+        quantity: Math.floor(quantity),
+        currency,
+        tag: tag || null,
+      };
+    },
+  });
+}
+
+async function confirmCreateBuyListing(params) {
+  const materialName = getLocalizedMaterialName(params.itemMaterial, { includeGlobalOverride: false });
+  const subtotal = Math.max(0, Number(params.price || 0) * Number(params.quantity || 0));
+  const taxAmount = calculatePercentAmount(subtotal, state.orderPolicy.marketTaxPercent);
+  const escrowAmount = subtotal + taxAmount;
+  const details = [
+    `收购物品：${materialName} (${params.itemMaterial})`,
+    `数量：x${params.quantity}`,
+    `单价：${formatCurrency(params.price, params.currency)}`,
+    `小计：${formatCurrency(subtotal, params.currency)}`,
+    `税额（买家承担，${state.orderPolicy.marketTaxPercent}%）：${formatCurrency(taxAmount, params.currency)}`,
+    `预计冻结：${formatCurrency(escrowAmount, params.currency)}`,
+    `分类：${params.tag ? `${getMarketTagDisplayName(params.tag)} (${params.tag})` : "自动分类"}`,
+  ];
+  return openConfirmDialog({
+    title: "确认发布收购单",
+    message: "确认后会立即创建收购单并冻结对应金额。",
+    details,
+    confirmText: "确认发布",
+  });
+}
+
+async function createBuyListing(params) {
+  ensureToken();
+  const payload = await api("/api/market/listings/create", {
+    method: "POST",
+    body: JSON.stringify({
+      side: "BUY",
+      tradeMode: "DIRECT",
+      itemMaterial: params.itemMaterial,
+      price: params.price,
+      quantity: params.quantity,
+      currency: params.currency,
+      tag: params.tag || undefined,
+    }),
+  });
+  const priceText = formatCurrency(payload.price || params.price, payload.currency || params.currency);
+  const quantity = Number(payload.quantity || params.quantity || 0);
+  const tagCode = normalizeTagCode(payload.tag || params.tag);
+  const tagText = tagCode ? `，分类 ${getMarketTagDisplayName(tagCode)}` : "";
+  log(`收购单发布成功：listingId=${payload.listingId} material=${payload.material || params.itemMaterial} qty=${quantity}`, "SUCCESS");
+  notify(`收购单发布成功：#${payload.listingId}，${params.itemMaterial} x${quantity}，单价 ${priceText}${tagText}。`, "success");
+  try {
+    await refreshWallet();
+  } catch (refreshError) {
+    const refreshMessage = resolveErrorMessage(refreshError, "wallet_refresh");
+    log(`发布收购单后刷新钱包失败：${refreshMessage}`, "WARN");
+  }
+  await loadMarket(state.marketMode || "public");
+  return payload;
+}
+
 async function buyListing(listingId, buyQuantity, deliveryMode) {
   ensureToken();
   const qty = Number(buyQuantity || 1);
@@ -6402,6 +6959,52 @@ async function buyListing(listingId, buyQuantity, deliveryMode) {
   } catch (refreshError) {
     const refreshMessage = resolveErrorMessage(refreshError, "wallet_refresh");
     log(`购买后刷新钱包失败：${refreshMessage}`, "WARN");
+  }
+  await loadMarket(state.marketMode);
+  if (state.token) {
+    await loadOrders();
+  }
+}
+
+async function sellToBuyListing(listingId, sellQuantity, deliveryMode) {
+  ensureToken();
+  const qty = Number(sellQuantity || 1);
+  if (!Number.isFinite(qty) || qty <= 0 || qty > 64) {
+    throw new Error("交货数量需在 1-64 之间。");
+  }
+  const payload = await api("/api/market/sell-to-buy", {
+    method: "POST",
+    body: JSON.stringify({
+      listingId,
+      sellQuantity: qty,
+      deliveryMode: String(deliveryMode || "IMMEDIATE").toUpperCase(),
+      idempotencyKey: createIdempotencyKey(),
+    }),
+  });
+  const isExisting = String(payload.state || "").toUpperCase() === "EXISTING";
+  const receiveAmount = payload.sellerReceive !== undefined ? payload.sellerReceive : payload.totalPrice;
+  const amountText = formatCurrency(receiveAmount, payload.currency);
+  const statusText = payload.orderStatus || "PENDING";
+  if (isExisting) {
+    log(`收购单交货请求去重：tradeId=${payload.tradeId}，listingId=${payload.listingId}`, "WARN");
+    notify(`该交货请求已处理过，返回历史结果（交易号 ${payload.tradeId}）。`, "warn");
+  } else {
+    log(
+      `收购单交货成功：tradeId=${payload.tradeId}，listingId=${payload.listingId}，qty=${payload.quantity || qty}`,
+      "SUCCESS"
+    );
+    const claimTip = statusText === "WAIT_CLAIM" ? " 对方需在游戏内使用 /ws claim 领取。" : "";
+    notify(
+      `交货成功，数量 x${payload.quantity || qty}，预计入账 ${amountText}，状态 ${statusText}。${claimTip}`,
+      "success"
+    );
+  }
+
+  try {
+    await refreshWallet();
+  } catch (refreshError) {
+    const refreshMessage = resolveErrorMessage(refreshError, "wallet_refresh");
+    log(`交货后刷新钱包失败：${refreshMessage}`, "WARN");
   }
   await loadMarket(state.marketMode);
   if (state.token) {
@@ -6933,6 +7536,16 @@ if (elements.marketSort) {
     loadMarket(state.marketMode || "public", { announce: true });
   });
 }
+if (elements.marketSide) {
+  elements.marketSide.addEventListener("change", () => {
+    loadMarket(state.marketMode || "public", { announce: true });
+  });
+}
+if (elements.marketTag) {
+  elements.marketTag.addEventListener("change", () => {
+    loadMarket(state.marketMode || "public", { announce: true });
+  });
+}
 if (elements.marketApplyBtn) {
   elements.marketApplyBtn.addEventListener("click", () => {
     loadMarket(state.marketMode || "public", { announce: true });
@@ -6941,6 +7554,8 @@ if (elements.marketApplyBtn) {
 if (elements.marketClearBtn) {
   elements.marketClearBtn.addEventListener("click", () => {
     if (elements.marketKeyword) elements.marketKeyword.value = "";
+    if (elements.marketSide) elements.marketSide.value = "";
+    if (elements.marketTag) elements.marketTag.value = "";
     if (elements.marketMaterial) elements.marketMaterial.value = "";
     if (elements.marketCurrency) elements.marketCurrency.value = "";
     if (elements.marketMinPrice) elements.marketMinPrice.value = "";
@@ -6952,6 +7567,33 @@ if (elements.marketClearBtn) {
       window.localStorage.setItem(MARKET_HIDE_OWN_STORAGE_KEY, "1");
     }
     loadMarket(state.marketMode || "public", { announce: true });
+  });
+}
+if (elements.marketCreateBuyBtn) {
+  elements.marketCreateBuyBtn.addEventListener("click", async () => {
+    try {
+      ensureToken();
+      const params = await openCreateBuyListingDialog();
+      if (!params) {
+        notify("已取消发布收购单。", "info");
+        return;
+      }
+      const confirmed = await confirmCreateBuyListing(params);
+      if (!confirmed) {
+        notify("已取消发布收购单。", "info");
+        return;
+      }
+      elements.marketCreateBuyBtn.disabled = true;
+      setNodeText(elements.marketCreateBuyBtn, "发布中...");
+      await createBuyListing(params);
+    } catch (error) {
+      const message = resolveErrorMessage(error, "market_create");
+      notify(`收购单发布失败：${message}`, "error");
+      log(`收购单发布失败：${message}`, "ERROR");
+    } finally {
+      elements.marketCreateBuyBtn.disabled = false;
+      setNodeText(elements.marketCreateBuyBtn, "发布收购单");
+    }
   });
 }
 
@@ -7127,7 +7769,7 @@ elements.marketList.addEventListener("click", async (event) => {
   button.disabled = true;
   setNodeText(button, "处理中...");
   try {
-    if (button.dataset.action === "buy") {
+    if (button.dataset.action === "buy" || button.dataset.action === "sellToBuy") {
       let listing = state.listings.find((item) => Number(item.id) === listingId);
       const card = button.closest(".market-card");
       const qtyInput = card ? card.querySelector(".product-qty") : null;
@@ -7145,18 +7787,28 @@ elements.marketList.addEventListener("click", async (event) => {
         await refreshSupplyListing(listingId, { silent: true });
         listing = state.listings.find((item) => Number(item.id) === listingId) || listing;
       }
-      const confirmed = listing ? await confirmMarketBuy(listing, buyQty) : await openConfirmDialog({
-        title: "确认购买",
-        message: "确认后将立即扣除余额。",
-        details: [`上架ID：${listingId}`, `数量：x${buyQty}`],
-        confirmText: "确认购买",
-      });
+      const isSellToBuy = button.dataset.action === "sellToBuy"
+        || normalizeListingSide(listing) === "BUY";
+      const confirmed = listing
+        ? (isSellToBuy
+            ? await confirmSellToBuy(listing, buyQty)
+            : await confirmMarketBuy(listing, buyQty))
+        : await openConfirmDialog({
+            title: isSellToBuy ? "确认卖给收购单" : "确认购买",
+            message: isSellToBuy ? "确认后将立即扣除交货物品。" : "确认后将立即扣除余额。",
+            details: [`上架ID：${listingId}`, `数量：x${buyQty}`],
+            confirmText: isSellToBuy ? "确认交货" : "确认购买",
+          });
       if (!confirmed) {
-        notify("已取消购买。", "info");
+        notify(isSellToBuy ? "已取消交货。" : "已取消购买。", "info");
         return;
       }
       const selectedMode = typeof confirmed === "string" ? confirmed : "IMMEDIATE";
-      await buyListing(listingId, buyQty, selectedMode);
+      if (isSellToBuy) {
+        await sellToBuyListing(listingId, buyQty, selectedMode);
+      } else {
+        await buyListing(listingId, buyQty, selectedMode);
+      }
       return;
     }
     if (button.dataset.action === "bid") {
@@ -7276,6 +7928,8 @@ elements.marketList.addEventListener("click", async (event) => {
         ? "market_supply"
       : button.dataset.action === "bid"
         ? "market_bid"
+      : button.dataset.action === "sellToBuy"
+        ? "market_sell_to_buy"
       : button.dataset.action === "edit"
         ? "market_price"
         : "market_buy";
@@ -7363,9 +8017,7 @@ if (elements.marketHideOwnToggle) {
     window.localStorage.setItem(MARKET_HIDE_OWN_STORAGE_KEY, state.hideOwnMarketListings ? "1" : "0");
     if (state.marketMode === "public") {
       renderListings(state.listings);
-      const visibleCount = state.hideOwnMarketListings && state.username
-        ? state.listings.filter((listing) => listing.sellerName !== state.username).length
-        : state.listings.length;
+      const visibleCount = state.listings.filter((listing) => !shouldHideListingInPublic(listing)).length;
       setMetaText(elements.marketView, `${getMarketModeLabel("public")}：${visibleCount} 条`, "info");
     }
   });
@@ -7390,6 +8042,8 @@ if (elements.leaderboardMyRankView) {
 renderNotifications(state.notifications);
 updateNotificationBadge();
 ensureMaterialNameMap();
+ensureMarketMaterialAllowList();
+ensureMarketTagsMeta();
 loadOrderPolicy();
 loadLeaderboardConfig().catch(() => {
   // ignore config bootstrap errors

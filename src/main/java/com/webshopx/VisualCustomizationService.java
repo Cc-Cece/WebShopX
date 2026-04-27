@@ -89,12 +89,13 @@ class VisualCustomizationService {
   ResolvedPermission resolvePermission(long userId) {
     VisualSettings settings = readSettings();
     UserVisualPermission userPermission = readUserPermission(userId);
-    boolean allowIcon = settings.marketListingCustomIconEnabled()
-        && resolveToggle(settings.globalCustomIconEnabled(), userPermission.iconPermission());
-    boolean allowName = settings.marketListingCustomNameEnabled()
-        && resolveToggle(settings.globalCustomNameEnabled(), userPermission.namePermission());
-    boolean allowUpload = settings.marketListingUploadImageEnabled()
-        && allowIcon
+    boolean allowIcon = resolveToggle(
+        settings.globalCustomIconEnabled() && settings.marketListingCustomIconEnabled(),
+        userPermission.iconPermission());
+    boolean allowName = resolveToggle(
+        settings.globalCustomNameEnabled() && settings.marketListingCustomNameEnabled(),
+        userPermission.namePermission());
+    boolean allowUpload = allowIcon
         && resolveToggle(settings.marketListingUploadImageEnabled(), userPermission.uploadPermission());
     return new ResolvedPermission(
         userPermission.userId(),

@@ -105,6 +105,7 @@ public class WebShopPlugin extends JavaPlugin {
           this,
           databaseManager,
           walletService,
+          runtimeConfigService,
           this::settings,
           messageService,
           notificationService,
@@ -242,6 +243,9 @@ public class WebShopPlugin extends JavaPlugin {
     if (clusterEventBusService != null) {
       clusterEventBusService.reload();
     }
+    if (marketService != null) {
+      marketService.refreshRuntimePolicies();
+    }
     synchronizeOnlinePresence();
     startMaintenanceLoop();
     startMarketCycleLoop();
@@ -256,6 +260,9 @@ public class WebShopPlugin extends JavaPlugin {
       settings = runtimeConfigService.applyTo(settings);
       if (pluginLogService != null) {
         pluginLogService.apply(settings.loggingSettings());
+      }
+      if (marketService != null) {
+        marketService.refreshRuntimePolicies();
       }
       startMaintenanceLoop();
       startMarketCycleLoop();

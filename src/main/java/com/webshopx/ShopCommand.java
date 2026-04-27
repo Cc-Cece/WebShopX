@@ -93,10 +93,17 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     String top = args[0].toLowerCase(Locale.ROOT);
     if (top.equals("market")) {
       if (args.length == 2) {
-        return filterByPrefix(List.of("gui", "sell", "logs"), args[1]);
+        List<String> options = new ArrayList<>(List.of("gui", "sell", "logs"));
+        if (sender.hasPermission("webshop.admin")) {
+          options.add("recalc-tags");
+        }
+        return filterByPrefix(options, args[1]);
       }
       if (args.length == 3 && args[1].equalsIgnoreCase("logs")) {
         return filterByPrefix(List.of("5", "10", "20"), args[2]);
+      }
+      if (args.length == 3 && args[1].equalsIgnoreCase("recalc-tags")) {
+        return filterByPrefix(List.of("active", "all"), args[2]);
       }
       if (args.length == 4) {
         return filterByPrefix(List.of("1", "16", "64"), args[3]);
@@ -191,6 +198,9 @@ class ShopCommand implements CommandExecutor, TabCompleter {
   }
 
   private boolean handleMarket(CommandSender sender, String[] args) {
+    if (args.length >= 2 && args[1].equalsIgnoreCase("recalc-tags")) {
+      return handleMarketRecalcTags(sender, args);
+    }
     if (!(sender instanceof Player player)) {
       sender.sendMessage(msg(sender, "command.market.player_only"));
       return true;
@@ -238,6 +248,28 @@ class ShopCommand implements CommandExecutor, TabCompleter {
           Map.of("reason", humanizeMarketError(player, exception))));
       return true;
     }
+  }
+
+  private boolean handleMarketRecalcTags(CommandSender sender, String[] args) {
+    if (!sender.hasPermission("webshop.admin")) {
+      sender.sendMessage(msg(sender, "command.common.no_permission"));
+      return true;
+    }
+    String scope = args.length >= 3 ? args[2] : "active";
+    try {
+      MarketService.TagRecalcResult result = marketService.recalcTags(scope);
+      sender.sendMessage(
+          "§aTag recalc completed: scanned "
+              + result.scanned()
+              + ", changed "
+              + result.changed()
+              + ", elapsed "
+              + result.elapsedMs()
+              + "ms.");
+    } catch (ServiceException exception) {
+      sender.sendMessage("§cTag recalc failed: " + humanizeMarketError(sender, exception));
+    }
+    return true;
   }
 
   private boolean handleMailbox(CommandSender sender, String[] args) {
@@ -393,6 +425,20 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       case "sync_timeout" -> messageService.get(sender, "error.market.sync_timeout");
       case "sync_interrupted" -> messageService.get(sender, "error.market.sync_interrupted");
       case "listing_limit" -> messageService.get(sender, "error.market.listing_limit");
+      case "buy_requires_direct_mode" -> messageService.get(sender, "error.market.buy_requires_direct_mode");
+      case "buy_requires_manual_source" -> messageService.get(sender, "error.market.buy_requires_manual_source");
+      case "buy_requires_fixed_price" -> messageService.get(sender, "error.market.buy_requires_fixed_price");
+      case "buy_escrow_insufficient" -> messageService.get(sender, "error.market.buy_escrow_insufficient");
+      case "buy_order_not_active" -> messageService.get(sender, "error.market.buy_order_not_active");
+      case "cannot_fulfill_own_buy_order" -> messageService.get(sender, "error.market.cannot_fulfill_own_buy_order");
+      case "fulfill_item_not_match" -> messageService.get(sender, "error.market.fulfill_item_not_match");
+      case "invalid_market_side" -> messageService.get(sender, "error.market.invalid_market_side");
+      case "invalid_tag" -> messageService.get(sender, "error.market.invalid_tag");
+      case "tag_disabled" -> messageService.get(sender, "error.market.tag_disabled");
+      case "limitation_item_forbidden" -> messageService.get(sender, "error.market.limitation_item_forbidden");
+      case "limitation_currency_not_allowed" -> messageService.get(sender, "error.market.limitation_currency_not_allowed");
+      case "limitation_trade_mode_not_allowed" -> messageService.get(sender, "error.market.limitation_trade_mode_not_allowed");
+      case "limitation_side_not_allowed" -> messageService.get(sender, "error.market.limitation_side_not_allowed");
       default -> exception.getMessage();
     };
   }

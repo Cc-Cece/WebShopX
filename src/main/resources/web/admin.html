@@ -726,6 +726,134 @@
           </div>
           <p class="meta" id="runtimeMaintenanceStatusView">等待操作</p>
         </article>
+                
+        <article class="md-card section-card">
+          <div class="section-head">
+            <div>
+              <h2>标签管理</h2>
+            </div>
+            <button id="marketTagRefreshBtn" type="button">刷新标签</button>
+          </div>
+          <p class="meta" id="marketTagMetaStatusView">等待加载标签</p>
+          <h4>标签规则</h4>
+          <div class="field-grid three-col">
+            <label class="field">
+              <span>标签版本</span>
+              <input id="marketTagVersionInput" type="number" min="1" step="1" value="1" />
+            </label>
+            <label class="field">
+              <span>兜底默认标签</span>
+              <select id="marketTagDefaultTagSelect"></select>
+            </label>
+            <label class="field">
+              <button id="marketTagAddRowBtn" class="btn-tonal" type="button">新增标签</button>
+            </label>
+          </div>
+          <div class="admin-list market-policy-scroll-list" id="marketTagConfigList"></div>
+          <div class="actions">
+            <button id="marketTagConfigSaveBtn" type="button">保存标签规则</button>
+          </div>
+          <p class="meta" id="marketTagConfigStatusView">等待加载标签规则</p>
+
+          <details class="dialog-advanced-details">
+            <summary>直接编辑 JSON (高级)</summary>
+            <p class="card-desc">可在此直接编辑 JSON，点“应用”即可同步到上面的表单。</p>
+            <div class="field-grid">
+              <label class="field">
+                <span>标签规则 JSON（market_tags）</span>
+                <textarea
+                  id="marketTagConfigEditor"
+                  rows="10"
+                  placeholder='{"tagVersion":1,"defaultTag":"default","tags":[]}'></textarea>
+              </label>
+            </div>
+            <div class="actions">
+              <button id="marketTagJsonApplyBtn" class="btn-tonal" type="button">应用</button>
+            </div>
+          </details>
+        </article>
+
+        <article class="md-card section-card">
+          <div class="section-head">
+            <div>
+              <h2>上架限制</h2>
+            </div>
+            <button id="marketLimitationRefreshBtn" type="button">刷新上架限制</button>
+          </div>
+          <p class="meta" id="marketLimitationSummaryView">等待加载限制摘要</p>
+
+          <h4>上架限制</h4>
+          <div class="md-tip md-tip-info">
+            <strong>配置说明</strong>
+            <p>带*的字段表示可使用逗号分隔填入多个值。如若对某个参数不理解请查阅相关文档。</p>
+          </div>
+          <div class="field-grid three-col">
+            <label class="field">
+              <span>默认拒绝方向*</span>
+              <input id="marketLimitationDefaultDenySidesInput" placeholder="例如 BUY" />
+            </label>
+            <label class="field">
+              <span>默认拒绝币种*</span>
+              <input id="marketLimitationDefaultDenyCurrenciesInput" placeholder="例如 SHOP_COIN" />
+            </label>
+            <label class="field">
+              <span>默认允许方向*</span>
+              <input id="marketLimitationDefaultAllowSidesInput" placeholder="例如 SELL,BUY" />
+            </label>
+            <label class="field">
+              <span>默认允许交易模式*</span>
+              <input id="marketLimitationDefaultAllowTradeModesInput" placeholder="例如 DIRECT,AUCTION" />
+            </label>
+            <label class="field">
+              <span>默认允许币种*</span>
+              <input id="marketLimitationDefaultAllowCurrenciesInput" placeholder="留空=不限" />
+            </label>
+            <label class="field">
+              <span>默认允许标签*</span>
+              <input id="marketLimitationDefaultAllowTagsInput" placeholder="留空=不限" />
+            </label>
+            <label class="field">
+              <span>默认创建成本</span>
+              <select id="marketLimitationDefaultCreateCostEnabled">
+                <option value="false">关闭</option>
+                <option value="true">开启</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>创建成本币种</span>
+              <input id="marketLimitationDefaultCreateCostCurrency" placeholder="INHERIT / GAME_COIN / SHOP_COIN" />
+            </label>
+            <label class="field">
+              <span>创建成本金额</span>
+              <input id="marketLimitationDefaultCreateCostAmount" type="number" min="0" step="1" value="0" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="marketLimitationAddRuleBtn" class="btn-tonal" type="button">新增限制规则</button>
+          </div>
+          <div class="admin-list market-policy-scroll-list" id="marketLimitationRuleList"></div>
+          <div class="actions">
+            <button id="marketLimitationConfigSaveBtn" type="button">保存上架限制</button>
+          </div>
+          <p class="meta" id="marketLimitationConfigStatusView">等待加载上架限制</p>
+
+          <details class="dialog-advanced-details">
+            <summary>直接编辑 JSON (高级)</summary>
+            <p class="card-desc">可在此直接编辑 JSON，点“应用到可视化”即可同步到上面的表单。</p>
+            <div class="field-grid">
+              <label class="field">
+                <span>上架限制 JSON（market_limitation）</span>
+                <textarea
+                  id="marketLimitationConfigEditor"
+                  rows="10"
+                  placeholder='{"default":{"allow":{"marketSides":["SELL","BUY"]}},"rules":[]}'></textarea>
+              </label>
+            </div>
+            <div class="actions">
+              <button id="marketLimitationJsonApplyBtn" class="btn-tonal" type="button">应用限制 JSON 到可视化</button>
+            </div>
+          </details>
+        </article>
 
         <article class="md-card section-card">
           <h2>日志设置</h2>
@@ -1168,6 +1296,134 @@
   <div id="snackbarHost" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
   <datalist id="materialSuggestList"></datalist>
   <datalist id="potionEffectSuggestList"></datalist>
+
+  <div id="marketTagEditDialog" class="dialog-backdrop" aria-hidden="true">
+    <article class="md-card dialog-card market-policy-dialog-card">
+      <h3>编辑标签</h3>
+      <p>修改后点击“保存”应用到列表；最终需点击“保存标签规则”才会写入数据库。</p>
+      <div class="dialog-details market-policy-dialog-scroll">
+        <div class="field-grid two-col">
+          <label class="field">
+            <span>标签 code</span>
+            <input id="marketTagEditCodeInput" placeholder="例如 weapon" />
+          </label>
+          <label class="field">
+            <span>展示名称</span>
+            <input id="marketTagEditDisplayNameInput" placeholder="例如 武器" />
+          </label>
+          <label class="field">
+            <span>启用状态</span>
+            <select id="marketTagEditEnabledSelect">
+              <option value="true">启用</option>
+              <option value="false">停用</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>优先级</span>
+            <input id="marketTagEditPriorityInput" type="number" min="0" step="1" value="100" />
+          </label>
+          <label class="field">
+            <span>材质白名单（逗号分隔）</span>
+            <input id="marketTagEditMaterialInInput" placeholder="例如 DIAMOND_SWORD,BOW" />
+          </label>
+          <label class="field">
+            <span>NBT 关键词（逗号分隔）</span>
+            <input id="marketTagEditNbtHasAnyInput" placeholder="例如 MYTHIC_TYPE" />
+          </label>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="marketTagEditCancelBtn" class="btn-tonal" type="button">取消</button>
+        <button id="marketTagEditSaveBtn" type="button">保存标签</button>
+      </div>
+    </article>
+  </div>
+
+  <div id="marketLimitationRuleEditDialog" class="dialog-backdrop" aria-hidden="true">
+    <article class="md-card dialog-card market-policy-dialog-card">
+      <h3>编辑限制规则</h3>
+      <p>必填：规则 ID、动作类型。其它字段均为可选。</p>
+      <p>修改后点击“保存”应用到列表；最终需点击“保存上架限制”才会写入数据库。</p>
+      <div class="dialog-details market-policy-dialog-scroll">
+        <div class="field-grid two-col">
+          <label class="field">
+            <span>规则 ID</span>
+            <input id="marketRuleEditIdInput" placeholder="例如 buy_only_gamecoin" />
+          </label>
+          <label class="field">
+            <span>优先级</span>
+            <input id="marketRuleEditPriorityInput" type="number" min="0" step="1" value="100" />
+          </label>
+          <label class="field">
+            <span>动作类型</span>
+            <select id="marketRuleEditActionDenySelect">
+              <option value="false">白名单限制</option>
+              <option value="true">直接拒绝</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>拒绝错误码</span>
+            <input id="marketRuleEditActionCodeInput" placeholder="例如 limitation_item_forbidden" />
+          </label>
+          <label class="field">
+            <span>触发方向</span>
+            <input id="marketRuleEditWhenSideInInput" placeholder="例如 SELL,BUY" />
+          </label>
+          <label class="field">
+            <span>触发材质(物品)</span>
+            <input id="marketRuleEditWhenMaterialInInput" placeholder="例如 DIAMOND_SWORD" />
+          </label>
+          <label class="field">
+            <span>触发 NBT</span>
+            <input id="marketRuleEditWhenNbtHasAnyInput" placeholder="例如 MYTHIC_TYPE" />
+          </label>
+          <label class="field">
+            <span>缺少权限</span>
+            <input id="marketRuleEditWhenLacksPermissionInput" placeholder="例如 webshop.market.auction" />
+          </label>
+          <label class="field">
+            <span>方向白名单</span>
+            <input id="marketRuleEditActionSideWhitelistInput" placeholder="例如 SELL,BUY" />
+          </label>
+          <label class="field">
+            <span>交易模式白名单</span>
+            <input id="marketRuleEditActionTradeModeWhitelistInput" placeholder="例如 DIRECT,AUCTION" />
+          </label>
+          <label class="field">
+            <span>币种白名单</span>
+            <input id="marketRuleEditActionCurrencyWhitelistInput" placeholder="例如 GAME_COIN" />
+          </label>
+          <label class="field">
+            <span>标签白名单</span>
+            <input id="marketRuleEditActionTagWhitelistInput" placeholder="例如 weapon,tools" />
+          </label>
+          <label class="field">
+            <span>强制标签</span>
+            <input id="marketRuleEditActionForcedTagInput" placeholder="例如 weapon" />
+          </label>
+          <label class="field">
+            <span>创建成本开关</span>
+            <select id="marketRuleEditCreateCostEnabledSelect">
+              <option value="false">关闭</option>
+              <option value="true">开启</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>创建成本币种</span>
+            <input id="marketRuleEditCreateCostCurrencyInput" placeholder="INHERIT / GAME_COIN / SHOP_COIN" />
+          </label>
+          <label class="field">
+            <span>创建成本金额</span>
+            <input id="marketRuleEditCreateCostAmountInput" type="number" min="0" step="1" value="0" />
+          </label>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="marketRuleEditCancelBtn" class="btn-tonal" type="button">取消</button>
+        <button id="marketRuleEditSaveBtn" type="button">保存</button>
+      </div>
+    </article>
+  </div>
 
   <div id="materialCropDialog" class="dialog-backdrop" aria-hidden="true">
     <article class="md-card dialog-card material-crop-dialog-card">

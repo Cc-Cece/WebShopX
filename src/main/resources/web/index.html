@@ -345,6 +345,20 @@
         <details class="advanced-filter">
           <summary>高级筛选</summary>
           <div class="field-grid three-col field-grid-smart">
+            <label class="field field-select">
+              <select id="marketSide">
+                <option value="">全部方向</option>
+                <option value="SELL">出售单</option>
+                <option value="BUY">收购单</option>
+              </select>
+              <span class="field-label">方向</span>
+            </label>
+            <label class="field field-select">
+              <select id="marketTag">
+                <option value="">全部分类</option>
+              </select>
+              <span class="field-label">分类标签</span>
+            </label>
             <label class="field">
               <input id="marketMaterial" placeholder="例如 DIAMOND" />
               <span class="field-label">物品 ID</span>
@@ -380,6 +394,7 @@
           <button id="marketListBtn" class="btn-segment active" type="button">市场在售</button>
           <button id="marketStoreBtn" class="btn-segment" type="button">玩家店铺</button>
           <button id="marketMineBtn" class="btn-segment" type="button">我的上架</button>
+          <button id="marketCreateBuyBtn" class="btn-segment" type="button">发布收购单</button>
           <button id="marketRefreshBtn" class="btn-tonal" type="button">刷新</button>
         </div>
 
@@ -534,6 +549,7 @@
   </div>
 
   <div id="snackbarHost" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
+  <datalist id="materialSuggestList"></datalist>
 
   <script src="config.js"></script>
   <script src="js/i18n.js"></script>

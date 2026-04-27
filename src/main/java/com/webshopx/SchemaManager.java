@@ -49,6 +49,8 @@ class SchemaManager {
     migrateDeliveryQueue(connection);
     createMarketListings(connection);
     migrateMarketListings(connection);
+    createMarketTags(connection);
+    migrateMarketTags(connection);
     createMarketTrades(connection);
     migrateMarketTrades(connection);
     createMarketBids(connection);
@@ -889,12 +891,17 @@ class SchemaManager {
           item_meta_json JSON NOT NULL,
           remark TEXT NULL,
           item_hash VARCHAR(64) NOT NULL,
+          tag_code VARCHAR(64) NOT NULL DEFAULT 'default',
+          tag_version INT NOT NULL DEFAULT 1,
+          escrow_total BIGINT NOT NULL DEFAULT 0,
+          escrow_remaining BIGINT NOT NULL DEFAULT 0,
           status VARCHAR(24) NOT NULL DEFAULT 'ACTIVE',
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           sold_at DATETIME NULL,
           unlisted_at DATETIME NULL,
           paused_at DATETIME NULL,
           trade_mode VARCHAR(16) NOT NULL DEFAULT 'DIRECT',
+          market_side VARCHAR(8) NOT NULL DEFAULT 'SELL',
           dynamic_pricing_enabled BOOLEAN NOT NULL DEFAULT FALSE,
           dynamic_algorithm VARCHAR(64) NOT NULL DEFAULT 'LINEAR_DEMAND_V1',
           dynamic_base_price BIGINT NULL,
@@ -918,6 +925,8 @@ class SchemaManager {
           PRIMARY KEY (id),
           KEY idx_market_listing_status (status, created_at),
           KEY idx_market_listing_seller (seller_user_id, status),
+          KEY idx_market_listing_side_status_created (market_side, status, id),
+          KEY idx_market_listing_side_tag_status (market_side, tag_code, status, id),
           KEY idx_market_listing_auction_due (trade_mode, status, auction_end_at),
           CONSTRAINT fk_market_listing_seller
             FOREIGN KEY (seller_user_id) REFERENCES web_users(id) ON DELETE CASCADE,
@@ -1044,11 +1053,17 @@ class SchemaManager {
         "ALTER TABLE market_listings "
           + "ADD COLUMN trade_mode VARCHAR(16) NOT NULL DEFAULT 'DIRECT' AFTER paused_at");
     }
+    if (!columnExists(connection, "market_listings", "market_side")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN market_side VARCHAR(8) NOT NULL DEFAULT 'SELL' AFTER trade_mode");
+    }
     if (!columnExists(connection, "market_listings", "dynamic_pricing_enabled")) {
       execute(
         connection,
         "ALTER TABLE market_listings "
-          + "ADD COLUMN dynamic_pricing_enabled BOOLEAN NOT NULL DEFAULT FALSE AFTER trade_mode");
+          + "ADD COLUMN dynamic_pricing_enabled BOOLEAN NOT NULL DEFAULT FALSE AFTER market_side");
     }
     if (!columnExists(connection, "market_listings", "dynamic_algorithm")) {
       execute(
@@ -1166,11 +1181,47 @@ class SchemaManager {
         "ALTER TABLE market_listings "
           + "ADD COLUMN auction_last_bid_at DATETIME NULL AFTER auction_highest_bid_id");
     }
+    if (!columnExists(connection, "market_listings", "tag_code")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN tag_code VARCHAR(64) NOT NULL DEFAULT 'default' AFTER item_hash");
+    }
+    if (!columnExists(connection, "market_listings", "tag_version")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN tag_version INT NOT NULL DEFAULT 1 AFTER tag_code");
+    }
+    if (!columnExists(connection, "market_listings", "escrow_total")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN escrow_total BIGINT NOT NULL DEFAULT 0 AFTER quantity_total");
+    }
+    if (!columnExists(connection, "market_listings", "escrow_remaining")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN escrow_remaining BIGINT NOT NULL DEFAULT 0 AFTER escrow_total");
+    }
     if (!indexExists(connection, "market_listings", "idx_market_listing_auction_due")) {
       execute(
         connection,
         "ALTER TABLE market_listings "
           + "ADD INDEX idx_market_listing_auction_due (trade_mode, status, auction_end_at)");
+    }
+    if (!indexExists(connection, "market_listings", "idx_market_listing_side_status_created")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD INDEX idx_market_listing_side_status_created (market_side, status, id)");
+    }
+    if (!indexExists(connection, "market_listings", "idx_market_listing_side_tag_status")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD INDEX idx_market_listing_side_tag_status (market_side, tag_code, status, id)");
     }
     execute(
         connection,
@@ -1180,6 +1231,25 @@ class SchemaManager {
       connection,
       "UPDATE market_listings SET trade_mode = 'DIRECT' "
         + "WHERE trade_mode IS NULL OR trade_mode = ''");
+    execute(
+        connection,
+        "UPDATE market_listings SET market_side = 'SELL' "
+            + "WHERE market_side IS NULL OR market_side = ''");
+    execute(
+        connection,
+        "UPDATE market_listings SET tag_code = 'default' "
+            + "WHERE tag_code IS NULL OR tag_code = ''");
+    execute(
+        connection,
+        "UPDATE market_listings SET tag_version = 1 "
+            + "WHERE tag_version IS NULL OR tag_version <= 0");
+    execute(
+        connection,
+        "UPDATE market_listings SET escrow_total = 0 WHERE escrow_total IS NULL OR escrow_total < 0");
+    execute(
+        connection,
+        "UPDATE market_listings SET escrow_remaining = 0 "
+            + "WHERE escrow_remaining IS NULL OR escrow_remaining < 0");
     execute(
       connection,
       "UPDATE market_listings SET dynamic_base_price = price "
@@ -1220,6 +1290,62 @@ class SchemaManager {
     execute(
         connection,
         "UPDATE market_listings SET supply_sold_total = 0 WHERE supply_sold_total IS NULL");
+  }
+
+  private void createMarketTags(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS market_tags (
+          code VARCHAR(64) NOT NULL,
+          display_name VARCHAR(128) NOT NULL,
+          enabled BOOLEAN NOT NULL DEFAULT TRUE,
+          priority INT NOT NULL DEFAULT 1000,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (code),
+          KEY idx_market_tags_enabled_priority (enabled, priority, code)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void migrateMarketTags(Connection connection) throws SQLException {
+    if (!columnExists(connection, "market_tags", "display_name")) {
+      execute(
+          connection,
+          "ALTER TABLE market_tags "
+              + "ADD COLUMN display_name VARCHAR(128) NOT NULL AFTER code");
+    }
+    if (!columnExists(connection, "market_tags", "enabled")) {
+      execute(
+          connection,
+          "ALTER TABLE market_tags "
+              + "ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT TRUE AFTER display_name");
+    }
+    if (!columnExists(connection, "market_tags", "priority")) {
+      execute(
+          connection,
+          "ALTER TABLE market_tags "
+              + "ADD COLUMN priority INT NOT NULL DEFAULT 1000 AFTER enabled");
+    }
+    if (!columnExists(connection, "market_tags", "created_at")) {
+      execute(
+          connection,
+          "ALTER TABLE market_tags "
+              + "ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER priority");
+    }
+    if (!columnExists(connection, "market_tags", "updated_at")) {
+      execute(
+          connection,
+          "ALTER TABLE market_tags "
+              + "ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP "
+              + "ON UPDATE CURRENT_TIMESTAMP AFTER created_at");
+    }
+    if (!indexExists(connection, "market_tags", "idx_market_tags_enabled_priority")) {
+      execute(
+          connection,
+          "ALTER TABLE market_tags "
+              + "ADD INDEX idx_market_tags_enabled_priority (enabled, priority, code)");
+    }
   }
 
   private void createMarketBids(Connection connection) throws SQLException {

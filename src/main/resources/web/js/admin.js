@@ -38,6 +38,13 @@
   materialAllowSet: new Set(),
   materialAllowReady: false,
   materialAllowPromise: null,
+  marketTags: [],
+  marketTagsReady: false,
+  marketTagsPromise: null,
+  marketTagConfig: null,
+  marketLimitationConfig: null,
+  marketTagEditingIndex: null,
+  marketLimitationRuleEditingIndex: null,
   marketAlgorithmGlossary: {
     dynamic: [],
     auction: [],
@@ -360,6 +367,62 @@ const elements = {
   runtimeMarketMaxTransitStock: document.getElementById("runtimeMarketMaxTransitStock"),
   runtimeMarketSaveBtn: document.getElementById("runtimeMarketSaveBtn"),
   runtimeMarketStatusView: document.getElementById("runtimeMarketStatusView"),
+  marketTagRefreshBtn: document.getElementById("marketTagRefreshBtn"),
+  marketTagMetaStatusView: document.getElementById("marketTagMetaStatusView"),
+  marketTagMetaList: document.getElementById("marketTagMetaList"),
+  marketLimitationRefreshBtn: document.getElementById("marketLimitationRefreshBtn"),
+  marketLimitationSummaryView: document.getElementById("marketLimitationSummaryView"),
+  marketTagConfigEditor: document.getElementById("marketTagConfigEditor"),
+  marketLimitationConfigEditor: document.getElementById("marketLimitationConfigEditor"),
+  marketTagVersionInput: document.getElementById("marketTagVersionInput"),
+  marketTagDefaultTagSelect: document.getElementById("marketTagDefaultTagSelect"),
+  marketTagAddRowBtn: document.getElementById("marketTagAddRowBtn"),
+  marketTagConfigList: document.getElementById("marketTagConfigList"),
+  marketLimitationDefaultDenySidesInput: document.getElementById("marketLimitationDefaultDenySidesInput"),
+  marketLimitationDefaultDenyCurrenciesInput: document.getElementById("marketLimitationDefaultDenyCurrenciesInput"),
+  marketLimitationDefaultAllowSidesInput: document.getElementById("marketLimitationDefaultAllowSidesInput"),
+  marketLimitationDefaultAllowTradeModesInput: document.getElementById("marketLimitationDefaultAllowTradeModesInput"),
+  marketLimitationDefaultAllowCurrenciesInput: document.getElementById("marketLimitationDefaultAllowCurrenciesInput"),
+  marketLimitationDefaultAllowTagsInput: document.getElementById("marketLimitationDefaultAllowTagsInput"),
+  marketLimitationDefaultCreateCostEnabled: document.getElementById("marketLimitationDefaultCreateCostEnabled"),
+  marketLimitationDefaultCreateCostCurrency: document.getElementById("marketLimitationDefaultCreateCostCurrency"),
+  marketLimitationDefaultCreateCostAmount: document.getElementById("marketLimitationDefaultCreateCostAmount"),
+  marketLimitationAddRuleBtn: document.getElementById("marketLimitationAddRuleBtn"),
+  marketLimitationRuleList: document.getElementById("marketLimitationRuleList"),
+  marketTagJsonApplyBtn: document.getElementById("marketTagJsonApplyBtn"),
+  marketLimitationJsonApplyBtn: document.getElementById("marketLimitationJsonApplyBtn"),
+  marketTagEditDialog: document.getElementById("marketTagEditDialog"),
+  marketTagEditCodeInput: document.getElementById("marketTagEditCodeInput"),
+  marketTagEditDisplayNameInput: document.getElementById("marketTagEditDisplayNameInput"),
+  marketTagEditEnabledSelect: document.getElementById("marketTagEditEnabledSelect"),
+  marketTagEditPriorityInput: document.getElementById("marketTagEditPriorityInput"),
+  marketTagEditMaterialInInput: document.getElementById("marketTagEditMaterialInInput"),
+  marketTagEditNbtHasAnyInput: document.getElementById("marketTagEditNbtHasAnyInput"),
+  marketTagEditCancelBtn: document.getElementById("marketTagEditCancelBtn"),
+  marketTagEditSaveBtn: document.getElementById("marketTagEditSaveBtn"),
+  marketLimitationRuleEditDialog: document.getElementById("marketLimitationRuleEditDialog"),
+  marketRuleEditIdInput: document.getElementById("marketRuleEditIdInput"),
+  marketRuleEditPriorityInput: document.getElementById("marketRuleEditPriorityInput"),
+  marketRuleEditActionDenySelect: document.getElementById("marketRuleEditActionDenySelect"),
+  marketRuleEditActionCodeInput: document.getElementById("marketRuleEditActionCodeInput"),
+  marketRuleEditWhenSideInInput: document.getElementById("marketRuleEditWhenSideInInput"),
+  marketRuleEditWhenMaterialInInput: document.getElementById("marketRuleEditWhenMaterialInInput"),
+  marketRuleEditWhenNbtHasAnyInput: document.getElementById("marketRuleEditWhenNbtHasAnyInput"),
+  marketRuleEditWhenLacksPermissionInput: document.getElementById("marketRuleEditWhenLacksPermissionInput"),
+  marketRuleEditActionSideWhitelistInput: document.getElementById("marketRuleEditActionSideWhitelistInput"),
+  marketRuleEditActionTradeModeWhitelistInput: document.getElementById("marketRuleEditActionTradeModeWhitelistInput"),
+  marketRuleEditActionCurrencyWhitelistInput: document.getElementById("marketRuleEditActionCurrencyWhitelistInput"),
+  marketRuleEditActionTagWhitelistInput: document.getElementById("marketRuleEditActionTagWhitelistInput"),
+  marketRuleEditActionForcedTagInput: document.getElementById("marketRuleEditActionForcedTagInput"),
+  marketRuleEditCreateCostEnabledSelect: document.getElementById("marketRuleEditCreateCostEnabledSelect"),
+  marketRuleEditCreateCostCurrencyInput: document.getElementById("marketRuleEditCreateCostCurrencyInput"),
+  marketRuleEditCreateCostAmountInput: document.getElementById("marketRuleEditCreateCostAmountInput"),
+  marketRuleEditCancelBtn: document.getElementById("marketRuleEditCancelBtn"),
+  marketRuleEditSaveBtn: document.getElementById("marketRuleEditSaveBtn"),
+  marketTagConfigSaveBtn: document.getElementById("marketTagConfigSaveBtn"),
+  marketLimitationConfigSaveBtn: document.getElementById("marketLimitationConfigSaveBtn"),
+  marketTagConfigStatusView: document.getElementById("marketTagConfigStatusView"),
+  marketLimitationConfigStatusView: document.getElementById("marketLimitationConfigStatusView"),
   runtimeCleanupIntervalMinutes: document.getElementById("runtimeCleanupIntervalMinutes"),
   runtimePendingBindRetentionHours: document.getElementById("runtimePendingBindRetentionHours"),
   runtimePendingPasswordRetentionHours: document.getElementById("runtimePendingPasswordRetentionHours"),
@@ -1321,8 +1384,19 @@ function initializeMaterialCropDialog() {
   }, { passive: false });
 
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && isMaterialCropDialogOpen()) {
+    if (event.key !== "Escape") {
+      return;
+    }
+    if (isMaterialCropDialogOpen()) {
       closeMaterialCropDialog(null);
+      return;
+    }
+    if (isMarketTagEditDialogOpen()) {
+      closeMarketTagEditDialog();
+      return;
+    }
+    if (isMarketLimitationRuleEditDialogOpen()) {
+      closeMarketLimitationRuleEditDialog();
     }
   });
 }
@@ -1650,6 +1724,994 @@ function renderList(container, rows) {
     return;
   }
   rows.forEach((row) => container.appendChild(row));
+}
+
+function normalizeMarketTagCode(tagCode) {
+  return String(tagCode || "").trim().toLowerCase();
+}
+
+function renderMarketTagMetaCard(tag) {
+  const card = document.createElement("div");
+  card.className = "admin-card";
+  const title = document.createElement("strong");
+  setNodeText(title, `${tag.displayName || tag.code} (${tag.code})`);
+  card.appendChild(title);
+
+  const tags = document.createElement("div");
+  tags.className = "admin-tag-row";
+  tags.appendChild(createTag(tag.enabled ? "启用" : "停用", tag.enabled ? "success" : "muted"));
+  tags.appendChild(createTag(`优先级 ${tag.priority}`, "info"));
+  tags.appendChild(createTag(`出售单 ${tag.activeSellCount}`, "accent"));
+  tags.appendChild(createTag(`收购单 ${tag.activeBuyCount}`, "neutral"));
+  card.appendChild(tags);
+  return card;
+}
+
+function renderMarketTagMetaList() {
+  if (!elements.marketTagMetaList) {
+    return;
+  }
+  const rows = (state.marketTags || []).map((tag) => renderMarketTagMetaCard(tag));
+  renderList(elements.marketTagMetaList, rows);
+}
+
+async function loadMarketTagMeta(options = {}) {
+  const announce = !!options.announce;
+  const response = await fetch(resolveApiUrl("/api/meta/market-tags"), { method: "GET" });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  const payload = await response.json();
+  const rows = Array.isArray(payload?.tags) ? payload.tags : [];
+  state.marketTags = rows
+    .map((item) => ({
+      code: normalizeMarketTagCode(item?.code),
+      displayName: String(item?.displayName || item?.code || "").trim(),
+      enabled: item?.enabled !== false,
+      priority: Number(item?.priority || 9999),
+      activeSellCount: Number(item?.activeSellCount || item?.activeCount?.SELL || 0),
+      activeBuyCount: Number(item?.activeBuyCount || item?.activeCount?.BUY || 0),
+    }))
+    .filter((item) => !!item.code)
+    .sort((left, right) => {
+      const leftPriority = Number.isFinite(left.priority) ? left.priority : 9999;
+      const rightPriority = Number.isFinite(right.priority) ? right.priority : 9999;
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
+      return left.code.localeCompare(right.code, I18N ? I18N.getIntlLocale() : "zh-CN");
+    });
+  state.marketTagsReady = true;
+  renderMarketTagMetaList();
+  setMetaText(elements.marketTagMetaStatusView, `已加载 ${state.marketTags.length} 个标签`, "info");
+  if (announce) {
+    notify(`标签已刷新：${state.marketTags.length} 个。`, "success");
+  }
+}
+
+function formatJsonForEditor(value) {
+  try {
+    return JSON.stringify(value || {}, null, 2);
+  } catch (error) {
+    return "{}";
+  }
+}
+
+function parseJsonObjectFromEditor(raw, label) {
+  const text = String(raw || "").trim();
+  if (!text) {
+    throw new Error(`${label}不能为空。`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${label}不是有效的 JSON。`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${label}必须是 JSON 对象。`);
+  }
+  return parsed;
+}
+
+function pickObjectValue(root, ...keys) {
+  if (!root || typeof root !== "object") {
+    return {};
+  }
+  for (const key of keys) {
+    const value = root[key];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return value;
+    }
+  }
+  return {};
+}
+
+function pickArrayValue(root, ...keys) {
+  if (!root || typeof root !== "object") {
+    return [];
+  }
+  for (const key of keys) {
+    const value = root[key];
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+  return [];
+}
+
+function normalizeTagCodeValue(raw) {
+  const lower = String(raw || "").trim().toLowerCase();
+  if (!lower) {
+    return "";
+  }
+  return lower
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function parseTokenInput(raw, options = {}) {
+  const text = String(raw || "")
+    .replace(/[，；;|]/g, ",")
+    .trim();
+  if (!text) {
+    return [];
+  }
+  const upper = !!options.upper;
+  const lower = !!options.lower;
+  const unique = new Set();
+  text
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => !!item)
+    .forEach((item) => {
+      let normalized = item;
+      if (upper) {
+        normalized = normalized.toUpperCase();
+      } else if (lower) {
+        normalized = normalized.toLowerCase();
+      }
+      if (normalized) {
+        unique.add(normalized);
+      }
+    });
+  return Array.from(unique);
+}
+
+function joinTokenList(values) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return "";
+  }
+  return values
+    .map((item) => String(item || "").trim())
+    .filter((item) => !!item)
+    .join(", ");
+}
+
+function normalizeMarketTagConfig(rawConfig) {
+  const root = rawConfig && typeof rawConfig === "object" ? rawConfig : {};
+  const rawTags = Array.isArray(root.tags) ? root.tags : [];
+  const tags = rawTags
+    .map((row, index) => {
+      const match = pickObjectValue(row, "match");
+      const code = normalizeTagCodeValue(row?.code || `tag_${index + 1}`);
+      if (!code) {
+        return null;
+      }
+      return {
+        code,
+        displayName: String(row?.displayName || row?.["display-name"] || code).trim() || code,
+        enabled: row?.enabled !== false,
+        priority: Number(row?.priority ?? (index + 1) * 100) || (index + 1) * 100,
+        materialIn: parseTokenInput(joinTokenList(pickArrayValue(match, "materialIn", "material-in")), { upper: true }),
+        nbtHasAny: parseTokenInput(joinTokenList(pickArrayValue(match, "nbtHasAny", "nbt-has-any"))),
+      };
+    })
+    .filter((row) => !!row);
+
+  if (tags.length === 0) {
+    tags.push({
+      code: "default",
+      displayName: "Other",
+      enabled: true,
+      priority: 9999,
+      materialIn: [],
+      nbtHasAny: [],
+    });
+  }
+
+  let defaultTag = normalizeTagCodeValue(root.defaultTag || root["default-tag"]);
+  if (!defaultTag || !tags.some((row) => row.code === defaultTag)) {
+    defaultTag = tags[0].code;
+  }
+
+  const tagVersion = Math.max(1, Number(root.tagVersion || root["tag-version"] || root.version || 1) || 1);
+  return { tagVersion, defaultTag, tags };
+}
+
+function normalizeMarketLimitationRule(rawRule, index) {
+  const when = pickObjectValue(rawRule, "when");
+  const item = pickObjectValue(when, "item");
+  const player = pickObjectValue(when, "player");
+  const action = pickObjectValue(rawRule, "action");
+  const createCost = pickObjectValue(action, "createCost", "create-cost");
+  return {
+    id: String(rawRule?.id || `rule_${index + 1}`).trim() || `rule_${index + 1}`,
+    priority: Number(rawRule?.priority ?? ((index + 1) * 100)) || ((index + 1) * 100),
+    whenSideIn: parseTokenInput(joinTokenList(pickArrayValue(when, "sideIn", "side-in")), { upper: true }),
+    whenItemMaterialIn: parseTokenInput(
+      joinTokenList(pickArrayValue(item, "materialIn", "material-in")),
+      { upper: true }
+    ),
+    whenItemNbtHasAny: parseTokenInput(joinTokenList(pickArrayValue(item, "nbtHasAny", "nbt-has-any"))),
+    whenPlayerLacksPermission: parseTokenInput(
+      joinTokenList(pickArrayValue(player, "lacksPermission", "lacks-permission"))
+    ),
+    actionDeny: action?.deny === true,
+    actionCode: String(action?.code || "").trim(),
+    actionSideWhitelist: parseTokenInput(
+      joinTokenList(pickArrayValue(action, "sideWhitelist", "side-whitelist")),
+      { upper: true }
+    ),
+    actionTradeModeWhitelist: parseTokenInput(
+      joinTokenList(pickArrayValue(action, "tradeModeWhitelist", "trade-mode-whitelist")),
+      { upper: true }
+    ),
+    actionCurrencyWhitelist: parseTokenInput(
+      joinTokenList(pickArrayValue(action, "currencyWhitelist", "currency-whitelist")),
+      { upper: true }
+    ),
+    actionTagWhitelist: parseTokenInput(
+      joinTokenList(pickArrayValue(action, "tagWhitelist", "tag-whitelist")),
+      { lower: true }
+    ).map((item) => normalizeTagCodeValue(item)).filter((item) => !!item),
+    actionForcedTag: normalizeTagCodeValue(action?.forcedTag || action?.["forced-tag"] || ""),
+    actionCreateCostEnabled: createCost?.enabled === true,
+    actionCreateCostCurrency: String(createCost?.currency || "INHERIT").trim().toUpperCase() || "INHERIT",
+    actionCreateCostAmount: Math.max(0, Number(createCost?.amount ?? 0) || 0),
+  };
+}
+
+function normalizeMarketLimitationConfig(rawConfig) {
+  const root = rawConfig && typeof rawConfig === "object" ? rawConfig : {};
+  const defaults = pickObjectValue(root, "default");
+  const deny = pickObjectValue(defaults, "deny");
+  const allow = pickObjectValue(defaults, "allow");
+  const createCost = pickObjectValue(defaults, "createCost", "create-cost");
+  const rules = Array.isArray(root.rules) ? root.rules.map((row, index) => normalizeMarketLimitationRule(row, index)) : [];
+  return {
+    defaultDenySides: parseTokenInput(joinTokenList(pickArrayValue(deny, "marketSides", "market-sides")), { upper: true }),
+    defaultDenyCurrencies: parseTokenInput(joinTokenList(pickArrayValue(deny, "currencies")), { upper: true }),
+    defaultAllowSides: parseTokenInput(joinTokenList(pickArrayValue(allow, "marketSides", "market-sides")), { upper: true }),
+    defaultAllowTradeModes: parseTokenInput(joinTokenList(pickArrayValue(allow, "tradeModes", "trade-modes")), { upper: true }),
+    defaultAllowCurrencies: parseTokenInput(joinTokenList(pickArrayValue(allow, "currencies")), { upper: true }),
+    defaultAllowTags: parseTokenInput(joinTokenList(pickArrayValue(allow, "tags")), { lower: true })
+      .map((item) => normalizeTagCodeValue(item))
+      .filter((item) => !!item),
+    defaultCreateCostEnabled: createCost?.enabled === true,
+    defaultCreateCostCurrency: String(createCost?.currency || "INHERIT").trim().toUpperCase() || "INHERIT",
+    defaultCreateCostAmount: Math.max(0, Number(createCost?.amount ?? 0) || 0),
+    rules,
+  };
+}
+
+function syncMarketPolicyJsonEditors() {
+  if (elements.marketTagConfigEditor) {
+    elements.marketTagConfigEditor.value = formatJsonForEditor(buildMarketTagConfigPayloadFromState());
+  }
+  if (elements.marketLimitationConfigEditor) {
+    elements.marketLimitationConfigEditor.value = formatJsonForEditor(buildMarketLimitationConfigPayloadFromState());
+  }
+}
+
+function refreshMarketTagDefaultSelect() {
+  if (!elements.marketTagDefaultTagSelect) {
+    return;
+  }
+  const previous = normalizeTagCodeValue(elements.marketTagDefaultTagSelect.value || state.marketTagConfig?.defaultTag || "");
+  const tags = Array.isArray(state.marketTagConfig?.tags) ? state.marketTagConfig.tags : [];
+  const options = tags
+    .map((tag) => ({
+      code: normalizeTagCodeValue(tag?.code || ""),
+      displayName: String(tag?.displayName || tag?.code || "").trim(),
+    }))
+    .filter((tag) => !!tag.code);
+
+  elements.marketTagDefaultTagSelect.innerHTML = "";
+  options.forEach((tag) => {
+    const option = document.createElement("option");
+    option.value = tag.code;
+    setNodeText(option, `${tag.displayName || tag.code} (${tag.code})`);
+    elements.marketTagDefaultTagSelect.appendChild(option);
+  });
+
+  const selected = options.some((tag) => tag.code === previous)
+    ? previous
+    : (options[0]?.code || "default");
+  elements.marketTagDefaultTagSelect.value = selected;
+  if (!state.marketTagConfig || typeof state.marketTagConfig !== "object") {
+    state.marketTagConfig = normalizeMarketTagConfig({});
+  }
+  state.marketTagConfig.defaultTag = selected;
+}
+
+function renderMarketTagConfigList() {
+  if (!elements.marketTagConfigList) {
+    return;
+  }
+  if (!state.marketTagConfig || typeof state.marketTagConfig !== "object") {
+    state.marketTagConfig = normalizeMarketTagConfig({});
+  }
+  const tags = Array.isArray(state.marketTagConfig.tags) ? state.marketTagConfig.tags : [];
+  const rows = tags.map((tag, index) => {
+    const card = document.createElement("div");
+    card.className = "admin-card";
+    const header = document.createElement("div");
+    header.className = "admin-row";
+    const title = document.createElement("strong");
+    setNodeText(title, `${tag.displayName || tag.code || `标签 #${index + 1}`} (${tag.code || "-"})`);
+    header.appendChild(title);
+    const actionWrap = document.createElement("div");
+    actionWrap.className = "admin-actions";
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "btn-tonal";
+    setNodeText(editBtn, "编辑");
+    editBtn.addEventListener("click", () => {
+      openMarketTagEditDialog(index);
+    });
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "btn-tonal";
+    setNodeText(deleteBtn, "删除");
+    deleteBtn.addEventListener("click", () => {
+      state.marketTagConfig.tags = state.marketTagConfig.tags.filter((_, rowIndex) => rowIndex !== index);
+      if (state.marketTagConfig.tags.length === 0) {
+        state.marketTagConfig = normalizeMarketTagConfig({});
+      }
+      renderMarketTagConfigList();
+      syncMarketPolicyJsonEditors();
+    });
+    actionWrap.appendChild(editBtn);
+    actionWrap.appendChild(deleteBtn);
+    header.appendChild(actionWrap);
+    card.appendChild(header);
+
+    const tagsRow = document.createElement("div");
+    tagsRow.className = "admin-tag-row";
+    tagsRow.appendChild(createTag(tag.enabled === false ? "停用" : "启用", tag.enabled === false ? "muted" : "success"));
+    tagsRow.appendChild(createTag(`优先级 ${Number(tag.priority || 0)}`, "info"));
+    tagsRow.appendChild(createTag(`材质 ${Array.isArray(tag.materialIn) ? tag.materialIn.length : 0}`, "neutral"));
+    tagsRow.appendChild(createTag(`NBT ${Array.isArray(tag.nbtHasAny) ? tag.nbtHasAny.length : 0}`, "accent"));
+    if (state.marketTagConfig.defaultTag === tag.code) {
+      tagsRow.appendChild(createTag("默认标签", "warn"));
+    }
+    card.appendChild(tagsRow);
+
+    const summary = document.createElement("p");
+    summary.className = "admin-card-subtitle";
+    const materialPreview = joinTokenList((tag.materialIn || []).slice(0, 4));
+    const nbtPreview = joinTokenList((tag.nbtHasAny || []).slice(0, 4));
+    setNodeText(
+      summary,
+      `材质: ${materialPreview || "不限"}${(tag.materialIn || []).length > 4 ? " ..." : ""} | NBT: ${nbtPreview || "不限"}${(tag.nbtHasAny || []).length > 4 ? " ..." : ""}`
+    );
+    card.appendChild(summary);
+    return card;
+  });
+  renderList(elements.marketTagConfigList, rows);
+
+  if (elements.marketTagVersionInput) {
+    elements.marketTagVersionInput.value = String(Math.max(1, Number(state.marketTagConfig.tagVersion || 1)));
+  }
+  refreshMarketTagDefaultSelect();
+}
+
+function renderMarketLimitationRuleList() {
+  if (!elements.marketLimitationRuleList) {
+    return;
+  }
+  if (!state.marketLimitationConfig || typeof state.marketLimitationConfig !== "object") {
+    state.marketLimitationConfig = normalizeMarketLimitationConfig({});
+  }
+  const rules = Array.isArray(state.marketLimitationConfig.rules) ? state.marketLimitationConfig.rules : [];
+  const rows = rules.map((rule, index) => {
+    const card = document.createElement("div");
+    card.className = "admin-card";
+    const header = document.createElement("div");
+    header.className = "admin-row";
+    const title = document.createElement("strong");
+    setNodeText(title, `规则 #${index + 1} · ${rule.id || "未命名"}`);
+    header.appendChild(title);
+    const actionWrap = document.createElement("div");
+    actionWrap.className = "admin-actions";
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "btn-tonal";
+    setNodeText(editBtn, "编辑");
+    editBtn.addEventListener("click", () => {
+      openMarketLimitationRuleEditDialog(index);
+    });
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "btn-tonal";
+    setNodeText(deleteBtn, "删除");
+    deleteBtn.addEventListener("click", () => {
+      state.marketLimitationConfig.rules = state.marketLimitationConfig.rules.filter((_, rowIndex) => rowIndex !== index);
+      renderMarketLimitationRuleList();
+      syncMarketPolicyJsonEditors();
+      setMetaText(
+        elements.marketLimitationSummaryView,
+        buildMarketLimitationSummary(buildMarketLimitationConfigPayloadFromState()),
+        "info"
+      );
+    });
+    actionWrap.appendChild(editBtn);
+    actionWrap.appendChild(deleteBtn);
+    header.appendChild(actionWrap);
+    card.appendChild(header);
+
+    const tagsRow = document.createElement("div");
+    tagsRow.className = "admin-tag-row";
+    tagsRow.appendChild(createTag(`优先级 ${Number(rule.priority || 0)}`, "info"));
+    tagsRow.appendChild(createTag(rule.actionDeny ? "拒绝规则" : "限制规则", rule.actionDeny ? "error" : "accent"));
+    tagsRow.appendChild(createTag(`方向条件 ${Array.isArray(rule.whenSideIn) ? rule.whenSideIn.length : 0}`, "neutral"));
+    tagsRow.appendChild(createTag(`币种限制 ${Array.isArray(rule.actionCurrencyWhitelist) ? rule.actionCurrencyWhitelist.length : 0}`, "warn"));
+    card.appendChild(tagsRow);
+
+    const summary = document.createElement("p");
+    summary.className = "admin-card-subtitle";
+    const whenText = joinTokenList(rule.whenSideIn || []) || "不限";
+    const tradeText = joinTokenList(rule.actionTradeModeWhitelist || []) || "不限";
+    const currencyText = joinTokenList(rule.actionCurrencyWhitelist || []) || "不限";
+    const denyCode = rule.actionCode ? ` | code=${rule.actionCode}` : "";
+    setNodeText(summary, `触发方向: ${whenText} | 交易模式: ${tradeText} | 币种: ${currencyText}${denyCode}`);
+    card.appendChild(summary);
+    return card;
+  });
+  renderList(elements.marketLimitationRuleList, rows);
+}
+
+function openMarketTagEditDialog(index) {
+  if (!elements.marketTagEditDialog || !Array.isArray(state.marketTagConfig?.tags)) {
+    return;
+  }
+  const tag = state.marketTagConfig.tags[index];
+  if (!tag) {
+    return;
+  }
+  state.marketTagEditingIndex = index;
+  if (elements.marketTagEditCodeInput) {
+    elements.marketTagEditCodeInput.value = tag.code || "";
+  }
+  if (elements.marketTagEditDisplayNameInput) {
+    elements.marketTagEditDisplayNameInput.value = tag.displayName || "";
+  }
+  if (elements.marketTagEditEnabledSelect) {
+    elements.marketTagEditEnabledSelect.value = tag.enabled === false ? "false" : "true";
+  }
+  if (elements.marketTagEditPriorityInput) {
+    elements.marketTagEditPriorityInput.value = String(Number(tag.priority || 0));
+  }
+  if (elements.marketTagEditMaterialInInput) {
+    elements.marketTagEditMaterialInInput.value = joinTokenList(tag.materialIn || []);
+  }
+  if (elements.marketTagEditNbtHasAnyInput) {
+    elements.marketTagEditNbtHasAnyInput.value = joinTokenList(tag.nbtHasAny || []);
+  }
+  elements.marketTagEditDialog.classList.add("show");
+  elements.marketTagEditDialog.setAttribute("aria-hidden", "false");
+}
+
+function closeMarketTagEditDialog() {
+  state.marketTagEditingIndex = null;
+  if (!elements.marketTagEditDialog) {
+    return;
+  }
+  elements.marketTagEditDialog.classList.remove("show");
+  elements.marketTagEditDialog.setAttribute("aria-hidden", "true");
+}
+
+function isMarketTagEditDialogOpen() {
+  return Boolean(elements.marketTagEditDialog?.classList.contains("show"));
+}
+
+function saveMarketTagEditDialog() {
+  const index = state.marketTagEditingIndex;
+  if (!Array.isArray(state.marketTagConfig?.tags) || !Number.isInteger(index) || index < 0 || index >= state.marketTagConfig.tags.length) {
+    throw new Error("当前没有可保存的标签。");
+  }
+  const source = state.marketTagConfig.tags[index];
+  const updated = {
+    ...source,
+    code: normalizeTagCodeValue(elements.marketTagEditCodeInput?.value || source.code || ""),
+    displayName: String(elements.marketTagEditDisplayNameInput?.value || source.displayName || "").trim(),
+    enabled: elements.marketTagEditEnabledSelect?.value !== "false",
+    priority: Number(elements.marketTagEditPriorityInput?.value || source.priority || 0),
+    materialIn: parseTokenInput(elements.marketTagEditMaterialInInput?.value || "", { upper: true }),
+    nbtHasAny: parseTokenInput(elements.marketTagEditNbtHasAnyInput?.value || ""),
+  };
+  if (!updated.code) {
+    throw new Error("标签 code 不能为空。");
+  }
+  if (!updated.displayName) {
+    updated.displayName = updated.code;
+  }
+  const duplicated = state.marketTagConfig.tags.some((row, rowIndex) => rowIndex !== index && normalizeTagCodeValue(row.code) === updated.code);
+  if (duplicated) {
+    throw new Error(`标签 code 重复：${updated.code}`);
+  }
+  state.marketTagConfig.tags[index] = updated;
+  if (state.marketTagConfig.defaultTag && normalizeTagCodeValue(source.code) === normalizeTagCodeValue(state.marketTagConfig.defaultTag)) {
+    state.marketTagConfig.defaultTag = updated.code;
+  }
+  renderMarketTagConfigList();
+  syncMarketPolicyJsonEditors();
+  closeMarketTagEditDialog();
+}
+
+function openMarketLimitationRuleEditDialog(index) {
+  if (!elements.marketLimitationRuleEditDialog || !Array.isArray(state.marketLimitationConfig?.rules)) {
+    return;
+  }
+  const rule = state.marketLimitationConfig.rules[index];
+  if (!rule) {
+    return;
+  }
+  state.marketLimitationRuleEditingIndex = index;
+  if (elements.marketRuleEditIdInput) {
+    elements.marketRuleEditIdInput.value = rule.id || "";
+  }
+  if (elements.marketRuleEditPriorityInput) {
+    elements.marketRuleEditPriorityInput.value = String(Number(rule.priority || 0));
+  }
+  if (elements.marketRuleEditActionDenySelect) {
+    elements.marketRuleEditActionDenySelect.value = rule.actionDeny ? "true" : "false";
+  }
+  if (elements.marketRuleEditActionCodeInput) {
+    elements.marketRuleEditActionCodeInput.value = rule.actionCode || "";
+  }
+  if (elements.marketRuleEditWhenSideInInput) {
+    elements.marketRuleEditWhenSideInInput.value = joinTokenList(rule.whenSideIn || []);
+  }
+  if (elements.marketRuleEditWhenMaterialInInput) {
+    elements.marketRuleEditWhenMaterialInInput.value = joinTokenList(rule.whenItemMaterialIn || []);
+  }
+  if (elements.marketRuleEditWhenNbtHasAnyInput) {
+    elements.marketRuleEditWhenNbtHasAnyInput.value = joinTokenList(rule.whenItemNbtHasAny || []);
+  }
+  if (elements.marketRuleEditWhenLacksPermissionInput) {
+    elements.marketRuleEditWhenLacksPermissionInput.value = joinTokenList(rule.whenPlayerLacksPermission || []);
+  }
+  if (elements.marketRuleEditActionSideWhitelistInput) {
+    elements.marketRuleEditActionSideWhitelistInput.value = joinTokenList(rule.actionSideWhitelist || []);
+  }
+  if (elements.marketRuleEditActionTradeModeWhitelistInput) {
+    elements.marketRuleEditActionTradeModeWhitelistInput.value = joinTokenList(rule.actionTradeModeWhitelist || []);
+  }
+  if (elements.marketRuleEditActionCurrencyWhitelistInput) {
+    elements.marketRuleEditActionCurrencyWhitelistInput.value = joinTokenList(rule.actionCurrencyWhitelist || []);
+  }
+  if (elements.marketRuleEditActionTagWhitelistInput) {
+    elements.marketRuleEditActionTagWhitelistInput.value = joinTokenList(rule.actionTagWhitelist || []);
+  }
+  if (elements.marketRuleEditActionForcedTagInput) {
+    elements.marketRuleEditActionForcedTagInput.value = rule.actionForcedTag || "";
+  }
+  if (elements.marketRuleEditCreateCostEnabledSelect) {
+    elements.marketRuleEditCreateCostEnabledSelect.value = rule.actionCreateCostEnabled ? "true" : "false";
+  }
+  if (elements.marketRuleEditCreateCostCurrencyInput) {
+    elements.marketRuleEditCreateCostCurrencyInput.value = rule.actionCreateCostCurrency || "INHERIT";
+  }
+  if (elements.marketRuleEditCreateCostAmountInput) {
+    elements.marketRuleEditCreateCostAmountInput.value = String(Math.max(0, Number(rule.actionCreateCostAmount || 0)));
+  }
+  elements.marketLimitationRuleEditDialog.classList.add("show");
+  elements.marketLimitationRuleEditDialog.setAttribute("aria-hidden", "false");
+}
+
+function closeMarketLimitationRuleEditDialog() {
+  state.marketLimitationRuleEditingIndex = null;
+  if (!elements.marketLimitationRuleEditDialog) {
+    return;
+  }
+  elements.marketLimitationRuleEditDialog.classList.remove("show");
+  elements.marketLimitationRuleEditDialog.setAttribute("aria-hidden", "true");
+}
+
+function isMarketLimitationRuleEditDialogOpen() {
+  return Boolean(elements.marketLimitationRuleEditDialog?.classList.contains("show"));
+}
+
+function saveMarketLimitationRuleEditDialog() {
+  const index = state.marketLimitationRuleEditingIndex;
+  if (!Array.isArray(state.marketLimitationConfig?.rules) || !Number.isInteger(index) || index < 0 || index >= state.marketLimitationConfig.rules.length) {
+    throw new Error("当前没有可保存的规则。");
+  }
+  const updated = {
+    ...state.marketLimitationConfig.rules[index],
+    id: String(elements.marketRuleEditIdInput?.value || "").trim(),
+    priority: Number(elements.marketRuleEditPriorityInput?.value || 0),
+    whenSideIn: parseTokenInput(elements.marketRuleEditWhenSideInInput?.value || "", { upper: true }),
+    whenItemMaterialIn: parseTokenInput(elements.marketRuleEditWhenMaterialInInput?.value || "", { upper: true }),
+    whenItemNbtHasAny: parseTokenInput(elements.marketRuleEditWhenNbtHasAnyInput?.value || ""),
+    whenPlayerLacksPermission: parseTokenInput(elements.marketRuleEditWhenLacksPermissionInput?.value || ""),
+    actionDeny: elements.marketRuleEditActionDenySelect?.value === "true",
+    actionCode: String(elements.marketRuleEditActionCodeInput?.value || "").trim(),
+    actionSideWhitelist: parseTokenInput(elements.marketRuleEditActionSideWhitelistInput?.value || "", { upper: true }),
+    actionTradeModeWhitelist: parseTokenInput(elements.marketRuleEditActionTradeModeWhitelistInput?.value || "", { upper: true }),
+    actionCurrencyWhitelist: parseTokenInput(elements.marketRuleEditActionCurrencyWhitelistInput?.value || "", { upper: true }),
+    actionTagWhitelist: parseTokenInput(elements.marketRuleEditActionTagWhitelistInput?.value || "", { lower: true })
+      .map((item) => normalizeTagCodeValue(item))
+      .filter((item) => !!item),
+    actionForcedTag: normalizeTagCodeValue(elements.marketRuleEditActionForcedTagInput?.value || ""),
+    actionCreateCostEnabled: elements.marketRuleEditCreateCostEnabledSelect?.value === "true",
+    actionCreateCostCurrency: String(elements.marketRuleEditCreateCostCurrencyInput?.value || "INHERIT").trim().toUpperCase() || "INHERIT",
+    actionCreateCostAmount: Math.max(0, Number(elements.marketRuleEditCreateCostAmountInput?.value || 0)),
+  };
+  if (!updated.id) {
+    throw new Error("规则 ID 不能为空。");
+  }
+  const duplicated = state.marketLimitationConfig.rules.some((rule, rowIndex) => rowIndex !== index && String(rule.id || "").trim() === updated.id);
+  if (duplicated) {
+    throw new Error(`规则 ID 重复：${updated.id}`);
+  }
+  state.marketLimitationConfig.rules[index] = updated;
+  renderMarketLimitationRuleList();
+  syncMarketPolicyJsonEditors();
+  setMetaText(
+    elements.marketLimitationSummaryView,
+    buildMarketLimitationSummary(buildMarketLimitationConfigPayloadFromState()),
+    "info"
+  );
+  closeMarketLimitationRuleEditDialog();
+}
+
+function renderMarketLimitationDefaults() {
+  if (!state.marketLimitationConfig || typeof state.marketLimitationConfig !== "object") {
+    state.marketLimitationConfig = normalizeMarketLimitationConfig({});
+  }
+  const config = state.marketLimitationConfig;
+  if (elements.marketLimitationDefaultDenySidesInput) {
+    elements.marketLimitationDefaultDenySidesInput.value = joinTokenList(config.defaultDenySides || []);
+  }
+  if (elements.marketLimitationDefaultDenyCurrenciesInput) {
+    elements.marketLimitationDefaultDenyCurrenciesInput.value = joinTokenList(config.defaultDenyCurrencies || []);
+  }
+  if (elements.marketLimitationDefaultAllowSidesInput) {
+    elements.marketLimitationDefaultAllowSidesInput.value = joinTokenList(config.defaultAllowSides || []);
+  }
+  if (elements.marketLimitationDefaultAllowTradeModesInput) {
+    elements.marketLimitationDefaultAllowTradeModesInput.value = joinTokenList(config.defaultAllowTradeModes || []);
+  }
+  if (elements.marketLimitationDefaultAllowCurrenciesInput) {
+    elements.marketLimitationDefaultAllowCurrenciesInput.value = joinTokenList(config.defaultAllowCurrencies || []);
+  }
+  if (elements.marketLimitationDefaultAllowTagsInput) {
+    elements.marketLimitationDefaultAllowTagsInput.value = joinTokenList(config.defaultAllowTags || []);
+  }
+  if (elements.marketLimitationDefaultCreateCostEnabled) {
+    elements.marketLimitationDefaultCreateCostEnabled.value = config.defaultCreateCostEnabled ? "true" : "false";
+  }
+  if (elements.marketLimitationDefaultCreateCostCurrency) {
+    elements.marketLimitationDefaultCreateCostCurrency.value = config.defaultCreateCostCurrency || "INHERIT";
+  }
+  if (elements.marketLimitationDefaultCreateCostAmount) {
+    elements.marketLimitationDefaultCreateCostAmount.value = String(Math.max(0, Number(config.defaultCreateCostAmount || 0)));
+  }
+}
+
+function buildMarketTagConfigPayloadFromState() {
+  const normalized = normalizeMarketTagConfig(state.marketTagConfig || {});
+  return {
+    tagVersion: normalized.tagVersion,
+    defaultTag: normalized.defaultTag,
+    tags: normalized.tags.map((tag) => ({
+      code: normalizeTagCodeValue(tag.code),
+      displayName: String(tag.displayName || tag.code).trim() || normalizeTagCodeValue(tag.code),
+      enabled: tag.enabled !== false,
+      priority: Number(tag.priority || 0),
+      match: {
+        materialIn: parseTokenInput(joinTokenList(tag.materialIn), { upper: true }),
+        nbtHasAny: parseTokenInput(joinTokenList(tag.nbtHasAny)),
+      },
+    })),
+  };
+}
+
+function buildMarketLimitationConfigPayloadFromState() {
+  const normalized = normalizeMarketLimitationConfig(state.marketLimitationConfig || {});
+  return {
+    default: {
+      deny: {
+        marketSides: normalized.defaultDenySides,
+        currencies: normalized.defaultDenyCurrencies,
+      },
+      allow: {
+        marketSides: normalized.defaultAllowSides,
+        tradeModes: normalized.defaultAllowTradeModes,
+        currencies: normalized.defaultAllowCurrencies,
+        tags: normalized.defaultAllowTags,
+      },
+      createCost: {
+        enabled: normalized.defaultCreateCostEnabled,
+        currency: normalized.defaultCreateCostCurrency || "INHERIT",
+        amount: Math.max(0, Number(normalized.defaultCreateCostAmount || 0)),
+      },
+    },
+    rules: normalized.rules.map((rule) => {
+      const row = {
+        id: String(rule.id || "").trim(),
+        priority: Number(rule.priority || 0),
+        when: {},
+        action: {
+          deny: rule.actionDeny === true,
+        },
+      };
+      if (rule.whenSideIn.length > 0) {
+        row.when.sideIn = rule.whenSideIn;
+      }
+      if (rule.whenItemMaterialIn.length > 0 || rule.whenItemNbtHasAny.length > 0) {
+        row.when.item = {};
+        if (rule.whenItemMaterialIn.length > 0) {
+          row.when.item.materialIn = rule.whenItemMaterialIn;
+        }
+        if (rule.whenItemNbtHasAny.length > 0) {
+          row.when.item.nbtHasAny = rule.whenItemNbtHasAny;
+        }
+      }
+      if (rule.whenPlayerLacksPermission.length > 0) {
+        row.when.player = { lacksPermission: rule.whenPlayerLacksPermission };
+      }
+      if (rule.actionCode) {
+        row.action.code = rule.actionCode;
+      }
+      if (rule.actionSideWhitelist.length > 0) {
+        row.action.sideWhitelist = rule.actionSideWhitelist;
+      }
+      if (rule.actionTradeModeWhitelist.length > 0) {
+        row.action.tradeModeWhitelist = rule.actionTradeModeWhitelist;
+      }
+      if (rule.actionCurrencyWhitelist.length > 0) {
+        row.action.currencyWhitelist = rule.actionCurrencyWhitelist;
+      }
+      if (rule.actionTagWhitelist.length > 0) {
+        row.action.tagWhitelist = rule.actionTagWhitelist;
+      }
+      if (rule.actionForcedTag) {
+        row.action.forcedTag = rule.actionForcedTag;
+      }
+      if (rule.actionCreateCostEnabled || Number(rule.actionCreateCostAmount || 0) > 0 || rule.actionCreateCostCurrency !== "INHERIT") {
+        row.action.createCost = {
+          enabled: rule.actionCreateCostEnabled,
+          currency: rule.actionCreateCostCurrency || "INHERIT",
+          amount: Math.max(0, Number(rule.actionCreateCostAmount || 0)),
+        };
+      }
+      return row;
+    }),
+  };
+}
+
+function collectMarketTagConfigFromVisual() {
+  if (elements.marketTagVersionInput) {
+    state.marketTagConfig.tagVersion = Math.max(1, Number(elements.marketTagVersionInput.value || 1) || 1);
+  }
+  if (elements.marketTagDefaultTagSelect) {
+    state.marketTagConfig.defaultTag = normalizeTagCodeValue(elements.marketTagDefaultTagSelect.value || "");
+  }
+  const payload = buildMarketTagConfigPayloadFromState();
+  const seen = new Set();
+  payload.tags.forEach((tag) => {
+    if (!tag.code) {
+      throw new Error("标签 code 不能为空。");
+    }
+    if (seen.has(tag.code)) {
+      throw new Error(`标签 code 重复：${tag.code}`);
+    }
+    seen.add(tag.code);
+  });
+  if (!payload.defaultTag || !seen.has(payload.defaultTag)) {
+    payload.defaultTag = payload.tags[0]?.code || "default";
+  }
+  return payload;
+}
+
+function collectMarketLimitationConfigFromVisual() {
+  if (!state.marketLimitationConfig || typeof state.marketLimitationConfig !== "object") {
+    state.marketLimitationConfig = normalizeMarketLimitationConfig({});
+  }
+  updateMarketLimitationDefaultsStateFromInputs();
+  const payload = buildMarketLimitationConfigPayloadFromState();
+  const seenRuleIds = new Set();
+  payload.rules.forEach((rule, index) => {
+    if (!rule.id) {
+      throw new Error(`第 ${index + 1} 条规则缺少 ID。`);
+    }
+    if (seenRuleIds.has(rule.id)) {
+      throw new Error(`规则 ID 重复：${rule.id}`);
+    }
+    seenRuleIds.add(rule.id);
+  });
+  return payload;
+}
+
+function updateMarketLimitationDefaultsStateFromInputs() {
+  if (!state.marketLimitationConfig || typeof state.marketLimitationConfig !== "object") {
+    state.marketLimitationConfig = normalizeMarketLimitationConfig({});
+  }
+  state.marketLimitationConfig.defaultDenySides = parseTokenInput(
+    elements.marketLimitationDefaultDenySidesInput?.value || "",
+    { upper: true }
+  );
+  state.marketLimitationConfig.defaultDenyCurrencies = parseTokenInput(
+    elements.marketLimitationDefaultDenyCurrenciesInput?.value || "",
+    { upper: true }
+  );
+  state.marketLimitationConfig.defaultAllowSides = parseTokenInput(
+    elements.marketLimitationDefaultAllowSidesInput?.value || "",
+    { upper: true }
+  );
+  state.marketLimitationConfig.defaultAllowTradeModes = parseTokenInput(
+    elements.marketLimitationDefaultAllowTradeModesInput?.value || "",
+    { upper: true }
+  );
+  state.marketLimitationConfig.defaultAllowCurrencies = parseTokenInput(
+    elements.marketLimitationDefaultAllowCurrenciesInput?.value || "",
+    { upper: true }
+  );
+  state.marketLimitationConfig.defaultAllowTags = parseTokenInput(
+    elements.marketLimitationDefaultAllowTagsInput?.value || "",
+    { lower: true }
+  ).map((item) => normalizeTagCodeValue(item)).filter((item) => !!item);
+  state.marketLimitationConfig.defaultCreateCostEnabled = elements.marketLimitationDefaultCreateCostEnabled?.value === "true";
+  state.marketLimitationConfig.defaultCreateCostCurrency = String(
+    elements.marketLimitationDefaultCreateCostCurrency?.value || "INHERIT"
+  ).trim().toUpperCase() || "INHERIT";
+  state.marketLimitationConfig.defaultCreateCostAmount = Math.max(
+    0,
+    Number(elements.marketLimitationDefaultCreateCostAmount?.value || 0) || 0
+  );
+}
+
+function addMarketTagConfigRow() {
+  if (!state.marketTagConfig || typeof state.marketTagConfig !== "object") {
+    state.marketTagConfig = normalizeMarketTagConfig({});
+  }
+  if (!Array.isArray(state.marketTagConfig.tags)) {
+    state.marketTagConfig.tags = [];
+  }
+  const nextIndex = state.marketTagConfig.tags.length + 1;
+  state.marketTagConfig.tags.push({
+    code: `tag_${nextIndex}`,
+    displayName: `Tag ${nextIndex}`,
+    enabled: true,
+    priority: nextIndex * 100,
+    materialIn: [],
+    nbtHasAny: [],
+  });
+  renderMarketTagConfigList();
+  syncMarketPolicyJsonEditors();
+  openMarketTagEditDialog(state.marketTagConfig.tags.length - 1);
+}
+
+function addMarketLimitationRule() {
+  if (!state.marketLimitationConfig || typeof state.marketLimitationConfig !== "object") {
+    state.marketLimitationConfig = normalizeMarketLimitationConfig({});
+  }
+  if (!Array.isArray(state.marketLimitationConfig.rules)) {
+    state.marketLimitationConfig.rules = [];
+  }
+  const nextIndex = state.marketLimitationConfig.rules.length + 1;
+  state.marketLimitationConfig.rules.push(normalizeMarketLimitationRule({
+    id: `rule_${nextIndex}_${Date.now().toString().slice(-5)}`,
+    priority: nextIndex * 100,
+    when: {},
+    action: { deny: false },
+  }, nextIndex - 1));
+  renderMarketLimitationRuleList();
+  syncMarketPolicyJsonEditors();
+  setMetaText(
+    elements.marketLimitationSummaryView,
+    buildMarketLimitationSummary(buildMarketLimitationConfigPayloadFromState()),
+    "info"
+  );
+  openMarketLimitationRuleEditDialog(state.marketLimitationConfig.rules.length - 1);
+}
+
+function applyMarketTagJsonToVisual() {
+  const config = parseJsonObjectFromEditor(elements.marketTagConfigEditor?.value, "标签规则 JSON");
+  state.marketTagConfig = normalizeMarketTagConfig(config);
+  renderMarketTagConfigList();
+  syncMarketPolicyJsonEditors();
+  setMetaText(elements.marketTagConfigStatusView, "已应用标签 JSON 到可视化表单", "success");
+}
+
+function applyMarketLimitationJsonToVisual() {
+  const config = parseJsonObjectFromEditor(elements.marketLimitationConfigEditor?.value, "上架限制 JSON");
+  state.marketLimitationConfig = normalizeMarketLimitationConfig(config);
+  renderMarketLimitationDefaults();
+  renderMarketLimitationRuleList();
+  syncMarketPolicyJsonEditors();
+  setMetaText(
+    elements.marketLimitationSummaryView,
+    buildMarketLimitationSummary(buildMarketLimitationConfigPayloadFromState()),
+    "info"
+  );
+  setMetaText(elements.marketLimitationConfigStatusView, "已应用限制 JSON 到可视化表单", "success");
+}
+
+function buildMarketLimitationSummary(config) {
+  const defaultLimit = Number(elements.runtimeMarketMaxActiveListings?.value || 10);
+  const normalized = normalizeMarketLimitationConfig(config || {});
+  const rules = Array.isArray(normalized.rules) ? normalized.rules.length : 0;
+  const sideList = normalized.defaultAllowSides || [];
+  const sideText = sideList.length > 0 ? sideList.join("/") : "SELL/BUY";
+  return `默认最大上架数：${defaultLimit}；限制规则：${rules} 条；默认允许方向：${sideText}。`;
+}
+
+async function loadMarketPolicyConfigs(seed = {}) {
+  ensureAdmin();
+  let marketTagsConfig = seed?.marketTagsConfig;
+  let marketLimitationConfig = seed?.marketLimitationConfig;
+
+  if (!marketTagsConfig) {
+    const payload = await apiAdmin("/api/admin/market/tags-config", { method: "GET" });
+    marketTagsConfig = payload?.config || {};
+  }
+  if (!marketLimitationConfig) {
+    const payload = await apiAdmin("/api/admin/market/limitation-config", { method: "GET" });
+    marketLimitationConfig = payload?.config || {};
+  }
+
+  state.marketTagConfig = normalizeMarketTagConfig(marketTagsConfig || {});
+  state.marketLimitationConfig = normalizeMarketLimitationConfig(marketLimitationConfig || {});
+
+  renderMarketTagConfigList();
+  renderMarketLimitationDefaults();
+  renderMarketLimitationRuleList();
+  syncMarketPolicyJsonEditors();
+
+  const tagCount = Array.isArray(state.marketTagConfig?.tags) ? state.marketTagConfig.tags.length : 0;
+  const ruleCount = Array.isArray(state.marketLimitationConfig?.rules) ? state.marketLimitationConfig.rules.length : 0;
+
+  setMetaText(elements.marketTagConfigStatusView, `已加载标签规则（${tagCount} 项）`, "info");
+  setMetaText(elements.marketLimitationConfigStatusView, `已加载上架限制（${ruleCount} 条规则）`, "info");
+  setMetaText(
+    elements.marketLimitationSummaryView,
+    buildMarketLimitationSummary(buildMarketLimitationConfigPayloadFromState()),
+    "info"
+  );
+}
+
+async function saveMarketTagConfig() {
+  ensureAdmin();
+  const config = collectMarketTagConfigFromVisual();
+  state.marketTagConfig = normalizeMarketTagConfig(config);
+  syncMarketPolicyJsonEditors();
+  await apiAdmin("/api/admin/market/tags-config", {
+    method: "POST",
+    body: JSON.stringify({ config }),
+  });
+  setMetaText(elements.marketTagConfigStatusView, "标签规则已保存", "success");
+  notify("标签规则已保存", "success");
+  await Promise.all([loadMarketPolicyConfigs(), loadMarketTagMeta()]);
+}
+
+async function saveMarketLimitationConfig() {
+  ensureAdmin();
+  const config = collectMarketLimitationConfigFromVisual();
+  state.marketLimitationConfig = normalizeMarketLimitationConfig(config);
+  syncMarketPolicyJsonEditors();
+  await apiAdmin("/api/admin/market/limitation-config", {
+    method: "POST",
+    body: JSON.stringify({ config }),
+  });
+  setMetaText(elements.marketLimitationConfigStatusView, "上架限制已保存", "success");
+  notify("上架限制已保存", "success");
+  setMetaText(elements.marketLimitationSummaryView, buildMarketLimitationSummary(config), "info");
+  await loadMarketPolicyConfigs();
 }
 
 function renderKeyValueCard(title, items, actions = []) {
@@ -3876,6 +4938,20 @@ async function loadEconomySettings() {
   } catch (error) {
     setMetaText(elements.materialOverrideStatusView, `材质映射加载失败：${error.message}`, "error");
   }
+  try {
+    await loadMarketTagMeta();
+  } catch (error) {
+    setMetaText(elements.marketTagMetaStatusView, `标签加载失败：${error.message}`, "error");
+  }
+  try {
+    await loadMarketPolicyConfigs({
+      marketTagsConfig: payload.marketTagsConfig || null,
+      marketLimitationConfig: payload.marketLimitationConfig || null,
+    });
+  } catch (error) {
+    setMetaText(elements.marketTagConfigStatusView, `标签规则加载失败：${error.message}`, "error");
+    setMetaText(elements.marketLimitationConfigStatusView, `上架限制加载失败：${error.message}`, "error");
+  }
 
   setMetaText(elements.exchangeStatusView, "已加载兑换配置", "info");
   setMetaText(elements.marketEconomyStatusView, "已加载手续费/税率配置", "info");
@@ -5189,6 +6265,180 @@ if (elements.runtimeMarketSaveBtn) {
   });
 }
 
+if (elements.marketTagRefreshBtn) {
+  elements.marketTagRefreshBtn.addEventListener("click", async () => {
+    try {
+      await loadMarketTagMeta({ announce: true });
+    } catch (error) {
+      setMetaText(elements.marketTagMetaStatusView, `标签加载失败：${error.message}`, "error");
+      notify(`标签加载失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.marketLimitationRefreshBtn) {
+  elements.marketLimitationRefreshBtn.addEventListener("click", async () => {
+    try {
+      await loadMarketPolicyConfigs({ marketTagsConfig: state.marketTagConfig || {} });
+      notify("上架限制已刷新。", "success");
+    } catch (error) {
+      setMetaText(elements.marketLimitationConfigStatusView, `上架限制加载失败：${error.message}`, "error");
+      notify(`上架限制加载失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.marketTagAddRowBtn) {
+  elements.marketTagAddRowBtn.addEventListener("click", () => {
+    addMarketTagConfigRow();
+  });
+}
+
+if (elements.marketLimitationAddRuleBtn) {
+  elements.marketLimitationAddRuleBtn.addEventListener("click", () => {
+    addMarketLimitationRule();
+  });
+}
+
+if (elements.marketTagEditCancelBtn) {
+  elements.marketTagEditCancelBtn.addEventListener("click", () => {
+    closeMarketTagEditDialog();
+  });
+}
+
+if (elements.marketTagEditSaveBtn) {
+  elements.marketTagEditSaveBtn.addEventListener("click", () => {
+    try {
+      saveMarketTagEditDialog();
+      notify("标签已更新，请记得点击“保存标签规则”提交到数据库。", "success");
+    } catch (error) {
+      notify(`标签保存失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.marketTagEditDialog) {
+  elements.marketTagEditDialog.addEventListener("click", (event) => {
+    if (event.target === elements.marketTagEditDialog) {
+      closeMarketTagEditDialog();
+    }
+  });
+}
+
+if (elements.marketRuleEditCancelBtn) {
+  elements.marketRuleEditCancelBtn.addEventListener("click", () => {
+    closeMarketLimitationRuleEditDialog();
+  });
+}
+
+if (elements.marketRuleEditSaveBtn) {
+  elements.marketRuleEditSaveBtn.addEventListener("click", () => {
+    try {
+      saveMarketLimitationRuleEditDialog();
+      notify("限制规则已更新，请记得点击“保存上架限制”提交到数据库。", "success");
+    } catch (error) {
+      notify(`规则保存失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.marketLimitationRuleEditDialog) {
+  elements.marketLimitationRuleEditDialog.addEventListener("click", (event) => {
+    if (event.target === elements.marketLimitationRuleEditDialog) {
+      closeMarketLimitationRuleEditDialog();
+    }
+  });
+}
+
+if (elements.marketTagVersionInput) {
+  elements.marketTagVersionInput.addEventListener("input", () => {
+    if (!state.marketTagConfig || typeof state.marketTagConfig !== "object") {
+      state.marketTagConfig = normalizeMarketTagConfig({});
+    }
+    state.marketTagConfig.tagVersion = Math.max(1, Number(elements.marketTagVersionInput.value || 1) || 1);
+    syncMarketPolicyJsonEditors();
+  });
+}
+
+if (elements.marketTagDefaultTagSelect) {
+  elements.marketTagDefaultTagSelect.addEventListener("change", () => {
+    if (!state.marketTagConfig || typeof state.marketTagConfig !== "object") {
+      state.marketTagConfig = normalizeMarketTagConfig({});
+    }
+    state.marketTagConfig.defaultTag = normalizeTagCodeValue(elements.marketTagDefaultTagSelect.value || "");
+    syncMarketPolicyJsonEditors();
+  });
+}
+
+[
+  elements.marketLimitationDefaultDenySidesInput,
+  elements.marketLimitationDefaultDenyCurrenciesInput,
+  elements.marketLimitationDefaultAllowSidesInput,
+  elements.marketLimitationDefaultAllowTradeModesInput,
+  elements.marketLimitationDefaultAllowCurrenciesInput,
+  elements.marketLimitationDefaultAllowTagsInput,
+  elements.marketLimitationDefaultCreateCostEnabled,
+  elements.marketLimitationDefaultCreateCostCurrency,
+  elements.marketLimitationDefaultCreateCostAmount,
+].filter((node) => !!node).forEach((node) => {
+  const eventName = node.tagName === "SELECT" ? "change" : "input";
+  node.addEventListener(eventName, () => {
+    updateMarketLimitationDefaultsStateFromInputs();
+    syncMarketPolicyJsonEditors();
+    setMetaText(
+      elements.marketLimitationSummaryView,
+      buildMarketLimitationSummary(buildMarketLimitationConfigPayloadFromState()),
+      "info"
+    );
+  });
+});
+
+if (elements.marketTagJsonApplyBtn) {
+  elements.marketTagJsonApplyBtn.addEventListener("click", () => {
+    try {
+      applyMarketTagJsonToVisual();
+      notify("标签 JSON 已应用到可视化表单", "success");
+    } catch (error) {
+      setMetaText(elements.marketTagConfigStatusView, `应用失败：${error.message}`, "error");
+      notify(`应用失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.marketLimitationJsonApplyBtn) {
+  elements.marketLimitationJsonApplyBtn.addEventListener("click", () => {
+    try {
+      applyMarketLimitationJsonToVisual();
+      notify("上架限制 JSON 已应用到可视化表单", "success");
+    } catch (error) {
+      setMetaText(elements.marketLimitationConfigStatusView, `应用失败：${error.message}`, "error");
+      notify(`应用失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.marketTagConfigSaveBtn) {
+  elements.marketTagConfigSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveMarketTagConfig();
+    } catch (error) {
+      setMetaText(elements.marketTagConfigStatusView, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.marketLimitationConfigSaveBtn) {
+  elements.marketLimitationConfigSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveMarketLimitationConfig();
+    } catch (error) {
+      setMetaText(elements.marketLimitationConfigStatusView, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
 if (elements.runtimeMaintenanceSaveBtn) {
   elements.runtimeMaintenanceSaveBtn.addEventListener("click", async () => {
     try {
@@ -5705,6 +6955,18 @@ if (elements.runtimeWebshopStatusView) {
 }
 if (elements.runtimeMarketStatusView) {
   setMetaText(elements.runtimeMarketStatusView, "等待操作", "info");
+}
+if (elements.marketTagMetaStatusView) {
+  setMetaText(elements.marketTagMetaStatusView, "等待加载标签", "info");
+}
+if (elements.marketLimitationSummaryView) {
+  setMetaText(elements.marketLimitationSummaryView, "等待加载限制摘要", "info");
+}
+if (elements.marketTagConfigStatusView) {
+  setMetaText(elements.marketTagConfigStatusView, "等待加载标签规则", "info");
+}
+if (elements.marketLimitationConfigStatusView) {
+  setMetaText(elements.marketLimitationConfigStatusView, "等待加载上架限制", "info");
 }
 if (elements.runtimeMaintenanceStatusView) {
   setMetaText(elements.runtimeMaintenanceStatusView, "等待操作", "info");

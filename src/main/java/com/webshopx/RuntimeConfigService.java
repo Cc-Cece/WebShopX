@@ -2,6 +2,7 @@ package com.webshopx;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -15,6 +16,7 @@ import java.util.Map;
 import java.time.ZoneId;
 
 class RuntimeConfigService {
+  private static final String EMPTY_JSON_OBJECT = "{}";
   private static final String META_LEGACY_MIGRATED = "runtime_config_migrated_v1";
   private static final String KEY_EXCHANGE = "exchange";
   private static final String KEY_MARKET_ECONOMY = "market_economy";
@@ -22,6 +24,8 @@ class RuntimeConfigService {
   private static final String KEY_CURRENCY_DISPLAY = "currency_display";
   private static final String KEY_WEBSHOP_RUNTIME = "webshop_runtime";
   private static final String KEY_MARKET_RUNTIME = "market_runtime";
+  private static final String KEY_MARKET_TAGS = "market_tags";
+  private static final String KEY_MARKET_LIMITATION = "market_limitation";
   private static final String KEY_MAINTENANCE = "maintenance";
   private static final String KEY_LOGGING = "logging";
   private static final String KEY_BROADCAST = "broadcast";
@@ -54,6 +58,8 @@ class RuntimeConfigService {
           serializeCurrencyDisplay(settings.currencyDisplaySettings()));
       upsertConfig(connection, KEY_WEBSHOP_RUNTIME, serializeWebshopRuntime(settings));
       upsertConfig(connection, KEY_MARKET_RUNTIME, serializeMarketRuntime(settings));
+      upsertConfig(connection, KEY_MARKET_TAGS, EMPTY_JSON_OBJECT);
+      upsertConfig(connection, KEY_MARKET_LIMITATION, EMPTY_JSON_OBJECT);
       upsertConfig(connection, KEY_MAINTENANCE, serializeMaintenance(settings.maintenanceSettings()));
       upsertConfig(connection, KEY_LOGGING, serializeLogging(settings.loggingSettings()));
       upsertConfig(connection, KEY_BROADCAST, serializeBroadcast(settings.broadcastSettings()));
@@ -83,6 +89,8 @@ class RuntimeConfigService {
           serializeCurrencyDisplay(settings.currencyDisplaySettings()));
       insertIfMissing(connection, KEY_WEBSHOP_RUNTIME, serializeWebshopRuntime(settings));
       insertIfMissing(connection, KEY_MARKET_RUNTIME, serializeMarketRuntime(settings));
+      insertIfMissing(connection, KEY_MARKET_TAGS, EMPTY_JSON_OBJECT);
+      insertIfMissing(connection, KEY_MARKET_LIMITATION, EMPTY_JSON_OBJECT);
       insertIfMissing(connection, KEY_MAINTENANCE, serializeMaintenance(settings.maintenanceSettings()));
       insertIfMissing(connection, KEY_LOGGING, serializeLogging(settings.loggingSettings()));
       insertIfMissing(connection, KEY_BROADCAST, serializeBroadcast(settings.broadcastSettings()));
@@ -146,6 +154,28 @@ class RuntimeConfigService {
   long updateMarketRuntime(int marketMaxActiveListings, PluginSettings.MarketSupplySettings marketSupplySettings) {
     return databaseManager.inTransaction(connection ->
         updateConfig(connection, KEY_MARKET_RUNTIME, serializeMarketRuntime(marketMaxActiveListings, marketSupplySettings)));
+  }
+
+  ConfigDocument readMarketTagsConfig() {
+    return databaseManager.withConnection(connection ->
+        readConfigObject(connection, KEY_MARKET_TAGS, EMPTY_JSON_OBJECT));
+  }
+
+  ConfigDocument readMarketLimitationConfig() {
+    return databaseManager.withConnection(connection ->
+        readConfigObject(connection, KEY_MARKET_LIMITATION, EMPTY_JSON_OBJECT));
+  }
+
+  long updateMarketTagsConfig(JsonObject config) {
+    JsonObject normalized = config == null ? new JsonObject() : copyJsonObject(config);
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_MARKET_TAGS, gson.toJson(normalized)));
+  }
+
+  long updateMarketLimitationConfig(JsonObject config) {
+    JsonObject normalized = config == null ? new JsonObject() : copyJsonObject(config);
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_MARKET_LIMITATION, gson.toJson(normalized)));
   }
 
   long updateMaintenance(PluginSettings.MaintenanceSettings maintenanceSettings) {
@@ -313,11 +343,31 @@ class RuntimeConfigService {
     }
   }
 
+  private ConfigDocument readConfigObject(Connection connection, String key, String fallbackJson) throws SQLException {
+    String sql = """
+        SELECT config_value, version
+        FROM runtime_config
+        WHERE config_key = ?
+        LIMIT 1
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, key);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return new ConfigDocument(parseConfigObject(fallbackJson), 0L);
+        }
+        String rawValue = resultSet.getString("config_value");
+        long version = resultSet.getLong("version");
+        return new ConfigDocument(parseConfigObject(rawValue == null ? fallbackJson : rawValue), version);
+      }
+    }
+  }
+
   private Map<String, ConfigRow> readConfigRows(Connection connection) throws SQLException {
     String sql = """
         SELECT config_key, config_value, version
         FROM runtime_config
-        WHERE config_key IN (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        WHERE config_key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, KEY_EXCHANGE);
@@ -326,9 +376,11 @@ class RuntimeConfigService {
       statement.setString(4, KEY_CURRENCY_DISPLAY);
       statement.setString(5, KEY_WEBSHOP_RUNTIME);
       statement.setString(6, KEY_MARKET_RUNTIME);
-      statement.setString(7, KEY_MAINTENANCE);
-      statement.setString(8, KEY_LOGGING);
-      statement.setString(9, KEY_BROADCAST);
+      statement.setString(7, KEY_MARKET_TAGS);
+      statement.setString(8, KEY_MARKET_LIMITATION);
+      statement.setString(9, KEY_MAINTENANCE);
+      statement.setString(10, KEY_LOGGING);
+      statement.setString(11, KEY_BROADCAST);
       try (ResultSet resultSet = statement.executeQuery()) {
         Map<String, ConfigRow> rows = new HashMap<>();
         while (resultSet.next()) {
@@ -677,6 +729,36 @@ class RuntimeConfigService {
     }
   }
 
+  private JsonObject parseConfigObject(String rawJson) {
+    if (rawJson == null || rawJson.isBlank()) {
+      return new JsonObject();
+    }
+    try {
+      JsonElement parsed = JsonParser.parseString(rawJson);
+      if (parsed != null && parsed.isJsonObject()) {
+        return parsed.getAsJsonObject();
+      }
+    } catch (Exception ignored) {
+      // Return empty object for malformed runtime rows.
+    }
+    return new JsonObject();
+  }
+
+  private JsonObject copyJsonObject(JsonObject source) {
+    if (source == null) {
+      return new JsonObject();
+    }
+    try {
+      JsonElement parsed = JsonParser.parseString(gson.toJson(source));
+      if (parsed != null && parsed.isJsonObject()) {
+        return parsed.getAsJsonObject();
+      }
+    } catch (Exception ignored) {
+      // Fall through to empty object.
+    }
+    return new JsonObject();
+  }
+
   private boolean readBoolean(JsonObject jsonObject, String field, boolean fallback) {
     if (jsonObject == null || !jsonObject.has(field) || jsonObject.get(field).isJsonNull()) {
       return fallback;
@@ -770,6 +852,9 @@ class RuntimeConfigService {
   private record MarketRuntimeSnapshot(
       int marketMaxActiveListings,
       PluginSettings.MarketSupplySettings marketSupplySettings) {
+  }
+
+  record ConfigDocument(JsonObject config, long version) {
   }
 
   private record ConfigRow(String configValue, long version) {

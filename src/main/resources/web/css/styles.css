@@ -1424,6 +1424,13 @@ code {
   grid-column: 1 / -1;
 }
 
+.admin-list.market-policy-scroll-list {
+  grid-template-columns: 1fr;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .admin-card {
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--radius-medium);
@@ -3019,6 +3026,14 @@ pre {
   margin: 0;
   color: var(--md-sys-color-on-surface-variant);
   font-size: 14px;
+}
+
+.dialog-card.market-policy-dialog-card {
+  width: min(920px, 100%);
+}
+
+.market-policy-dialog-scroll {
+  max-height: min(62vh, 560px);
 }
 
 .price-dialog-card {

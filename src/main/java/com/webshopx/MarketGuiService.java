@@ -63,6 +63,20 @@ class MarketGuiService {
       case "sync_interrupted" -> messageService.get(player, "error.market.sync_interrupted");
       case "listing_empty" -> messageService.get(player, "error.market.listing_empty");
       case "listing_limit" -> messageService.get(player, "error.market.listing_limit");
+      case "buy_requires_direct_mode" -> messageService.get(player, "error.market.buy_requires_direct_mode");
+      case "buy_requires_manual_source" -> messageService.get(player, "error.market.buy_requires_manual_source");
+      case "buy_requires_fixed_price" -> messageService.get(player, "error.market.buy_requires_fixed_price");
+      case "buy_escrow_insufficient" -> messageService.get(player, "error.market.buy_escrow_insufficient");
+      case "buy_order_not_active" -> messageService.get(player, "error.market.buy_order_not_active");
+      case "cannot_fulfill_own_buy_order" -> messageService.get(player, "error.market.cannot_fulfill_own_buy_order");
+      case "fulfill_item_not_match" -> messageService.get(player, "error.market.fulfill_item_not_match");
+      case "invalid_market_side" -> messageService.get(player, "error.market.invalid_market_side");
+      case "invalid_tag" -> messageService.get(player, "error.market.invalid_tag");
+      case "tag_disabled" -> messageService.get(player, "error.market.tag_disabled");
+      case "limitation_item_forbidden" -> messageService.get(player, "error.market.limitation_item_forbidden");
+      case "limitation_currency_not_allowed" -> messageService.get(player, "error.market.limitation_currency_not_allowed");
+      case "limitation_trade_mode_not_allowed" -> messageService.get(player, "error.market.limitation_trade_mode_not_allowed");
+      case "limitation_side_not_allowed" -> messageService.get(player, "error.market.limitation_side_not_allowed");
       default -> exception.getMessage();
     };
   }

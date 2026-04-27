@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -32,7 +33,9 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Supplier;
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 class EmbeddedWebServer {
@@ -130,10 +133,13 @@ class EmbeddedWebServer {
     server.createContext("/api/meta/currency", this::handleCurrencyMeta);
     server.createContext("/api/meta/materials", this::handleMaterialMeta);
     server.createContext("/api/meta/material-overrides", this::handleMaterialOverrideMeta);
+    server.createContext("/api/meta/market-tags", this::handleMarketTagsMeta);
     server.createContext("/api/leaderboard/config", this::handleLeaderboardConfig);
     server.createContext("/api/leaderboard/list", this::handleLeaderboardList);
     server.createContext("/api/market/listings", this::handleMarketListings);
+    server.createContext("/api/market/listings/create", this::handleMarketListingsCreate);
     server.createContext("/api/market/buy", this::handleMarketBuy);
+    server.createContext("/api/market/sell-to-buy", this::handleMarketSellToBuy);
     server.createContext("/api/market/bid", this::handleMarketBid);
     server.createContext("/api/market/unlist", this::handleMarketUnlist);
     server.createContext("/api/market/pause", this::handleMarketPause);
@@ -160,6 +166,8 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/economy/market", this::handleAdminMarketEconomyUpdate);
     server.createContext("/api/admin/economy/leaderboard", this::handleAdminLeaderboardSettingsUpdate);
     server.createContext("/api/admin/economy/currency", this::handleAdminCurrencyDisplayUpdate);
+    server.createContext("/api/admin/market/tags-config", this::handleAdminMarketTagsConfig);
+    server.createContext("/api/admin/market/limitation-config", this::handleAdminMarketLimitationConfig);
     server.createContext("/api/admin/system/webshop", this::handleAdminWebshopRuntimeUpdate);
     server.createContext("/api/admin/system/market", this::handleAdminMarketRuntimeUpdate);
     server.createContext("/api/admin/system/maintenance", this::handleAdminMaintenanceSettingsUpdate);
@@ -778,6 +786,36 @@ class EmbeddedWebServer {
     });
   }
 
+  private void handleMarketTagsMeta(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      List<MarketTagService.TagMeta> tags = marketService.listMarketTagsMeta();
+      JsonArray rows = new JsonArray();
+      for (MarketTagService.TagMeta tag : tags) {
+        JsonObject row = new JsonObject();
+        row.addProperty("code", tag.code());
+        row.addProperty("displayName", tag.displayName());
+        row.addProperty("enabled", tag.enabled());
+        row.addProperty("priority", tag.priority());
+        JsonObject activeCount = new JsonObject();
+        activeCount.addProperty("SELL", tag.activeSellCount());
+        activeCount.addProperty("BUY", tag.activeBuyCount());
+        row.add("activeCount", activeCount);
+        row.addProperty("activeSellCount", tag.activeSellCount());
+        row.addProperty("activeBuyCount", tag.activeBuyCount());
+        rows.add(row);
+      }
+      JsonObject response = new JsonObject();
+      response.add("tags", rows);
+      sendJson(exchange, 200, response);
+    });
+  }
+
   private void handleLeaderboardConfig(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
       return;
@@ -1009,6 +1047,25 @@ class EmbeddedWebServer {
       Long maxPrice = parseLong(query.get("maxPrice"));
       String material = query.get("material");
       String keyword = query.get("keyword");
+      MarketSide side = null;
+      String sideRaw = query.get("side");
+      if (sideRaw != null && !sideRaw.isBlank()) {
+        side = MarketSide.fromRaw(sideRaw);
+      }
+      String tag = null;
+      String tagRaw = query.containsKey("tag") ? query.get("tag") : null;
+      if (tagRaw != null && !tagRaw.isBlank()) {
+        tag = tagRaw.trim().toLowerCase(Locale.ROOT);
+      }
+      List<String> tags = null;
+      String tagsRaw = query.containsKey("tags[]") ? query.get("tags[]") : query.get("tags");
+      if (tagsRaw != null && !tagsRaw.isBlank()) {
+        tags = Arrays.stream(tagsRaw.split(","))
+            .map(value -> value == null ? "" : value.trim().toLowerCase(Locale.ROOT))
+            .filter(value -> !value.isBlank())
+            .distinct()
+            .toList();
+      }
 
       Long sellerUserId = null;
       boolean activeOnly = !mineOnly;
@@ -1027,6 +1084,9 @@ class EmbeddedWebServer {
           maxPrice,
           material == null ? null : material.trim().toUpperCase(Locale.ROOT),
           keyword == null ? null : keyword.trim(),
+          side,
+          tag,
+          tags,
           limit);
       List<MarketService.ListingView> listings = marketService.listListings(listingQuery);
 
@@ -1041,6 +1101,15 @@ class EmbeddedWebServer {
         row.addProperty("price", listing.price());
         row.addProperty("quantity", listing.quantity());
         row.addProperty("quantityTotal", listing.quantityTotal());
+        row.addProperty("side", listing.side().name());
+        if (listing.tag() == null) {
+          row.add("tag", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("tag", listing.tag());
+        }
+        row.addProperty("tagVersion", listing.tagVersion());
+        row.addProperty("escrowTotal", listing.escrowTotal());
+        row.addProperty("escrowRemaining", listing.escrowRemaining());
         row.addProperty("itemMaterial", listing.itemMaterial());
         if (listing.displayNameOverride() == null) {
           row.add("displayNameOverride", JsonNull.INSTANCE);
@@ -1181,6 +1250,75 @@ class EmbeddedWebServer {
     });
   }
 
+  private void handleMarketListingsCreate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      MarketSide side = MarketSide.fromRaw(getOptionalString(payload, "side").orElse("SELL"));
+      CurrencyType currency = payload.has("currency")
+          ? CurrencyType.fromConfig(getString(payload, "currency"))
+          : CurrencyType.GAME_COIN;
+      long price = getLong(payload, "price", 0L);
+      int quantity = payload.has("quantity")
+          ? (int) getLong(payload, "quantity", 1L)
+          : (int) getLong(payload, "amount", 1L);
+      String tag = getOptionalString(payload, "tag").orElse(null);
+      String tradeMode = getOptionalString(payload, "tradeMode")
+          .orElse("DIRECT")
+          .trim()
+          .toUpperCase(Locale.ROOT);
+      if (!tradeMode.equals("DIRECT") && !tradeMode.equals("AUCTION")) {
+        throw new ServiceException("invalid_trade_mode", "Trade mode must be DIRECT or AUCTION");
+      }
+
+      MarketService.ListingCreateResult result;
+      if (side == MarketSide.BUY) {
+        if (!tradeMode.equals("DIRECT")) {
+          throw new ServiceException("buy_requires_direct_mode", "BUY listings only support DIRECT trade mode");
+        }
+        String itemMaterial = getString(payload, "itemMaterial");
+        result = marketService.createBuyListing(
+            user.id(),
+            itemMaterial,
+            price,
+            quantity,
+            currency,
+            tag);
+      } else {
+        if (!tradeMode.equals("DIRECT")) {
+          throw new ServiceException("invalid_trade_mode", "SELL listing creation currently supports DIRECT only");
+        }
+        Player player = Bukkit.getPlayer(user.boundUuid());
+        if (player == null || !player.isOnline()) {
+          throw new ServiceException("player_offline", "SELL listing creation requires player online");
+        }
+        result = marketService.createListingFromPlayer(player, price, quantity, currency, tag);
+      }
+
+      JsonObject response = new JsonObject();
+      response.addProperty("listingId", result.listingId());
+      response.addProperty("material", result.material());
+      response.addProperty("quantity", result.quantity());
+      response.addProperty("currency", result.currency().name());
+      response.addProperty("price", result.price());
+      response.addProperty("side", result.side().name());
+      if (result.tag() == null) {
+        response.add("tag", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("tag", result.tag());
+      }
+      response.addProperty("escrowTotal", result.escrowTotal());
+      response.addProperty("escrowRemaining", result.escrowRemaining());
+      sendJson(exchange, 200, response);
+    });
+  }
+
   private void handleMarketBuy(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
       return;
@@ -1198,27 +1336,60 @@ class EmbeddedWebServer {
           .orElse(UUID.randomUUID().toString());
       MarketService.TradeResult result =
           marketService.buyListing(user.id(), listingId, buyQuantity, idempotencyKey, deliveryMode);
-      JsonObject response = new JsonObject();
-      response.addProperty("state", result.state().name());
-      response.addProperty("tradeId", result.tradeId());
-      response.addProperty("listingId", result.listingId());
-      response.addProperty("currency", result.currency().name());
-      response.addProperty("unitPrice", result.unitPrice());
-      response.addProperty("quantity", result.quantity());
-      response.addProperty("totalPrice", result.totalPrice());
-      response.addProperty("buyerTotal", result.buyerTotal());
-      response.addProperty("sellerReceive", result.sellerReceive());
-      response.addProperty("feeAmount", result.feeAmount());
-      response.addProperty("taxAmount", result.taxAmount());
-      response.addProperty("orderStatus", result.orderStatus());
-      response.addProperty("cooldownSeconds", result.cooldownSeconds());
-      if (result.refundDeadline() == null) {
-        response.add("refundDeadline", JsonNull.INSTANCE);
-      } else {
-        response.addProperty("refundDeadline", result.refundDeadline().toString());
-      }
-      sendJson(exchange, 200, response);
+      sendJson(exchange, 200, toTradeResultJson(result));
     });
+  }
+
+  private void handleMarketSellToBuy(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      long listingId = getLong(payload, "listingId", -1L);
+      int sellQuantity = payload.has("sellQuantity")
+          ? (int) getLong(payload, "sellQuantity", 1L)
+          : payload.has("fulfillQuantity")
+              ? (int) getLong(payload, "fulfillQuantity", 1L)
+              : (int) getLong(payload, "quantity", 1L);
+      String deliveryMode = getOptionalString(payload, "deliveryMode").orElse(null);
+      String idempotencyKey = getOptionalString(payload, "idempotencyKey")
+          .orElse(UUID.randomUUID().toString());
+      MarketService.TradeResult result = marketService.fulfillBuyOrder(
+          user.id(),
+          listingId,
+          sellQuantity,
+          idempotencyKey,
+          deliveryMode);
+      sendJson(exchange, 200, toTradeResultJson(result));
+    });
+  }
+
+  private JsonObject toTradeResultJson(MarketService.TradeResult result) {
+    JsonObject response = new JsonObject();
+    response.addProperty("state", result.state().name());
+    response.addProperty("tradeId", result.tradeId());
+    response.addProperty("listingId", result.listingId());
+    response.addProperty("currency", result.currency().name());
+    response.addProperty("unitPrice", result.unitPrice());
+    response.addProperty("quantity", result.quantity());
+    response.addProperty("totalPrice", result.totalPrice());
+    response.addProperty("buyerTotal", result.buyerTotal());
+    response.addProperty("sellerReceive", result.sellerReceive());
+    response.addProperty("feeAmount", result.feeAmount());
+    response.addProperty("taxAmount", result.taxAmount());
+    response.addProperty("orderStatus", result.orderStatus());
+    response.addProperty("cooldownSeconds", result.cooldownSeconds());
+    if (result.refundDeadline() == null) {
+      response.add("refundDeadline", JsonNull.INSTANCE);
+    } else {
+      response.addProperty("refundDeadline", result.refundDeadline().toString());
+    }
+    return response;
   }
 
   private void handleMarketBid(HttpExchange exchange) throws IOException {
@@ -1388,6 +1559,9 @@ class EmbeddedWebServer {
       long listingId = getLong(payload, "listingId", -1L);
       long price = getLong(payload, "price", 0L);
       CurrencyType currency = CurrencyType.fromConfig(getString(payload, "currency"));
+      String tag = payload.has("tag")
+          ? getOptionalString(payload, "tag").orElse(null)
+          : null;
       String remark = getOptionalString(payload, "remark").orElse(null);
       String displayNameOverride = payload.has("displayNameOverride")
           ? getOptionalString(payload, "displayNameOverride").orElse(null)
@@ -1468,6 +1642,7 @@ class EmbeddedWebServer {
           listingId,
           price,
           currency,
+          tag,
           remark,
           displayNameOverride,
           displayMaterial,
@@ -1491,6 +1666,13 @@ class EmbeddedWebServer {
       response.addProperty("listingId", result.listingId());
       response.addProperty("currency", result.currency().name());
       response.addProperty("price", result.price());
+      response.addProperty("side", result.side().name());
+      if (result.tag() == null) {
+        response.add("tag", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("tag", result.tag());
+      }
+      response.addProperty("tagVersion", result.tagVersion());
       response.addProperty("sourceMode", result.sourceMode().name());
         response.addProperty("tradeMode", result.tradeMode().name());
       response.addProperty("quantityTotal", result.quantityTotal());
@@ -2173,6 +2355,8 @@ class EmbeddedWebServer {
       response.add("market", marketJson);
       response.add("currency", currencyJson);
       response.add("vault", vaultJson);
+      response.add("marketTagsConfig", runtimeConfigService.readMarketTagsConfig().config());
+      response.add("marketLimitationConfig", runtimeConfigService.readMarketLimitationConfig().config());
       response.add("leaderboard", leaderboardSettingsJson(settings));
       response.add("webshopRuntime", webshopRuntimeJson(settings));
       response.add("marketRuntime", marketRuntimeJson(settings));
@@ -2325,6 +2509,94 @@ class EmbeddedWebServer {
 
       JsonObject response = new JsonObject();
       response.addProperty("status", "ok");
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminMarketTagsConfig(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    String method = exchange.getRequestMethod();
+    if (method.equalsIgnoreCase("GET")) {
+      withServiceHandling(exchange, () -> {
+        requireAdmin(exchange, null, AdminPermission.ECONOMY_MANAGE);
+        RuntimeConfigService.ConfigDocument config = runtimeConfigService.readMarketTagsConfig();
+        JsonObject response = new JsonObject();
+        response.add("config", config.config());
+        response.addProperty("version", config.version());
+        sendJson(exchange, 200, response);
+      });
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      JsonObject config = payload.has("config") && payload.get("config").isJsonObject()
+          ? payload.getAsJsonObject("config")
+          : null;
+      if (config == null) {
+        throw new ServiceException("bad_request", "Missing field: config");
+      }
+      long version = runtimeConfigService.updateMarketTagsConfig(config);
+      marketService.refreshRuntimePolicies();
+      publishRuntimeConfigRefresh(version);
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("version", version);
+      detail.addProperty("tagCount", countJsonArray(config, "tags"));
+      adminAuditService.log(admin, "MARKET_TAGS_CONFIG_UPDATE", "market_tags", null, detail, clientIp(exchange));
+
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      response.addProperty("version", version);
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminMarketLimitationConfig(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    String method = exchange.getRequestMethod();
+    if (method.equalsIgnoreCase("GET")) {
+      withServiceHandling(exchange, () -> {
+        requireAdmin(exchange, null, AdminPermission.ECONOMY_MANAGE);
+        RuntimeConfigService.ConfigDocument config = runtimeConfigService.readMarketLimitationConfig();
+        JsonObject response = new JsonObject();
+        response.add("config", config.config());
+        response.addProperty("version", config.version());
+        sendJson(exchange, 200, response);
+      });
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      JsonObject config = payload.has("config") && payload.get("config").isJsonObject()
+          ? payload.getAsJsonObject("config")
+          : null;
+      if (config == null) {
+        throw new ServiceException("bad_request", "Missing field: config");
+      }
+      long version = runtimeConfigService.updateMarketLimitationConfig(config);
+      marketService.refreshRuntimePolicies();
+      publishRuntimeConfigRefresh(version);
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("version", version);
+      detail.addProperty("ruleCount", countJsonArray(config, "rules"));
+      adminAuditService.log(admin, "MARKET_LIMITATION_CONFIG_UPDATE", "market_limitation", null, detail, clientIp(exchange));
+
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      response.addProperty("version", version);
       sendJson(exchange, 200, response);
     });
   }
@@ -2972,6 +3244,15 @@ class EmbeddedWebServer {
         row.addProperty("price", listing.price());
         row.addProperty("quantity", listing.quantity());
         row.addProperty("quantityTotal", listing.quantityTotal());
+        row.addProperty("side", listing.side().name());
+        if (listing.tag() == null) {
+          row.add("tag", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("tag", listing.tag());
+        }
+        row.addProperty("tagVersion", listing.tagVersion());
+        row.addProperty("escrowTotal", listing.escrowTotal());
+        row.addProperty("escrowRemaining", listing.escrowRemaining());
         row.addProperty("itemMaterial", listing.itemMaterial());
         if (listing.displayNameOverride() == null) {
           row.add("displayNameOverride", JsonNull.INSTANCE);
@@ -3921,6 +4202,17 @@ class EmbeddedWebServer {
     } catch (NumberFormatException exception) {
       throw new ServiceException("bad_request", "Invalid number: " + key);
     }
+  }
+
+  private int countJsonArray(JsonObject payload, String key) {
+    if (payload == null || !payload.has(key)) {
+      return 0;
+    }
+    JsonElement value = payload.get(key);
+    if (value == null || value.isJsonNull() || !value.isJsonArray()) {
+      return 0;
+    }
+    return value.getAsJsonArray().size();
   }
 
   private Long parseLong(String raw) {
