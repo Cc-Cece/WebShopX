@@ -311,7 +311,7 @@ const ERROR_TIPS_BY_SCENE = {
     invalid_listing: "上架 ID 无效，请刷新列表后重试。",
     listing_missing: "该上架不存在，可能已被移除。",
     listing_unavailable: "该上架已下架或已售出。",
-    forbidden: "当前无权修改该上架，可能因非本人或视觉自定义策略受限。",
+    forbidden: "当前无权修改该上架，可能因非本人或自定义策略受限。",
     invalid_price: "价格必须大于 0。",
     invalid_trade_mode: "交易模式无效，仅支持 DIRECT 或 AUCTION。",
     limitation_item_forbidden: "当前物品不满足上架规则。",
@@ -475,7 +475,7 @@ const elements = {
   profileName: document.getElementById("profileName"),
   profileUuid: document.getElementById("profileUuid"),
   logoutBtn: document.getElementById("logoutBtn"),
-  accountHelpBtn: document.getElementById("accountHelpBtn"),
+  accountHelpBtns: Array.from(document.querySelectorAll("#accountHelpBtn")),
 
   walletView: document.getElementById("walletView"),
   walletLedgerView: document.getElementById("walletLedgerView"),
@@ -1475,7 +1475,7 @@ async function openListingVisualDialog({
   };
   return openMarketParamDialog({
     title: "展示设置",
-    hint: "单独配置展示名称、展示材质与展示图标，保存后回到上架编辑窗口继续处理价格与交易模式。",
+    hint: "(仅对当前设置商品生效)展示材质：输入物品id可以使用该物品的图标; 展示图标：上传图片后会覆盖材质图标进行展示，支持png/jpg/jpeg/webp/gif等常见格式，建议尺寸不超过512x512像素。",
     confirmText: "保存展示设置",
     setupForm: (host) => {
       const dialogDraft = {
@@ -1490,7 +1490,7 @@ async function openListingVisualDialog({
       displayNameInput.placeholder = "留空则跟随默认展示名称";
       displayNameInput.value = currentDisplayNameOverride || "";
       displayNameInput.disabled = !normalizedPermission.customNameAllowed;
-      const displayNameField = createDialogSelectField("展示名称（仅前端显示）", displayNameInput);
+      const displayNameField = createDialogSelectField("展示名称", displayNameInput);
       if (!normalizedPermission.customNameAllowed) {
         displayNameField.appendChild(createEl("p", "field-hint", "当前账户没有修改展示名称的权限。"));
       }
@@ -1516,14 +1516,14 @@ async function openListingVisualDialog({
           displayMaterialInput.value = normalizeMaterialKey(String(displayMaterialInput.value || "").trim());
         }
       });
-      const displayMaterialField = createDialogSelectField("展示材质（仅前端显示）", displayMaterialInput);
+      const displayMaterialField = createDialogSelectField("展示材质", displayMaterialInput);
       if (!normalizedPermission.customIconAllowed) {
         displayMaterialField.appendChild(createEl("p", "field-hint", "当前账户没有修改展示材质或展示图标的权限。"));
       }
       host.appendChild(displayMaterialField);
 
       const iconField = createEl("div", "dialog-select-field");
-      iconField.appendChild(createEl("span", "dialog-select-label", "展示图标（仅前端显示）"));
+      iconField.appendChild(createEl("span", "dialog-select-label", "展示图标"));
       const iconPreviewWrap = createEl("div", "material-override-preview");
       const iconPreviewImage = document.createElement("img");
       iconPreviewImage.alt = "商品图标预览";
@@ -2333,9 +2333,11 @@ accountBackButtons.forEach((button) => {
   button.addEventListener("click", () => switchTab("auth"));
 });
 
-if (elements.accountHelpBtn) {
-  elements.accountHelpBtn.addEventListener("click", () => {
-    window.location.href = "help.html";
+if (elements.accountHelpBtns.length > 0) {
+  elements.accountHelpBtns.forEach((button) => {
+    button.addEventListener("click", () => {
+      window.location.href = "/help.html";
+    });
   });
 }
 
@@ -3772,7 +3774,7 @@ function openAlgorithmHelpPage(category, algorithmId) {
   query.set("locale", locale);
   const fallbackAnchor = normalizedCategory === "auction" ? "market-auction" : "dynamic-algorithms";
   const anchor = normalizedAlgorithm || fallbackAnchor;
-  window.open(`help.html?${query.toString()}#${encodeURIComponent(anchor)}`, "_blank", "noopener");
+  window.open(`/help.html?${query.toString()}#${encodeURIComponent(anchor)}`, "_blank", "noopener");
 }
 
 function buildTextureAliases(material) {

@@ -4228,7 +4228,7 @@ function openAlgorithmHelpPage(category, algorithmId) {
   query.set("locale", locale);
   const fallbackAnchor = normalizedCategory === "auction" ? "market-auction" : "dynamic-algorithms";
   const anchor = normalizedAlgorithm || fallbackAnchor;
-  window.open(`help.html?${query.toString()}#${encodeURIComponent(anchor)}`, "_blank", "noopener");
+  window.open(`/help.html?${query.toString()}#${encodeURIComponent(anchor)}`, "_blank", "noopener");
 }
 
 function setProductFieldVisible(inputElement, visible) {
@@ -5012,7 +5012,7 @@ async function loadEconomySettings() {
   setMetaText(elements.runtimeLoggingStatusView, "已加载日志设置", "info");
   setMetaText(elements.runtimeBroadcastStatusView, "已加载广播设置", "info");
   setMetaText(elements.runtimeNotificationStatusView, "已加载消息设置", "info");
-  setMetaText(elements.visualSettingsStatusView, "已加载视觉策略", "info");
+  setMetaText(elements.visualSettingsStatusView, "已加载自定义策略", "info");
 }
 
 function normalizeMaterialOverrideRow(raw) {
@@ -5626,8 +5626,8 @@ async function saveVisualSettings() {
     }),
   });
   state.visualPolicy = normalizeVisualPolicy(payload.visual || {});
-  setMetaText(elements.visualSettingsStatusView, "视觉策略已保存", "success");
-  notify("视觉策略已保存", "success");
+  setMetaText(elements.visualSettingsStatusView, "自定义策略已保存", "success");
+  notify("自定义策略已保存", "success");
 }
 
 async function loadMarket() {
@@ -5709,7 +5709,7 @@ function applySelectedUser(payload, sourceLabel = "查询") {
   setMetaText(elements.userLookupStatus, `${sourceLabel}：${payload.username}`, "success");
   renderSelectedUser();
   loadSelectedUserVisualPermission().catch((error) => {
-    setMetaText(elements.userVisualPermissionStatus, `读取视觉权限失败：${error.message}`, "error");
+    setMetaText(elements.userVisualPermissionStatus, `读取自定义权限失败：${error.message}`, "error");
   });
 }
 
@@ -5802,7 +5802,7 @@ async function saveSelectedUserVisualPermission() {
     `当前生效上限 ${payload.listingLimitEffective || "-"}，来源：${formatListingLimitSource(payload.listingLimitSource)}`,
     "success"
   );
-  notify("用户视觉权限已保存", "success");
+  notify("用户自定义权限已保存", "success");
 }
 
 async function lookupUser() {

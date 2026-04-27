@@ -19,9 +19,9 @@
       }
     })();
   </script>
-  <link rel="stylesheet" href="css/light.css" />
-  <link rel="stylesheet" href="css/dark.css" />
-  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="/css/light.css" />
+  <link rel="stylesheet" href="/css/dark.css" />
+  <link rel="stylesheet" href="/css/styles.css" />
 </head>
 <body class="page-admin">
   <main class="app-shell">
@@ -90,7 +90,6 @@
         <div class="section-head">
           <div>
             <h2>兑换码管理</h2>
-            <p class="card-desc">生成兑换码并查看最近记录。</p>
           </div>
           <button id="redeemRefreshBtn" type="button">刷新列表</button>
         </div>
@@ -138,7 +137,6 @@
         <div class="section-head">
           <div>
             <h2>官方商品管理</h2>
-            <p class="card-desc">通过子标签拆分商品编辑、商品列表与团购券核销。</p>
           </div>
           <button id="productRefreshBtn" type="button">刷新商品</button>
         </div>
@@ -251,7 +249,7 @@
           </div>
             <p class="meta">
                 仅 出售/回收物品 支持动态价格；具体规则及算法查看
-                <a href="/web/help.html?mode=single&doc=manual.zh-CN&lang=zh-CN" class="btn-tonal" style="display:inline-block;padding:2px 12px;margin-left:6px;vertical-align:middle;">帮助文档</a>
+                <a href="/help.html?mode=single&doc=manual.zh-CN&lang=zh-CN#dynamic-algorithms" class="btn-tonal" style="display:inline-block;padding:2px 12px;margin-left:6px;vertical-align:middle;">帮助文档</a>
             </p>          
           <div>
             <h4>商品信息</h4>
@@ -970,8 +968,8 @@
         </article>
 
         <article class="md-card section-card">
-          <h2>视觉自定义策略</h2>
-          <p class="card-desc">控制全局材质映射的启用状态、优先级策略，以及玩家级权限继承逻辑。</p>
+          <h2>商品自定义管理</h2>
+          <p class="card-desc">控制全局商品图标、标题自定义的权限。</p>
           <div class="field-grid two-col">
             <label class="field">
               <span>启用全局自定义图标</span>
@@ -1045,7 +1043,7 @@
             </label>
           </div>
           <div class="actions">
-            <button id="visualSettingsSaveBtn" type="button">保存视觉策略</button>
+            <button id="visualSettingsSaveBtn" type="button">保存设置</button>
           </div>
           <p class="meta" id="visualSettingsStatusView">等待操作</p>
         </article>
@@ -1053,8 +1051,8 @@
         <article class="md-card section-card">
           <div class="section-head">
             <div>
-              <h2>材质图标与名称对照表</h2>
-              <p class="card-desc">优先级：对照表 -> 原版材质 -> 默认占位图。上传图标会自动做居中正方形裁剪。</p>
+              <h2>图标与名称对照表</h2>
+              <p class="card-desc">优先级：自定义 -> 对照表 -> 原版材质 -> 默认占位图。</p>
             </div>
             <button id="materialOverrideRefreshBtn" type="button">刷新对照表</button>
           </div>
@@ -1103,7 +1101,6 @@
         <div class="section-head">
           <div>
             <h2>玩家市场管理</h2>
-            <p class="card-desc">查看全部上架并支持强制下架。</p>
           </div>
           <button id="marketRefreshBtn" type="button">刷新列表</button>
         </div>
@@ -1230,7 +1227,7 @@
             </label>
           </div>
           <div class="actions">
-            <button id="userVisualPermissionSaveBtn" type="button">保存视觉权限</button>
+            <button id="userVisualPermissionSaveBtn" type="button">保存自定义权限</button>
             <p class="meta" id="userVisualPermissionStatus">等待操作</p>
           </div>
           <p class="meta" id="userListingLimitStatus">等待读取上架数量限制</p>
@@ -1538,8 +1535,8 @@
     </article>
   </div>
 
-  <script src="config.js"></script>
-  <script src="js/i18n.js"></script>
-  <script src="js/admin.js"></script>
+  <script src="/config.js"></script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/admin.js"></script>
 </body>
 </html>
