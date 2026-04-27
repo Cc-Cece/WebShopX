@@ -45,6 +45,11 @@
   marketLimitationConfig: null,
   marketTagEditingIndex: null,
   marketLimitationRuleEditingIndex: null,
+  notificationSettings: {
+    marketEventsEnabled: true,
+    deliveryMailboxEventsEnabled: true,
+    templates: {},
+  },
   marketAlgorithmGlossary: {
     dynamic: [],
     auction: [],
@@ -221,6 +226,19 @@ const FALLBACK_MARKET_ALGORITHM_GLOSSARY = Object.freeze({
 const PARAM_KEY_ALIAS_MAP = Object.freeze({
   threshold: ["thresholdK", "panicThreshold"],
   eta: ["elasticity"],
+});
+
+const DEFAULT_NOTIFICATION_TEMPLATES = Object.freeze({
+  market_listed: "你的上架 #{listingId} 已发布：{item} x{quantity}，单价 {priceText}。",
+  market_trade: "上架 #{listingId} 已成交：{item} x{quantity}，总价 {totalText}。",
+  auction_bid_self: "你在拍卖 #{listingId} 出价成功：{bidAmountText}。",
+  auction_bid_seller: "拍卖 #{listingId} 收到来自 {bidderName} 的新出价。",
+  auction_outbid: "你在拍卖 #{listingId} 的领先出价已被超过。",
+  auction_settlement: "{message}",
+  market_buy_escrow_refund: "收购单 #{listingId} 托管金额已退回：{amountText}。",
+  delivery_wait_claim_order: "订单 {token} 自动发货失败，请在游戏内执行 /ws claim {token} 领取。原因：{reason}",
+  delivery_wait_claim_market: "市场物品自动发货失败，请在游戏内执行 /ws claim {token} 领取。原因：{reason}",
+  mailbox_pending: "自动发货时背包不可用，物品已存入游戏信箱。请在游戏内执行 /ws mailbox claim 领取。来源：{sourceType} {sourceRef}",
 });
 
 const I18N = window.WebShopXI18n || null;
@@ -445,6 +463,28 @@ const elements = {
   runtimeBroadcastAuctionSealedBidTemplate: document.getElementById("runtimeBroadcastAuctionSealedBidTemplate"),
   runtimeBroadcastSaveBtn: document.getElementById("runtimeBroadcastSaveBtn"),
   runtimeBroadcastStatusView: document.getElementById("runtimeBroadcastStatusView"),
+  runtimeNotificationMarketEnabled: document.getElementById("runtimeNotificationMarketEnabled"),
+  runtimeNotificationDeliveryEnabled: document.getElementById("runtimeNotificationDeliveryEnabled"),
+  runtimeNotificationTemplateEditBtn: document.getElementById("runtimeNotificationTemplateEditBtn"),
+  runtimeNotificationSaveBtn: document.getElementById("runtimeNotificationSaveBtn"),
+  runtimeNotificationStatusView: document.getElementById("runtimeNotificationStatusView"),
+  runtimeAnnouncementTitle: document.getElementById("runtimeAnnouncementTitle"),
+  runtimeAnnouncementContent: document.getElementById("runtimeAnnouncementContent"),
+  runtimeAnnouncementSendBtn: document.getElementById("runtimeAnnouncementSendBtn"),
+  runtimeAnnouncementStatusView: document.getElementById("runtimeAnnouncementStatusView"),
+  notificationTemplateDialog: document.getElementById("notificationTemplateDialog"),
+  notificationTemplateCancelBtn: document.getElementById("notificationTemplateCancelBtn"),
+  notificationTemplateSaveBtn: document.getElementById("notificationTemplateSaveBtn"),
+  runtimeNotificationTemplateMarketListed: document.getElementById("runtimeNotificationTemplateMarketListed"),
+  runtimeNotificationTemplateMarketTrade: document.getElementById("runtimeNotificationTemplateMarketTrade"),
+  runtimeNotificationTemplateAuctionBidSelf: document.getElementById("runtimeNotificationTemplateAuctionBidSelf"),
+  runtimeNotificationTemplateAuctionBidSeller: document.getElementById("runtimeNotificationTemplateAuctionBidSeller"),
+  runtimeNotificationTemplateAuctionOutbid: document.getElementById("runtimeNotificationTemplateAuctionOutbid"),
+  runtimeNotificationTemplateAuctionSettlement: document.getElementById("runtimeNotificationTemplateAuctionSettlement"),
+  runtimeNotificationTemplateMarketBuyEscrowRefund: document.getElementById("runtimeNotificationTemplateMarketBuyEscrowRefund"),
+  runtimeNotificationTemplateDeliveryWaitClaimOrder: document.getElementById("runtimeNotificationTemplateDeliveryWaitClaimOrder"),
+  runtimeNotificationTemplateDeliveryWaitClaimMarket: document.getElementById("runtimeNotificationTemplateDeliveryWaitClaimMarket"),
+  runtimeNotificationTemplateMailboxPending: document.getElementById("runtimeNotificationTemplateMailboxPending"),
   visualGlobalCustomIconEnabled: document.getElementById("visualGlobalCustomIconEnabled"),
   visualGlobalCustomNameEnabled: document.getElementById("visualGlobalCustomNameEnabled"),
   visualOfficialProductCustomIconEnabled: document.getElementById("visualOfficialProductCustomIconEnabled"),
@@ -1397,6 +1437,10 @@ function initializeMaterialCropDialog() {
     }
     if (isMarketLimitationRuleEditDialogOpen()) {
       closeMarketLimitationRuleEditDialog();
+      return;
+    }
+    if (isNotificationTemplateDialogOpen()) {
+      closeNotificationTemplateDialog();
     }
   });
 }
@@ -4900,6 +4944,11 @@ async function loadEconomySettings() {
     elements.runtimeBroadcastAuctionSealedBidTemplate.value = String(templates["auction-sealed-bid"] || "");
   }
 
+  applyNotificationSettingsToForm(payload.notification || {});
+  if (elements.runtimeAnnouncementTitle && !elements.runtimeAnnouncementTitle.value) {
+    elements.runtimeAnnouncementTitle.value = "系统公告";
+  }
+
   const visual = normalizeVisualPolicy(payload.visual || {});
   state.visualPolicy = visual;
   if (elements.visualGlobalCustomIconEnabled) {
@@ -4962,6 +5011,7 @@ async function loadEconomySettings() {
   setMetaText(elements.runtimeMaintenanceStatusView, "已加载维护参数", "info");
   setMetaText(elements.runtimeLoggingStatusView, "已加载日志设置", "info");
   setMetaText(elements.runtimeBroadcastStatusView, "已加载广播设置", "info");
+  setMetaText(elements.runtimeNotificationStatusView, "已加载消息设置", "info");
   setMetaText(elements.visualSettingsStatusView, "已加载视觉策略", "info");
 }
 
@@ -5393,6 +5443,153 @@ async function saveLoggingSettings() {
   });
   setMetaText(elements.runtimeLoggingStatusView, "日志设置已保存", "success");
   notify("日志设置已保存", "success");
+}
+
+function normalizeNotificationSettings(raw) {
+  const root = raw && typeof raw === "object" ? raw : {};
+  const templates = root.templates && typeof root.templates === "object" ? root.templates : {};
+  const normalizedTemplates = {};
+  Object.keys(DEFAULT_NOTIFICATION_TEMPLATES).forEach((key) => {
+    const value = String(templates[key] || DEFAULT_NOTIFICATION_TEMPLATES[key] || "").trim();
+    normalizedTemplates[key] = value || DEFAULT_NOTIFICATION_TEMPLATES[key] || "";
+  });
+  return {
+    marketEventsEnabled: root.marketEventsEnabled !== false,
+    deliveryMailboxEventsEnabled: root.deliveryMailboxEventsEnabled !== false,
+    templates: normalizedTemplates,
+  };
+}
+
+function applyNotificationTemplatesToDialog(templates = {}) {
+  const resolved = normalizeNotificationSettings({ templates }).templates;
+  if (elements.runtimeNotificationTemplateMarketListed) {
+    elements.runtimeNotificationTemplateMarketListed.value = resolved.market_listed || "";
+  }
+  if (elements.runtimeNotificationTemplateMarketTrade) {
+    elements.runtimeNotificationTemplateMarketTrade.value = resolved.market_trade || "";
+  }
+  if (elements.runtimeNotificationTemplateAuctionBidSelf) {
+    elements.runtimeNotificationTemplateAuctionBidSelf.value = resolved.auction_bid_self || "";
+  }
+  if (elements.runtimeNotificationTemplateAuctionBidSeller) {
+    elements.runtimeNotificationTemplateAuctionBidSeller.value = resolved.auction_bid_seller || "";
+  }
+  if (elements.runtimeNotificationTemplateAuctionOutbid) {
+    elements.runtimeNotificationTemplateAuctionOutbid.value = resolved.auction_outbid || "";
+  }
+  if (elements.runtimeNotificationTemplateAuctionSettlement) {
+    elements.runtimeNotificationTemplateAuctionSettlement.value = resolved.auction_settlement || "";
+  }
+  if (elements.runtimeNotificationTemplateMarketBuyEscrowRefund) {
+    elements.runtimeNotificationTemplateMarketBuyEscrowRefund.value = resolved.market_buy_escrow_refund || "";
+  }
+  if (elements.runtimeNotificationTemplateDeliveryWaitClaimOrder) {
+    elements.runtimeNotificationTemplateDeliveryWaitClaimOrder.value = resolved.delivery_wait_claim_order || "";
+  }
+  if (elements.runtimeNotificationTemplateDeliveryWaitClaimMarket) {
+    elements.runtimeNotificationTemplateDeliveryWaitClaimMarket.value = resolved.delivery_wait_claim_market || "";
+  }
+  if (elements.runtimeNotificationTemplateMailboxPending) {
+    elements.runtimeNotificationTemplateMailboxPending.value = resolved.mailbox_pending || "";
+  }
+}
+
+function collectNotificationTemplatesFromDialog() {
+  return normalizeNotificationSettings({
+    templates: {
+      market_listed: String(elements.runtimeNotificationTemplateMarketListed?.value || ""),
+      market_trade: String(elements.runtimeNotificationTemplateMarketTrade?.value || ""),
+      auction_bid_self: String(elements.runtimeNotificationTemplateAuctionBidSelf?.value || ""),
+      auction_bid_seller: String(elements.runtimeNotificationTemplateAuctionBidSeller?.value || ""),
+      auction_outbid: String(elements.runtimeNotificationTemplateAuctionOutbid?.value || ""),
+      auction_settlement: String(elements.runtimeNotificationTemplateAuctionSettlement?.value || ""),
+      market_buy_escrow_refund: String(elements.runtimeNotificationTemplateMarketBuyEscrowRefund?.value || ""),
+      delivery_wait_claim_order: String(elements.runtimeNotificationTemplateDeliveryWaitClaimOrder?.value || ""),
+      delivery_wait_claim_market: String(elements.runtimeNotificationTemplateDeliveryWaitClaimMarket?.value || ""),
+      mailbox_pending: String(elements.runtimeNotificationTemplateMailboxPending?.value || ""),
+    },
+  }).templates;
+}
+
+function applyNotificationSettingsToForm(config) {
+  const normalized = normalizeNotificationSettings(config);
+  state.notificationSettings = normalized;
+  if (elements.runtimeNotificationMarketEnabled) {
+    elements.runtimeNotificationMarketEnabled.value = String(normalized.marketEventsEnabled);
+  }
+  if (elements.runtimeNotificationDeliveryEnabled) {
+    elements.runtimeNotificationDeliveryEnabled.value = String(normalized.deliveryMailboxEventsEnabled);
+  }
+  applyNotificationTemplatesToDialog(normalized.templates);
+}
+
+function isNotificationTemplateDialogOpen() {
+  return Boolean(elements.notificationTemplateDialog?.classList.contains("show"));
+}
+
+function openNotificationTemplateDialog() {
+  if (!elements.notificationTemplateDialog) {
+    return;
+  }
+  applyNotificationTemplatesToDialog(state.notificationSettings?.templates || {});
+  elements.notificationTemplateDialog.classList.add("show");
+  elements.notificationTemplateDialog.setAttribute("aria-hidden", "false");
+}
+
+function closeNotificationTemplateDialog() {
+  if (!elements.notificationTemplateDialog) {
+    return;
+  }
+  elements.notificationTemplateDialog.classList.remove("show");
+  elements.notificationTemplateDialog.setAttribute("aria-hidden", "true");
+}
+
+function saveNotificationTemplateDialog() {
+  if (!state.notificationSettings || typeof state.notificationSettings !== "object") {
+    state.notificationSettings = normalizeNotificationSettings({});
+  }
+  state.notificationSettings.templates = collectNotificationTemplatesFromDialog();
+  closeNotificationTemplateDialog();
+  setMetaText(elements.runtimeNotificationStatusView, "模板已更新，点击“保存消息设置”即可生效", "info");
+  notify("消息模板已更新，请点击“保存消息设置”提交。", "success");
+}
+
+async function saveNotificationSettings() {
+  ensureAdmin();
+  if (!state.notificationSettings || typeof state.notificationSettings !== "object") {
+    state.notificationSettings = normalizeNotificationSettings({});
+  }
+  state.notificationSettings.marketEventsEnabled = elements.runtimeNotificationMarketEnabled?.value !== "false";
+  state.notificationSettings.deliveryMailboxEventsEnabled = elements.runtimeNotificationDeliveryEnabled?.value !== "false";
+  state.notificationSettings.templates = collectNotificationTemplatesFromDialog();
+  const normalized = normalizeNotificationSettings(state.notificationSettings);
+  await apiAdmin("/api/admin/system/notification", {
+    method: "POST",
+    body: JSON.stringify({
+      marketEventsEnabled: normalized.marketEventsEnabled,
+      deliveryMailboxEventsEnabled: normalized.deliveryMailboxEventsEnabled,
+      templates: normalized.templates,
+    }),
+  });
+  state.notificationSettings = normalized;
+  setMetaText(elements.runtimeNotificationStatusView, "消息设置已保存", "success");
+  notify("消息设置已保存", "success");
+}
+
+async function sendAdminAnnouncement() {
+  ensureAdmin();
+  const title = String(elements.runtimeAnnouncementTitle?.value || "").trim();
+  const content = String(elements.runtimeAnnouncementContent?.value || "").trim();
+  if (!title || !content) {
+    throw new Error("公告标题和内容不能为空。");
+  }
+  const payload = await apiAdmin("/api/admin/notifications/announce", {
+    method: "POST",
+    body: JSON.stringify({ title, content }),
+  });
+  const delivered = Number(payload.delivered || 0);
+  setMetaText(elements.runtimeAnnouncementStatusView, `公告已发送，触达 ${delivered} 位用户`, "success");
+  notify(`公告发送成功，触达 ${delivered} 位用户。`, "success");
 }
 
 async function saveBroadcastSettings() {
@@ -6472,6 +6669,54 @@ if (elements.runtimeBroadcastSaveBtn) {
   });
 }
 
+if (elements.runtimeNotificationTemplateEditBtn) {
+  elements.runtimeNotificationTemplateEditBtn.addEventListener("click", () => {
+    openNotificationTemplateDialog();
+  });
+}
+
+if (elements.notificationTemplateCancelBtn) {
+  elements.notificationTemplateCancelBtn.addEventListener("click", () => {
+    closeNotificationTemplateDialog();
+  });
+}
+
+if (elements.notificationTemplateSaveBtn) {
+  elements.notificationTemplateSaveBtn.addEventListener("click", () => {
+    saveNotificationTemplateDialog();
+  });
+}
+
+if (elements.notificationTemplateDialog) {
+  elements.notificationTemplateDialog.addEventListener("click", (event) => {
+    if (event.target === elements.notificationTemplateDialog) {
+      closeNotificationTemplateDialog();
+    }
+  });
+}
+
+if (elements.runtimeNotificationSaveBtn) {
+  elements.runtimeNotificationSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveNotificationSettings();
+    } catch (error) {
+      setMetaText(elements.runtimeNotificationStatusView, `保存失败：${error.message}`, "error");
+      notify(`保存失败：${error.message}`, "error");
+    }
+  });
+}
+
+if (elements.runtimeAnnouncementSendBtn) {
+  elements.runtimeAnnouncementSendBtn.addEventListener("click", async () => {
+    try {
+      await sendAdminAnnouncement();
+    } catch (error) {
+      setMetaText(elements.runtimeAnnouncementStatusView, `发送失败：${error.message}`, "error");
+      notify(`发送失败：${error.message}`, "error");
+    }
+  });
+}
+
 if (elements.visualSettingsSaveBtn) {
   elements.visualSettingsSaveBtn.addEventListener("click", async () => {
     try {
@@ -6976,6 +7221,12 @@ if (elements.runtimeLoggingStatusView) {
 }
 if (elements.runtimeBroadcastStatusView) {
   setMetaText(elements.runtimeBroadcastStatusView, "等待操作", "info");
+}
+if (elements.runtimeNotificationStatusView) {
+  setMetaText(elements.runtimeNotificationStatusView, "等待操作", "info");
+}
+if (elements.runtimeAnnouncementStatusView) {
+  setMetaText(elements.runtimeAnnouncementStatusView, "等待发送公告", "info");
 }
 if (elements.materialOverrideStatusView) {
   setMetaText(elements.materialOverrideStatusView, "等待加载材质映射", "info");

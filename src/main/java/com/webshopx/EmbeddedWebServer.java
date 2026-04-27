@@ -173,6 +173,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/system/maintenance", this::handleAdminMaintenanceSettingsUpdate);
     server.createContext("/api/admin/system/logging", this::handleAdminLoggingSettingsUpdate);
     server.createContext("/api/admin/system/broadcast", this::handleAdminBroadcastSettingsUpdate);
+    server.createContext("/api/admin/system/notification", this::handleAdminNotificationSettingsUpdate);
     server.createContext("/api/admin/visual/settings", this::handleAdminVisualSettingsUpdate);
     server.createContext("/api/admin/material-overrides/list", this::handleAdminMaterialOverridesList);
     server.createContext("/api/admin/material-overrides/upsert", this::handleAdminMaterialOverridesUpsert);
@@ -965,6 +966,21 @@ class EmbeddedWebServer {
     json.addProperty("enabled", settings.enabled());
     JsonObject templates = new JsonObject();
     for (Map.Entry<String, String> entry : settings.templates().entrySet()) {
+      templates.addProperty(entry.getKey(), entry.getValue());
+    }
+    json.add("templates", templates);
+    return json;
+  }
+
+  private JsonObject notificationSettingsJson(RuntimeConfigService.NotificationSettings settings) {
+    RuntimeConfigService.NotificationSettings normalized = settings == null
+        ? RuntimeConfigService.NotificationSettings.defaults()
+        : settings.normalized();
+    JsonObject json = new JsonObject();
+    json.addProperty("marketEventsEnabled", normalized.marketEventsEnabled());
+    json.addProperty("deliveryMailboxEventsEnabled", normalized.deliveryMailboxEventsEnabled());
+    JsonObject templates = new JsonObject();
+    for (Map.Entry<String, String> entry : normalized.templates().entrySet()) {
       templates.addProperty(entry.getKey(), entry.getValue());
     }
     json.add("templates", templates);
@@ -2363,6 +2379,7 @@ class EmbeddedWebServer {
       response.add("maintenance", maintenanceSettingsJson(settings.maintenanceSettings()));
       response.add("logging", loggingSettingsJson(settings.loggingSettings()));
       response.add("broadcast", broadcastSettingsJson(settings.broadcastSettings()));
+      response.add("notification", notificationSettingsJson(runtimeConfigService.readNotificationSettings()));
       response.add("visual", visualSettingsJson(visualCustomizationService.readSettings()));
       sendJson(exchange, 200, response);
 
@@ -2759,6 +2776,50 @@ class EmbeddedWebServer {
       adminAuditService.log(admin, "BROADCAST_UPDATE", "broadcast", null, broadcastSettingsJson(broadcastSettings), clientIp(exchange));
       JsonObject response = new JsonObject();
       response.addProperty("status", "ok");
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminNotificationSettingsUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      RuntimeConfigService.NotificationSettings defaults = RuntimeConfigService.NotificationSettings.defaults();
+      JsonObject rawTemplates = payload.has("templates") && payload.get("templates").isJsonObject()
+          ? payload.getAsJsonObject("templates")
+          : new JsonObject();
+      Map<String, String> templates = new LinkedHashMap<>();
+      for (Map.Entry<String, String> entry : defaults.templates().entrySet()) {
+        String key = entry.getKey();
+        String fallback = entry.getValue();
+        String value = rawTemplates.has(key) && !rawTemplates.get(key).isJsonNull()
+            ? rawTemplates.get(key).getAsString()
+            : fallback;
+        templates.put(key, value == null || value.isBlank() ? fallback : value.trim());
+      }
+      RuntimeConfigService.NotificationSettings notificationSettings = new RuntimeConfigService.NotificationSettings(
+          getBoolean(payload, "marketEventsEnabled"),
+          getBoolean(payload, "deliveryMailboxEventsEnabled"),
+          templates).normalized();
+      long version = runtimeConfigService.updateNotificationSettings(notificationSettings);
+      publishRuntimeConfigRefresh(version);
+
+      adminAuditService.log(
+          admin,
+          "NOTIFICATION_SETTINGS_UPDATE",
+          "notification",
+          null,
+          notificationSettingsJson(notificationSettings),
+          clientIp(exchange));
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      response.add("notification", notificationSettingsJson(notificationSettings));
       sendJson(exchange, 200, response);
     });
   }
@@ -3541,7 +3602,7 @@ class EmbeddedWebServer {
     }
     withServiceHandling(exchange, () -> {
       JsonObject payload = readJson(exchange);
-      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.MARKET_MANAGE);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
       String title = getString(payload, "title").trim();
       String content = getString(payload, "content").trim();
       if (title.isBlank() || content.isBlank()) {

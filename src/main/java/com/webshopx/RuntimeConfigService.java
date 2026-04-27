@@ -29,6 +29,7 @@ class RuntimeConfigService {
   private static final String KEY_MAINTENANCE = "maintenance";
   private static final String KEY_LOGGING = "logging";
   private static final String KEY_BROADCAST = "broadcast";
+  private static final String KEY_NOTIFICATION = "notification";
 
   private final DatabaseManager databaseManager;
   private final Gson gson;
@@ -63,6 +64,7 @@ class RuntimeConfigService {
       upsertConfig(connection, KEY_MAINTENANCE, serializeMaintenance(settings.maintenanceSettings()));
       upsertConfig(connection, KEY_LOGGING, serializeLogging(settings.loggingSettings()));
       upsertConfig(connection, KEY_BROADCAST, serializeBroadcast(settings.broadcastSettings()));
+      upsertConfig(connection, KEY_NOTIFICATION, serializeDefaultNotificationConfig());
       writeMetaValue(connection, META_LEGACY_MIGRATED, "1");
       return true;
     });
@@ -94,6 +96,7 @@ class RuntimeConfigService {
       insertIfMissing(connection, KEY_MAINTENANCE, serializeMaintenance(settings.maintenanceSettings()));
       insertIfMissing(connection, KEY_LOGGING, serializeLogging(settings.loggingSettings()));
       insertIfMissing(connection, KEY_BROADCAST, serializeBroadcast(settings.broadcastSettings()));
+      insertIfMissing(connection, KEY_NOTIFICATION, serializeDefaultNotificationConfig());
       return null;
     });
   }
@@ -191,6 +194,21 @@ class RuntimeConfigService {
   long updateBroadcast(PluginSettings.BroadcastSettings broadcastSettings) {
     return databaseManager.inTransaction(connection ->
         updateConfig(connection, KEY_BROADCAST, serializeBroadcast(broadcastSettings)));
+  }
+
+  NotificationSettings readNotificationSettings() {
+    return databaseManager.withConnection(connection -> {
+      ConfigDocument document = readConfigObject(connection, KEY_NOTIFICATION, serializeDefaultNotificationConfig());
+      return parseNotificationSettings(document.config());
+    });
+  }
+
+  long updateNotificationSettings(NotificationSettings notificationSettings) {
+    NotificationSettings normalized = notificationSettings == null
+        ? NotificationSettings.defaults()
+        : notificationSettings.normalized();
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_NOTIFICATION, serializeNotification(normalized)));
   }
 
   private RuntimeSnapshot loadSnapshot(Connection connection, PluginSettings defaults) throws SQLException {
@@ -729,6 +747,49 @@ class RuntimeConfigService {
     }
   }
 
+  private String serializeDefaultNotificationConfig() {
+    return serializeNotification(NotificationSettings.defaults());
+  }
+
+  private String serializeNotification(NotificationSettings settings) {
+    NotificationSettings normalized = settings == null ? NotificationSettings.defaults() : settings.normalized();
+    JsonObject root = new JsonObject();
+    root.addProperty("marketEventsEnabled", normalized.marketEventsEnabled());
+    root.addProperty("deliveryMailboxEventsEnabled", normalized.deliveryMailboxEventsEnabled());
+    JsonObject templates = new JsonObject();
+    for (Map.Entry<String, String> entry : normalized.templates().entrySet()) {
+      templates.addProperty(entry.getKey(), entry.getValue());
+    }
+    root.add("templates", templates);
+    return gson.toJson(root);
+  }
+
+  private NotificationSettings parseNotificationSettings(JsonObject root) {
+    NotificationSettings fallback = NotificationSettings.defaults();
+    if (root == null) {
+      return fallback;
+    }
+    Map<String, String> templates = new LinkedHashMap<>(fallback.templates());
+    JsonObject templateObject = root.has("templates") && root.get("templates").isJsonObject()
+        ? root.getAsJsonObject("templates")
+        : null;
+    if (templateObject != null) {
+      for (Map.Entry<String, JsonElement> entry : templateObject.entrySet()) {
+        if (entry.getValue() == null || entry.getValue().isJsonNull()) {
+          continue;
+        }
+        String value = entry.getValue().getAsString();
+        if (value != null && !value.isBlank()) {
+          templates.put(entry.getKey(), value.trim());
+        }
+      }
+    }
+    return new NotificationSettings(
+        readBoolean(root, "marketEventsEnabled", fallback.marketEventsEnabled()),
+        readBoolean(root, "deliveryMailboxEventsEnabled", fallback.deliveryMailboxEventsEnabled()),
+        templates).normalized();
+  }
+
   private JsonObject parseConfigObject(String rawJson) {
     if (rawJson == null || rawJson.isBlank()) {
       return new JsonObject();
@@ -810,6 +871,75 @@ class RuntimeConfigService {
       return ZoneId.of(raw);
     } catch (Exception exception) {
       return fallback;
+    }
+  }
+
+  record NotificationSettings(
+      boolean marketEventsEnabled,
+      boolean deliveryMailboxEventsEnabled,
+      Map<String, String> templates) {
+    static NotificationSettings defaults() {
+      return new NotificationSettings(true, true, defaultTemplateMap());
+    }
+
+    static Map<String, String> defaultTemplateMap() {
+      Map<String, String> templates = new LinkedHashMap<>();
+      templates.put(
+          "market_listed",
+          "你的上架 #{listingId} 已发布：{item} x{quantity}，单价 {priceText}。");
+      templates.put(
+          "market_trade",
+          "上架 #{listingId} 已成交：{item} x{quantity}，总价 {totalText}。");
+      templates.put(
+          "auction_bid_self",
+          "你在拍卖 #{listingId} 出价成功：{bidAmountText}。");
+      templates.put(
+          "auction_bid_seller",
+          "拍卖 #{listingId} 收到来自 {bidderName} 的新出价。");
+      templates.put(
+          "auction_outbid",
+          "你在拍卖 #{listingId} 的领先出价已被超过。");
+      templates.put(
+          "auction_settlement",
+          "{message}");
+      templates.put(
+          "market_buy_escrow_refund",
+          "收购单 #{listingId} 托管金额已退回：{amountText}。");
+      templates.put(
+          "delivery_wait_claim_order",
+          "订单 {token} 自动发货失败，请在游戏内执行 /ws claim {token} 领取。原因：{reason}");
+      templates.put(
+          "delivery_wait_claim_market",
+          "市场物品自动发货失败，请在游戏内执行 /ws claim {token} 领取。原因：{reason}");
+      templates.put(
+          "mailbox_pending",
+          "自动发货时背包不可用，物品已存入游戏信箱。请在游戏内执行 /ws mailbox claim 领取。来源：{sourceType} {sourceRef}");
+      return templates;
+    }
+
+    NotificationSettings normalized() {
+      Map<String, String> normalizedTemplates = new LinkedHashMap<>(defaultTemplateMap());
+      if (templates != null) {
+        for (Map.Entry<String, String> entry : templates.entrySet()) {
+          String key = entry.getKey();
+          String value = entry.getValue();
+          if (key == null || key.isBlank() || value == null || value.isBlank()) {
+            continue;
+          }
+          normalizedTemplates.put(key.trim(), value.trim());
+        }
+      }
+      return new NotificationSettings(
+          marketEventsEnabled,
+          deliveryMailboxEventsEnabled,
+          normalizedTemplates);
+    }
+
+    String template(String key) {
+      if (key == null || key.isBlank()) {
+        return "";
+      }
+      return normalized().templates().getOrDefault(key, "");
     }
   }
 

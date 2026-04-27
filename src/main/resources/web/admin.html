@@ -934,6 +934,42 @@
         </article>
 
         <article class="md-card section-card">
+          <h2>消息管理</h2>
+          <p class="card-desc">可视化编辑公告消息、业务通知开关与通知模板。</p>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>市场业务事件通知</span>
+              <select id="runtimeNotificationMarketEnabled">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>发货/信箱事件通知</span>
+              <select id="runtimeNotificationDeliveryEnabled">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>公告标题</span>
+              <input id="runtimeAnnouncementTitle" placeholder="例如 服务器维护通知" />
+            </label>
+            <label class="field product-remark-field">
+              <span>公告内容</span>
+              <textarea id="runtimeAnnouncementContent" rows="3" placeholder="输入要推送给所有用户的公告内容"></textarea>
+            </label>
+          </div>
+          <div class="actions">
+            <button id="runtimeNotificationTemplateEditBtn" class="btn-tonal" type="button">编辑消息模板</button>
+            <button id="runtimeNotificationSaveBtn" type="button">保存消息设置</button>
+            <button id="runtimeAnnouncementSendBtn" class="btn-tonal" type="button">发送公告</button>
+          </div>
+          <p class="meta" id="runtimeNotificationStatusView">等待操作</p>
+          <p class="meta" id="runtimeAnnouncementStatusView">等待发送公告</p>
+        </article>
+
+        <article class="md-card section-card">
           <h2>视觉自定义策略</h2>
           <p class="card-desc">控制全局材质映射的启用状态、优先级策略，以及玩家级权限继承逻辑。</p>
           <div class="field-grid two-col">
@@ -1296,6 +1332,61 @@
   <div id="snackbarHost" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
   <datalist id="materialSuggestList"></datalist>
   <datalist id="potionEffectSuggestList"></datalist>
+
+  <div id="notificationTemplateDialog" class="dialog-backdrop" aria-hidden="true">
+    <article class="md-card dialog-card market-policy-dialog-card">
+      <h3>编辑消息模板</h3>
+      <p>修改后先点击“保存模板”，再点击“保存消息设置”写入数据库。</p>
+      <div class="dialog-details market-policy-dialog-scroll">
+        <div class="field-grid">
+          <label class="field product-remark-field">
+            <span>上架提醒模板</span>
+            <textarea id="runtimeNotificationTemplateMarketListed" rows="2"></textarea>
+          </label>
+          <label class="field product-remark-field">
+            <span>市场成交模板</span>
+            <textarea id="runtimeNotificationTemplateMarketTrade" rows="2"></textarea>
+          </label>
+          <label class="field product-remark-field">
+            <span>竞拍成功（出价者）模板</span>
+            <textarea id="runtimeNotificationTemplateAuctionBidSelf" rows="2"></textarea>
+          </label>
+          <label class="field product-remark-field">
+            <span>竞拍更新（卖家）模板</span>
+            <textarea id="runtimeNotificationTemplateAuctionBidSeller" rows="2"></textarea>
+          </label>
+          <label class="field product-remark-field">
+            <span>竞拍超价模板</span>
+            <textarea id="runtimeNotificationTemplateAuctionOutbid" rows="2"></textarea>
+          </label>
+          <label class="field product-remark-field">
+            <span>拍卖结算模板</span>
+            <textarea id="runtimeNotificationTemplateAuctionSettlement" rows="2"></textarea>
+          </label>
+          <label class="field product-remark-field">
+            <span>收购托管退款模板</span>
+            <textarea id="runtimeNotificationTemplateMarketBuyEscrowRefund" rows="2"></textarea>
+          </label>
+          <label class="field product-remark-field">
+            <span>订单待领取模板</span>
+            <textarea id="runtimeNotificationTemplateDeliveryWaitClaimOrder" rows="2"></textarea>
+          </label>
+          <label class="field product-remark-field">
+            <span>市场待领取模板</span>
+            <textarea id="runtimeNotificationTemplateDeliveryWaitClaimMarket" rows="2"></textarea>
+          </label>
+          <label class="field product-remark-field">
+            <span>信箱待领取模板</span>
+            <textarea id="runtimeNotificationTemplateMailboxPending" rows="2"></textarea>
+          </label>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="notificationTemplateCancelBtn" class="btn-tonal" type="button">取消</button>
+        <button id="notificationTemplateSaveBtn" type="button">保存模板</button>
+      </div>
+    </article>
+  </div>
 
   <div id="marketTagEditDialog" class="dialog-backdrop" aria-hidden="true">
     <article class="md-card dialog-card market-policy-dialog-card">

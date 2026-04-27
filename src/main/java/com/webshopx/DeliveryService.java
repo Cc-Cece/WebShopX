@@ -30,10 +30,14 @@ import org.bukkit.plugin.java.JavaPlugin;
 class DeliveryService {
   private static final int MAX_AUTO_RETRY_BEFORE_CLAIM = 3;
   private static final long CLAIM_HINT_INTERVAL_MS = 30_000L;
+  private static final String TEMPLATE_DELIVERY_WAIT_CLAIM_ORDER = "delivery_wait_claim_order";
+  private static final String TEMPLATE_DELIVERY_WAIT_CLAIM_MARKET = "delivery_wait_claim_market";
+  private static final String TEMPLATE_MAILBOX_PENDING = "mailbox_pending";
 
   private final JavaPlugin plugin;
   private final DatabaseManager databaseManager;
   private final WalletService walletService;
+  private final RuntimeConfigService runtimeConfigService;
   private final Supplier<PluginSettings> settingsSupplier;
   private final MessageService messageService;
   private final NotificationService notificationService;
@@ -45,6 +49,7 @@ class DeliveryService {
       JavaPlugin plugin,
       DatabaseManager databaseManager,
       WalletService walletService,
+      RuntimeConfigService runtimeConfigService,
       Supplier<PluginSettings> settingsSupplier,
       MessageService messageService,
       NotificationService notificationService,
@@ -52,6 +57,7 @@ class DeliveryService {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.walletService = walletService;
+    this.runtimeConfigService = runtimeConfigService;
     this.settingsSupplier = settingsSupplier;
     this.messageService = messageService;
     this.notificationService = notificationService;
@@ -289,7 +295,7 @@ class DeliveryService {
           WHERE dq.mc_uuid = ?
             AND dq.status = 'PENDING'
             AND o.status = 'PENDING'
-            AND dq.last_error = '玩家离线'
+            AND dq.last_error = '鐜╁绂荤嚎'
             AND dq.next_retry_at > NOW()
           """;
       try (PreparedStatement statement = connection.prepareStatement(commandSql)) {
@@ -302,7 +308,7 @@ class DeliveryService {
           SET next_retry_at = NOW()
           WHERE target_uuid = ?
             AND status = 'PENDING'
-            AND last_error = '玩家离线'
+            AND last_error = '鐜╁绂荤嚎'
             AND next_retry_at > NOW()
           """;
       try (PreparedStatement statement = connection.prepareStatement(marketSql)) {
@@ -492,11 +498,11 @@ class DeliveryService {
     DeliveryKind kind = DeliveryKind.fromRaw(task.deliveryKind());
     Player player = forcedPlayer == null ? Bukkit.getPlayer(task.playerUuid()) : forcedPlayer;
     if (player == null || !player.isOnline()) {
-      if (!claimMode && kind == DeliveryKind.GIVE_ITEM && tryMoveCommandItemToMailbox(task, claimMode, "玩家离线", null)) {
+      if (!claimMode && kind == DeliveryKind.GIVE_ITEM && tryMoveCommandItemToMailbox(task, claimMode, "鐜╁绂荤嚎", null)) {
         return true;
       }
       if (!claimMode) {
-        rescheduleCommand(task.id(), "玩家离线", false);
+        rescheduleCommand(task.id(), "鐜╁绂荤嚎", false);
       }
       return false;
     }
@@ -557,11 +563,11 @@ class DeliveryService {
   private boolean handleMarketTask(MarketItemDeliveryTask task, boolean claimMode, Player forcedPlayer) {
     Player player = forcedPlayer == null ? Bukkit.getPlayer(task.targetUuid()) : forcedPlayer;
     if (player == null || !player.isOnline()) {
-      if (!claimMode && tryMoveMarketItemToMailbox(task, claimMode, "玩家离线", null)) {
+      if (!claimMode && tryMoveMarketItemToMailbox(task, claimMode, "鐜╁绂荤嚎", null)) {
         return true;
       }
       if (!claimMode) {
-        rescheduleMarket(task.id(), "玩家离线", false);
+        rescheduleMarket(task.id(), "鐜╁绂荤嚎", false);
       }
       return false;
     }
@@ -569,7 +575,7 @@ class DeliveryService {
     try {
       ItemStack itemStack = itemSnapshotCodec.deserialize(task.itemBlob());
       if (itemStack.getType() == Material.AIR) {
-        throw new IllegalStateException("物品快照为空");
+        throw new IllegalStateException("鐗╁搧蹇収涓虹┖");
       }
 
       addItemToInventory(player, itemStack, task.quantity());
@@ -886,10 +892,17 @@ class DeliveryService {
         String orderNo = resultSet.getString("order_no");
         String claimToken = resultSet.getString("claim_token");
         String token = claimToken == null || claimToken.isBlank() ? orderNo : claimToken;
-        String title = "订单待领取";
-        String content = "订单 " + token + " 自动发货失败，请在游戏内执行 /ws claim "
-            + token + " 领取。原因：" + truncate(errorMessage, 120);
-        notificationService.createNotification(userId, "DELIVERY_WAIT_CLAIM", title, content);
+        String reason = truncate(errorMessage, 120);
+        notifyDeliveryMailboxEvent(
+            userId,
+            "DELIVERY_WAIT_CLAIM",
+            TEMPLATE_DELIVERY_WAIT_CLAIM_ORDER,
+            "订单待领取提醒",
+            "订单 " + token + " 自动发货失败，请在游戏内执行 /ws claim "
+                + token + " 领取。原因：" + reason,
+            Map.of(
+                "token", token,
+                "reason", reason));
       }
     }
   }
@@ -918,10 +931,17 @@ class DeliveryService {
     if (token == null || token.isBlank()) {
       token = task.tradeId() == null ? "#" + task.listingId() : "MKT-" + task.tradeId();
     }
-    String title = "市场物品待领取";
-    String content = "市场物品自动发货失败，请在游戏内执行 /ws claim "
-        + token + " 领取。原因：" + truncate(errorMessage, 120);
-    notificationService.createNotification(task.targetUserId(), "DELIVERY_WAIT_CLAIM", title, content);
+    String reason = truncate(errorMessage, 120);
+    notifyDeliveryMailboxEvent(
+        task.targetUserId(),
+        "DELIVERY_WAIT_CLAIM",
+        TEMPLATE_DELIVERY_WAIT_CLAIM_MARKET,
+        "市场物品待领取提醒",
+        "市场物品自动发货失败，请在游戏内执行 /ws claim "
+            + token + " 领取。原因：" + reason,
+        Map.of(
+            "token", token,
+            "reason", reason));
   }
 
   private String renderCommand(String template, String playerName, int quantity, String orderNo) {
@@ -954,7 +974,7 @@ class DeliveryService {
     int amount = payload.has("amount") ? payload.get("amount").getAsInt() : task.quantity();
     Material material = resolveMaterial(materialRaw);
     if (material == null || material == Material.AIR) {
-      throw new ServiceException("invalid_delivery_payload", "物品材质无效");
+      throw new ServiceException("invalid_delivery_payload", "鐗╁搧鏉愯川鏃犳晥");
     }
     addItemToInventory(player, new ItemStack(material, 1), amount);
   }
@@ -967,7 +987,7 @@ class DeliveryService {
 
     PotionEffectType effectType = resolvePotionEffectType(effectRaw);
     if (effectType == null) {
-      throw new ServiceException("invalid_delivery_payload", "药水效果无效");
+      throw new ServiceException("invalid_delivery_payload", "鑽按鏁堟灉鏃犳晥");
     }
     int durationTicks = Math.max(20, seconds * 20);
     player.addPotionEffect(new PotionEffect(effectType, durationTicks, Math.max(0, amplifier)), true);
@@ -985,7 +1005,7 @@ class DeliveryService {
       stack.setAmount(chunk);
       Map<Integer, ItemStack> leftovers = player.getInventory().addItem(stack);
       if (!leftovers.isEmpty()) {
-        throw new IllegalStateException("背包已满");
+        throw new IllegalStateException("鑳屽寘宸叉弧");
       }
       remaining -= chunk;
     }
@@ -1051,7 +1071,7 @@ class DeliveryService {
     String materialRaw = payload.has("material") ? payload.get("material").getAsString() : "";
     Material material = resolveMaterial(materialRaw);
     if (material == null || material == Material.AIR) {
-      throw new ServiceException("invalid_delivery_payload", "物品材质无效");
+      throw new ServiceException("invalid_delivery_payload", "鐗╁搧鏉愯川鏃犳晥");
     }
     return new ItemStack(material, 1);
   }
@@ -1060,18 +1080,62 @@ class DeliveryService {
     if (userId <= 0L) {
       return;
     }
-    String title = "物品已转入游戏信箱";
-    String content = "自动发货时背包不可用，物品已存入游戏信箱。"
-        + "请在游戏内执行 /ws mailbox claim 领取。来源：" + sourceType + " " + sourceRef;
-    notificationService.createNotification(userId, "MAILBOX_PENDING", title, content);
+    notifyDeliveryMailboxEvent(
+        userId,
+        "MAILBOX_PENDING",
+        TEMPLATE_MAILBOX_PENDING,
+        "信箱待领取提醒",
+        "自动发货时背包不可用，物品已存入游戏信箱。请在游戏内执行 /ws mailbox claim 领取。来源："
+            + sourceType + " " + sourceRef,
+        Map.of(
+            "sourceType", sourceType,
+            "sourceRef", sourceRef));
+  }
+  private void notifyDeliveryMailboxEvent(
+      long userId,
+      String type,
+      String templateKey,
+      String title,
+      String fallbackContent,
+      Map<String, Object> placeholders) {
+    if (userId <= 0L) {
+      return;
+    }
+    RuntimeConfigService.NotificationSettings settings = runtimeConfigService.readNotificationSettings();
+    if (!settings.deliveryMailboxEventsEnabled()) {
+      return;
+    }
+    String content = renderNotificationTemplate(settings.template(templateKey), fallbackContent, placeholders);
+    notificationService.createNotification(userId, type, title, content);
   }
 
+  private String renderNotificationTemplate(
+      String template,
+      String fallback,
+      Map<String, Object> placeholders) {
+    String result = template == null || template.isBlank() ? fallback : template;
+    if (result == null || result.isBlank()) {
+      return "";
+    }
+    if (placeholders == null || placeholders.isEmpty()) {
+      return result;
+    }
+    for (Map.Entry<String, Object> entry : placeholders.entrySet()) {
+      String key = entry.getKey();
+      if (key == null || key.isBlank()) {
+        continue;
+      }
+      String value = entry.getValue() == null ? "" : String.valueOf(entry.getValue());
+      result = result.replace("{" + key + "}", value);
+    }
+    return result;
+  }
   private boolean isInventoryFullError(String message) {
     if (message == null || message.isBlank()) {
       return false;
     }
     String normalized = message.toLowerCase(Locale.ROOT);
-    return normalized.contains("inventory is full") || message.contains("背包已满");
+    return normalized.contains("inventory is full") || message.contains("鑳屽寘宸叉弧");
   }
 
   private Material resolveMaterial(String raw) {
@@ -1112,19 +1176,19 @@ class DeliveryService {
     }
     String raw = message.trim();
     String normalized = message.toLowerCase(Locale.ROOT);
-    if (normalized.contains("inventory is full") || raw.contains("背包已满")) {
+    if (normalized.contains("inventory is full") || raw.contains("鑳屽寘宸叉弧")) {
       return msg(player, "chat.delivery.inventory_full");
     }
-    if (normalized.contains("player is offline") || raw.contains("玩家离线")) {
+    if (normalized.contains("player is offline") || raw.contains("鐜╁绂荤嚎")) {
       return msg(player, "chat.delivery.player_offline");
     }
-    if (normalized.contains("item snapshot is empty") || raw.contains("物品快照为空")) {
+    if (normalized.contains("item snapshot is empty") || raw.contains("鐗╁搧蹇収涓虹┖")) {
       return msg(player, "chat.delivery.empty_snapshot");
     }
-    if (normalized.contains("invalid item material") || raw.contains("物品材质无效")) {
+    if (normalized.contains("invalid item material") || raw.contains("鐗╁搧鏉愯川鏃犳晥")) {
       return msg(player, "chat.delivery.invalid_material");
     }
-    if (normalized.contains("invalid potion effect") || raw.contains("药水效果无效")) {
+    if (normalized.contains("invalid potion effect") || raw.contains("鑽按鏁堟灉鏃犳晥")) {
       return msg(player, "chat.delivery.invalid_potion");
     }
     return message;
@@ -1389,4 +1453,8 @@ class DeliveryService {
       String status) {
   }
 }
+
+
+
+
 

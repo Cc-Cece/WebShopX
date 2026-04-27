@@ -40,10 +40,18 @@ class MarketService {
   private static final long DEFAULT_ANTI_SNIPING_EXTEND_SECONDS = 30L;
   private static final String ANTI_SNIPING_WINDOW_KEY = "antiSnipingWindowSeconds";
   private static final String ANTI_SNIPING_EXTEND_KEY = "antiSnipingExtendSeconds";
+  private static final String TEMPLATE_MARKET_LISTED = "market_listed";
+  private static final String TEMPLATE_MARKET_TRADE = "market_trade";
+  private static final String TEMPLATE_AUCTION_BID_SELF = "auction_bid_self";
+  private static final String TEMPLATE_AUCTION_BID_SELLER = "auction_bid_seller";
+  private static final String TEMPLATE_AUCTION_OUTBID = "auction_outbid";
+  private static final String TEMPLATE_AUCTION_SETTLEMENT = "auction_settlement";
+  private static final String TEMPLATE_MARKET_BUY_ESCROW_REFUND = "market_buy_escrow_refund";
 
   private final JavaPlugin plugin;
   private final DatabaseManager databaseManager;
   private final WalletService walletService;
+  private final RuntimeConfigService runtimeConfigService;
   private final Supplier<PluginSettings> settingsSupplier;
   private final MessageService messageService;
   private final NotificationService notificationService;
@@ -68,6 +76,7 @@ class MarketService {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.walletService = walletService;
+    this.runtimeConfigService = runtimeConfigService;
     this.settingsSupplier = settingsSupplier;
     this.messageService = messageService;
     this.notificationService = notificationService;
@@ -1439,12 +1448,16 @@ class MarketService {
     }
     Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, () -> {
       try {
-        notificationService.createNotification(
+        String amountText = formatAmount(refundable, listing.currency());
+        notifyMarketEvent(
             listing.sellerUserId(),
             "MARKET_BUY_ORDER_REFUND_ESCROW",
-            "BUY Escrow Refunded",
-            "Listing #" + listing.id() + " refunded escrow: "
-                + formatAmount(refundable, listing.currency()) + ".");
+            "收购托管退款",
+            TEMPLATE_MARKET_BUY_ESCROW_REFUND,
+            "收购单 #" + listing.id() + " 托管金额已退回：" + amountText + "。",
+            Map.of(
+                "listingId", listing.id(),
+                "amountText", amountText));
       } catch (Exception ignored) {
         // Keep business path stable even when notification fails.
       }
@@ -3693,12 +3706,18 @@ class MarketService {
               "currency", result.currency().name(),
               "priceText", amountText,
               "tradeMode", tradeMode.name()));
-      notificationService.createNotification(
+      notifyMarketEvent(
           sellerUserId,
           "MARKET_LISTED",
-          "Listing Created",
-          "Listing #" + result.listingId() + " is now active: "
-              + itemLabel + " x" + result.quantity() + ", unit price " + amountText + ".");
+          "上架提醒",
+          TEMPLATE_MARKET_LISTED,
+          "你的上架 #" + result.listingId() + " 已发布："
+              + itemLabel + " x" + result.quantity() + "，单价 " + amountText + "。",
+          Map.of(
+              "listingId", result.listingId(),
+              "item", itemLabel,
+              "quantity", result.quantity(),
+              "priceText", amountText));
     } catch (Exception exception) {
       plugin.getLogger().warning("Failed to publish listing-created event: " + exception.getMessage());
     }
@@ -3724,12 +3743,18 @@ class MarketService {
               "total", context.totalPrice(),
               "currency", context.currency().name(),
               "totalText", totalText));
-      notificationService.createNotifications(
+      notifyMarketEvents(
           List.of(context.sellerUserId(), context.buyerUserId()),
           "MARKET_TRADE",
-          "Market Trade",
-          "Listing #" + context.listingId() + " traded: "
-              + itemLabel + " x" + context.quantity() + ", total " + totalText + ".");
+          "市场成交",
+          TEMPLATE_MARKET_TRADE,
+          "上架 #" + context.listingId() + " 已成交："
+              + itemLabel + " x" + context.quantity() + "，总价 " + totalText + "。",
+          Map.of(
+              "listingId", context.listingId(),
+              "item", itemLabel,
+              "quantity", context.quantity(),
+              "totalText", totalText));
     } catch (Exception exception) {
       plugin.getLogger().warning("Failed to publish trade event: " + exception.getMessage());
     }
@@ -3763,27 +3788,37 @@ class MarketService {
       }
 
       String bidderMessage = result.sealedBid()
-          ? "You submitted a sealed bid on auction #" + context.listingId() + "."
-          : "You placed a bid on auction #" + context.listingId() + ": "
-              + formatAmount(context.bidAmount(), context.currency()) + ".";
-      notificationService.createNotification(
+          ? "你已提交拍卖 #" + context.listingId() + " 的密封出价。"
+          : "你在拍卖 #" + context.listingId() + " 出价成功："
+              + formatAmount(context.bidAmount(), context.currency()) + "。";
+      notifyMarketEvent(
           context.bidderUserId(),
           "AUCTION_BID",
-          "Bid Accepted",
-          bidderMessage);
-      notificationService.createNotification(
+          "竞拍提醒",
+          TEMPLATE_AUCTION_BID_SELF,
+          bidderMessage,
+          Map.of(
+              "listingId", context.listingId(),
+              "bidAmountText", formatAmount(context.bidAmount(), context.currency())));
+      notifyMarketEvent(
           context.sellerUserId(),
           "AUCTION_BID",
-          "Auction Updated",
-          "Auction #" + context.listingId() + " received a new bid from " + context.bidderName() + ".");
+          "竞拍提醒",
+          TEMPLATE_AUCTION_BID_SELLER,
+          "拍卖 #" + context.listingId() + " 收到来自 " + context.bidderName() + " 的新出价。",
+          Map.of(
+              "listingId", context.listingId(),
+              "bidderName", context.bidderName()));
       if (result.previousHighestBidderUserId() != null
           && result.previousHighestBidderUserId() > 0L
           && result.previousHighestBidderUserId() != context.bidderUserId()) {
-        notificationService.createNotification(
+        notifyMarketEvent(
             result.previousHighestBidderUserId(),
             "AUCTION_OUTBID",
-            "Outbid Notice",
-            "Your leading bid on auction #" + context.listingId() + " was surpassed.");
+            "超价提醒",
+            TEMPLATE_AUCTION_OUTBID,
+            "你在拍卖 #" + context.listingId() + " 的领先出价已被超过。",
+            Map.of("listingId", context.listingId()));
       }
     } catch (Exception exception) {
       plugin.getLogger().warning("Failed to publish auction bid event: " + exception.getMessage());
@@ -3803,15 +3838,81 @@ class MarketService {
         if (userId == null || userId <= 0L) {
           continue;
         }
-        notificationService.createNotification(
+        notifyMarketEvent(
             userId,
             "AUCTION_SETTLEMENT",
-            "Auction Settlement",
-            notice.message());
+            "拍卖结算",
+            TEMPLATE_AUCTION_SETTLEMENT,
+            notice.message(),
+            Map.of("message", notice.message()));
       } catch (Exception exception) {
         plugin.getLogger().warning("Failed to persist auction notice: " + exception.getMessage());
       }
     }
+  }
+
+  private void notifyMarketEvent(
+      long userId,
+      String type,
+      String title,
+      String templateKey,
+      String fallbackContent,
+      Map<String, Object> placeholders) {
+    if (userId <= 0L) {
+      return;
+    }
+    RuntimeConfigService.NotificationSettings settings = runtimeConfigService.readNotificationSettings();
+    if (!settings.marketEventsEnabled()) {
+      return;
+    }
+    String content = renderNotificationTemplate(
+        settings.template(templateKey),
+        fallbackContent,
+        placeholders);
+    notificationService.createNotification(userId, type, title, content);
+  }
+
+  private void notifyMarketEvents(
+      List<Long> userIds,
+      String type,
+      String title,
+      String templateKey,
+      String fallbackContent,
+      Map<String, Object> placeholders) {
+    if (userIds == null || userIds.isEmpty()) {
+      return;
+    }
+    RuntimeConfigService.NotificationSettings settings = runtimeConfigService.readNotificationSettings();
+    if (!settings.marketEventsEnabled()) {
+      return;
+    }
+    String content = renderNotificationTemplate(
+        settings.template(templateKey),
+        fallbackContent,
+        placeholders);
+    notificationService.createNotifications(userIds, type, title, content);
+  }
+
+  private String renderNotificationTemplate(
+      String template,
+      String fallback,
+      Map<String, Object> placeholders) {
+    String result = template == null || template.isBlank() ? fallback : template;
+    if (result == null || result.isBlank()) {
+      return "";
+    }
+    if (placeholders == null || placeholders.isEmpty()) {
+      return result;
+    }
+    for (Map.Entry<String, Object> entry : placeholders.entrySet()) {
+      String key = entry.getKey();
+      if (key == null || key.isBlank()) {
+        continue;
+      }
+      String value = entry.getValue() == null ? "" : String.valueOf(entry.getValue());
+      result = result.replace("{" + key + "}", value);
+    }
+    return result;
   }
 
   private TradeNoticeContext readTradeNoticeContext(long tradeId) {

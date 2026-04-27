@@ -119,6 +119,7 @@ public class WebShopPlugin extends JavaPlugin {
           this,
           databaseManager,
           walletService,
+          runtimeConfigService,
           this::settings,
           messageService,
           notificationService,
