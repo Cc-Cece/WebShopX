@@ -101,7 +101,7 @@ processResources {
         expand(NAME: rootProject.name, VERSION: version, PACKAGE: rootProject.group.toString())
     }
     filesMatching("web/admin.html") {
-        expand(VERSION: version)
+        filter(org.apache.tools.ant.filters.ReplaceTokens, tokens: [VERSION: version.toString()])
     }
 }
 
