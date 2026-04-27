@@ -9,6 +9,7 @@ plugins {
 }
 
 version = '1.1.5'
+String declaredProjectVersion = version.toString()
 
 group = "com.webshopx"
 
@@ -100,8 +101,23 @@ processResources {
     filesMatching("**/plugin.yml") {
         expand(NAME: rootProject.name, VERSION: version, PACKAGE: rootProject.group.toString())
     }
+    String updateCheckVersion = declaredProjectVersion
+    if (hasProperty('updateVersion')) {
+        String overrideUpdateVersion = updateVersion.toString().trim()
+        if (!overrideUpdateVersion.isEmpty()) {
+            updateCheckVersion = overrideUpdateVersion
+        }
+    } else {
+        String runtimeVersion = version.toString().trim()
+        if (!runtimeVersion.isEmpty() && !runtimeVersion.toLowerCase(Locale.ROOT).startsWith("snapshot-")) {
+            updateCheckVersion = runtimeVersion
+        }
+    }
     filesMatching("web/admin.html") {
-        filter(org.apache.tools.ant.filters.ReplaceTokens, tokens: [VERSION: version.toString()])
+        filter(org.apache.tools.ant.filters.ReplaceTokens, tokens: [
+                VERSION       : version.toString(),
+                UPDATE_VERSION: updateCheckVersion
+        ])
     }
 }
 

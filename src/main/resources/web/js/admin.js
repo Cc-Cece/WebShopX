@@ -136,8 +136,9 @@ const PRODUCT_TYPE_TEXTURE_MAP = {
   GROUP_BUY_VOUCHER: "PAPER",
 };
 const DEFAULT_TEXTURE_FALLBACK_MATERIAL = "BUNDLE";
-const CURRENT_WEBSHOPX_VERSION = normalizeVersionText(window.WEBSHOPX_VERSION || "1.1.4");
+const CURRENT_WEBSHOPX_VERSION = normalizeVersionText(window.WEBSHOPX_UPDATE_VERSION || window.WEBSHOPX_VERSION || "1.1.5");
 const MODRINTH_VERSION_URL = "https://api.modrinth.com/v2/project/webshopx/version";
+const MODRINTH_CHANGELOG_URL = "https://modrinth.com/plugin/webshopx/changelog";
 
 function normalizeApiBaseUrl(value) {
   let normalized = String(value || "").trim();
@@ -283,6 +284,7 @@ const elements = {
   adminUpdateDialogFileName: document.getElementById("adminUpdateDialogFileName"),
   adminUpdateDialogChangelog: document.getElementById("adminUpdateDialogChangelog"),
   adminUpdateDialogCloseBtn: document.getElementById("adminUpdateDialogCloseBtn"),
+  adminUpdateDialogModrinthBtn: document.getElementById("adminUpdateDialogModrinthBtn"),
   adminUpdateDialogDownloadBtn: document.getElementById("adminUpdateDialogDownloadBtn"),
 
   redeemShopCoin: document.getElementById("redeemShopCoin"),
@@ -762,6 +764,10 @@ function downloadUpdateJar() {
   window.open(state.updateInfo.downloadUrl, "_blank", "noopener,noreferrer");
 }
 
+function openModrinthChangelog() {
+  window.open(MODRINTH_CHANGELOG_URL, "_blank", "noopener,noreferrer");
+}
+
 function renderUpdateNoticeCard() {
   if (!elements.adminUpdateCard) {
     return;
@@ -775,7 +781,7 @@ function renderUpdateNoticeCard() {
   const currentLabel = state.updateInfo.currentVersion || CURRENT_WEBSHOPX_VERSION;
   const downloadLabel = state.updateInfo.fileName || "未知文件";
   setNodeText(elements.adminUpdateCardDesc, `检测到新版本 ${versionLabel}，可查看更新详情或直接下载 JAR。`);
-  setNodeText(elements.adminUpdateCardMeta, `当前 ${currentLabel} · 最新 ${versionLabel} · ${formatModrinthPublishedAt(state.updateInfo.publishedAt)} · ${downloadLabel}`);
+  setNodeText(elements.adminUpdateCardMeta, `当前 ${currentLabel} · 最新 ${versionLabel} · ${formatModrinthPublishedAt(state.updateInfo.publishedAt)}`);
   if (elements.adminUpdateDownloadBtn) {
     elements.adminUpdateDownloadBtn.disabled = !state.updateInfo.downloadUrl;
   }
@@ -7186,6 +7192,9 @@ if (elements.adminUpdateDownloadBtn) {
 if (elements.adminUpdateDialogCloseBtn) {
   elements.adminUpdateDialogCloseBtn.addEventListener("click", closeUpdateDialog);
 }
+if (elements.adminUpdateDialogModrinthBtn) {
+  elements.adminUpdateDialogModrinthBtn.addEventListener("click", openModrinthChangelog);
+}
 if (elements.adminUpdateDialogDownloadBtn) {
   elements.adminUpdateDialogDownloadBtn.addEventListener("click", downloadUpdateJar);
 }
@@ -7429,6 +7438,4 @@ if (elements.materialOverrideStatusView) {
 }
 renderAdminProfile();
 populateAdminForm(null);
-
-
 
