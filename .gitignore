@@ -1,8 +1,27 @@
 .gradle/
-build/
-bin/
 .gradle-user-home/
+build/
+out/
+bin/
+
+# IDE
+.idea/
+*.iml
+
+# Runtime / local data
 logs/
+server/
+cache/
+tmp/
+temp_empty/
+
+# Local backup folders
+.old/
+
+# Existing project custom ignores
 .*.md
 .docs/
-server/
+
+# OS junk
+.DS_Store
+Thumbs.db
