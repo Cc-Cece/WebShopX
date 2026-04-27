@@ -67,6 +67,19 @@
     GAME_COIN: { name: "游戏币", short: "GC" },
   },
   timeZone: "Asia/Shanghai",
+  updateInfo: {
+    available: false,
+    currentVersion: "",
+    latestVersion: "",
+    latestName: "",
+    changelog: "",
+    publishedAt: "",
+    downloadUrl: "",
+    fileName: "",
+    releaseType: "",
+    gameVersions: [],
+    loaders: [],
+  },
 };
 
 const POTION_EFFECT_OPTIONS = [
@@ -123,6 +136,8 @@ const PRODUCT_TYPE_TEXTURE_MAP = {
   GROUP_BUY_VOUCHER: "PAPER",
 };
 const DEFAULT_TEXTURE_FALLBACK_MATERIAL = "BUNDLE";
+const CURRENT_WEBSHOPX_VERSION = normalizeVersionText(window.WEBSHOPX_VERSION || "1.1.4");
+const MODRINTH_VERSION_URL = "https://api.modrinth.com/v2/project/webshopx/version";
 
 function normalizeApiBaseUrl(value) {
   let normalized = String(value || "").trim();
@@ -255,6 +270,20 @@ const elements = {
   adminLogoutBtn: document.getElementById("adminLogoutBtn"),
   adminLoginStatus: document.getElementById("adminLoginStatus"),
   adminProfileView: document.getElementById("adminProfileView"),
+  adminUpdateCard: document.getElementById("adminUpdateCard"),
+  adminUpdateCardDesc: document.getElementById("adminUpdateCardDesc"),
+  adminUpdateCardMeta: document.getElementById("adminUpdateCardMeta"),
+  adminUpdateDetailsBtn: document.getElementById("adminUpdateDetailsBtn"),
+  adminUpdateDownloadBtn: document.getElementById("adminUpdateDownloadBtn"),
+  adminUpdateDialog: document.getElementById("adminUpdateDialog"),
+  adminUpdateDialogSummary: document.getElementById("adminUpdateDialogSummary"),
+  adminUpdateDialogCurrentVersion: document.getElementById("adminUpdateDialogCurrentVersion"),
+  adminUpdateDialogLatestVersion: document.getElementById("adminUpdateDialogLatestVersion"),
+  adminUpdateDialogPublishedAt: document.getElementById("adminUpdateDialogPublishedAt"),
+  adminUpdateDialogFileName: document.getElementById("adminUpdateDialogFileName"),
+  adminUpdateDialogChangelog: document.getElementById("adminUpdateDialogChangelog"),
+  adminUpdateDialogCloseBtn: document.getElementById("adminUpdateDialogCloseBtn"),
+  adminUpdateDialogDownloadBtn: document.getElementById("adminUpdateDialogDownloadBtn"),
 
   redeemShopCoin: document.getElementById("redeemShopCoin"),
   redeemGameCoin: document.getElementById("redeemGameCoin"),
@@ -666,6 +695,147 @@ function setMetaText(element, text, tone = "info") {
   element.classList.remove("meta-info", "meta-success", "meta-warn", "meta-error");
   const normalized = ["info", "success", "warn", "error"].includes(tone) ? tone : "info";
   element.classList.add(`meta-${normalized}`);
+}
+
+function normalizeVersionText(versionText) {
+  return String(versionText || "")
+    .trim()
+    .replace(/^v/i, "")
+    .replace(/-SNAPSHOT$/i, "");
+}
+
+function formatModrinthPublishedAt(publishedAt) {
+  if (!publishedAt) {
+    return "未知";
+  }
+  const date = new Date(publishedAt);
+  if (Number.isNaN(date.getTime())) {
+    return String(publishedAt);
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function pickModrinthDownloadFile(version) {
+  const files = Array.isArray(version?.files) ? version.files : [];
+  return files.find((file) => file?.primary && file?.url) || files.find((file) => file?.url) || null;
+}
+
+function updateNoticeAvailable(versionText) {
+  return normalizeVersionText(versionText) !== normalizeVersionText(CURRENT_WEBSHOPX_VERSION);
+}
+
+function closeUpdateDialog() {
+  if (!elements.adminUpdateDialog) {
+    return;
+  }
+  elements.adminUpdateDialog.classList.remove("show");
+  elements.adminUpdateDialog.setAttribute("aria-hidden", "true");
+}
+
+function openUpdateDialog() {
+  if (!elements.adminUpdateDialog || !state.updateInfo.available) {
+    return;
+  }
+  setNodeText(elements.adminUpdateDialogSummary, `当前版本 ${CURRENT_WEBSHOPX_VERSION}，Modrinth 已发布新版本 ${state.updateInfo.latestVersion}。`);
+  setNodeText(elements.adminUpdateDialogCurrentVersion, CURRENT_WEBSHOPX_VERSION);
+  setNodeText(elements.adminUpdateDialogLatestVersion, state.updateInfo.latestName || state.updateInfo.latestVersion || "未知");
+  setNodeText(elements.adminUpdateDialogPublishedAt, formatModrinthPublishedAt(state.updateInfo.publishedAt));
+  setNodeText(elements.adminUpdateDialogFileName, state.updateInfo.fileName || "未知文件");
+  if (elements.adminUpdateDialogChangelog) {
+    elements.adminUpdateDialogChangelog.textContent = state.updateInfo.changelog || "暂无更新内容。";
+  }
+  if (elements.adminUpdateDialogDownloadBtn) {
+    elements.adminUpdateDialogDownloadBtn.disabled = !state.updateInfo.downloadUrl;
+  }
+  elements.adminUpdateDialog.classList.add("show");
+  elements.adminUpdateDialog.setAttribute("aria-hidden", "false");
+}
+
+function downloadUpdateJar() {
+  if (!state.updateInfo.downloadUrl) {
+    notify("没有可用的下载地址。", "warn");
+    return;
+  }
+  window.open(state.updateInfo.downloadUrl, "_blank", "noopener,noreferrer");
+}
+
+function renderUpdateNoticeCard() {
+  if (!elements.adminUpdateCard) {
+    return;
+  }
+  const available = Boolean(state.updateInfo.available);
+  elements.adminUpdateCard.hidden = !available;
+  if (!available) {
+    return;
+  }
+  const versionLabel = state.updateInfo.latestName || state.updateInfo.latestVersion || "未知版本";
+  const currentLabel = state.updateInfo.currentVersion || CURRENT_WEBSHOPX_VERSION;
+  const downloadLabel = state.updateInfo.fileName || "未知文件";
+  setNodeText(elements.adminUpdateCardDesc, `检测到新版本 ${versionLabel}，可查看更新详情或直接下载 JAR。`);
+  setNodeText(elements.adminUpdateCardMeta, `当前 ${currentLabel} · 最新 ${versionLabel} · ${formatModrinthPublishedAt(state.updateInfo.publishedAt)} · ${downloadLabel}`);
+  if (elements.adminUpdateDownloadBtn) {
+    elements.adminUpdateDownloadBtn.disabled = !state.updateInfo.downloadUrl;
+  }
+}
+
+async function loadModrinthUpdateNotice() {
+  if (!elements.adminUpdateCard) {
+    return;
+  }
+  try {
+    const response = await fetch(MODRINTH_VERSION_URL, { headers: { Accept: "application/json" } });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const versions = await response.json();
+    if (!Array.isArray(versions) || versions.length === 0) {
+      state.updateInfo = {
+        ...state.updateInfo,
+        available: false,
+        currentVersion: CURRENT_WEBSHOPX_VERSION,
+      };
+      renderUpdateNoticeCard();
+      return;
+    }
+    const latest = versions[0] || {};
+    const latestVersion = normalizeVersionText(latest.version_number || latest.versionNumber || latest.name || "");
+    if (!latestVersion || !updateNoticeAvailable(latestVersion)) {
+      state.updateInfo = {
+        ...state.updateInfo,
+        available: false,
+        currentVersion: CURRENT_WEBSHOPX_VERSION,
+        latestVersion,
+      };
+      renderUpdateNoticeCard();
+      return;
+    }
+    const downloadFile = pickModrinthDownloadFile(latest);
+    const downloadUrl = String(downloadFile?.url || "").trim();
+    state.updateInfo = {
+      available: true,
+      currentVersion: CURRENT_WEBSHOPX_VERSION,
+      latestVersion,
+      latestName: String(latest.name || latestVersion || "").trim(),
+      changelog: String(latest.changelog || latest.body || latest.description || "").trim(),
+      publishedAt: String(latest.date_published || latest.publishedAt || "").trim(),
+      downloadUrl,
+      fileName: String(downloadFile?.filename || downloadFile?.name || "").trim(),
+      releaseType: String(latest.version_type || latest.releaseType || "").trim(),
+      gameVersions: Array.isArray(latest.game_versions) ? latest.game_versions.slice() : [],
+      loaders: Array.isArray(latest.loaders) ? latest.loaders.slice() : [],
+    };
+    renderUpdateNoticeCard();
+  } catch (error) {
+    state.updateInfo = {
+      ...state.updateInfo,
+      available: false,
+      currentVersion: CURRENT_WEBSHOPX_VERSION,
+    };
+    renderUpdateNoticeCard();
+  }
 }
 
 const ADMIN_TAB_PATH_MAP = {
@@ -1441,6 +1611,10 @@ function initializeMaterialCropDialog() {
     }
     if (isNotificationTemplateDialogOpen()) {
       closeNotificationTemplateDialog();
+      return;
+    }
+    if (elements.adminUpdateDialog?.classList.contains("show")) {
+      closeUpdateDialog();
     }
   });
 }
@@ -7003,11 +7177,33 @@ if (elements.adminThemeToggleBtn) {
   elements.adminThemeToggleBtn.addEventListener("click", toggleTheme);
 }
 
+if (elements.adminUpdateDetailsBtn) {
+  elements.adminUpdateDetailsBtn.addEventListener("click", openUpdateDialog);
+}
+if (elements.adminUpdateDownloadBtn) {
+  elements.adminUpdateDownloadBtn.addEventListener("click", downloadUpdateJar);
+}
+if (elements.adminUpdateDialogCloseBtn) {
+  elements.adminUpdateDialogCloseBtn.addEventListener("click", closeUpdateDialog);
+}
+if (elements.adminUpdateDialogDownloadBtn) {
+  elements.adminUpdateDialogDownloadBtn.addEventListener("click", downloadUpdateJar);
+}
+if (elements.adminUpdateDialog) {
+  elements.adminUpdateDialog.addEventListener("click", (event) => {
+    if (event.target === elements.adminUpdateDialog) {
+      closeUpdateDialog();
+    }
+  });
+}
+
 const savedToken = sessionStorage.getItem("webshop_admin_token");
 if (savedToken) {
   state.token = savedToken;
   loadAdminProfile();
 }
+
+loadModrinthUpdateNotice();
 
 applyTheme(getInitialTheme());
 localizeOrderStatusOptions();

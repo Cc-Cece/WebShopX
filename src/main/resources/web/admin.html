@@ -19,6 +19,9 @@
       }
     })();
   </script>
+  <script>
+    window.WEBSHOPX_VERSION = "${VERSION}";
+  </script>
   <link rel="stylesheet" href="/css/light.css" />
   <link rel="stylesheet" href="/css/dark.css" />
   <link rel="stylesheet" href="/css/styles.css" />
@@ -81,6 +84,16 @@
             <p>不同管理员角色可访问不同模块，权限不足时会提示拒绝。</p>
           </div>
           <p class="meta" id="adminProfileView">未登录</p>
+        </article>
+
+        <article class="md-card section-card" id="adminUpdateCard" hidden>
+          <h2>发现新版本</h2>
+          <p class="card-desc" id="adminUpdateCardDesc">正在检查 Modrinth 更新…</p>
+          <p class="meta" id="adminUpdateCardMeta">版本信息加载中</p>
+          <div class="actions">
+            <button id="adminUpdateDetailsBtn" class="btn-tonal" type="button">查看更新内容</button>
+            <button id="adminUpdateDownloadBtn" type="button">直接下载 JAR</button>
+          </div>
         </article>
       </div>
     </section>
@@ -1531,6 +1544,41 @@
         <button id="materialCropResetBtn" class="btn-tonal" type="button">重置</button>
         <button id="materialCropCancelBtn" class="btn-tonal" type="button">取消</button>
         <button id="materialCropApplyBtn" type="button">应用并上传</button>
+      </div>
+    </article>
+  </div>
+
+  <div id="adminUpdateDialog" class="dialog-backdrop" aria-hidden="true">
+    <article class="md-card dialog-card market-policy-dialog-card">
+      <h3>更新详情</h3>
+      <p id="adminUpdateDialogSummary">正在加载版本详情…</p>
+      <div class="dialog-details market-policy-dialog-scroll">
+        <div class="field-grid two-col">
+          <label class="field">
+            <span>当前版本</span>
+            <p class="meta" id="adminUpdateDialogCurrentVersion">-</p>
+          </label>
+          <label class="field">
+            <span>最新版本</span>
+            <p class="meta" id="adminUpdateDialogLatestVersion">-</p>
+          </label>
+          <label class="field">
+            <span>发布时间</span>
+            <p class="meta" id="adminUpdateDialogPublishedAt">-</p>
+          </label>
+          <label class="field">
+            <span>下载文件</span>
+            <p class="meta" id="adminUpdateDialogFileName">-</p>
+          </label>
+        </div>
+        <label class="field product-remark-field">
+          <span>更新内容</span>
+          <div id="adminUpdateDialogChangelog" class="field-hint" style="white-space: pre-wrap;">暂无更新内容。</div>
+        </label>
+      </div>
+      <div class="actions">
+        <button id="adminUpdateDialogCloseBtn" class="btn-tonal" type="button">关闭</button>
+        <button id="adminUpdateDialogDownloadBtn" type="button">下载 JAR</button>
       </div>
     </article>
   </div>
