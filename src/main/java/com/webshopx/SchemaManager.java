@@ -25,6 +25,8 @@ class SchemaManager {
     createPlayerPresence(connection);
     createWallets(connection);
     createWalletLedger(connection);
+    createPaymentOrders(connection);
+    createPaymentCallbacks(connection);
     createRedeemCodes(connection);
     createRedeemUsage(connection);
     migrateRedeemCodes(connection);
@@ -248,6 +250,59 @@ class SchemaManager {
           KEY idx_wallet_ledger_wallet_id (wallet_id),
           CONSTRAINT fk_wallet_ledger_wallet_id
             FOREIGN KEY (wallet_id) REFERENCES wallets(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void createPaymentOrders(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS payment_orders (
+          id BIGINT NOT NULL AUTO_INCREMENT,
+          order_no VARCHAR(64) NOT NULL,
+          user_id BIGINT NOT NULL,
+          provider VARCHAR(16) NOT NULL,
+          status VARCHAR(24) NOT NULL DEFAULT 'CREATED',
+          shop_coin_amount BIGINT NOT NULL,
+          amount_cny_fen BIGINT NOT NULL,
+          subject VARCHAR(128) NOT NULL,
+          body VARCHAR(255) NULL,
+          out_trade_no VARCHAR(64) NOT NULL,
+          trade_no VARCHAR(64) NULL,
+          notify_time DATETIME NULL,
+          paid_at DATETIME NULL,
+          expire_at DATETIME NOT NULL,
+          extra_json JSON NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uniq_payment_order_no (order_no),
+          UNIQUE KEY uniq_payment_out_trade_no (out_trade_no),
+          KEY idx_payment_user_created (user_id, created_at),
+          KEY idx_payment_status_expire (status, expire_at),
+          CONSTRAINT fk_payment_orders_user
+            FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void createPaymentCallbacks(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS payment_callbacks (
+          id BIGINT NOT NULL AUTO_INCREMENT,
+          order_no VARCHAR(64) NOT NULL,
+          provider VARCHAR(16) NOT NULL,
+          notify_id VARCHAR(96) NULL,
+          trade_no VARCHAR(64) NULL,
+          payload_json LONGTEXT NOT NULL,
+          verify_result VARCHAR(32) NOT NULL,
+          process_result VARCHAR(64) NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_payment_callback_order (order_no, created_at),
+          KEY idx_payment_callback_notify (notify_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);

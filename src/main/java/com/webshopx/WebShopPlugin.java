@@ -31,6 +31,7 @@ public class WebShopPlugin extends JavaPlugin {
   private ClusterEventBusService clusterEventBusService;
   private AuthService authService;
   private WalletService walletService;
+  private PaymentService paymentService;
   private MessageService messageService;
   private RedeemCodeService redeemCodeService;
   private ProductService productService;
@@ -86,6 +87,7 @@ public class WebShopPlugin extends JavaPlugin {
 
       authService = new AuthService(databaseManager, this::settings);
       walletService = new WalletService(this, databaseManager, this::settings);
+      paymentService = new PaymentService(databaseManager, this::settings, walletService);
       redeemCodeService = new RedeemCodeService(databaseManager, walletService);
       productService = new ProductService(databaseManager);
       orderService = new OrderService(
@@ -127,12 +129,18 @@ public class WebShopPlugin extends JavaPlugin {
       adminService = new AdminService(databaseManager, authService, walletService);
       adminAuditService = new AdminAuditService(databaseManager);
           leaderboardService = new LeaderboardService(this, databaseManager);
-      maintenanceService = new MaintenanceService(this, databaseManager, this::settings, pluginLogService);
+      maintenanceService = new MaintenanceService(
+          this,
+          databaseManager,
+          this::settings,
+          pluginLogService,
+          paymentService);
       embeddedWebServer = new EmbeddedWebServer(
           this,
           this::settings,
           authService,
           walletService,
+          paymentService,
           redeemCodeService,
           productService,
           orderService,

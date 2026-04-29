@@ -36,6 +36,7 @@ record PluginSettings(
     ExchangeSettings exchangeSettings,
     EconomySettings economySettings,
     RedisSettings redisSettings,
+    PaymentSettings paymentSettings,
     List<ProductSeed> productSeeds) {
 
   static PluginSettings fromConfig(FileConfiguration config) {
@@ -81,6 +82,22 @@ record PluginSettings(
             config.getString("redis.channel"),
             "webshopx:market:broadcast"),
         config.getString("redis.cluster-channel", "webshopx:cluster:event"));
+    AlipaySettings alipaySettings = new AlipaySettings(
+        config.getBoolean("payment.alipay.enabled", false),
+        config.getString("payment.alipay.app-id", ""),
+        config.getString("payment.alipay.seller-id", ""),
+        config.getString("payment.alipay.merchant-private-key", ""),
+        config.getString("payment.alipay.alipay-public-key", ""),
+        config.getString("payment.alipay.notify-url", ""),
+        config.getString("payment.alipay.return-url", ""),
+        config.getString("payment.alipay.sign-type", "RSA2"),
+        config.getString("payment.alipay.charset", "utf-8"),
+        config.getString("payment.alipay.gateway-url", "https://openapi.alipay.com/gateway.do"),
+        config.getLong("payment.alipay.shopcoin-unit-price-fen", 100L),
+        config.getLong("payment.alipay.min-recharge-shopcoin", 10L),
+        config.getLong("payment.alipay.max-recharge-shopcoin", 50000L),
+        config.getInt("payment.alipay.order-expire-minutes", 20),
+        config.getInt("payment.alipay.max-create-per-minute", 5));
 
     AdminBootstrapSettings adminBootstrapSettings = new AdminBootstrapSettings(
         config.getBoolean("webshop.admin-bootstrap.enabled", false),
@@ -157,6 +174,7 @@ record PluginSettings(
         new ExchangeSettings(shopToGame, gameToShop),
         new EconomySettings(marketEconomySettings, inflationSettings),
         redisSettings,
+        new PaymentSettings(alipaySettings),
         readProductSeeds(config));
   }
 
@@ -207,6 +225,7 @@ record PluginSettings(
         exchangeSettings,
         economySettings,
         redisSettings,
+        paymentSettings,
         productSeeds);
   }
 
@@ -583,6 +602,27 @@ record PluginSettings(
       String password,
       String broadcastChannel,
       String clusterChannel) {
+  }
+
+  record PaymentSettings(AlipaySettings alipaySettings) {
+  }
+
+  record AlipaySettings(
+      boolean enabled,
+      String appId,
+      String sellerId,
+      String merchantPrivateKey,
+      String alipayPublicKey,
+      String notifyUrl,
+      String returnUrl,
+      String signType,
+      String charset,
+      String gatewayUrl,
+      long shopcoinUnitPriceFen,
+      long minRechargeShopcoin,
+      long maxRechargeShopcoin,
+      int orderExpireMinutes,
+      int maxCreatePerMinute) {
   }
 
   record ProductSeed(String sku, String title, CurrencyType currency, long price, String commandTemplate) {

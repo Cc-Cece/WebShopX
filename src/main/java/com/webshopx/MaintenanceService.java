@@ -16,16 +16,19 @@ class MaintenanceService {
   private final DatabaseManager databaseManager;
   private final Supplier<PluginSettings> settingsSupplier;
   private final PluginLogService pluginLogService;
+  private final PaymentService paymentService;
 
   MaintenanceService(
       JavaPlugin plugin,
       DatabaseManager databaseManager,
       Supplier<PluginSettings> settingsSupplier,
-      PluginLogService pluginLogService) {
+      PluginLogService pluginLogService,
+      PaymentService paymentService) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.settingsSupplier = settingsSupplier;
     this.pluginLogService = pluginLogService;
+    this.paymentService = paymentService;
   }
 
   void runCleanup() {
@@ -44,19 +47,28 @@ class MaintenanceService {
       int pendingPasswordUsers =
           deletePendingUsers(connection, now, settings.pendingPasswordRetentionHours(), STATE_PENDING_PASSWORD);
       int redeemCodes = deleteOldRedeemCodes(connection, now, settings.redeemCodeRetentionDays());
-      return new CleanupResult(sessions, bindRequests, pendingBindUsers, pendingPasswordUsers, redeemCodes);
+      return new CleanupResult(
+          sessions,
+          bindRequests,
+          pendingBindUsers,
+          pendingPasswordUsers,
+          redeemCodes,
+          0);
     });
+    int closedPaymentOrders = paymentService == null ? 0 : paymentService.closeExpiredOrders();
+    result = result.withClosedPaymentOrders(closedPaymentOrders);
 
     if (result.total() > 0) {
       plugin.getLogger().info(
           String.format(
               "Maintenance cleanup done: sessions=%d, bindRequests=%d, pendingBindUsers=%d,"
-                  + " pendingPasswordUsers=%d, redeemCodes=%d",
+                  + " pendingPasswordUsers=%d, redeemCodes=%d, closedPaymentOrders=%d",
               result.sessions,
               result.bindRequests,
               result.pendingBindUsers,
               result.pendingPasswordUsers,
-              result.redeemCodes));
+              result.redeemCodes,
+              result.closedPaymentOrders));
     }
     if (pluginLogService != null) {
       pluginLogService.cleanupOldLogs(settingsSupplier.get().loggingSettings());
@@ -138,22 +150,40 @@ class MaintenanceService {
     private final int pendingBindUsers;
     private final int pendingPasswordUsers;
     private final int redeemCodes;
+    private final int closedPaymentOrders;
 
     private CleanupResult(
         int sessions,
         int bindRequests,
         int pendingBindUsers,
         int pendingPasswordUsers,
-        int redeemCodes) {
+        int redeemCodes,
+        int closedPaymentOrders) {
       this.sessions = sessions;
       this.bindRequests = bindRequests;
       this.pendingBindUsers = pendingBindUsers;
       this.pendingPasswordUsers = pendingPasswordUsers;
       this.redeemCodes = redeemCodes;
+      this.closedPaymentOrders = closedPaymentOrders;
+    }
+
+    private CleanupResult withClosedPaymentOrders(int value) {
+      return new CleanupResult(
+          sessions,
+          bindRequests,
+          pendingBindUsers,
+          pendingPasswordUsers,
+          redeemCodes,
+          value);
     }
 
     private int total() {
-      return sessions + bindRequests + pendingBindUsers + pendingPasswordUsers + redeemCodes;
+      return sessions
+          + bindRequests
+          + pendingBindUsers
+          + pendingPasswordUsers
+          + redeemCodes
+          + closedPaymentOrders;
     }
   }
 }

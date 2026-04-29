@@ -121,6 +121,24 @@ redis:
   # 兼容旧字段（可删）
   channel: webshopx:market:broadcast
 
+payment:
+  alipay:
+    enabled: false
+    app-id: ""
+    seller-id: ""
+    merchant-private-key: ""
+    alipay-public-key: ""
+    notify-url: "https://your-domain/api/payment/alipay/notify"
+    return-url: "https://your-domain/web/payment/alipay/return"
+    sign-type: RSA2
+    charset: utf-8
+    gateway-url: https://openapi.alipay.com/gateway.do
+    shopcoin-unit-price-fen: 100
+    min-recharge-shopcoin: 10
+    max-recharge-shopcoin: 50000
+    order-expire-minutes: 20
+    max-create-per-minute: 5
+
 sample-products:
   - sku: vip_week
     title: VIP Week Pass

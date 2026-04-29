@@ -13,6 +13,7 @@
   listings: [],
   products: [],
   orders: [],
+  paymentOrders: [],
   notifications: [],
   unreadNotificationCount: 0,
   orderPolicy: {
@@ -79,6 +80,10 @@
   walletBalance: {
     shopCoin: 0,
     gameCoin: 0,
+  },
+  recharge: {
+    activeOrderNo: null,
+    pollTimer: null,
   },
   exchangeMetaLoaded: false,
   exchangeSettings: {
@@ -351,6 +356,15 @@ const ERROR_TIPS_BY_SCENE = {
   wallet_refresh: {
     bad_request: "请求参数异常，请重新登录后再试。",
   },
+  payment_create: {
+    feature_disabled: "当前服务器未开启支付宝充值。",
+    invalid_amount: "充值数量不在允许范围内。",
+    payment_unavailable: "支付配置不完整，请联系管理员。",
+    rate_limited: "创建过于频繁，请稍后再试。",
+  },
+  payment_status: {
+    not_found: "充值订单不存在，请刷新后重试。",
+  },
   exchange: {
     invalid_exchange: "兑换方向无效，请重新选择。",
     invalid_amount: "兑换数量必须大于 0。",
@@ -404,6 +418,15 @@ const ORDER_STATUS_LABELS = {
   REFUNDED: { label: "已退款", tone: "refunded" },
   FAILED: { label: "失败", tone: "failed" },
   RECYCLED: { label: "已回收", tone: "delivered" },
+};
+
+const PAYMENT_STATUS_LABELS = {
+  CREATED: { label: "待支付", tone: "pending" },
+  PAYING: { label: "支付处理中", tone: "pending" },
+  PAID: { label: "已到账", tone: "success" },
+  CLOSED: { label: "已关闭", tone: "warn" },
+  REFUNDED: { label: "已退款", tone: "warn" },
+  FAILED: { label: "失败", tone: "error" },
 };
 
 const ENCHANTMENT_LABELS = {
@@ -480,6 +503,13 @@ const elements = {
   walletView: document.getElementById("walletView"),
   walletLedgerView: document.getElementById("walletLedgerView"),
   walletLedgerList: document.getElementById("walletLedgerList"),
+  rechargeShopCoinAmount: document.getElementById("rechargeShopCoinAmount"),
+  rechargeCreateBtn: document.getElementById("rechargeCreateBtn"),
+  rechargeOrdersBtn: document.getElementById("rechargeOrdersBtn"),
+  rechargeView: document.getElementById("rechargeView"),
+  rechargeStatusView: document.getElementById("rechargeStatusView"),
+  rechargePayLink: document.getElementById("rechargePayLink"),
+  rechargeOrdersList: document.getElementById("rechargeOrdersList"),
   redeemView: document.getElementById("redeemView"),
   exchangeRateHint: document.getElementById("exchangeRateHint"),
   exchangeView: document.getElementById("exchangeView"),
@@ -2269,7 +2299,13 @@ function switchTab(tabName, skipHistory = false) {
 
   if (tabName === "wallet") {
     if (state.token) {
-      refreshWallet().then(() => loadWalletLedger()).catch((error) => {
+      refreshWallet().then(async () => {
+        await loadWalletLedger();
+        await loadRechargeOrders();
+        if (state.recharge.activeOrderNo) {
+          await refreshRechargeStatus(state.recharge.activeOrderNo, { silent: true });
+        }
+      }).catch((error) => {
         const message = resolveErrorMessage(error, "wallet_refresh");
         setMetaText(elements.walletView, `刷新钱包失败：${message}`, "error");
       });
@@ -3063,6 +3099,151 @@ async function loadWalletLedger(options = {}) {
   if (announce) {
     notify(`最近变动已刷新：${(payload.entries || []).length} 条。`, "info");
   }
+}
+
+function paymentStatusMeta(status) {
+  const key = String(status || "").toUpperCase();
+  return PAYMENT_STATUS_LABELS[key] || { label: key || "未知状态", tone: "pending" };
+}
+
+function formatAmountCnyFromFen(amountFen) {
+  const value = Number(amountFen || 0) / 100;
+  return `¥ ${Number.isFinite(value) ? value.toFixed(2) : "0.00"}`;
+}
+
+function renderRechargeOrders(orders) {
+  if (!elements.rechargeOrdersList) {
+    return;
+  }
+  elements.rechargeOrdersList.innerHTML = "";
+  if (!orders || orders.length === 0) {
+    elements.rechargeOrdersList.appendChild(createEl("div", "empty-state", "暂无充值记录。"));
+    return;
+  }
+  for (const order of orders) {
+    const meta = paymentStatusMeta(order.status);
+    const card = createEl("article", "wallet-ledger-item");
+    const top = createEl("div", "wallet-ledger-top");
+    top.appendChild(createEl("strong", "", `订单 ${order.orderNo || "-"}`));
+    top.appendChild(createEl("span", `order-status ${meta.tone}`, meta.label));
+    card.appendChild(top);
+    const details = [
+      `充值 ${formatCurrency(order.shopCoinAmount || 0, "SHOP_COIN")}`,
+      `实付 ${formatAmountCnyFromFen(order.amountCnyFen || 0)}`,
+      `创建 ${formatDateTime(order.createdAt)}`,
+    ];
+    if (order.paidAt) {
+      details.push(`到账 ${formatDateTime(order.paidAt)}`);
+    }
+    card.appendChild(createEl("p", "wallet-ledger-meta", details.join(" | ")));
+    elements.rechargeOrdersList.appendChild(card);
+  }
+}
+
+function updateRechargePayLink(url) {
+  if (!elements.rechargePayLink) {
+    return;
+  }
+  if (!url) {
+    elements.rechargePayLink.classList.add("hidden");
+    elements.rechargePayLink.removeAttribute("href");
+    return;
+  }
+  elements.rechargePayLink.href = url;
+  elements.rechargePayLink.classList.remove("hidden");
+  setNodeText(elements.rechargePayLink, "打开支付宝支付页");
+}
+
+function stopRechargePolling() {
+  if (!state.recharge.pollTimer) {
+    return;
+  }
+  clearInterval(state.recharge.pollTimer);
+  state.recharge.pollTimer = null;
+}
+
+function startRechargePolling(orderNo) {
+  stopRechargePolling();
+  state.recharge.activeOrderNo = orderNo || null;
+  if (!orderNo) {
+    return;
+  }
+  state.recharge.pollTimer = window.setInterval(() => {
+    refreshRechargeStatus(orderNo, { silent: true }).catch(() => {
+      // ignore transient status errors while polling
+    });
+  }, 3000);
+}
+
+async function loadRechargeOrders(options = {}) {
+  const announce = !!options.announce;
+  ensureToken();
+  const payload = await api("/api/payment/orders?limit=20", { method: "GET" });
+  state.paymentOrders = payload.orders || [];
+  renderRechargeOrders(state.paymentOrders);
+  if (announce) {
+    notify(`充值记录已刷新：${state.paymentOrders.length} 条。`, "info");
+  }
+  return state.paymentOrders;
+}
+
+async function refreshRechargeStatus(orderNo, options = {}) {
+  const silent = !!options.silent;
+  if (!orderNo) {
+    return null;
+  }
+  ensureToken();
+  const payload = await api(`/api/payment/alipay/status?orderNo=${encodeURIComponent(orderNo)}`, {
+    method: "GET",
+  });
+  const statusMeta = paymentStatusMeta(payload.status);
+  const statusText = `${statusMeta.label}｜订单 ${orderNo}｜充值 ${formatCurrency(payload.shopCoinAmount || 0, "SHOP_COIN")}｜金额 ${formatAmountCnyFromFen(payload.amountCnyFen || 0)}`;
+  setMetaText(elements.rechargeStatusView, statusText, statusMeta.tone);
+
+  if (payload.status === "PAID" || payload.status === "CLOSED" || payload.status === "FAILED") {
+    stopRechargePolling();
+    state.recharge.activeOrderNo = null;
+    if (payload.status === "PAID") {
+      await refreshWallet();
+      await loadWalletLedger();
+    }
+    await loadRechargeOrders();
+    if (!silent) {
+      notify(`订单状态更新：${statusMeta.label}`, statusMeta.tone === "success" ? "success" : "info");
+    }
+  }
+  return payload;
+}
+
+async function createRechargeOrder() {
+  ensureToken();
+  const amount = Number(String(elements.rechargeShopCoinAmount?.value || "").trim());
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("请输入大于 0 的充值数量。");
+  }
+  const payload = await api("/api/payment/alipay/create", {
+    method: "POST",
+    body: JSON.stringify({
+      shopCoinAmount: Math.floor(amount),
+      paymentChannel: "ALIPAY",
+      clientReturnUrl: `${window.location.origin}/web/payment/alipay/return`,
+    }),
+  });
+
+  const amountText = formatAmountCnyFromFen(payload.amountCnyFen || 0);
+  setMetaText(
+    elements.rechargeView,
+    `订单已创建：${payload.orderNo}，充值 ${formatCurrency(payload.shopCoinAmount || 0, "SHOP_COIN")}，应付 ${amountText}。`,
+    "success"
+  );
+  updateRechargePayLink(payload.payUrl || "");
+  if (payload.payUrl) {
+    window.open(payload.payUrl, "_blank", "noopener,noreferrer");
+  }
+  await loadRechargeOrders();
+  await refreshRechargeStatus(payload.orderNo, { silent: true });
+  startRechargePolling(payload.orderNo);
+  return payload;
 }
 
 function summarizeWalletDelta(nextWallet, previousWallet) {
@@ -4960,11 +5141,14 @@ function setSession(payload) {
 }
 
 function clearSession() {
+  stopRechargePolling();
   state.token = null;
   state.username = null;
   state.boundUuid = null;
   state.orders = [];
+  state.paymentOrders = [];
   state.notifications = [];
+  state.recharge.activeOrderNo = null;
   state.hasLoadedOrders = false;
   state.hasLoadedNotifications = false;
   state.unreadNotificationCount = 0;
@@ -4978,6 +5162,8 @@ function clearSession() {
   renderOrders(state.orders);
   renderNotifications(state.notifications);
   renderWalletLedger([]);
+  renderRechargeOrders([]);
+  updateRechargePayLink("");
   updateAuthLayout();
   stopRealtimeSync();
 }
@@ -5001,6 +5187,7 @@ async function restoreSession() {
     state.username = sessionData.username;
     state.boundUuid = sessionData.boundUuid;
     updateAuthLayout();
+    await loadRechargeOrders();
     await loadOrders();
     await refreshNotificationUnreadCount();
     startRealtimeSync();
@@ -7221,6 +7408,7 @@ if (elements.loginBtn) {
     setSession(payload);
     await refreshWallet();
     await loadWalletLedger();
+    await loadRechargeOrders();
     await loadOrders();
     await loadNotifications({ silent: true });
     try {
@@ -7247,6 +7435,12 @@ elements.logoutBtn.addEventListener("click", async () => {
       body: JSON.stringify({}),
     });
     clearSession();
+    stopRechargePolling();
+    state.recharge.activeOrderNo = null;
+    updateRechargePayLink("");
+    if (elements.rechargeOrdersList) {
+      elements.rechargeOrdersList.innerHTML = "";
+    }
     try {
       await loadProducts();
     } catch (productError) {
@@ -7267,6 +7461,10 @@ document.getElementById("walletBtn").addEventListener("click", async () => {
   try {
     await refreshWallet();
     await loadWalletLedger();
+    await loadRechargeOrders();
+    if (state.recharge.activeOrderNo) {
+      await refreshRechargeStatus(state.recharge.activeOrderNo, { silent: true });
+    }
     log("钱包余额已刷新。", "SUCCESS");
     notify("钱包余额已刷新。", "success");
   } catch (error) {
@@ -7275,6 +7473,42 @@ document.getElementById("walletBtn").addEventListener("click", async () => {
     notify(`刷新钱包失败：${message}`, "error");
   }
 });
+
+if (elements.rechargeCreateBtn) {
+  elements.rechargeCreateBtn.addEventListener("click", async () => {
+    const originalText = elements.rechargeCreateBtn.textContent;
+    try {
+      elements.rechargeCreateBtn.disabled = true;
+      setNodeText(elements.rechargeCreateBtn, "创建中...");
+      await createRechargeOrder();
+      notify("充值订单创建成功，请在新页面完成支付。", "success");
+      log("充值订单创建成功。", "SUCCESS");
+    } catch (error) {
+      const message = resolveErrorMessage(error, "payment_create");
+      setMetaText(elements.rechargeView, `创建失败：${message}`, "error");
+      notify(`创建充值订单失败：${message}`, "error");
+      log(`创建充值订单失败：${message}`, "ERROR");
+    } finally {
+      elements.rechargeCreateBtn.disabled = false;
+      setNodeText(elements.rechargeCreateBtn, originalText || "创建支付宝订单");
+    }
+  });
+}
+
+if (elements.rechargeOrdersBtn) {
+  elements.rechargeOrdersBtn.addEventListener("click", async () => {
+    try {
+      await loadRechargeOrders({ announce: true });
+      if (state.recharge.activeOrderNo) {
+        await refreshRechargeStatus(state.recharge.activeOrderNo, { silent: true });
+      }
+    } catch (error) {
+      const message = resolveErrorMessage(error, "payment_status");
+      notify(`刷新充值记录失败：${message}`, "error");
+      log(`刷新充值记录失败：${message}`, "ERROR");
+    }
+  });
+}
 
 document.getElementById("redeemBtn").addEventListener("click", async () => {
   try {
@@ -8029,6 +8263,8 @@ updateAuthLayout();
 updateMarketSectionContext();
 setMetaText(elements.walletView, "等待刷新余额", "info");
 setMetaText(elements.walletLedgerView, "等待加载记录", "info");
+setMetaText(elements.rechargeView, "等待创建充值订单", "info");
+setMetaText(elements.rechargeStatusView, "等待查询订单状态", "info");
 setMetaText(elements.redeemView, "等待兑换操作", "info");
 setMetaText(elements.exchangeRateHint, "等待加载兑换比例", "info");
 setMetaText(elements.exchangeView, "等待兑换操作", "info");
@@ -8042,6 +8278,7 @@ if (elements.leaderboardMyRankView) {
   setNodeText(elements.leaderboardMyRankView, "我的名次：-");
 }
 renderNotifications(state.notifications);
+renderRechargeOrders(state.paymentOrders);
 updateNotificationBadge();
 ensureMaterialNameMap();
 ensureMarketMaterialAllowList();

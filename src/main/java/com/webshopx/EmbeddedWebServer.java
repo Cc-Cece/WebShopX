@@ -14,6 +14,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -43,6 +45,7 @@ class EmbeddedWebServer {
   private final Supplier<PluginSettings> settingsSupplier;
   private final AuthService authService;
   private final WalletService walletService;
+  private final PaymentService paymentService;
   private final RedeemCodeService redeemCodeService;
   private final ProductService productService;
   private final OrderService orderService;
@@ -70,6 +73,7 @@ class EmbeddedWebServer {
       Supplier<PluginSettings> settingsSupplier,
       AuthService authService,
       WalletService walletService,
+      PaymentService paymentService,
       RedeemCodeService redeemCodeService,
       ProductService productService,
       OrderService orderService,
@@ -87,6 +91,7 @@ class EmbeddedWebServer {
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
     this.walletService = walletService;
+    this.paymentService = paymentService;
     this.redeemCodeService = redeemCodeService;
     this.productService = productService;
     this.orderService = orderService;
@@ -121,6 +126,11 @@ class EmbeddedWebServer {
     server.createContext("/api/wallet", this::handleWallet);
     server.createContext("/api/wallet/ledger", this::handleWalletLedger);
     server.createContext("/api/wallet/exchange", this::handleExchange);
+    server.createContext("/api/payment/alipay/create", this::handleAlipayPaymentCreate);
+    server.createContext("/api/payment/alipay/status", this::handleAlipayPaymentStatus);
+    server.createContext("/api/payment/alipay/notify", this::handleAlipayPaymentNotify);
+    server.createContext("/api/payment/orders", this::handlePaymentOrders);
+    server.createContext("/web/payment/alipay/return", this::handleAlipayPaymentReturnPage);
     server.createContext("/api/redeem/use", this::handleRedeemUse);
     server.createContext("/api/products", this::handleProducts);
     server.createContext("/api/orders", this::handleOrders);
@@ -355,6 +365,169 @@ class EmbeddedWebServer {
       response.addProperty("gameCoin", balance.gameCoin());
       sendJson(exchange, 200, response);
     });
+  }
+
+  private void handleAlipayPaymentCreate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      long shopCoinAmount = getLong(payload, "shopCoinAmount", 0L);
+      String clientReturnUrl = getOptionalString(payload, "clientReturnUrl").orElse(null);
+      String userAgent = exchange.getRequestHeaders().getFirst("User-Agent");
+      PaymentService.CreateOrderResult result = paymentService.createAlipayOrder(
+          user.id(),
+          shopCoinAmount,
+          clientReturnUrl,
+          clientIp(exchange),
+          userAgent);
+
+      JsonObject response = new JsonObject();
+      response.addProperty("orderNo", result.orderNo());
+      response.addProperty("outTradeNo", result.outTradeNo());
+      response.addProperty("shopCoinAmount", result.shopCoinAmount());
+      response.addProperty("amountCnyFen", result.amountCnyFen());
+      response.addProperty("amountCny", fenToYuan(result.amountCnyFen()).doubleValue());
+      response.addProperty("status", result.status());
+      response.addProperty("payType", "ALIPAY");
+      response.addProperty("payUrl", result.payUrl());
+      if (result.qrCode() == null) {
+        response.add("qrCode", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("qrCode", result.qrCode());
+      }
+      addBusinessDateTime(response, "expireAt", result.expireAt());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAlipayPaymentStatus(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, null);
+      Map<String, String> query = parseQuery(exchange);
+      String orderNo = query.get("orderNo");
+      PaymentService.PaymentOrderView order = paymentService.getOrderForUser(user.id(), orderNo);
+      WalletService.WalletBalance balance = walletService.getBalance(user.id());
+
+      JsonObject response = new JsonObject();
+      response.addProperty("orderNo", order.orderNo());
+      response.addProperty("status", order.status());
+      response.addProperty("shopCoinAmount", order.shopCoinAmount());
+      response.addProperty("amountCnyFen", order.amountCnyFen());
+      response.addProperty("amountCny", fenToYuan(order.amountCnyFen()).doubleValue());
+      if (order.tradeNo() == null) {
+        response.add("tradeNo", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("tradeNo", order.tradeNo());
+      }
+      addBusinessDateTime(response, "paidAt", order.paidAt());
+      addBusinessDateTime(response, "notifyTime", order.notifyTime());
+      addBusinessDateTime(response, "expireAt", order.expireAt());
+      addBusinessDateTime(response, "createdAt", order.createdAt());
+      JsonObject walletBalance = new JsonObject();
+      walletBalance.addProperty("shopCoin", balance.shopCoin());
+      walletBalance.addProperty("gameCoin", balance.gameCoin());
+      response.add("walletBalance", walletBalance);
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAlipayPaymentNotify(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    try {
+      Map<String, String> payload = readFormBody(exchange);
+      PaymentService.NotifyProcessResult result = paymentService.handleAlipayNotify(payload);
+      if (result.success()) {
+        sendPlainText(exchange, 200, "success");
+      } else {
+        sendPlainText(exchange, 400, result.responseText());
+      }
+    } catch (ServiceException exception) {
+      sendPlainText(exchange, 400, "failure");
+    } catch (Exception exception) {
+      plugin.getLogger().log(java.util.logging.Level.SEVERE, "Alipay notify handling failed", exception);
+      sendPlainText(exchange, 500, "failure");
+    }
+  }
+
+  private void handlePaymentOrders(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, null);
+      Map<String, String> query = parseQuery(exchange);
+      int limit = parseInt(query.get("limit"), 20);
+      List<PaymentService.PaymentOrderView> orders = paymentService.listOrdersForUser(user.id(), limit);
+      JsonArray rows = new JsonArray();
+      for (PaymentService.PaymentOrderView order : orders) {
+        JsonObject row = new JsonObject();
+        row.addProperty("orderNo", order.orderNo());
+        row.addProperty("outTradeNo", order.outTradeNo());
+        row.addProperty("status", order.status());
+        row.addProperty("shopCoinAmount", order.shopCoinAmount());
+        row.addProperty("amountCnyFen", order.amountCnyFen());
+        row.addProperty("amountCny", fenToYuan(order.amountCnyFen()).doubleValue());
+        if (order.tradeNo() == null) {
+          row.add("tradeNo", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("tradeNo", order.tradeNo());
+        }
+        addBusinessDateTime(row, "notifyTime", order.notifyTime());
+        addBusinessDateTime(row, "paidAt", order.paidAt());
+        addBusinessDateTime(row, "expireAt", order.expireAt());
+        addBusinessDateTime(row, "createdAt", order.createdAt());
+        rows.add(row);
+      }
+      JsonObject response = new JsonObject();
+      response.add("orders", rows);
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAlipayPaymentReturnPage(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    String html = """
+        <!doctype html>
+        <html lang="zh-CN">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>支付结果 - WebShopX</title>
+        </head>
+        <body style="font-family: sans-serif; padding: 24px;">
+          <h2>支付已提交</h2>
+          <p>请以“充值记录”中的订单状态为准，到账通常在数秒内完成。</p>
+          <p>如果当前页面未及时刷新，请返回商城后查看充值记录。</p>
+          <p><a href="/account">返回账户页面</a></p>
+        </body>
+        </html>
+        """;
+    sendHtml(exchange, 200, html);
   }
 
   private void handleRedeemUse(HttpExchange exchange) throws IOException {
@@ -4309,11 +4482,26 @@ class EmbeddedWebServer {
 
   private Map<String, String> parseQuery(HttpExchange exchange) {
     String rawQuery = exchange.getRequestURI().getRawQuery();
-    Map<String, String> query = new HashMap<>();
     if (rawQuery == null || rawQuery.isBlank()) {
+      return new HashMap<>();
+    }
+    return parseUrlEncodedPairs(rawQuery);
+  }
+
+  private Map<String, String> readFormBody(HttpExchange exchange) throws IOException {
+    try (InputStream inputStream = exchange.getRequestBody()) {
+      byte[] rawBody = inputStream.readAllBytes();
+      String text = new String(rawBody, StandardCharsets.UTF_8);
+      return parseUrlEncodedPairs(text);
+    }
+  }
+
+  private Map<String, String> parseUrlEncodedPairs(String rawText) {
+    Map<String, String> query = new HashMap<>();
+    if (rawText == null || rawText.isBlank()) {
       return query;
     }
-    String[] entries = rawQuery.split("&");
+    String[] entries = rawText.split("&");
     for (String entry : entries) {
       String[] parts = entry.split("=", 2);
       if (parts.length == 0 || parts[0].isBlank()) {
@@ -4328,6 +4516,10 @@ class EmbeddedWebServer {
 
   private String decodeUrl(String raw) {
     return java.net.URLDecoder.decode(raw, StandardCharsets.UTF_8);
+  }
+
+  private BigDecimal fenToYuan(long amountFen) {
+    return BigDecimal.valueOf(amountFen).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
   }
 
   private double clampPercent(double value) {
@@ -4642,6 +4834,26 @@ class EmbeddedWebServer {
     response.addProperty("error", code);
     response.addProperty("message", message);
     return response;
+  }
+
+  private void sendPlainText(HttpExchange exchange, int statusCode, String payload) throws IOException {
+    byte[] body = String.valueOf(payload == null ? "" : payload).getBytes(StandardCharsets.UTF_8);
+    exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
+    applyCorsHeaders(exchange);
+    exchange.sendResponseHeaders(statusCode, body.length);
+    try (OutputStream outputStream = exchange.getResponseBody()) {
+      outputStream.write(body);
+    }
+  }
+
+  private void sendHtml(HttpExchange exchange, int statusCode, String payload) throws IOException {
+    byte[] body = String.valueOf(payload == null ? "" : payload).getBytes(StandardCharsets.UTF_8);
+    exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+    applyCorsHeaders(exchange);
+    exchange.sendResponseHeaders(statusCode, body.length);
+    try (OutputStream outputStream = exchange.getResponseBody()) {
+      outputStream.write(body);
+    }
   }
 
   private void sendJson(HttpExchange exchange, int statusCode, JsonObject payload) throws IOException {

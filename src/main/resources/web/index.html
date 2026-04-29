@@ -190,10 +190,36 @@
         </article>
 
         <article class="md-card section-card">
+          <h2>充值 ShopCoin</h2>
+          <p class="card-desc">输入要充值的 ShopCoin 数量，生成支付宝支付订单。</p>
+          <div class="field-grid">
+            <label class="field">
+              <input id="rechargeShopCoinAmount" type="number" min="1" step="1" value="10" placeholder="输入充值数量" />
+              <span class="field-label">充值数量（ShopCoin）</span>
+            </label>
+          </div>
+          <div class="actions">
+            <button id="rechargeCreateBtn" type="button">创建支付宝订单</button>
+            <button id="rechargeOrdersBtn" class="btn-tonal" type="button">刷新充值记录</button>
+          </div>
+          <p class="meta" id="rechargeView">等待创建充值订单</p>
+          <p class="meta" id="rechargeStatusView">等待查询订单状态</p>
+          <p class="meta">
+            <a id="rechargePayLink" href="#" target="_blank" rel="noopener noreferrer" class="hidden">打开支付宝支付页</a>
+          </p>
+        </article>
+
+        <article class="md-card section-card">
           <h2>最近变动</h2>
           <p class="card-desc">这里只显示网页系统相关的最近钱包流水，不包含 Vault 外部直接变动。</p>
           <p class="meta" id="walletLedgerView">等待加载记录</p>
           <div id="walletLedgerList" class="wallet-ledger-list"></div>
+        </article>
+
+        <article class="md-card section-card">
+          <h2>充值记录</h2>
+          <p class="card-desc">以充值记录状态为准，支付成功后通常会在数秒内到账。</p>
+          <div id="rechargeOrdersList" class="wallet-ledger-list"></div>
         </article>
       </div>
     </section>
