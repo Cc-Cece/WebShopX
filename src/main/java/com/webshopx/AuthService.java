@@ -323,7 +323,7 @@ class AuthService {
     });
 
     AuthUser user = databaseManager.withConnection(connection -> readUserById(connection, userId))
-        .orElseThrow(() -> new IllegalStateException("Session created but user cannot be loaded"));
+      .orElseThrow(() -> new IllegalStateException("Session created but user cannot be loaded"));
     return new AuthResult(user, token, expiresAt);
   }
 
@@ -340,10 +340,14 @@ class AuthService {
   }
 
   private Optional<AuthUser> readUserBySession(Connection connection, String token) throws SQLException {
+    // Support both ISO timestamp strings and integer epoch-ms stored in SQLite.
     String sql = "SELECT u.id, u.username, u.bound_uuid "
         + "FROM web_sessions s "
         + "JOIN web_users u ON u.id = s.user_id "
-        + "WHERE s.token = ? AND s.expires_at > CURRENT_TIMESTAMP AND u.auth_state = ?";
+        + "WHERE s.token = ? AND u.auth_state = ? AND (" 
+        + "(typeof(s.expires_at) = 'integer' AND datetime(s.expires_at/1000, 'unixepoch') > CURRENT_TIMESTAMP) "
+        + "OR (typeof(s.expires_at) != 'integer' AND s.expires_at > CURRENT_TIMESTAMP)" 
+        + ")";
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, token);
       statement.setString(2, STATE_ACTIVE);

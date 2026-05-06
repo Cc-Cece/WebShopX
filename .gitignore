@@ -7,6 +7,10 @@ bin/
 # IDE
 .idea/
 *.iml
+.vscode/
+
+# Development & Local Tools
+scripts/
 
 # Runtime / local data
 logs/
