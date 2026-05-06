@@ -322,7 +322,7 @@ class AuthService {
       }
     });
 
-    AuthUser user = findUserBySession(token)
+    AuthUser user = databaseManager.withConnection(connection -> readUserById(connection, userId))
         .orElseThrow(() -> new IllegalStateException("Session created but user cannot be loaded"));
     return new AuthResult(user, token, expiresAt);
   }
@@ -346,6 +346,25 @@ class AuthService {
         + "WHERE s.token = ? AND s.expires_at > CURRENT_TIMESTAMP AND u.auth_state = ?";
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, token);
+      statement.setString(2, STATE_ACTIVE);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return Optional.empty();
+        }
+        String boundUuidRaw = resultSet.getString("bound_uuid");
+        UUID boundUuid = boundUuidRaw == null ? null : UUID.fromString(boundUuidRaw);
+        return Optional.of(new AuthUser(
+            resultSet.getLong("id"),
+            resultSet.getString("username"),
+            boundUuid));
+      }
+    }
+  }
+
+  private Optional<AuthUser> readUserById(Connection connection, long userId) throws SQLException {
+    String sql = "SELECT id, username, bound_uuid FROM web_users WHERE id = ? AND auth_state = ?";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
       statement.setString(2, STATE_ACTIVE);
       try (ResultSet resultSet = statement.executeQuery()) {
         if (!resultSet.next()) {

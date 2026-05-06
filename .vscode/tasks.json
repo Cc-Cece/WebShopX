@@ -1,0 +1,127 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build-shadowJar",
+			"type": "shell",
+			"command": "gradlew.bat",
+			"args": [
+				"shadowJar"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "build-shadowJar",
+			"type": "shell",
+			"command": ".\\gradlew.bat",
+			"args": [
+				"shadowJar"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "build-shadowJar-cmd",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/c",
+				".\\gradlew.bat",
+				"shadowJar"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "deploy-webshopx-jar",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/c",
+				"copy",
+				"/Y",
+				"build\\libs\\WebShopX-1.1.5.jar",
+				"C:\\Users\\Kanbara\\Desktop\\T08\\server\\plugins\\"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "build-shadowJar-cmd",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/c",
+				"gradlew.bat",
+				"shadowJar"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "deploy-webshopx-jar",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/c",
+				"copy",
+				"/Y",
+				"build\\libs\\WebShopX-1.1.5.jar",
+				"C:\\Users\\Kanbara\\Desktop\\T08\\server\\plugins\\"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "build-shadowJar-cmd",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/c",
+				"gradlew.bat",
+				"shadowJar"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "deploy-webshopx-jar",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/c",
+				"copy",
+				"/Y",
+				"build\\libs\\WebShopX-1.1.5.jar",
+				"C:\\Users\\Kanbara\\Desktop\\T08\\server\\plugins\\"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		}
+	]
+}

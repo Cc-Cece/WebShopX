@@ -19,6 +19,7 @@ final class SqliteSchemaProvider implements SchemaProvider {
   public void ensureSchema(DatabaseManager databaseManager, PluginSettings settings) {
     databaseManager.inTransaction(connection -> {
       executeSchemaScript(connection);
+      migrateSchema(connection);
       verifySchemaByPragma(connection);
       return null;
     });
@@ -94,11 +95,67 @@ final class SqliteSchemaProvider implements SchemaProvider {
     assertColumnExists(connection, "web_users", "auth_state");
     assertColumnExists(connection, "runtime_config", "version");
     assertColumnExists(connection, "orders", "claim_token");
+    assertColumnExists(connection, "market_listings", "source_mode");
     assertColumnExists(connection, "market_listings", "trade_mode");
 
     assertIndexExists(connection, "orders", "idx_orders_target_server");
     assertIndexExists(connection, "market_listings", "idx_market_listing_auction_due");
   }
+
+  private void migrateSchema(Connection connection) throws SQLException {
+    addColumnIfMissing(
+      connection,
+      "market_listings",
+      "source_mode",
+      "TEXT NOT NULL DEFAULT 'MANUAL'");
+    addColumnIfMissing(connection, "market_listings", "supply_world", "TEXT NULL");
+    addColumnIfMissing(connection, "market_listings", "supply_x", "INTEGER NULL");
+    addColumnIfMissing(connection, "market_listings", "supply_y", "INTEGER NULL");
+    addColumnIfMissing(connection, "market_listings", "supply_z", "INTEGER NULL");
+    addColumnIfMissing(
+      connection,
+      "market_listings",
+      "supply_batch_size",
+      "INTEGER NULL");
+    addColumnIfMissing(
+      connection,
+      "market_listings",
+      "supply_max_stock",
+      "INTEGER NULL");
+    addColumnIfMissing(
+      connection,
+      "market_listings",
+      "supply_loaded_total",
+      "INTEGER NOT NULL DEFAULT 0");
+    addColumnIfMissing(
+      connection,
+      "market_listings",
+      "supply_sold_total",
+      "INTEGER NOT NULL DEFAULT 0");
+    addColumnIfMissing(
+      connection,
+      "market_listings",
+      "supply_last_loaded_amount",
+      "INTEGER NULL");
+    addColumnIfMissing(
+      connection,
+      "market_listings",
+      "supply_last_loaded_at",
+      "DATETIME NULL");
+  }
+
+    private void addColumnIfMissing(
+      Connection connection, String tableName, String columnName, String columnDefinition)
+      throws SQLException {
+    if (columnExistsByPragma(connection, tableName, columnName)) {
+      return;
+    }
+    execute(
+      connection,
+      "ALTER TABLE " + requireSafeIdentifier(tableName)
+        + " ADD COLUMN " + requireSafeIdentifier(columnName)
+        + " " + columnDefinition);
+    }
 
   private void assertTableExists(Connection connection, String tableName) throws SQLException {
     String sql = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1";
