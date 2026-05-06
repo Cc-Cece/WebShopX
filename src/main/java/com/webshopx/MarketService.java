@@ -50,6 +50,7 @@ class MarketService {
 
   private final JavaPlugin plugin;
   private final DatabaseManager databaseManager;
+  private final SqlProvider sqlProvider;
   private final WalletService walletService;
   private final RuntimeConfigService runtimeConfigService;
   private final Supplier<PluginSettings> settingsSupplier;
@@ -75,6 +76,7 @@ class MarketService {
       UserMarketSettingsService userMarketSettingsService) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
+    this.sqlProvider = databaseManager.sqlProvider();
     this.walletService = walletService;
     this.runtimeConfigService = runtimeConfigService;
     this.settingsSupplier = settingsSupplier;
@@ -84,7 +86,7 @@ class MarketService {
     this.playerPresenceService = playerPresenceService;
     this.userMarketSettingsService = userMarketSettingsService;
     this.itemSnapshotCodec = new ItemSnapshotCodec();
-    this.marketTagService = new MarketTagService(runtimeConfigService, itemSnapshotCodec);
+    this.marketTagService = new MarketTagService(sqlProvider, runtimeConfigService, itemSnapshotCodec);
     this.marketLimitationService = new MarketLimitationService(runtimeConfigService, itemSnapshotCodec);
   }
 
@@ -717,7 +719,7 @@ class MarketService {
       params.add("%" + sellerKeyword.trim().toLowerCase(Locale.ROOT) + "%");
     }
     if (buyerKeyword != null && !buyerKeyword.isBlank()) {
-      clauses.add("LOWER(IFNULL(ub.username, '')) LIKE ?");
+      clauses.add("LOWER(" + sqlProvider.coalesce("ub.username", "''") + ") LIKE ?");
       params.add("%" + buyerKeyword.trim().toLowerCase(Locale.ROOT) + "%");
     }
     if (materialFilter != null && !materialFilter.isBlank()) {
@@ -729,12 +731,19 @@ class MarketService {
       params.add(currencyFilter.trim().toUpperCase(Locale.ROOT));
     }
     if (keyword != null && !keyword.isBlank()) {
+      String listingIdAsText = sqlProvider.castAsText("ml.id");
+      String displayNameExpr = sqlProvider.coalesce("ml.display_name_override", "''");
+      String displayMaterialExpr = sqlProvider.coalesce("ml.display_material", "''");
+      String remarkExpr = sqlProvider.coalesce("ml.remark", "''");
+      String buyerNameExpr = sqlProvider.coalesce("ub.username", "''");
       clauses.add(
-          "(CAST(ml.id AS CHAR) LIKE ? OR LOWER(ml.item_material) LIKE ? "
-              + "OR LOWER(IFNULL(ml.display_name_override, '')) LIKE ? "
-              + "OR LOWER(IFNULL(ml.display_material, '')) LIKE ? "
-              + "OR LOWER(IFNULL(ml.remark, '')) LIKE ? "
-              + "OR LOWER(us.username) LIKE ? OR LOWER(IFNULL(ub.username, '')) LIKE ?)");
+          "("
+              + listingIdAsText
+              + " LIKE ? OR LOWER(ml.item_material) LIKE ? "
+              + "OR LOWER(" + displayNameExpr + ") LIKE ? "
+              + "OR LOWER(" + displayMaterialExpr + ") LIKE ? "
+              + "OR LOWER(" + remarkExpr + ") LIKE ? "
+              + "OR LOWER(us.username) LIKE ? OR LOWER(" + buyerNameExpr + ") LIKE ?)");
       String fuzzy = "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%";
       params.add(fuzzy);
       params.add(fuzzy);
@@ -998,7 +1007,7 @@ class MarketService {
       justification = "Lock clause is selected from a fixed boolean branch")
   private BoundUser readBoundUserByUuid(Connection connection, UUID playerUuid, boolean forUpdate)
       throws SQLException {
-    String lock = forUpdate ? " FOR UPDATE" : "";
+    String lock = forUpdate ? sqlProvider.forUpdateClause() : "";
     String sql = """
         SELECT id, username, bound_uuid
         FROM web_users
@@ -1023,7 +1032,7 @@ class MarketService {
       justification = "Lock clause is selected from a fixed boolean branch")
   private BoundUser readBoundUserById(Connection connection, long userId, boolean forUpdate)
       throws SQLException {
-    String lock = forUpdate ? " FOR UPDATE" : "";
+    String lock = forUpdate ? sqlProvider.forUpdateClause() : "";
     String sql = """
         SELECT id, username, bound_uuid
         FROM web_users
@@ -1359,18 +1368,22 @@ class MarketService {
 
     String sql;
     if ("active".equals(scope)) {
-      sql = """
+      sql =
+          """
           SELECT id, raw_item_blob, item_meta_json, item_material, tag_code, tag_version
           FROM market_listings
           WHERE status IN ('ACTIVE', 'PAUSED')
-          FOR UPDATE
-          """;
+          %s
+          """
+              .formatted(sqlProvider.forUpdateClause());
     } else {
-      sql = """
+      sql =
+          """
           SELECT id, raw_item_blob, item_meta_json, item_material, tag_code, tag_version
           FROM market_listings
-          FOR UPDATE
-          """;
+          %s
+          """
+              .formatted(sqlProvider.forUpdateClause());
     }
     int scanned = 0;
     int changed = 0;
@@ -1703,7 +1716,7 @@ class MarketService {
           UPDATE market_listings
           SET quantity = ?,
               status = ?,
-              sold_at = CASE WHEN ? THEN NOW() ELSE sold_at END,
+              sold_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE sold_at END,
               buyer_user_id = NULL,
               buyer_uuid = NULL,
               escrow_remaining = ?
@@ -1844,13 +1857,13 @@ class MarketService {
             status = 'SOLD',
             buyer_user_id = ?,
             buyer_uuid = ?,
-            sold_at = NOW(),
+            sold_at = CURRENT_TIMESTAMP,
             price = ?,
             auction_highest_bid = ?,
             auction_highest_bidder_user_id = ?,
             auction_highest_bidder_uuid = ?,
             auction_highest_bid_id = NULL,
-            auction_last_bid_at = NOW()
+            auction_last_bid_at = CURRENT_TIMESTAMP
         WHERE id = ?
         """;
     try (PreparedStatement statement = connection.prepareStatement(soldSql)) {
@@ -2015,7 +2028,7 @@ class MarketService {
               auction_highest_bidder_user_id = ?,
               auction_highest_bidder_uuid = ?,
               auction_highest_bid_id = ?,
-              auction_last_bid_at = NOW(),
+              auction_last_bid_at = CURRENT_TIMESTAMP,
               auction_public_end_at = ?,
               auction_end_at = ?,
               price = ?
@@ -2056,7 +2069,7 @@ class MarketService {
     } else {
       String updateSql = """
           UPDATE market_listings
-          SET auction_last_bid_at = NOW()
+          SET auction_last_bid_at = CURRENT_TIMESTAMP
           WHERE id = ?
           """;
       try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
@@ -2119,12 +2132,14 @@ class MarketService {
 
   private ExistingBid readExistingBid(Connection connection, long bidderUserId, String idempotencyKey)
       throws SQLException {
-    String sql = """
+    String sql =
+        """
         SELECT id, listing_id, bid_amount, status
         FROM market_bids
         WHERE bidder_user_id = ? AND idempotency_key = ?
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, bidderUserId);
       statement.setString(2, idempotencyKey);
@@ -2180,9 +2195,9 @@ class MarketService {
     String sql = """
         UPDATE market_bids
         SET status = ?,
-            outbid_at = CASE WHEN ? THEN NOW() ELSE outbid_at END,
-            refunded_at = CASE WHEN ? THEN NOW() ELSE refunded_at END,
-            settled_at = CASE WHEN ? THEN NOW() ELSE settled_at END
+            outbid_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE outbid_at END,
+            refunded_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE refunded_at END,
+            settled_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE settled_at END
         WHERE id = ?
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -2221,15 +2236,17 @@ class MarketService {
       return;
     }
 
-    String pendingSql = """
+    String pendingSql =
+        """
         SELECT id, bidder_user_id, bidder_uuid, bid_amount
         FROM market_bids
         WHERE listing_id = ?
           AND status IN ('LEADING', 'SEALED')
           AND refunded_at IS NULL
           AND settled_at IS NULL
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     List<AuctionBidRefund> refunds = new ArrayList<>();
     try (PreparedStatement statement = connection.prepareStatement(pendingSql)) {
       statement.setLong(1, listing.id());
@@ -2283,17 +2300,19 @@ class MarketService {
 
   private List<AuctionSettlementNotice> settleDueAuctions(Connection connection) throws SQLException {
     List<Long> dueListingIds = new ArrayList<>();
-    String dueSql = """
+    String dueSql =
+        """
         SELECT id
         FROM market_listings
         WHERE trade_mode = 'AUCTION'
           AND status = 'ACTIVE'
           AND auction_end_at IS NOT NULL
-          AND auction_end_at <= NOW()
+          AND auction_end_at <= CURRENT_TIMESTAMP
         ORDER BY auction_end_at ASC
         LIMIT ?
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     try (PreparedStatement statement = connection.prepareStatement(dueSql)) {
       statement.setInt(1, AUCTION_SETTLE_BATCH_LIMIT);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -2390,7 +2409,8 @@ class MarketService {
       Connection connection,
       MarketListing listing,
       List<AuctionSettlementNotice> notices) throws SQLException {
-    String bidSql = """
+    String bidSql =
+        """
         SELECT id, bidder_user_id, bidder_uuid, bid_amount
         FROM market_bids
         WHERE listing_id = ?
@@ -2398,8 +2418,9 @@ class MarketService {
           AND refunded_at IS NULL
           AND settled_at IS NULL
         ORDER BY bid_amount DESC, created_at ASC
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     List<AuctionBidRefund> bids = new ArrayList<>();
     try (PreparedStatement statement = connection.prepareStatement(bidSql)) {
       statement.setLong(1, listing.id());
@@ -2497,7 +2518,7 @@ class MarketService {
     String noBidSql = """
         UPDATE market_listings
         SET status = 'UNLISTED',
-            unlisted_at = NOW(),
+            unlisted_at = CURRENT_TIMESTAMP,
             paused_at = NULL,
             auction_highest_bid = NULL,
             auction_highest_bidder_user_id = NULL,
@@ -2534,7 +2555,8 @@ class MarketService {
       MarketListing listing,
       Long winnerBidId,
       String reasonTag) throws SQLException {
-    String pendingSql = """
+    String pendingSql =
+        """
         SELECT id, bidder_user_id, bidder_uuid, bid_amount
         FROM market_bids
         WHERE listing_id = ?
@@ -2542,8 +2564,9 @@ class MarketService {
           AND refunded_at IS NULL
           AND settled_at IS NULL
           AND (? IS NULL OR id <> ?)
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     List<AuctionBidRefund> pending = new ArrayList<>();
     try (PreparedStatement statement = connection.prepareStatement(pendingSql)) {
       statement.setLong(1, listing.id());
@@ -2627,13 +2650,13 @@ class MarketService {
             status = 'SOLD',
             buyer_user_id = ?,
             buyer_uuid = ?,
-            sold_at = NOW(),
+            sold_at = CURRENT_TIMESTAMP,
             price = ?,
             auction_highest_bid = ?,
             auction_highest_bidder_user_id = ?,
             auction_highest_bidder_uuid = ?,
             auction_highest_bid_id = ?,
-            auction_last_bid_at = NOW()
+            auction_last_bid_at = CURRENT_TIMESTAMP
         WHERE id = ?
         """;
     try (PreparedStatement statement = connection.prepareStatement(soldSql)) {
@@ -2672,7 +2695,8 @@ class MarketService {
   }
 
   private int applyDynamicPriceDecay(Connection connection) throws SQLException {
-    String selectSql = """
+    String selectSql =
+        """
         SELECT id, price,
                dynamic_algorithm, dynamic_params_json,
                dynamic_base_price, dynamic_floor_price, dynamic_cap_price, dynamic_price_step,
@@ -2682,8 +2706,9 @@ class MarketService {
           AND dynamic_pricing_enabled = TRUE
           AND status = 'ACTIVE'
           AND dynamic_demand_score > 0
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     List<DynamicDecayTarget> targets = new ArrayList<>();
     try (PreparedStatement statement = connection.prepareStatement(selectSql);
          ResultSet resultSet = statement.executeQuery()) {
@@ -2760,7 +2785,7 @@ class MarketService {
 
     String updateSql = """
         UPDATE market_listings
-        SET status = 'UNLISTED', unlisted_at = NOW(), paused_at = NULL
+        SET status = 'UNLISTED', unlisted_at = CURRENT_TIMESTAMP, paused_at = NULL
         WHERE id = ?
         """;
     try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
@@ -2799,7 +2824,7 @@ class MarketService {
     }
     String sql = """
         UPDATE market_listings
-        SET status = 'PAUSED', paused_at = NOW()
+        SET status = 'PAUSED', paused_at = CURRENT_TIMESTAMP
         WHERE id = ?
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -3513,7 +3538,7 @@ class MarketService {
               status = 'ACTIVE',
               supply_max_stock = ?,
               supply_last_loaded_amount = ?,
-              supply_last_loaded_at = NOW(),
+              supply_last_loaded_at = CURRENT_TIMESTAMP,
               supply_loaded_total = supply_loaded_total + ?
           WHERE id = ?
           """;
@@ -4209,14 +4234,16 @@ class MarketService {
 
   private ExistingTrade readExistingTrade(Connection connection, long buyerUserId, String idempotencyKey)
       throws SQLException {
-    String sql = """
+    String sql =
+        """
         SELECT t.id, t.listing_id, t.currency, t.unit_price, t.quantity, t.total_price,
                t.buyer_total, t.seller_receive, t.fee_amount, t.tax_amount,
                t.status, t.refund_deadline
         FROM market_trades t
         WHERE t.buyer_user_id = ? AND t.idempotency_key = ?
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, buyerUserId);
       statement.setString(2, idempotencyKey);
@@ -4294,7 +4321,7 @@ class MarketService {
         }
         long tradeId = keyResult.getLong(1);
         if ("WAIT_CLAIM".equalsIgnoreCase(status)) {
-          ClaimTokenRepository.ensureMarketTradeToken(connection, tradeId);
+          ClaimTokenRepository.ensureMarketTradeToken(connection, tradeId, sqlProvider.forUpdateClause());
         }
         return tradeId;
       }
@@ -4316,14 +4343,14 @@ class MarketService {
       sql = """
           UPDATE market_listings
           SET quantity = ?, status = 'ACTIVE',
-              buyer_user_id = NULL, buyer_uuid = NULL, sold_at = CASE WHEN ? THEN NOW() ELSE sold_at END,
+              buyer_user_id = NULL, buyer_uuid = NULL, sold_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE sold_at END,
               supply_sold_total = supply_sold_total + ?
           WHERE id = ?
           """;
     } else if (soldOut) {
       sql = """
           UPDATE market_listings
-          SET quantity = 0, status = 'SOLD', buyer_user_id = ?, buyer_uuid = ?, sold_at = NOW()
+          SET quantity = 0, status = 'SOLD', buyer_user_id = ?, buyer_uuid = ?, sold_at = CURRENT_TIMESTAMP
           WHERE id = ?
           """;
     } else {
@@ -4397,7 +4424,7 @@ class MarketService {
 
     String updateSql = """
         UPDATE market_listings
-        SET status = 'UNLISTED', unlisted_at = NOW(), paused_at = NULL
+        SET status = 'UNLISTED', unlisted_at = CURRENT_TIMESTAMP, paused_at = NULL
         WHERE id = ?
         """;
     try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
@@ -4483,7 +4510,8 @@ class MarketService {
   }
 
   private MarketListing readListingForUpdate(Connection connection, long listingId) throws SQLException {
-    String sql = """
+    String sql =
+        """
         SELECT id, seller_user_id, seller_uuid, currency, price, quantity, quantity_total,
                market_side, tag_code, tag_version, escrow_total, escrow_remaining,
                item_material, display_name_override, display_material, display_icon_path, raw_item_blob,
@@ -4496,12 +4524,13 @@ class MarketService {
            auction_algorithm, auction_params_json,
            auction_start_price, auction_min_increment, auction_started_at,
            auction_public_end_at, auction_end_at,
-         auction_highest_bid, auction_highest_bidder_user_id, auction_highest_bidder_uuid,
-         auction_highest_bid_id, auction_last_bid_at
+          auction_highest_bid, auction_highest_bidder_user_id, auction_highest_bidder_uuid,
+          auction_highest_bid_id, auction_last_bid_at
         FROM market_listings
         WHERE id = ?
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, listingId);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -4860,12 +4889,14 @@ class MarketService {
   }
 
   private int countActiveListings(Connection connection, long userId) throws SQLException {
-    String sql = """
+    String sql =
+        """
         SELECT COUNT(*) AS total
         FROM market_listings
         WHERE seller_user_id = ? AND status = 'ACTIVE'
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -5370,6 +5401,7 @@ class MarketService {
     }
   }
 }
+
 
 
 

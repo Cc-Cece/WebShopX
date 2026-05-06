@@ -27,6 +27,7 @@ class OrderService {
 
   private final JavaPlugin plugin;
   private final DatabaseManager databaseManager;
+  private final SqlProvider sqlProvider;
   private final Supplier<PluginSettings> settingsSupplier;
   private final ProductService productService;
   private final WalletService walletService;
@@ -42,6 +43,7 @@ class OrderService {
       PlayerPresenceService playerPresenceService) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
+    this.sqlProvider = databaseManager.sqlProvider();
     this.settingsSupplier = settingsSupplier;
     this.productService = productService;
     this.walletService = walletService;
@@ -394,7 +396,8 @@ class OrderService {
       }
     }
 
-    String checkSql = "SELECT stock_remaining FROM products WHERE id = ? FOR UPDATE";
+    String checkSql =
+        "SELECT stock_remaining FROM products WHERE id = ?" + sqlProvider.forUpdateClause();
     try (PreparedStatement statement = connection.prepareStatement(checkSql)) {
       statement.setLong(1, productId);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -449,12 +452,14 @@ class OrderService {
 
   private int readPersonalLimitUsageForUpdate(Connection connection, long productId, long userId)
       throws SQLException {
-    String sql = """
+    String sql =
+        """
         SELECT used_count
         FROM product_user_usage
         WHERE product_id = ? AND user_id = ?
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, productId);
       statement.setLong(2, userId);
@@ -469,22 +474,7 @@ class OrderService {
 
   private void incrementPersonalLimitUsage(Connection connection, long productId, long userId, int quantity)
       throws SQLException {
-    String sql =
-        databaseManager.dbType().isSqlite()
-            ? """
-            INSERT INTO product_user_usage (product_id, user_id, used_count)
-            VALUES (?, ?, ?)
-            ON CONFLICT(product_id, user_id) DO UPDATE SET
-              used_count = product_user_usage.used_count + excluded.used_count,
-              updated_at = CURRENT_TIMESTAMP
-            """
-            : """
-            INSERT INTO product_user_usage (product_id, user_id, used_count)
-            VALUES (?, ?, ?)
-            ON DUPLICATE KEY UPDATE
-              used_count = used_count + VALUES(used_count),
-              updated_at = CURRENT_TIMESTAMP
-            """;
+    String sql = sqlProvider.upsertProductUserUsageSql();
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, productId);
       statement.setLong(2, userId);
@@ -540,15 +530,17 @@ class OrderService {
 
   private ExistingOrder readExistingOrder(Connection connection, long userId, String idempotencyKey)
       throws SQLException {
-    String sql = """
+    String sql =
+        """
         SELECT o.order_no, o.currency, o.total_amount, o.status, o.refund_deadline,
                gv.code AS group_buy_voucher_code, gv.status AS group_buy_voucher_status,
                gv.consumed_at AS group_buy_voucher_consumed_at
         FROM orders o
         LEFT JOIN group_buy_vouchers gv ON gv.order_id = o.id
         WHERE o.user_id = ? AND o.idempotency_key = ?
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
       statement.setString(2, idempotencyKey);
@@ -572,7 +564,8 @@ class OrderService {
   }
 
   private UUID readBoundUuidForUpdate(Connection connection, long userId) throws SQLException {
-    String sql = "SELECT bound_uuid FROM web_users WHERE id = ? FOR UPDATE";
+    String sql =
+        "SELECT bound_uuid FROM web_users WHERE id = ?" + sqlProvider.forUpdateClause();
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -589,7 +582,8 @@ class OrderService {
   }
 
   private void lockUserForUpdate(Connection connection, long userId) throws SQLException {
-    String sql = "SELECT id FROM web_users WHERE id = ? FOR UPDATE";
+    String sql =
+        "SELECT id FROM web_users WHERE id = ?" + sqlProvider.forUpdateClause();
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -601,7 +595,8 @@ class OrderService {
   }
 
   private void lockProductForUpdate(Connection connection, long productId) throws SQLException {
-    String sql = "SELECT id FROM products WHERE id = ? FOR UPDATE";
+    String sql =
+        "SELECT id FROM products WHERE id = ?" + sqlProvider.forUpdateClause();
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, productId);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -750,7 +745,7 @@ class OrderService {
       statement.executeUpdate();
     }
     if (deliveryMode == DeliveryMode.CLAIM) {
-      ClaimTokenRepository.ensureOrderToken(connection, orderId);
+      ClaimTokenRepository.ensureOrderToken(connection, orderId, sqlProvider.forUpdateClause());
     }
   }
 
@@ -1208,7 +1203,7 @@ class OrderService {
           UPDATE group_buy_vouchers
           SET status = 'CONSUMED',
               consumed_by_admin_id = ?,
-              consumed_at = NOW()
+              consumed_at = CURRENT_TIMESTAMP
           WHERE id = ?
             AND status = 'ISSUED'
           """;
@@ -1268,7 +1263,7 @@ class OrderService {
 
       String updateOrderSql = """
           UPDATE orders
-          SET status = 'REFUNDED', refunded_at = NOW(), claim_token = NULL
+          SET status = 'REFUNDED', refunded_at = CURRENT_TIMESTAMP, claim_token = NULL
           WHERE id = ?
           """;
       try (PreparedStatement statement = connection.prepareStatement(updateOrderSql)) {
@@ -1324,7 +1319,8 @@ class OrderService {
 
   private GroupBuyVoucherRow readGroupBuyVoucherForUpdate(Connection connection, String code)
       throws SQLException {
-    String sql = """
+    String sql =
+        """
         SELECT gv.id, gv.code, gv.status, gv.consumed_at,
                o.order_no, o.user_id, u.username, p.sku, p.title
         FROM group_buy_vouchers gv
@@ -1332,8 +1328,9 @@ class OrderService {
         JOIN web_users u ON u.id = gv.user_id
         JOIN products p ON p.id = gv.product_id
         WHERE gv.code = ?
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, code);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -1441,7 +1438,7 @@ class OrderService {
 
       String updateTradeSql = """
           UPDATE market_trades
-          SET status = 'REFUNDED', refunded_at = NOW(), claim_token = NULL
+          SET status = 'REFUNDED', refunded_at = CURRENT_TIMESTAMP, claim_token = NULL
           WHERE id = ? AND status IN ('PENDING', 'WAIT_CLAIM')
           """;
       try (PreparedStatement statement = connection.prepareStatement(updateTradeSql)) {
@@ -1508,7 +1505,8 @@ class OrderService {
 
   private OrderRow readOrderForRefund(Connection connection, long userId, String orderNo)
       throws SQLException {
-    String sql = """
+    String sql =
+        """
         SELECT o.id, o.order_no, o.currency, o.total_amount, o.status, o.refund_deadline,
                oi.product_id, oi.quantity,
                gv.code AS group_buy_voucher_code, gv.status AS group_buy_voucher_status
@@ -1516,8 +1514,9 @@ class OrderService {
         JOIN order_items oi ON oi.order_id = o.id
         LEFT JOIN group_buy_vouchers gv ON gv.order_id = o.id
         WHERE o.user_id = ? AND o.order_no = ?
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
       statement.setString(2, orderNo);
@@ -1543,12 +1542,14 @@ class OrderService {
 
   private MarketOrderRow readMarketTradeForRefund(Connection connection, long userId, long tradeId)
       throws SQLException {
-    String sql = """
+    String sql =
+        """
         SELECT id, listing_id, currency, unit_price, quantity, total_price, buyer_total, status, refund_deadline
         FROM market_trades
         WHERE id = ? AND buyer_user_id = ?
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, tradeId);
       statement.setLong(2, userId);
@@ -1679,7 +1680,7 @@ class OrderService {
     if (claimToken != null && !claimToken.isBlank()) {
       return claimToken;
     }
-    return ClaimTokenRepository.ensureOrderToken(connection, orderId);
+    return ClaimTokenRepository.ensureOrderToken(connection, orderId, sqlProvider.forUpdateClause());
   }
 
   private String ensureMarketClaimToken(Connection connection, long tradeId, String status, String claimToken)
@@ -1690,7 +1691,10 @@ class OrderService {
     if (claimToken != null && !claimToken.isBlank()) {
       return claimToken;
     }
-    return ClaimTokenRepository.ensureMarketTradeToken(connection, tradeId);
+    return ClaimTokenRepository.ensureMarketTradeToken(
+        connection,
+        tradeId,
+        sqlProvider.forUpdateClause());
   }
 
   private record ExistingOrder(
@@ -1826,4 +1830,5 @@ class OrderService {
   record RefundResult(String orderNo, WalletService.WalletBalance balance) {
   }
 }
+
 

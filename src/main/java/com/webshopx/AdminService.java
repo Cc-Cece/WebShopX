@@ -18,11 +18,13 @@ import java.util.UUID;
 
 class AdminService {
   private final DatabaseManager databaseManager;
+  private final SqlProvider sqlProvider;
   private final AuthService authService;
   private final WalletService walletService;
 
   AdminService(DatabaseManager databaseManager, AuthService authService, WalletService walletService) {
     this.databaseManager = databaseManager;
+    this.sqlProvider = databaseManager.sqlProvider();
     this.authService = authService;
     this.walletService = walletService;
   }
@@ -292,10 +294,10 @@ class AdminService {
                  COALESCE(w.game_coin, 0) AS game_coin
           FROM web_users u
           LEFT JOIN wallets w ON w.user_id = u.id
-          WHERE (? IS NULL OR u.username LIKE ? OR u.bound_uuid LIKE ? OR CAST(u.id AS CHAR) LIKE ?)
+          WHERE (? IS NULL OR u.username LIKE ? OR u.bound_uuid LIKE ? OR %s LIKE ?)
           ORDER BY u.created_at DESC, u.id DESC
           LIMIT ?
-          """;
+          """.formatted(sqlProvider.castAsText("u.id"));
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setString(1, likeKeyword);
         statement.setString(2, likeKeyword);
@@ -377,28 +379,7 @@ class AdminService {
       boolean superAdmin,
       Set<AdminPermission> permissions,
       String templateKey) throws SQLException {
-    String sql =
-        databaseManager.dbType().isSqlite()
-            ? """
-            INSERT INTO web_admins (user_id, role, active, is_super_admin, permissions_json, template_key)
-            VALUES (?, ?, TRUE, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-              role = excluded.role,
-              active = TRUE,
-              is_super_admin = excluded.is_super_admin,
-              permissions_json = excluded.permissions_json,
-              template_key = excluded.template_key
-            """
-            : """
-            INSERT INTO web_admins (user_id, role, active, is_super_admin, permissions_json, template_key)
-            VALUES (?, ?, TRUE, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE
-              role = VALUES(role),
-              active = TRUE,
-              is_super_admin = VALUES(is_super_admin),
-              permissions_json = VALUES(permissions_json),
-              template_key = VALUES(template_key)
-            """;
+    String sql = sqlProvider.upsertAdminAccessSql();
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
       statement.setString(2, superAdmin ? AdminRole.SUPER_ADMIN.name() : "CUSTOM");

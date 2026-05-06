@@ -94,7 +94,7 @@ class NotificationService {
       String sql = """
           UPDATE notifications
           SET is_read = TRUE,
-              read_at = NOW()
+              read_at = CURRENT_TIMESTAMP
           WHERE id = ?
             AND user_id = ?
             AND is_read = FALSE
@@ -112,7 +112,7 @@ class NotificationService {
       String sql = """
           UPDATE notifications
           SET is_read = TRUE,
-              read_at = NOW()
+              read_at = CURRENT_TIMESTAMP
           WHERE user_id = ?
             AND is_read = FALSE
           """;
@@ -165,7 +165,7 @@ class NotificationService {
     databaseManager.withConnection(connection -> {
       String sql = """
           INSERT INTO notifications (user_id, type, title, content, data_json, is_read, created_at)
-          VALUES (?, ?, ?, ?, ?, FALSE, NOW())
+          VALUES (?, ?, ?, ?, ?, FALSE, CURRENT_TIMESTAMP)
           """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         for (Long userId : targets) {
@@ -191,7 +191,7 @@ class NotificationService {
     return databaseManager.withConnection(connection -> {
       String sql = """
           INSERT INTO notifications (user_id, type, title, content, data_json, is_read, created_at)
-          SELECT id, 'SYSTEM_ANNOUNCEMENT', ?, ?, NULL, FALSE, NOW()
+          SELECT id, 'SYSTEM_ANNOUNCEMENT', ?, ?, NULL, FALSE, CURRENT_TIMESTAMP
           FROM web_users
           """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -234,7 +234,7 @@ class NotificationService {
       String dataJson) throws SQLException {
     String sql = """
         INSERT INTO notifications (user_id, type, title, content, data_json, is_read, created_at)
-        VALUES (?, ?, ?, ?, ?, FALSE, NOW())
+        VALUES (?, ?, ?, ?, ?, FALSE, CURRENT_TIMESTAMP)
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
@@ -284,3 +284,4 @@ class NotificationService {
       LocalDateTime readAt) {
   }
 }
+

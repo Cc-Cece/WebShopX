@@ -36,6 +36,7 @@ class DeliveryService {
 
   private final JavaPlugin plugin;
   private final DatabaseManager databaseManager;
+  private final SqlProvider sqlProvider;
   private final WalletService walletService;
   private final RuntimeConfigService runtimeConfigService;
   private final Supplier<PluginSettings> settingsSupplier;
@@ -56,6 +57,7 @@ class DeliveryService {
       MailboxService mailboxService) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
+    this.sqlProvider = databaseManager.sqlProvider();
     this.walletService = walletService;
     this.runtimeConfigService = runtimeConfigService;
     this.settingsSupplier = settingsSupplier;
@@ -290,11 +292,11 @@ class DeliveryService {
     databaseManager.withConnection(connection -> {
       String commandSql = """
           UPDATE delivery_queue
-          SET next_retry_at = NOW()
+          SET next_retry_at = CURRENT_TIMESTAMP
           WHERE mc_uuid = ?
             AND status = 'PENDING'
             AND last_error = '鐜╁绂荤嚎'
-            AND next_retry_at > NOW()
+            AND next_retry_at > CURRENT_TIMESTAMP
             AND EXISTS (
               SELECT 1
               FROM orders o
@@ -309,11 +311,11 @@ class DeliveryService {
 
       String marketSql = """
           UPDATE market_item_deliveries
-          SET next_retry_at = NOW()
+          SET next_retry_at = CURRENT_TIMESTAMP
           WHERE target_uuid = ?
             AND status = 'PENDING'
             AND last_error = '鐜╁绂荤嚎'
-            AND next_retry_at > NOW()
+            AND next_retry_at > CURRENT_TIMESTAMP
           """;
       try (PreparedStatement statement = connection.prepareStatement(marketSql)) {
         statement.setString(1, playerUuid.toString());
@@ -344,7 +346,7 @@ class DeliveryService {
       String commandSql = """
           UPDATE delivery_queue
           SET target_server_id = ?,
-              next_retry_at = NOW()
+              next_retry_at = CURRENT_TIMESTAMP
           WHERE mc_uuid = ?
             AND status = 'PENDING'
             AND EXISTS (
@@ -363,7 +365,7 @@ class DeliveryService {
       String marketSql = """
           UPDATE market_item_deliveries
           SET target_server_id = ?,
-              next_retry_at = NOW()
+              next_retry_at = CURRENT_TIMESTAMP
           WHERE target_uuid = ?
             AND status = 'PENDING'
           """;
@@ -456,7 +458,7 @@ class DeliveryService {
         JOIN orders o ON o.id = dq.order_id
         WHERE dq.status = 'PENDING'
           AND o.status = 'PENDING'
-          AND dq.next_retry_at <= NOW()
+          AND dq.next_retry_at <= CURRENT_TIMESTAMP
         """ + routeFilter + filterByPlayer + " ORDER BY dq.id ASC LIMIT ?";
 
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -485,7 +487,7 @@ class DeliveryService {
                md.delivery_type, md.retry_count
         FROM market_item_deliveries md
         WHERE md.status = 'PENDING'
-          AND md.next_retry_at <= NOW()
+          AND md.next_retry_at <= CURRENT_TIMESTAMP
         """ + routeFilter + filterByPlayer + " ORDER BY md.id ASC LIMIT ?";
 
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -623,8 +625,8 @@ class DeliveryService {
       String updateDeliverySql = """
           UPDATE delivery_queue
           SET status = 'DELIVERED',
-              delivered_at = NOW(),
-              claimed_at = CASE WHEN ? THEN NOW() ELSE claimed_at END,
+              delivered_at = CURRENT_TIMESTAMP,
+              claimed_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE claimed_at END,
               last_error = NULL
           WHERE id = ?
           """;
@@ -636,7 +638,7 @@ class DeliveryService {
 
       String updateOrderSql = """
           UPDATE orders
-          SET status = 'DELIVERED', delivered_at = NOW(), claim_token = NULL
+          SET status = 'DELIVERED', delivered_at = CURRENT_TIMESTAMP, claim_token = NULL
           WHERE id = ?
             AND status IN ('PENDING', 'WAIT_CLAIM')
             AND NOT EXISTS (
@@ -660,8 +662,8 @@ class DeliveryService {
       String updateDeliverySql = """
           UPDATE market_item_deliveries
           SET status = 'DELIVERED',
-              delivered_at = NOW(),
-              claimed_at = CASE WHEN ? THEN NOW() ELSE claimed_at END,
+              delivered_at = CURRENT_TIMESTAMP,
+              claimed_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE claimed_at END,
               last_error = NULL
           WHERE id = ?
             AND status IN ('PENDING', 'WAIT_CLAIM')
@@ -710,7 +712,7 @@ class DeliveryService {
 
     String settleSql = """
         UPDATE market_trades
-        SET status = 'DELIVERED', settled_at = NOW(), claim_token = NULL
+        SET status = 'DELIVERED', settled_at = CURRENT_TIMESTAMP, claim_token = NULL
         WHERE id = ? AND status IN ('PENDING', 'WAIT_CLAIM')
         """;
     try (PreparedStatement statement = connection.prepareStatement(settleSql)) {
@@ -723,21 +725,25 @@ class DeliveryService {
       throws SQLException {
     String sql;
     if (tradeId != null) {
-      sql = """
+      sql =
+          """
           SELECT id, seller_user_id, currency, seller_receive, fee_amount, tax_amount, status
           FROM market_trades
           WHERE id = ?
-          FOR UPDATE
-          """;
+          %s
+          """
+              .formatted(sqlProvider.forUpdateClause());
     } else {
-      sql = """
+      sql =
+          """
           SELECT id, seller_user_id, currency, seller_receive, fee_amount, tax_amount, status
           FROM market_trades
           WHERE listing_id = ?
           ORDER BY id DESC
           LIMIT 1
-          FOR UPDATE
-          """;
+          %s
+          """
+              .formatted(sqlProvider.forUpdateClause());
     }
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, tradeId == null ? listingId : tradeId);
@@ -787,13 +793,13 @@ class DeliveryService {
       String errorMessage,
       boolean pushNotification) {
     databaseManager.withConnection(connection -> {
-      ClaimTokenRepository.ensureOrderToken(connection, orderId);
+      ClaimTokenRepository.ensureOrderToken(connection, orderId, sqlProvider.forUpdateClause());
       String sql = """
           UPDATE delivery_queue
           SET status = 'WAIT_CLAIM',
               retry_count = retry_count + 1,
               last_error = ?,
-              next_retry_at = NOW()
+              next_retry_at = CURRENT_TIMESTAMP
           WHERE id = ?
           """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -847,7 +853,10 @@ class DeliveryService {
       boolean pushNotification) {
     databaseManager.withConnection(connection -> {
       if (task.tradeId() != null) {
-        ClaimTokenRepository.ensureMarketTradeToken(connection, task.tradeId());
+        ClaimTokenRepository.ensureMarketTradeToken(
+            connection,
+            task.tradeId(),
+            sqlProvider.forUpdateClause());
         String updateTradeSql = """
             UPDATE market_trades
             SET status = 'WAIT_CLAIM'
@@ -864,7 +873,7 @@ class DeliveryService {
           SET status = 'WAIT_CLAIM',
               retry_count = retry_count + 1,
               last_error = ?,
-              next_retry_at = NOW()
+              next_retry_at = CURRENT_TIMESTAMP
           WHERE id = ?
           """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -1461,6 +1470,7 @@ class DeliveryService {
       String status) {
   }
 }
+
 
 
 

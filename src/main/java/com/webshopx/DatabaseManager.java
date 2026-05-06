@@ -30,12 +30,14 @@ class DatabaseManager {
   private final JavaPlugin plugin;
   private final PluginSettings.DatabaseSettings settings;
   private final DatabaseDialect dialect;
+  private final SqlProvider sqlProvider;
   private HikariDataSource dataSource;
 
   DatabaseManager(JavaPlugin plugin, PluginSettings.DatabaseSettings settings) {
     this.plugin = plugin;
     this.settings = settings;
     this.dialect = DatabaseDialect.forType(settings.type());
+    this.sqlProvider = SqlProvider.forType(settings.type());
   }
 
   void start() {
@@ -313,6 +315,10 @@ class DatabaseManager {
 
   DatabaseDialect dialect() {
     return dialect;
+  }
+
+  SqlProvider sqlProvider() {
+    return sqlProvider;
   }
 
   @FunctionalInterface

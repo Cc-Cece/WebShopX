@@ -13,10 +13,11 @@ final class ClaimTokenRepository {
   private ClaimTokenRepository() {
   }
 
-  static String ensureOrderToken(Connection connection, long orderId) throws SQLException {
+  static String ensureOrderToken(Connection connection, long orderId, String forUpdateClause)
+      throws SQLException {
     return ensureToken(
         connection,
-        "SELECT claim_token FROM orders WHERE id = ? FOR UPDATE",
+        "SELECT claim_token FROM orders WHERE id = ?" + forUpdateClause,
         "UPDATE orders SET claim_token = ? WHERE id = ? AND (claim_token IS NULL OR claim_token = '')",
         orderId,
         ClaimTokenGenerator::newOrderToken,
@@ -27,10 +28,11 @@ final class ClaimTokenRepository {
     clearToken(connection, "UPDATE orders SET claim_token = NULL WHERE id = ?", orderId);
   }
 
-  static String ensureMarketTradeToken(Connection connection, long tradeId) throws SQLException {
+  static String ensureMarketTradeToken(Connection connection, long tradeId, String forUpdateClause)
+      throws SQLException {
     return ensureToken(
         connection,
-        "SELECT claim_token FROM market_trades WHERE id = ? FOR UPDATE",
+        "SELECT claim_token FROM market_trades WHERE id = ?" + forUpdateClause,
         "UPDATE market_trades SET claim_token = ? WHERE id = ? AND (claim_token IS NULL OR claim_token = '')",
         tradeId,
         ClaimTokenGenerator::newMarketToken,

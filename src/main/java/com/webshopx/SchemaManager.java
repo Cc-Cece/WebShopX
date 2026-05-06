@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 
 class SchemaManager {
   private static final String PRODUCT_SCHEDULE_UTC_MIGRATION_KEY = "product_schedule_utc_v1";
+  private static final SqlProvider MYSQL_SQL_PROVIDER = SqlProvider.forType(DbType.MYSQL);
 
   void ensureSchema(DatabaseManager databaseManager, PluginSettings settings) {
     databaseManager.withConnection(connection -> createTables(connection, settings));
@@ -1991,11 +1992,7 @@ class SchemaManager {
   }
 
   private void writeMetaValue(Connection connection, String key, String value) throws SQLException {
-    String sql = """
-        INSERT INTO webshop_meta (meta_key, meta_value)
-        VALUES (?, ?)
-        ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)
-        """;
+    String sql = MYSQL_SQL_PROVIDER.upsertWebshopMetaSql();
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, key);
       statement.setString(2, value);

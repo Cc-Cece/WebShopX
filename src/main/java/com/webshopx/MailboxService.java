@@ -47,7 +47,7 @@ class MailboxService {
             reason,
             status,
             created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', NOW())
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', CURRENT_TIMESTAMP)
           """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setLong(1, userId);
@@ -142,7 +142,7 @@ class MailboxService {
       String sql = """
           UPDATE mailbox_items
           SET status = 'CLAIMED',
-              claimed_at = NOW(),
+              claimed_at = CURRENT_TIMESTAMP,
               last_error = NULL
           WHERE id = ?
           """;

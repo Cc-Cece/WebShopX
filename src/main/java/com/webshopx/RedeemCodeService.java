@@ -14,11 +14,13 @@ class RedeemCodeService {
   private static final String CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
   private final DatabaseManager databaseManager;
+  private final SqlProvider sqlProvider;
   private final WalletService walletService;
   private final SecureRandom secureRandom;
 
   RedeemCodeService(DatabaseManager databaseManager, WalletService walletService) {
     this.databaseManager = databaseManager;
+    this.sqlProvider = databaseManager.sqlProvider();
     this.walletService = walletService;
     this.secureRandom = new SecureRandom();
   }
@@ -171,22 +173,7 @@ class RedeemCodeService {
       int perUserMaxUses,
       LocalDateTime expiresAt) {
     return databaseManager.withConnection(connection -> {
-      String sql =
-          databaseManager.dbType().isSqlite()
-              ? """
-              INSERT INTO redeem_codes (
-                code, shop_coin, game_coin, max_uses, per_user_max_uses, expires_at, active
-              )
-              VALUES (?, ?, ?, ?, ?, ?, TRUE)
-              ON CONFLICT(code) DO NOTHING
-              """
-              : """
-              INSERT INTO redeem_codes (
-                code, shop_coin, game_coin, max_uses, per_user_max_uses, expires_at, active
-              )
-              VALUES (?, ?, ?, ?, ?, ?, TRUE)
-              ON DUPLICATE KEY UPDATE code = code
-              """;
+      String sql = sqlProvider.insertRedeemCodeIfAbsentSql();
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setString(1, code);
         statement.setLong(2, shopCoin);
@@ -208,12 +195,14 @@ class RedeemCodeService {
   }
 
   private RedeemRow readCodeForUpdate(Connection connection, String code) throws SQLException {
-    String sql = """
+    String sql =
+        """
         SELECT shop_coin, game_coin, max_uses, per_user_max_uses, used_count, expires_at, active
         FROM redeem_codes
         WHERE code = ?
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, code);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -235,12 +224,14 @@ class RedeemCodeService {
   }
 
   private int readUserUsageForUpdate(Connection connection, String code, long userId) throws SQLException {
-    String sql = """
+    String sql =
+        """
         SELECT use_count
         FROM redeem_usage
         WHERE code = ? AND user_id = ?
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, code);
       statement.setLong(2, userId);
@@ -254,22 +245,7 @@ class RedeemCodeService {
   }
 
   private void incrementUserUsage(Connection connection, String code, long userId) throws SQLException {
-    String sql =
-        databaseManager.dbType().isSqlite()
-            ? """
-            INSERT INTO redeem_usage (code, user_id, use_count)
-            VALUES (?, ?, 1)
-            ON CONFLICT(code, user_id) DO UPDATE SET
-              use_count = redeem_usage.use_count + 1,
-              used_at = CURRENT_TIMESTAMP
-            """
-            : """
-            INSERT INTO redeem_usage (code, user_id, use_count)
-            VALUES (?, ?, 1)
-            ON DUPLICATE KEY UPDATE
-              use_count = use_count + 1,
-              used_at = CURRENT_TIMESTAMP
-            """;
+    String sql = sqlProvider.upsertRedeemUsageSql();
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, code);
       statement.setLong(2, userId);
@@ -331,3 +307,4 @@ class RedeemCodeService {
       LocalDateTime createdAt) {
   }
 }
+

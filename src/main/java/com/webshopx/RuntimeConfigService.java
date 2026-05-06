@@ -32,10 +32,12 @@ class RuntimeConfigService {
   private static final String KEY_NOTIFICATION = "notification";
 
   private final DatabaseManager databaseManager;
+  private final SqlProvider sqlProvider;
   private final Gson gson;
 
   RuntimeConfigService(DatabaseManager databaseManager) {
     this.databaseManager = databaseManager;
+    this.sqlProvider = databaseManager.sqlProvider();
     this.gson = new GsonBuilder().disableHtmlEscaping().create();
   }
 
@@ -278,18 +280,7 @@ class RuntimeConfigService {
   }
 
   private void insertIfMissing(Connection connection, String key, String jsonValue) throws SQLException {
-    String sql =
-        databaseManager.dbType().isSqlite()
-            ? """
-            INSERT INTO runtime_config (config_key, config_value, version)
-            VALUES (?, ?, 1)
-            ON CONFLICT(config_key) DO NOTHING
-            """
-            : """
-            INSERT INTO runtime_config (config_key, config_value, version)
-            VALUES (?, ?, 1)
-            ON DUPLICATE KEY UPDATE config_key = config_key
-            """;
+    String sql = sqlProvider.insertRuntimeConfigIfMissingSql();
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, key);
       statement.setString(2, jsonValue);
@@ -320,20 +311,7 @@ class RuntimeConfigService {
   }
 
   private void writeMetaValue(Connection connection, String key, String value) throws SQLException {
-    String sql =
-        databaseManager.dbType().isSqlite()
-            ? """
-            INSERT INTO webshop_meta (meta_key, meta_value)
-            VALUES (?, ?)
-            ON CONFLICT(meta_key) DO UPDATE SET
-              meta_value = excluded.meta_value
-            """
-            : """
-            INSERT INTO webshop_meta (meta_key, meta_value)
-            VALUES (?, ?)
-            ON DUPLICATE KEY UPDATE
-              meta_value = VALUES(meta_value)
-            """;
+    String sql = sqlProvider.upsertWebshopMetaSql();
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, key);
       statement.setString(2, value);
@@ -363,24 +341,7 @@ class RuntimeConfigService {
   }
 
   private String runtimeConfigUpsertSql() {
-    if (databaseManager.dbType().isSqlite()) {
-      return """
-          INSERT INTO runtime_config (config_key, config_value, version)
-          VALUES (?, ?, 1)
-          ON CONFLICT(config_key) DO UPDATE SET
-            config_value = excluded.config_value,
-            version = runtime_config.version + 1,
-            updated_at = CURRENT_TIMESTAMP
-          """;
-    }
-    return """
-        INSERT INTO runtime_config (config_key, config_value, version)
-        VALUES (?, ?, 1)
-        ON DUPLICATE KEY UPDATE
-          config_value = VALUES(config_value),
-          version = version + 1,
-          updated_at = CURRENT_TIMESTAMP
-        """;
+    return sqlProvider.upsertRuntimeConfigSql();
   }
 
   private ConfigDocument readConfigObject(Connection connection, String key, String fallbackJson) throws SQLException {

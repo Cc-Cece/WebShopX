@@ -23,11 +23,16 @@ import org.bukkit.inventory.meta.ItemMeta;
 class MarketTagService {
   private static final String FALLBACK_DEFAULT_TAG = "default";
 
+  private final SqlProvider sqlProvider;
   private final RuntimeConfigService runtimeConfigService;
   private final ItemSnapshotCodec itemSnapshotCodec;
   private volatile CachedConfig cachedConfig;
 
-  MarketTagService(RuntimeConfigService runtimeConfigService, ItemSnapshotCodec itemSnapshotCodec) {
+  MarketTagService(
+      SqlProvider sqlProvider,
+      RuntimeConfigService runtimeConfigService,
+      ItemSnapshotCodec itemSnapshotCodec) {
+    this.sqlProvider = sqlProvider;
     this.runtimeConfigService = runtimeConfigService;
     this.itemSnapshotCodec = itemSnapshotCodec;
   }
@@ -95,7 +100,7 @@ class MarketTagService {
 
   void syncDictionary(Connection connection) throws SQLException {
     TagConfig config = loadConfig();
-    String upsertSql = marketTagUpsertSql(connection);
+    String upsertSql = marketTagUpsertSql();
     try (PreparedStatement statement = connection.prepareStatement(upsertSql)) {
       for (TagDefinition definition : config.orderedTags()) {
         statement.setString(1, definition.code());
@@ -115,30 +120,8 @@ class MarketTagService {
     }
   }
 
-  private String marketTagUpsertSql(Connection connection) throws SQLException {
-    if (isSqliteConnection(connection)) {
-      return """
-          INSERT INTO market_tags (code, display_name, enabled, priority)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(code) DO UPDATE SET
-            display_name = excluded.display_name,
-            enabled = excluded.enabled,
-            priority = excluded.priority
-          """;
-    }
-    return """
-        INSERT INTO market_tags (code, display_name, enabled, priority)
-        VALUES (?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          display_name = VALUES(display_name),
-          enabled = VALUES(enabled),
-          priority = VALUES(priority)
-        """;
-  }
-
-  private boolean isSqliteConnection(Connection connection) throws SQLException {
-    String url = connection.getMetaData().getURL();
-    return url != null && url.toLowerCase(Locale.ROOT).startsWith("jdbc:sqlite:");
+  private String marketTagUpsertSql() {
+    return sqlProvider.upsertMarketTagSql();
   }
 
   List<TagMeta> listTagMeta(Connection connection) throws SQLException {

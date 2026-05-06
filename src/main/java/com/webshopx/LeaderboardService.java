@@ -313,3 +313,4 @@ class LeaderboardService {
     private static final OnlineRuntimeStat EMPTY = new OnlineRuntimeStat(false, 0L);
   }
 }
+

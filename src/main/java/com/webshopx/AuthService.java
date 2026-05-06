@@ -18,12 +18,14 @@ class AuthService {
   private static final String STATE_ACTIVE = "ACTIVE";
 
   private final DatabaseManager databaseManager;
+  private final SqlProvider sqlProvider;
   private final Supplier<PluginSettings> settingsSupplier;
   private final PasswordHasher passwordHasher;
   private final SecureRandom secureRandom;
 
   AuthService(DatabaseManager databaseManager, Supplier<PluginSettings> settingsSupplier) {
     this.databaseManager = databaseManager;
+    this.sqlProvider = databaseManager.sqlProvider();
     this.settingsSupplier = settingsSupplier;
     this.passwordHasher = new PasswordHasher();
     this.secureRandom = new SecureRandom();
@@ -212,16 +214,7 @@ class AuthService {
   }
 
   private void ensureWalletExists(Connection connection, long userId) throws SQLException {
-    String insertWalletSql =
-        databaseManager.dbType().isSqlite()
-            ? """
-            INSERT INTO wallets (user_id) VALUES (?)
-            ON CONFLICT(user_id) DO NOTHING
-            """
-            : """
-            INSERT INTO wallets (user_id) VALUES (?)
-            ON DUPLICATE KEY UPDATE user_id = user_id
-            """;
+    String insertWalletSql = sqlProvider.insertWalletIfMissingSql();
     try (PreparedStatement statement = connection.prepareStatement(insertWalletSql)) {
       statement.setLong(1, userId);
       statement.executeUpdate();
@@ -240,7 +233,8 @@ class AuthService {
 
   private UserAccount readUserByUsernameForUpdate(Connection connection, String username)
       throws SQLException {
-    String sql = "SELECT id, username, bound_uuid FROM web_users WHERE username = ? FOR UPDATE";
+    String sql =
+        "SELECT id, username, bound_uuid FROM web_users WHERE username = ?" + sqlProvider.forUpdateClause();
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, username);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -254,7 +248,8 @@ class AuthService {
 
   private UserAccount readUserByBoundUuidForUpdate(Connection connection, UUID playerUuid)
       throws SQLException {
-    String sql = "SELECT id, username, bound_uuid FROM web_users WHERE bound_uuid = ? FOR UPDATE";
+    String sql =
+        "SELECT id, username, bound_uuid FROM web_users WHERE bound_uuid = ?" + sqlProvider.forUpdateClause();
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, playerUuid.toString());
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -348,7 +343,7 @@ class AuthService {
     String sql = "SELECT u.id, u.username, u.bound_uuid "
         + "FROM web_sessions s "
         + "JOIN web_users u ON u.id = s.user_id "
-        + "WHERE s.token = ? AND s.expires_at > NOW() AND u.auth_state = ?";
+        + "WHERE s.token = ? AND s.expires_at > CURRENT_TIMESTAMP AND u.auth_state = ?";
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, token);
       statement.setString(2, STATE_ACTIVE);
@@ -378,3 +373,4 @@ class AuthService {
   private record UserAccount(long userId, String username, UUID boundUuid) {
   }
 }
+

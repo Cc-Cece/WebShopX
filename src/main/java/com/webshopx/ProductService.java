@@ -20,9 +20,11 @@ class ProductService {
   private static final int DYNAMIC_DECAY_STEP = 1;
 
   private final DatabaseManager databaseManager;
+  private final SqlProvider sqlProvider;
 
   ProductService(DatabaseManager databaseManager) {
     this.databaseManager = databaseManager;
+    this.sqlProvider = databaseManager.sqlProvider();
   }
 
   void upsertSeeds(List<PluginSettings.ProductSeed> seeds) {
@@ -402,7 +404,7 @@ class ProductService {
   ProductView readActiveProduct(Connection connection, long productId, boolean forUpdate)
       throws SQLException {
     LocalDateTime nowUtc = TimeSupport.utcNow();
-    String lockClause = forUpdate ? " FOR UPDATE" : "";
+    String lockClause = forUpdate ? sqlProvider.forUpdateClause() : "";
     String sql = """
        SELECT id, sku, title, remark, currency, price, product_type, command_template,
          item_material, display_name_override, display_material, display_icon_path,
@@ -467,7 +469,7 @@ class ProductService {
       justification = "Lock clause is selected from a fixed boolean branch")
   private ProductView findProductBySku(Connection connection, String sku, boolean forUpdate)
       throws SQLException {
-    String lockClause = forUpdate ? " FOR UPDATE" : "";
+    String lockClause = forUpdate ? sqlProvider.forUpdateClause() : "";
     String sql = """
        SELECT id, sku, title, remark, currency, price, product_type, command_template,
          item_material, display_name_override, display_material, display_icon_path,
@@ -492,34 +494,7 @@ class ProductService {
   }
 
   private void upsertSeed(Connection connection, PluginSettings.ProductSeed seed) throws SQLException {
-    String sql =
-        databaseManager.dbType().isSqlite()
-            ? """
-            INSERT INTO products (
-              sku, title, currency, price, product_type, command_template, active
-            )
-            VALUES (?, ?, ?, ?, 'COMMAND', ?, TRUE)
-            ON CONFLICT(sku) DO UPDATE SET
-              title = excluded.title,
-              currency = excluded.currency,
-              price = excluded.price,
-              product_type = excluded.product_type,
-              command_template = excluded.command_template,
-              active = TRUE
-            """
-            : """
-            INSERT INTO products (
-              sku, title, currency, price, product_type, command_template, active
-            )
-            VALUES (?, ?, ?, ?, 'COMMAND', ?, TRUE)
-            ON DUPLICATE KEY UPDATE
-              title = VALUES(title),
-              currency = VALUES(currency),
-              price = VALUES(price),
-              product_type = VALUES(product_type),
-              command_template = VALUES(command_template),
-              active = TRUE
-            """;
+    String sql = sqlProvider.upsertProductSeedSql();
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, normalizeSku(seed.sku()));
       statement.setString(2, seed.title());
@@ -906,7 +881,8 @@ class ProductService {
   }
 
   private int applyDynamicPriceDecayInTransaction(Connection connection) throws SQLException {
-    String selectSql = """
+    String selectSql =
+        """
         SELECT id, price, dynamic_algorithm, dynamic_params_json,
                dynamic_base_price, dynamic_floor_price, dynamic_cap_price, dynamic_price_step,
                dynamic_demand_score
@@ -915,8 +891,9 @@ class ProductService {
           AND dynamic_pricing_enabled = TRUE
           AND product_type IN ('GIVE_ITEM', 'RECYCLE_ITEM')
           AND dynamic_demand_score > 0
-        FOR UPDATE
-        """;
+        %s
+        """
+            .formatted(sqlProvider.forUpdateClause());
     List<DynamicDecayTarget> targets = new ArrayList<>();
     try (PreparedStatement statement = connection.prepareStatement(selectSql);
          ResultSet resultSet = statement.executeQuery()) {
@@ -1184,3 +1161,4 @@ class ProductService {
       long dynamicDemandScore) {
   }
 }
+

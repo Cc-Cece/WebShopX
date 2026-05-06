@@ -9,10 +9,12 @@ import java.util.function.Supplier;
 
 class PlayerPresenceService {
   private final DatabaseManager databaseManager;
+  private final SqlProvider sqlProvider;
   private final Supplier<PluginSettings> settingsSupplier;
 
   PlayerPresenceService(DatabaseManager databaseManager, Supplier<PluginSettings> settingsSupplier) {
     this.databaseManager = databaseManager;
+    this.sqlProvider = databaseManager.sqlProvider();
     this.settingsSupplier = settingsSupplier;
   }
 
@@ -25,26 +27,7 @@ class PlayerPresenceService {
       return;
     }
     databaseManager.withConnection(connection -> {
-      String sql =
-          databaseManager.dbType().isSqlite()
-              ? """
-              INSERT INTO player_presence (mc_uuid, username, server_id, online, updated_at)
-              VALUES (?, ?, ?, TRUE, CURRENT_TIMESTAMP)
-              ON CONFLICT(mc_uuid) DO UPDATE SET
-                username = excluded.username,
-                server_id = excluded.server_id,
-                online = TRUE,
-                updated_at = CURRENT_TIMESTAMP
-              """
-              : """
-              INSERT INTO player_presence (mc_uuid, username, server_id, online, updated_at)
-              VALUES (?, ?, ?, TRUE, CURRENT_TIMESTAMP)
-              ON DUPLICATE KEY UPDATE
-                username = VALUES(username),
-                server_id = VALUES(server_id),
-                online = TRUE,
-                updated_at = CURRENT_TIMESTAMP
-              """;
+      String sql = sqlProvider.upsertPlayerPresenceOnlineSql();
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setString(1, playerUuid.toString());
         statement.setString(2, username == null ? "" : username);
@@ -106,14 +89,16 @@ class PlayerPresenceService {
       return null;
     }
     int ttlSeconds = Math.max(30, settingsSupplier.get().clusterSettings().presenceTtlSeconds());
-    String sql = """
+    String sql =
+        """
         SELECT server_id
         FROM player_presence
         WHERE mc_uuid = ?
           AND online = TRUE
-          AND updated_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL ? SECOND)
+          AND updated_at >= %s
         LIMIT 1
-        """;
+        """
+            .formatted(sqlProvider.currentTimestampMinusSecondsExpr());
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, playerUuid.toString());
       statement.setInt(2, ttlSeconds);

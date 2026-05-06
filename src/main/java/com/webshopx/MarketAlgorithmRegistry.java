@@ -437,3 +437,4 @@ final class MarketAlgorithmRegistry {
     return strategies;
   }
 }
+
