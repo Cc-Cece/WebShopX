@@ -492,19 +492,34 @@ class ProductService {
   }
 
   private void upsertSeed(Connection connection, PluginSettings.ProductSeed seed) throws SQLException {
-    String sql = """
-        INSERT INTO products (
-          sku, title, currency, price, product_type, command_template, active
-        )
-        VALUES (?, ?, ?, ?, 'COMMAND', ?, TRUE)
-        ON DUPLICATE KEY UPDATE
-          title = VALUES(title),
-          currency = VALUES(currency),
-          price = VALUES(price),
-          product_type = VALUES(product_type),
-          command_template = VALUES(command_template),
-          active = TRUE
-        """;
+    String sql =
+        databaseManager.dbType().isSqlite()
+            ? """
+            INSERT INTO products (
+              sku, title, currency, price, product_type, command_template, active
+            )
+            VALUES (?, ?, ?, ?, 'COMMAND', ?, TRUE)
+            ON CONFLICT(sku) DO UPDATE SET
+              title = excluded.title,
+              currency = excluded.currency,
+              price = excluded.price,
+              product_type = excluded.product_type,
+              command_template = excluded.command_template,
+              active = TRUE
+            """
+            : """
+            INSERT INTO products (
+              sku, title, currency, price, product_type, command_template, active
+            )
+            VALUES (?, ?, ?, ?, 'COMMAND', ?, TRUE)
+            ON DUPLICATE KEY UPDATE
+              title = VALUES(title),
+              currency = VALUES(currency),
+              price = VALUES(price),
+              product_type = VALUES(product_type),
+              command_template = VALUES(command_template),
+              active = TRUE
+            """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, normalizeSku(seed.sku()));
       statement.setString(2, seed.title());

@@ -91,6 +91,8 @@ economy:
     treasury-user-id: 0
 
 database:
+  # mysql | mariadb | sqlite
+  type: mysql
   host: 127.0.0.1
   port: 3306
   schema: webshop
@@ -101,6 +103,18 @@ database:
   allow-public-key-retrieval: true
   # Optional: absolute path to a server RSA public key file or PEM text.
   server-rsa-public-key-file: ""
+  # Used only when database.type=sqlite.
+  sqlite-file: data/webshopx.db
+  # SQLite journal mode: DELETE | TRUNCATE | PERSIST | MEMORY | WAL | OFF
+  sqlite-journal-mode: WAL
+  # SQLite synchronous level: OFF | NORMAL | FULL | EXTRA
+  sqlite-synchronous: NORMAL
+  # SQLite lock wait timeout (milliseconds)
+  sqlite-busy-timeout-ms: 5000
+  # SQLite bounded retries for lock/contention failures (0-10)
+  sqlite-max-retries: 5
+  # SQLite retry backoff sequence in milliseconds
+  sqlite-retry-backoff-ms: [10, 50, 100]
   pool-size: 10
 
 cluster:

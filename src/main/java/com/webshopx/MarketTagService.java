@@ -95,14 +95,7 @@ class MarketTagService {
 
   void syncDictionary(Connection connection) throws SQLException {
     TagConfig config = loadConfig();
-    String upsertSql = """
-        INSERT INTO market_tags (code, display_name, enabled, priority)
-        VALUES (?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          display_name = VALUES(display_name),
-          enabled = VALUES(enabled),
-          priority = VALUES(priority)
-        """;
+    String upsertSql = marketTagUpsertSql(connection);
     try (PreparedStatement statement = connection.prepareStatement(upsertSql)) {
       for (TagDefinition definition : config.orderedTags()) {
         statement.setString(1, definition.code());
@@ -120,6 +113,32 @@ class MarketTagService {
       }
       statement.executeBatch();
     }
+  }
+
+  private String marketTagUpsertSql(Connection connection) throws SQLException {
+    if (isSqliteConnection(connection)) {
+      return """
+          INSERT INTO market_tags (code, display_name, enabled, priority)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(code) DO UPDATE SET
+            display_name = excluded.display_name,
+            enabled = excluded.enabled,
+            priority = excluded.priority
+          """;
+    }
+    return """
+        INSERT INTO market_tags (code, display_name, enabled, priority)
+        VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          display_name = VALUES(display_name),
+          enabled = VALUES(enabled),
+          priority = VALUES(priority)
+        """;
+  }
+
+  private boolean isSqliteConnection(Connection connection) throws SQLException {
+    String url = connection.getMetaData().getURL();
+    return url != null && url.toLowerCase(Locale.ROOT).startsWith("jdbc:sqlite:");
   }
 
   List<TagMeta> listTagMeta(Connection connection) throws SQLException {

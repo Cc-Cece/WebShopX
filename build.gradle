@@ -81,6 +81,7 @@ dependencies {
     implementation('org.mariadb.jdbc:mariadb-java-client:3.3.3') {
         exclude group: 'com.github.waffle', module: 'waffle-jna'
     }
+    implementation 'org.xerial:sqlite-jdbc:3.50.3.0'
     implementation 'redis.clients:jedis:5.2.0'
     implementation 'com.zaxxer:HikariCP:5.1.0'
     implementation 'com.google.code.gson:gson:2.11.0'

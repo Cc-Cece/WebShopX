@@ -70,6 +70,7 @@ public class WebShopPlugin extends JavaPlugin {
       textureAssetManager = new TextureAssetManager(this);
       messageService = new MessageService(this, this::settings);
 
+      enforceDatabaseModeGuard();
       initializeDatabase();
       runtimeConfigService = new RuntimeConfigService(databaseManager);
       boolean migratedLegacyConfig = runtimeConfigService.bootstrapFromLegacyConfigIfNeeded(settings);
@@ -476,7 +477,7 @@ public class WebShopPlugin extends JavaPlugin {
     databaseManager = new DatabaseManager(this, settings.databaseSettings());
     try {
       databaseManager.start();
-      new SchemaManager().ensureSchema(databaseManager, settings);
+      SchemaProvider.forType(settings.databaseSettings().type()).ensureSchema(databaseManager, settings);
     } catch (Exception exception) {
       if (settings.databaseSettings().usesDefaultPlaceholders()) {
         if (databaseManager != null) {
@@ -487,6 +488,18 @@ public class WebShopPlugin extends JavaPlugin {
       }
       throw exception;
     }
+  }
+
+  private void enforceDatabaseModeGuard() {
+    if (!settings.databaseSettings().type().isSqlite()) {
+      return;
+    }
+    if (settings.clusterSettings().role() == PluginSettings.ClusterRole.STANDALONE) {
+      return;
+    }
+    throw new IllegalStateException(
+        "SQLite only supports cluster.role=standalone. Current role is "
+            + settings.clusterSettings().role().name().toLowerCase(Locale.ROOT));
   }
 
   private void initializeMetrics() {

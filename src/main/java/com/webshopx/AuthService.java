@@ -212,10 +212,16 @@ class AuthService {
   }
 
   private void ensureWalletExists(Connection connection, long userId) throws SQLException {
-    String insertWalletSql = """
-        INSERT INTO wallets (user_id) VALUES (?)
-        ON DUPLICATE KEY UPDATE user_id = user_id
-        """;
+    String insertWalletSql =
+        databaseManager.dbType().isSqlite()
+            ? """
+            INSERT INTO wallets (user_id) VALUES (?)
+            ON CONFLICT(user_id) DO NOTHING
+            """
+            : """
+            INSERT INTO wallets (user_id) VALUES (?)
+            ON DUPLICATE KEY UPDATE user_id = user_id
+            """;
     try (PreparedStatement statement = connection.prepareStatement(insertWalletSql)) {
       statement.setLong(1, userId);
       statement.executeUpdate();

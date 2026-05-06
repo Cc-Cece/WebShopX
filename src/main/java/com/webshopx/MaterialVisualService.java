@@ -90,15 +90,26 @@ class MaterialVisualService {
     String normalizedIconPath = normalizeIconPath(iconPath);
     String normalizedUpdatedBy = normalizeUpdatedBy(updatedBy);
     return databaseManager.inTransaction(connection -> {
-      String sql = """
-          INSERT INTO material_visual_overrides (material_key, display_name_override, icon_path, updated_by)
-          VALUES (?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE
-            display_name_override = VALUES(display_name_override),
-            icon_path = VALUES(icon_path),
-            updated_by = VALUES(updated_by),
-            updated_at = CURRENT_TIMESTAMP
-          """;
+      String sql =
+          databaseManager.dbType().isSqlite()
+              ? """
+              INSERT INTO material_visual_overrides (material_key, display_name_override, icon_path, updated_by)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT(material_key) DO UPDATE SET
+                display_name_override = excluded.display_name_override,
+                icon_path = excluded.icon_path,
+                updated_by = excluded.updated_by,
+                updated_at = CURRENT_TIMESTAMP
+              """
+              : """
+              INSERT INTO material_visual_overrides (material_key, display_name_override, icon_path, updated_by)
+              VALUES (?, ?, ?, ?)
+              ON DUPLICATE KEY UPDATE
+                display_name_override = VALUES(display_name_override),
+                icon_path = VALUES(icon_path),
+                updated_by = VALUES(updated_by),
+                updated_at = CURRENT_TIMESTAMP
+              """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setString(1, normalizedMaterial);
         statement.setString(2, normalizedDisplayName);

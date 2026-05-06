@@ -1,6 +1,7 @@
 package com.webshopx;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -53,7 +54,9 @@ record PluginSettings(
         config.getInt("webshop.embedded-http.port", 8819),
         config.getString("webshop.embedded-http.static-root", "web"));
 
+    DbType databaseType = DbType.fromRaw(config.getString("database.type", "mysql"));
     DatabaseSettings databaseSettings = new DatabaseSettings(
+        databaseType,
         config.getString("database.host", "127.0.0.1"),
         config.getInt("database.port", 3306),
         config.getString("database.schema", "webshop"),
@@ -62,7 +65,13 @@ record PluginSettings(
         config.getBoolean("database.use-ssl", false),
         config.getBoolean("database.allow-public-key-retrieval", true),
         config.getString("database.server-rsa-public-key-file", ""),
-        config.getInt("database.pool-size", 10));
+        config.getInt("database.pool-size", 10),
+        config.getString("database.sqlite-file", "data/webshopx.db"),
+        config.getString("database.sqlite-journal-mode", "WAL"),
+        config.getString("database.sqlite-synchronous", "NORMAL"),
+        config.getInt("database.sqlite-busy-timeout-ms", 5_000),
+        config.getInt("database.sqlite-max-retries", 5),
+        normalizeRetryBackoff(config.getIntegerList("database.sqlite-retry-backoff-ms")));
 
     ExchangeDirection shopToGame = new ExchangeDirection(
         config.getBoolean("exchange.shopcoin-to-gamecoin.enabled", true),
@@ -311,6 +320,23 @@ record PluginSettings(
     return fallback;
   }
 
+  private static List<Integer> normalizeRetryBackoff(List<Integer> rawBackoff) {
+    if (rawBackoff == null || rawBackoff.isEmpty()) {
+      return List.of(10, 50, 100);
+    }
+    List<Integer> normalized = new ArrayList<>();
+    for (Integer value : rawBackoff) {
+      if (value == null || value < 0) {
+        continue;
+      }
+      normalized.add(value);
+    }
+    if (normalized.isEmpty()) {
+      return List.of(10, 50, 100);
+    }
+    return Collections.unmodifiableList(normalized);
+  }
+
   private static String normalizeServerId(String raw, ClusterRole role) {
     if (raw != null && !raw.isBlank()) {
       return raw.trim();
@@ -375,6 +401,7 @@ record PluginSettings(
   }
 
   record DatabaseSettings(
+      DbType type,
       String host,
       int port,
       String schema,
@@ -383,13 +410,26 @@ record PluginSettings(
       boolean useSsl,
       boolean allowPublicKeyRetrieval,
       String serverRsaPublicKeyFile,
-      int poolSize) {
+      int poolSize,
+      String sqliteFile,
+      String sqliteJournalMode,
+      String sqliteSynchronous,
+      int sqliteBusyTimeoutMs,
+      int sqliteMaxRetries,
+      List<Integer> sqliteRetryBackoffMs) {
 
     String jdbcUrl() {
       return jdbcUrl(false);
     }
 
     String jdbcUrl(boolean forceAllowPublicKeyRetrieval) {
+      if (type.isSqlite()) {
+        return sqliteJdbcUrl();
+      }
+      return mysqlJdbcUrl(forceAllowPublicKeyRetrieval);
+    }
+
+    String mysqlJdbcUrl(boolean forceAllowPublicKeyRetrieval) {
       String sslParam = useSsl ? "true" : "false";
       boolean enablePublicKeyRetrieval =
           !useSsl && (forceAllowPublicKeyRetrieval || allowPublicKeyRetrieval);
@@ -411,7 +451,76 @@ record PluginSettings(
       return url.toString();
     }
 
+    String sqliteJdbcUrl() {
+      return "jdbc:sqlite:" + normalizedSqliteFile();
+    }
+
+    String normalizedSqliteFile() {
+      if (sqliteFile == null || sqliteFile.isBlank()) {
+        return "data/webshopx.db";
+      }
+      return sqliteFile.trim();
+    }
+
+    String normalizedSqliteJournalMode() {
+      if (sqliteJournalMode == null || sqliteJournalMode.isBlank()) {
+        return "WAL";
+      }
+      String normalized = sqliteJournalMode.trim().toUpperCase(Locale.ROOT);
+      if (!normalized.equals("DELETE")
+          && !normalized.equals("TRUNCATE")
+          && !normalized.equals("PERSIST")
+          && !normalized.equals("MEMORY")
+          && !normalized.equals("WAL")
+          && !normalized.equals("OFF")) {
+        return "WAL";
+      }
+      return normalized;
+    }
+
+    String normalizedSqliteSynchronous() {
+      if (sqliteSynchronous == null || sqliteSynchronous.isBlank()) {
+        return "NORMAL";
+      }
+      String normalized = sqliteSynchronous.trim().toUpperCase(Locale.ROOT);
+      if (!normalized.equals("OFF")
+          && !normalized.equals("NORMAL")
+          && !normalized.equals("FULL")
+          && !normalized.equals("EXTRA")) {
+        return "NORMAL";
+      }
+      return normalized;
+    }
+
+    int normalizedSqliteBusyTimeoutMs() {
+      return Math.max(0, sqliteBusyTimeoutMs);
+    }
+
+    int normalizedSqliteMaxRetries() {
+      return Math.min(10, Math.max(0, sqliteMaxRetries));
+    }
+
+    List<Integer> normalizedSqliteRetryBackoffMs() {
+      if (sqliteRetryBackoffMs == null || sqliteRetryBackoffMs.isEmpty()) {
+        return List.of(10, 50, 100);
+      }
+      List<Integer> normalized = new ArrayList<>();
+      for (Integer value : sqliteRetryBackoffMs) {
+        if (value == null || value < 0) {
+          continue;
+        }
+        normalized.add(value);
+      }
+      if (normalized.isEmpty()) {
+        return List.of(10, 50, 100);
+      }
+      return Collections.unmodifiableList(normalized);
+    }
+
     boolean canAutoRetryWithPublicKeyRetrieval() {
+      if (!type.isMysqlFamily()) {
+        return false;
+      }
       return !useSsl && !allowPublicKeyRetrieval && trimmedServerRsaPublicKeyFile().isEmpty();
     }
 
@@ -427,6 +536,9 @@ record PluginSettings(
     }
 
     boolean usesDefaultPlaceholders() {
+      if (!type.isMysqlFamily()) {
+        return false;
+      }
       return "127.0.0.1".equals(host)
           && port == 3306
           && "webshop".equals(schema)

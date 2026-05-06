@@ -289,14 +289,18 @@ class DeliveryService {
   private void promoteOfflineRetries(UUID playerUuid) {
     databaseManager.withConnection(connection -> {
       String commandSql = """
-          UPDATE delivery_queue dq
-          JOIN orders o ON o.id = dq.order_id
-          SET dq.next_retry_at = NOW()
-          WHERE dq.mc_uuid = ?
-            AND dq.status = 'PENDING'
-            AND o.status = 'PENDING'
-            AND dq.last_error = '鐜╁绂荤嚎'
-            AND dq.next_retry_at > NOW()
+          UPDATE delivery_queue
+          SET next_retry_at = NOW()
+          WHERE mc_uuid = ?
+            AND status = 'PENDING'
+            AND last_error = '鐜╁绂荤嚎'
+            AND next_retry_at > NOW()
+            AND EXISTS (
+              SELECT 1
+              FROM orders o
+              WHERE o.id = delivery_queue.order_id
+                AND o.status = 'PENDING'
+            )
           """;
       try (PreparedStatement statement = connection.prepareStatement(commandSql)) {
         statement.setString(1, playerUuid.toString());
@@ -338,13 +342,17 @@ class DeliveryService {
       }
 
       String commandSql = """
-          UPDATE delivery_queue dq
-          JOIN orders o ON o.id = dq.order_id
-          SET dq.target_server_id = ?,
-              dq.next_retry_at = NOW()
-          WHERE dq.mc_uuid = ?
-            AND dq.status = 'PENDING'
-            AND o.status = 'PENDING'
+          UPDATE delivery_queue
+          SET target_server_id = ?,
+              next_retry_at = NOW()
+          WHERE mc_uuid = ?
+            AND status = 'PENDING'
+            AND EXISTS (
+              SELECT 1
+              FROM orders o
+              WHERE o.id = delivery_queue.order_id
+                AND o.status = 'PENDING'
+            )
           """;
       try (PreparedStatement statement = connection.prepareStatement(commandSql)) {
         statement.setString(1, serverId);

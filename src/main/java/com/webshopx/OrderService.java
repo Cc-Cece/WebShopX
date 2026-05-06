@@ -469,13 +469,22 @@ class OrderService {
 
   private void incrementPersonalLimitUsage(Connection connection, long productId, long userId, int quantity)
       throws SQLException {
-    String sql = """
-        INSERT INTO product_user_usage (product_id, user_id, used_count)
-        VALUES (?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          used_count = used_count + VALUES(used_count),
-          updated_at = CURRENT_TIMESTAMP
-        """;
+    String sql =
+        databaseManager.dbType().isSqlite()
+            ? """
+            INSERT INTO product_user_usage (product_id, user_id, used_count)
+            VALUES (?, ?, ?)
+            ON CONFLICT(product_id, user_id) DO UPDATE SET
+              used_count = product_user_usage.used_count + excluded.used_count,
+              updated_at = CURRENT_TIMESTAMP
+            """
+            : """
+            INSERT INTO product_user_usage (product_id, user_id, used_count)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+              used_count = used_count + VALUES(used_count),
+              updated_at = CURRENT_TIMESTAMP
+            """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, productId);
       statement.setLong(2, userId);

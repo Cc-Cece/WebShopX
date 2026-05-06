@@ -29,14 +29,24 @@ class VisualCustomizationService {
   long updateSettings(VisualSettings settings) {
     VisualSettings normalized = normalizeSettings(settings);
     return databaseManager.inTransaction(connection -> {
-      String sql = """
-          INSERT INTO runtime_config (config_key, config_value, version)
-          VALUES (?, ?, 1)
-          ON DUPLICATE KEY UPDATE
-            config_value = VALUES(config_value),
-            version = version + 1,
-            updated_at = CURRENT_TIMESTAMP
-          """;
+      String sql =
+          databaseManager.dbType().isSqlite()
+              ? """
+              INSERT INTO runtime_config (config_key, config_value, version)
+              VALUES (?, ?, 1)
+              ON CONFLICT(config_key) DO UPDATE SET
+                config_value = excluded.config_value,
+                version = runtime_config.version + 1,
+                updated_at = CURRENT_TIMESTAMP
+              """
+              : """
+              INSERT INTO runtime_config (config_key, config_value, version)
+              VALUES (?, ?, 1)
+              ON DUPLICATE KEY UPDATE
+                config_value = VALUES(config_value),
+                version = version + 1,
+                updated_at = CURRENT_TIMESTAMP
+              """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setString(1, SETTINGS_KEY);
         statement.setString(2, serializeSettings(normalized));
@@ -66,15 +76,26 @@ class VisualCustomizationService {
     VisualPermission normalizedUpload = uploadPermission == null ? VisualPermission.INHERIT : uploadPermission;
     return databaseManager.inTransaction(connection -> {
       ensureUserExists(connection, userId);
-      String sql = """
-          INSERT INTO user_visual_permissions (user_id, icon_permission, name_permission, upload_permission)
-          VALUES (?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE
-            icon_permission = VALUES(icon_permission),
-            name_permission = VALUES(name_permission),
-            upload_permission = VALUES(upload_permission),
-            updated_at = CURRENT_TIMESTAMP
-          """;
+      String sql =
+          databaseManager.dbType().isSqlite()
+              ? """
+              INSERT INTO user_visual_permissions (user_id, icon_permission, name_permission, upload_permission)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT(user_id) DO UPDATE SET
+                icon_permission = excluded.icon_permission,
+                name_permission = excluded.name_permission,
+                upload_permission = excluded.upload_permission,
+                updated_at = CURRENT_TIMESTAMP
+              """
+              : """
+              INSERT INTO user_visual_permissions (user_id, icon_permission, name_permission, upload_permission)
+              VALUES (?, ?, ?, ?)
+              ON DUPLICATE KEY UPDATE
+                icon_permission = VALUES(icon_permission),
+                name_permission = VALUES(name_permission),
+                upload_permission = VALUES(upload_permission),
+                updated_at = CURRENT_TIMESTAMP
+              """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setLong(1, userId);
         statement.setString(2, normalizedIcon.name());

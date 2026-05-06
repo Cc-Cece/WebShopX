@@ -313,11 +313,18 @@ class WalletService {
       long delta,
       String bizType,
       String bizId) throws SQLException {
-    String sql = """
-        INSERT INTO wallet_ledger (wallet_id, currency, delta, biz_type, biz_id)
-        VALUES (?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE id = id
-        """;
+    String sql =
+        databaseManager.dbType().isSqlite()
+            ? """
+            INSERT INTO wallet_ledger (wallet_id, currency, delta, biz_type, biz_id)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(wallet_id, biz_type, biz_id) DO NOTHING
+            """
+            : """
+            INSERT INTO wallet_ledger (wallet_id, currency, delta, biz_type, biz_id)
+            VALUES (?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE id = id
+            """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, walletId);
       statement.setString(2, currency.name());
@@ -329,11 +336,18 @@ class WalletService {
   }
 
   private void ensureWallet(Connection connection, long userId) throws SQLException {
-    String sql = """
-        INSERT INTO wallets (user_id)
-        VALUES (?)
-        ON DUPLICATE KEY UPDATE user_id = user_id
-        """;
+    String sql =
+        databaseManager.dbType().isSqlite()
+            ? """
+            INSERT INTO wallets (user_id)
+            VALUES (?)
+            ON CONFLICT(user_id) DO NOTHING
+            """
+            : """
+            INSERT INTO wallets (user_id)
+            VALUES (?)
+            ON DUPLICATE KEY UPDATE user_id = user_id
+            """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
       statement.executeUpdate();

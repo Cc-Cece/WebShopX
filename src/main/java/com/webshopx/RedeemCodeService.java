@@ -171,13 +171,22 @@ class RedeemCodeService {
       int perUserMaxUses,
       LocalDateTime expiresAt) {
     return databaseManager.withConnection(connection -> {
-      String sql = """
-          INSERT INTO redeem_codes (
-            code, shop_coin, game_coin, max_uses, per_user_max_uses, expires_at, active
-          )
-          VALUES (?, ?, ?, ?, ?, ?, TRUE)
-          ON DUPLICATE KEY UPDATE code = code
-          """;
+      String sql =
+          databaseManager.dbType().isSqlite()
+              ? """
+              INSERT INTO redeem_codes (
+                code, shop_coin, game_coin, max_uses, per_user_max_uses, expires_at, active
+              )
+              VALUES (?, ?, ?, ?, ?, ?, TRUE)
+              ON CONFLICT(code) DO NOTHING
+              """
+              : """
+              INSERT INTO redeem_codes (
+                code, shop_coin, game_coin, max_uses, per_user_max_uses, expires_at, active
+              )
+              VALUES (?, ?, ?, ?, ?, ?, TRUE)
+              ON DUPLICATE KEY UPDATE code = code
+              """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setString(1, code);
         statement.setLong(2, shopCoin);
@@ -245,13 +254,22 @@ class RedeemCodeService {
   }
 
   private void incrementUserUsage(Connection connection, String code, long userId) throws SQLException {
-    String sql = """
-        INSERT INTO redeem_usage (code, user_id, use_count)
-        VALUES (?, ?, 1)
-        ON DUPLICATE KEY UPDATE
-          use_count = use_count + 1,
-          used_at = CURRENT_TIMESTAMP
-        """;
+    String sql =
+        databaseManager.dbType().isSqlite()
+            ? """
+            INSERT INTO redeem_usage (code, user_id, use_count)
+            VALUES (?, ?, 1)
+            ON CONFLICT(code, user_id) DO UPDATE SET
+              use_count = redeem_usage.use_count + 1,
+              used_at = CURRENT_TIMESTAMP
+            """
+            : """
+            INSERT INTO redeem_usage (code, user_id, use_count)
+            VALUES (?, ?, 1)
+            ON DUPLICATE KEY UPDATE
+              use_count = use_count + 1,
+              used_at = CURRENT_TIMESTAMP
+            """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, code);
       statement.setLong(2, userId);

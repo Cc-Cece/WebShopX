@@ -25,15 +25,26 @@ class PlayerPresenceService {
       return;
     }
     databaseManager.withConnection(connection -> {
-      String sql = """
-          INSERT INTO player_presence (mc_uuid, username, server_id, online, updated_at)
-          VALUES (?, ?, ?, TRUE, CURRENT_TIMESTAMP)
-          ON DUPLICATE KEY UPDATE
-            username = VALUES(username),
-            server_id = VALUES(server_id),
-            online = TRUE,
-            updated_at = CURRENT_TIMESTAMP
-          """;
+      String sql =
+          databaseManager.dbType().isSqlite()
+              ? """
+              INSERT INTO player_presence (mc_uuid, username, server_id, online, updated_at)
+              VALUES (?, ?, ?, TRUE, CURRENT_TIMESTAMP)
+              ON CONFLICT(mc_uuid) DO UPDATE SET
+                username = excluded.username,
+                server_id = excluded.server_id,
+                online = TRUE,
+                updated_at = CURRENT_TIMESTAMP
+              """
+              : """
+              INSERT INTO player_presence (mc_uuid, username, server_id, online, updated_at)
+              VALUES (?, ?, ?, TRUE, CURRENT_TIMESTAMP)
+              ON DUPLICATE KEY UPDATE
+                username = VALUES(username),
+                server_id = VALUES(server_id),
+                online = TRUE,
+                updated_at = CURRENT_TIMESTAMP
+              """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setString(1, playerUuid.toString());
         statement.setString(2, username == null ? "" : username);

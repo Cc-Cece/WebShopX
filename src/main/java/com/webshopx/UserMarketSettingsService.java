@@ -32,13 +32,22 @@ class UserMarketSettingsService {
     Integer normalized = normalizeListingLimit(listingLimitOverride);
     return databaseManager.inTransaction(connection -> {
       ensureUserExists(connection, userId);
-      String sql = """
-          INSERT INTO user_market_settings (user_id, listing_limit_override)
-          VALUES (?, ?)
-          ON DUPLICATE KEY UPDATE
-            listing_limit_override = VALUES(listing_limit_override),
-            updated_at = CURRENT_TIMESTAMP
-          """;
+      String sql =
+          databaseManager.dbType().isSqlite()
+              ? """
+              INSERT INTO user_market_settings (user_id, listing_limit_override)
+              VALUES (?, ?)
+              ON CONFLICT(user_id) DO UPDATE SET
+                listing_limit_override = excluded.listing_limit_override,
+                updated_at = CURRENT_TIMESTAMP
+              """
+              : """
+              INSERT INTO user_market_settings (user_id, listing_limit_override)
+              VALUES (?, ?)
+              ON DUPLICATE KEY UPDATE
+                listing_limit_override = VALUES(listing_limit_override),
+                updated_at = CURRENT_TIMESTAMP
+              """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setLong(1, userId);
         if (normalized == null) {

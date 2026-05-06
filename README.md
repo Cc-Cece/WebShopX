@@ -62,7 +62,7 @@ WebShopX 是一个面向 `Paper / Spigot` 服务器的 Web 商店插件，把官
 
 - `Java 21`
 - `Paper 1.20.6+` 或兼容的 `Spigot`
-- `MariaDB / MySQL`
+- `MariaDB / MySQL / SQLite`
 - `Vault` 可选
 
 ## 快速开始
@@ -155,6 +155,9 @@ WebShopX 是一个面向 `Paper / Spigot` 服务器的 Web 商店插件，把官
 
 - `database.*`
   - 数据库连接配置，必须改成真实值
+  - `database.type` 支持 `mysql | mariadb | sqlite`
+  - `sqlite` 模式仅支持 `cluster.role=standalone`（单服）
+  - `sqlite` 可配置 `sqlite-file / sqlite-journal-mode / sqlite-synchronous / sqlite-busy-timeout-ms / sqlite-max-retries / sqlite-retry-backoff-ms`
   - 非 TLS 连接默认开启 `allow-public-key-retrieval`，以兼容 `caching_sha2_password`
   - 如需更稳妥地在非 TLS 下认证，可设置 `server-rsa-public-key-file`
 - `webshop.embedded-http.*`
@@ -196,6 +199,7 @@ src/test/java/com/webshopx/   单元测试
 - UI 和默认文案以中文为主
 - `Redis` 配置项已预留，但当前版本尚未接入业务流程
 - 更适合中小到中大型中文服直接落地，再按自身业务继续扩展
+- `SQLite` 建议用于单服或轻量部署场景；跨节点集群请使用 `MySQL/MariaDB`
 
 ## 开发与贡献
 

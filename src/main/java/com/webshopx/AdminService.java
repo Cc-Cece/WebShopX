@@ -377,16 +377,28 @@ class AdminService {
       boolean superAdmin,
       Set<AdminPermission> permissions,
       String templateKey) throws SQLException {
-    String sql = """
-        INSERT INTO web_admins (user_id, role, active, is_super_admin, permissions_json, template_key)
-        VALUES (?, ?, TRUE, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          role = VALUES(role),
-          active = TRUE,
-          is_super_admin = VALUES(is_super_admin),
-          permissions_json = VALUES(permissions_json),
-          template_key = VALUES(template_key)
-        """;
+    String sql =
+        databaseManager.dbType().isSqlite()
+            ? """
+            INSERT INTO web_admins (user_id, role, active, is_super_admin, permissions_json, template_key)
+            VALUES (?, ?, TRUE, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+              role = excluded.role,
+              active = TRUE,
+              is_super_admin = excluded.is_super_admin,
+              permissions_json = excluded.permissions_json,
+              template_key = excluded.template_key
+            """
+            : """
+            INSERT INTO web_admins (user_id, role, active, is_super_admin, permissions_json, template_key)
+            VALUES (?, ?, TRUE, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+              role = VALUES(role),
+              active = TRUE,
+              is_super_admin = VALUES(is_super_admin),
+              permissions_json = VALUES(permissions_json),
+              template_key = VALUES(template_key)
+            """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, userId);
       statement.setString(2, superAdmin ? AdminRole.SUPER_ADMIN.name() : "CUSTOM");
