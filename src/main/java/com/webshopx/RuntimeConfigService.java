@@ -50,7 +50,7 @@ class RuntimeConfigService {
       upsertConfig(
           connection,
           KEY_MARKET_ECONOMY,
-          serializeMarketEconomy(settings.economySettings().marketSettings()));
+          serializeMarketEconomy(settings.economySettings()));
       upsertConfig(
           connection,
           KEY_LEADERBOARD,
@@ -82,7 +82,8 @@ class RuntimeConfigService {
       insertIfMissing(
           connection,
           KEY_MARKET_ECONOMY,
-          serializeMarketEconomy(settings.economySettings().marketSettings()));
+          serializeMarketEconomy(settings.economySettings()));
+      upgradeMarketEconomyConfigIfNeeded(connection, settings.economySettings());
       insertIfMissing(
           connection,
           KEY_LEADERBOARD,
@@ -101,6 +102,29 @@ class RuntimeConfigService {
       insertIfMissing(connection, KEY_NOTIFICATION, serializeDefaultNotificationConfig());
       return null;
     });
+  }
+
+  private void upgradeMarketEconomyConfigIfNeeded(
+      Connection connection,
+      PluginSettings.EconomySettings fallback) throws SQLException {
+    ConfigDocument current = readConfigObject(connection, KEY_MARKET_ECONOMY, serializeMarketEconomy(fallback));
+    JsonObject root = current.config();
+    boolean hasInflationMode = root.has("inflationMode") && !root.get("inflationMode").isJsonNull();
+    boolean hasTreasuryUserId = root.has("treasuryUserId") && !root.get("treasuryUserId").isJsonNull();
+    if (hasInflationMode && hasTreasuryUserId) {
+      return;
+    }
+
+    PluginSettings.MarketEconomySettings fallbackMarket = fallback.marketSettings();
+    PluginSettings.InflationSettings fallbackInflation = fallback.inflationSettings();
+    PluginSettings.MarketEconomySettings marketSettings = new PluginSettings.MarketEconomySettings(
+        readDouble(root, "tradeFeePercent", fallbackMarket.tradeFeePercent()),
+        readDouble(root, "tradeTaxPercent", fallbackMarket.tradeTaxPercent()));
+    PluginSettings.InflationSettings inflationSettings = new PluginSettings.InflationSettings(
+        PluginSettings.InflationMode.fromRaw(readString(root, "inflationMode", fallbackInflation.mode().name())),
+        Math.max(0L, readLong(root, "treasuryUserId", fallbackInflation.treasuryUserId())));
+    PluginSettings.EconomySettings merged = new PluginSettings.EconomySettings(marketSettings, inflationSettings);
+    updateConfig(connection, KEY_MARKET_ECONOMY, serializeMarketEconomy(merged));
   }
 
   RuntimeSnapshot loadSnapshot(PluginSettings defaults) {
@@ -136,9 +160,9 @@ class RuntimeConfigService {
         updateConfig(connection, KEY_EXCHANGE, serializeExchange(exchangeSettings)));
   }
 
-  long updateMarketEconomy(PluginSettings.MarketEconomySettings marketEconomySettings) {
+  long updateMarketEconomy(PluginSettings.EconomySettings economySettings) {
     return databaseManager.inTransaction(connection ->
-        updateConfig(connection, KEY_MARKET_ECONOMY, serializeMarketEconomy(marketEconomySettings)));
+        updateConfig(connection, KEY_MARKET_ECONOMY, serializeMarketEconomy(economySettings)));
   }
 
   long updateLeaderboard(PluginSettings.LeaderboardSettings leaderboardSettings) {
@@ -219,9 +243,9 @@ class RuntimeConfigService {
     PluginSettings.ExchangeSettings exchangeSettings = parseExchange(
         rows.get(KEY_EXCHANGE),
         defaults.exchangeSettings());
-    PluginSettings.MarketEconomySettings marketEconomySettings = parseMarketEconomy(
+    PluginSettings.EconomySettings economySettings = parseMarketEconomy(
         rows.get(KEY_MARKET_ECONOMY),
-        defaults.economySettings().marketSettings());
+        defaults.economySettings());
     PluginSettings.LeaderboardSettings leaderboardSettings = parseLeaderboard(
         rows.get(KEY_LEADERBOARD),
         defaults.leaderboardSettings());
@@ -239,10 +263,6 @@ class RuntimeConfigService {
     PluginSettings.BroadcastSettings broadcastSettings = parseBroadcast(
         rows.get(KEY_BROADCAST),
         defaults.broadcastSettings());
-
-    PluginSettings.EconomySettings economySettings = new PluginSettings.EconomySettings(
-        marketEconomySettings,
-        defaults.economySettings().inflationSettings());
 
     long maxVersion = 0L;
     for (ConfigRow row : rows.values()) {
@@ -440,24 +460,35 @@ class RuntimeConfigService {
     }
   }
 
-  private String serializeMarketEconomy(PluginSettings.MarketEconomySettings settings) {
+  private String serializeMarketEconomy(PluginSettings.EconomySettings settings) {
     JsonObject root = new JsonObject();
-    root.addProperty("tradeFeePercent", settings.tradeFeePercent());
-    root.addProperty("tradeTaxPercent", settings.tradeTaxPercent());
+    PluginSettings.MarketEconomySettings marketSettings = settings.marketSettings();
+    root.addProperty("tradeFeePercent", marketSettings.tradeFeePercent());
+    root.addProperty("tradeTaxPercent", marketSettings.tradeTaxPercent());
+    PluginSettings.InflationSettings inflationSettings = settings.inflationSettings();
+    root.addProperty("inflationMode", inflationSettings.mode().name());
+    root.addProperty("treasuryUserId", Math.max(0L, inflationSettings.treasuryUserId()));
     return gson.toJson(root);
   }
 
-  private PluginSettings.MarketEconomySettings parseMarketEconomy(
+  private PluginSettings.EconomySettings parseMarketEconomy(
       ConfigRow row,
-      PluginSettings.MarketEconomySettings fallback) {
+      PluginSettings.EconomySettings fallback) {
     if (row == null || row.configValue() == null || row.configValue().isBlank()) {
       return fallback;
     }
     try {
       JsonObject root = JsonParser.parseString(row.configValue()).getAsJsonObject();
-      return new PluginSettings.MarketEconomySettings(
-          readDouble(root, "tradeFeePercent", fallback.tradeFeePercent()),
-          readDouble(root, "tradeTaxPercent", fallback.tradeTaxPercent()));
+      PluginSettings.MarketEconomySettings fallbackMarket = fallback.marketSettings();
+      PluginSettings.InflationSettings fallbackInflation = fallback.inflationSettings();
+      PluginSettings.MarketEconomySettings parsedMarket = new PluginSettings.MarketEconomySettings(
+          readDouble(root, "tradeFeePercent", fallbackMarket.tradeFeePercent()),
+          readDouble(root, "tradeTaxPercent", fallbackMarket.tradeTaxPercent()));
+      PluginSettings.InflationSettings parsedInflation = new PluginSettings.InflationSettings(
+          PluginSettings.InflationMode.fromRaw(
+              readString(root, "inflationMode", fallbackInflation.mode().name())),
+          Math.max(0L, readLong(root, "treasuryUserId", fallbackInflation.treasuryUserId())));
+      return new PluginSettings.EconomySettings(parsedMarket, parsedInflation);
     } catch (Exception exception) {
       return fallback;
     }
@@ -831,6 +862,17 @@ class RuntimeConfigService {
     }
     try {
       return jsonObject.get(field).getAsInt();
+    } catch (Exception exception) {
+      return fallback;
+    }
+  }
+
+  private long readLong(JsonObject jsonObject, String field, long fallback) {
+    if (jsonObject == null || !jsonObject.has(field) || jsonObject.get(field).isJsonNull()) {
+      return fallback;
+    }
+    try {
+      return jsonObject.get(field).getAsLong();
     } catch (Exception exception) {
       return fallback;
     }

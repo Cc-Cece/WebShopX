@@ -380,7 +380,7 @@ public class WebShopPlugin extends JavaPlugin {
         "exchange",
         "currency",
         "economy.market",
-        "webshop.leaderboard",
+        "economy.inflation-control",
         "sample-products"
     };
   }

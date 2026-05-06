@@ -271,6 +271,21 @@ body {
   padding: 18px;
 }
 
+.config-scope-card {
+  background: color-mix(in srgb, var(--app-card-soft-bg) 88%, var(--md-sys-color-surface-container-low));
+}
+
+.config-scope-card input[readonly] {
+  background: color-mix(in srgb, var(--md-sys-color-surface-container-high) 86%, transparent);
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: not-allowed;
+}
+
+.config-scope-card.is-limited {
+  opacity: 0.82;
+  border-style: dashed;
+}
+
 .section-card h2 {
   margin: 0;
   font-size: 21px;

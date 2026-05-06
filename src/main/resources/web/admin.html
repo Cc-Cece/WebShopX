@@ -533,9 +533,20 @@
               <span>交易税率（%）</span>
               <input id="marketTaxPercent" type="number" min="0" max="100" step="0.01" value="0.0" />
             </label>
+            <label class="field">
+              <span>通胀控制模式</span>
+              <select id="inflationMode">
+                <option value="BURN">BURN（销毁）</option>
+                <option value="TREASURY">TREASURY（国库）</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>国库用户 ID（TREASURY 模式必填）</span>
+              <input id="inflationTreasuryUserId" type="number" min="0" step="1" value="0" />
+            </label>
           </div>
           <div class="actions">
-            <button id="marketEconomySaveBtn" type="button">保存手续费/税率</button>
+            <button id="marketEconomySaveBtn" type="button">保存经济策略</button>
           </div>
           <p class="meta" id="marketEconomyStatusView">等待操作</p>
         </article>
@@ -571,6 +582,30 @@
           <h2>Vault 对接状态</h2>
           <p class="card-desc"><span id="vaultGameCoinName">游戏币</span> 与 Vault 经济系统的连接状态。</p>
           <p class="meta" id="vaultStatusView">等待加载</p>
+        </article>
+
+        <article class="md-card section-card config-scope-card" id="deploymentScopeCard">
+          <h2>部署模式（只读）</h2>
+          <p class="card-desc">由 `config.yml` 决定。SQLite 仅支持单服（cluster.role=standalone）。</p>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>数据库类型</span>
+              <input id="deploymentDatabaseType" readonly />
+            </label>
+            <label class="field">
+              <span>集群角色</span>
+              <input id="deploymentClusterRole" readonly />
+            </label>
+            <label class="field">
+              <span>Redis 集群总线</span>
+              <input id="deploymentRedisEnabled" readonly />
+            </label>
+            <label class="field">
+              <span>跨服配置同步</span>
+              <input id="deploymentClusterSyncEnabled" readonly />
+            </label>
+          </div>
+          <p class="meta" id="deploymentScopeStatusView">等待加载部署模式</p>
         </article>
 
         <article class="md-card section-card">

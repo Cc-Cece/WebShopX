@@ -173,6 +173,41 @@ WebShopX 是一个面向 `Paper / Spigot` 服务器的 Web 商店插件，把官
 - `currency.*`
   - 两种货币的名称和缩写
 
+## SQLite 部署说明
+
+对于 `database.type=sqlite`，WebShopX 现在支持使用本地数据库文件的单服务器部署。
+
+- 支持的类型值：
+  - `mysql`
+  - `mariadb`
+  - `sqlite`
+- SQLite 运行时限制：
+  - 使用 `sqlite` 时必须设置 `cluster.role=standalone`
+  - 如果 `cluster.role` 为 `master` 或 `node`，插件将按设计拒绝启动
+- 推荐的 SQLite 配置：
+
+```yaml
+database:
+  type: sqlite
+  sqlite-file: data/webshopx.db
+  sqlite-journal-mode: WAL
+  sqlite-synchronous: NORMAL
+  sqlite-busy-timeout-ms: 5000
+  sqlite-max-retries: 5
+  sqlite-retry-backoff-ms: [10, 50, 100]
+  pool-size: 2
+```
+
+- 推荐使用场景：
+  - 单服务器 / 轻量级部署
+  - 小到中等流量
+- 不推荐使用场景：
+  - 跨节点集群
+  - 多服务器环境下的高写入竞争负载
+- 备份提醒：
+  - 同时备份数据库文件和插件数据目录
+  - SQLite 文件默认位于 `plugins/WebShopX/data/` 目录下
+
 ## 项目结构
 
 ```text

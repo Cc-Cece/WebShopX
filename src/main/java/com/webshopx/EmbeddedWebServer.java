@@ -972,6 +972,27 @@ class EmbeddedWebServer {
     return json;
   }
 
+  private JsonObject deploymentModeJson(PluginSettings settings) {
+    PluginSettings.DatabaseSettings databaseSettings = settings.databaseSettings();
+    PluginSettings.ClusterSettings clusterSettings = settings.clusterSettings();
+    PluginSettings.RedisSettings redisSettings = settings.redisSettings();
+    DbType databaseType = databaseSettings.type();
+    boolean sqliteSingleServerOnly = databaseType.isSqlite();
+    boolean clusterCapable = !sqliteSingleServerOnly;
+    boolean singleServerMode = clusterSettings.role() == PluginSettings.ClusterRole.STANDALONE;
+    boolean clusterSyncEnabled = clusterCapable && !singleServerMode && redisSettings.enabled();
+
+    JsonObject json = new JsonObject();
+    json.addProperty("databaseType", databaseType.name());
+    json.addProperty("clusterRole", clusterSettings.role().name());
+    json.addProperty("redisEnabled", redisSettings.enabled());
+    json.addProperty("clusterCapable", clusterCapable);
+    json.addProperty("singleServerMode", singleServerMode);
+    json.addProperty("clusterSyncEnabled", clusterSyncEnabled);
+    json.addProperty("sqliteSingleServerOnly", sqliteSingleServerOnly);
+    return json;
+  }
+
   private JsonObject notificationSettingsJson(RuntimeConfigService.NotificationSettings settings) {
     RuntimeConfigService.NotificationSettings normalized = settings == null
         ? RuntimeConfigService.NotificationSettings.defaults()
@@ -2347,6 +2368,10 @@ class EmbeddedWebServer {
       JsonObject marketJson = new JsonObject();
       marketJson.addProperty("tradeFeePercent", market.tradeFeePercent());
       marketJson.addProperty("tradeTaxPercent", market.tradeTaxPercent());
+      PluginSettings.InflationSettings inflation = settings.economySettings().inflationSettings();
+      JsonObject inflationJson = new JsonObject();
+      inflationJson.addProperty("mode", inflation.mode().name());
+      inflationJson.addProperty("treasuryUserId", inflation.treasuryUserId());
 
       PluginSettings.CurrencyDisplaySettings currency = settings.currencyDisplaySettings();
       JsonObject currencyJson = new JsonObject();
@@ -2369,8 +2394,10 @@ class EmbeddedWebServer {
       JsonObject response = new JsonObject();
       response.add("exchange", exchangeJson);
       response.add("market", marketJson);
+      response.add("inflation", inflationJson);
       response.add("currency", currencyJson);
       response.add("vault", vaultJson);
+      response.add("deployment", deploymentModeJson(settings));
       response.add("marketTagsConfig", runtimeConfigService.readMarketTagsConfig().config());
       response.add("marketLimitationConfig", runtimeConfigService.readMarketLimitationConfig().config());
       response.add("leaderboard", leaderboardSettingsJson(settings));
@@ -2433,14 +2460,25 @@ class EmbeddedWebServer {
       AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
       double fee = clampPercent(getDouble(payload, "tradeFeePercent"));
       double tax = clampPercent(getDouble(payload, "tradeTaxPercent"));
+      PluginSettings.InflationMode inflationMode = PluginSettings.InflationMode.fromRaw(getString(payload, "inflationMode"));
+      long treasuryUserId = Math.max(0L, getLong(payload, "inflationTreasuryUserId", 0L));
+      if (inflationMode == PluginSettings.InflationMode.TREASURY && treasuryUserId <= 0L) {
+        throw new ServiceException("bad_request", "inflationTreasuryUserId is required when inflationMode=TREASURY");
+      }
       PluginSettings.MarketEconomySettings marketEconomySettings =
           new PluginSettings.MarketEconomySettings(fee, tax);
-      long version = runtimeConfigService.updateMarketEconomy(marketEconomySettings);
+      PluginSettings.InflationSettings inflationSettings =
+          new PluginSettings.InflationSettings(inflationMode, treasuryUserId);
+      PluginSettings.EconomySettings economySettings =
+          new PluginSettings.EconomySettings(marketEconomySettings, inflationSettings);
+      long version = runtimeConfigService.updateMarketEconomy(economySettings);
       publishRuntimeConfigRefresh(version);
 
       JsonObject detail = new JsonObject();
       detail.addProperty("tradeFeePercent", fee);
       detail.addProperty("tradeTaxPercent", tax);
+      detail.addProperty("inflationMode", inflationMode.name());
+      detail.addProperty("inflationTreasuryUserId", treasuryUserId);
       adminAuditService.log(admin, "MARKET_ECONOMY_UPDATE", "market", null, detail, clientIp(exchange));
 
       JsonObject response = new JsonObject();

@@ -80,6 +80,15 @@
     gameVersions: [],
     loaders: [],
   },
+  deployment: {
+    databaseType: "UNKNOWN",
+    clusterRole: "STANDALONE",
+    redisEnabled: false,
+    clusterCapable: false,
+    singleServerMode: true,
+    clusterSyncEnabled: false,
+    sqliteSingleServerOnly: false,
+  },
 };
 
 const POTION_EFFECT_OPTIONS = [
@@ -381,9 +390,17 @@ const elements = {
 
   marketFeePercent: document.getElementById("marketFeePercent"),
   marketTaxPercent: document.getElementById("marketTaxPercent"),
+  inflationMode: document.getElementById("inflationMode"),
+  inflationTreasuryUserId: document.getElementById("inflationTreasuryUserId"),
   marketEconomySaveBtn: document.getElementById("marketEconomySaveBtn"),
   marketEconomyStatusView: document.getElementById("marketEconomyStatusView"),
   vaultStatusView: document.getElementById("vaultStatusView"),
+  deploymentScopeCard: document.getElementById("deploymentScopeCard"),
+  deploymentDatabaseType: document.getElementById("deploymentDatabaseType"),
+  deploymentClusterRole: document.getElementById("deploymentClusterRole"),
+  deploymentRedisEnabled: document.getElementById("deploymentRedisEnabled"),
+  deploymentClusterSyncEnabled: document.getElementById("deploymentClusterSyncEnabled"),
+  deploymentScopeStatusView: document.getElementById("deploymentScopeStatusView"),
   leaderboardEnabled: document.getElementById("leaderboardEnabled"),
   leaderboardShowOnlineStatus: document.getElementById("leaderboardShowOnlineStatus"),
   leaderboardDefaultMetric: document.getElementById("leaderboardDefaultMetric"),
@@ -4955,6 +4972,14 @@ async function loadEconomySettings() {
   if (elements.marketTaxPercent) {
     elements.marketTaxPercent.value = String(market.tradeTaxPercent ?? 0.0);
   }
+  const inflation = payload.inflation || {};
+  if (elements.inflationMode) {
+    elements.inflationMode.value = String(inflation.mode || "BURN").toUpperCase();
+  }
+  if (elements.inflationTreasuryUserId) {
+    elements.inflationTreasuryUserId.value = String(inflation.treasuryUserId ?? 0);
+  }
+  syncInflationFieldState();
 
   const currency = payload.currency || {};
   const shopCoinName = String(currency.shopCoinName || state.currencyMeta.SHOP_COIN?.name || "ShopCoin").trim();
@@ -5001,6 +5026,10 @@ async function loadEconomySettings() {
       );
     }
   }
+
+  const deployment = normalizeDeploymentInfo(payload.deployment || {});
+  state.deployment = deployment;
+  applyDeploymentScopeToUi(deployment);
 
   const leaderboard = payload.leaderboard || {};
   if (elements.leaderboardEnabled) {
@@ -5183,7 +5212,7 @@ async function loadEconomySettings() {
   }
 
   setMetaText(elements.exchangeStatusView, "已加载兑换配置", "info");
-  setMetaText(elements.marketEconomyStatusView, "已加载手续费/税率配置", "info");
+  setMetaText(elements.marketEconomyStatusView, "已加载经济策略配置", "info");
   setMetaText(elements.leaderboardStatusView, "已加载排行榜配置", "info");
   setMetaText(elements.currencyStatusView, "已加载币种展示配置", "info");
   setMetaText(elements.runtimeWebshopStatusView, "已加载站点运行参数", "info");
@@ -5499,15 +5528,84 @@ async function saveMarketEconomySettings() {
   ensureAdmin();
   const fee = Number(elements.marketFeePercent.value || 0);
   const tax = Number(elements.marketTaxPercent.value || 0);
+  const inflationMode = String(elements.inflationMode?.value || "BURN").toUpperCase();
+  const inflationTreasuryUserId = Number(elements.inflationTreasuryUserId?.value || 0);
+  if (inflationMode === "TREASURY" && inflationTreasuryUserId <= 0) {
+    throw new Error("TREASURY 模式下必须填写大于 0 的国库用户 ID。");
+  }
   await apiAdmin("/api/admin/economy/market", {
     method: "POST",
     body: JSON.stringify({
       tradeFeePercent: fee,
       tradeTaxPercent: tax,
+      inflationMode,
+      inflationTreasuryUserId,
     }),
   });
-  setMetaText(elements.marketEconomyStatusView, "手续费/税率已保存", "success");
-  notify("手续费/税率已保存", "success");
+  setMetaText(elements.marketEconomyStatusView, "经济策略已保存", "success");
+  notify("经济策略已保存", "success");
+}
+
+function syncInflationFieldState() {
+  if (!elements.inflationMode || !elements.inflationTreasuryUserId) {
+    return;
+  }
+  const treasuryMode = String(elements.inflationMode.value || "BURN").toUpperCase() === "TREASURY";
+  elements.inflationTreasuryUserId.disabled = !treasuryMode;
+  if (!treasuryMode) {
+    elements.inflationTreasuryUserId.value = "0";
+  }
+}
+
+function normalizeDeploymentInfo(raw) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  return {
+    databaseType: String(source.databaseType || "UNKNOWN").toUpperCase(),
+    clusterRole: String(source.clusterRole || "STANDALONE").toUpperCase(),
+    redisEnabled: !!source.redisEnabled,
+    clusterCapable: !!source.clusterCapable,
+    singleServerMode: source.singleServerMode !== false,
+    clusterSyncEnabled: !!source.clusterSyncEnabled,
+    sqliteSingleServerOnly: !!source.sqliteSingleServerOnly,
+  };
+}
+
+function applyDeploymentScopeToUi(deployment) {
+  if (elements.deploymentDatabaseType) {
+    elements.deploymentDatabaseType.value = deployment.databaseType;
+  }
+  if (elements.deploymentClusterRole) {
+    elements.deploymentClusterRole.value = deployment.clusterRole;
+  }
+  if (elements.deploymentRedisEnabled) {
+    elements.deploymentRedisEnabled.value = deployment.redisEnabled ? "开启" : "关闭";
+  }
+  if (elements.deploymentClusterSyncEnabled) {
+    elements.deploymentClusterSyncEnabled.value = deployment.clusterSyncEnabled ? "已启用" : "未启用";
+  }
+  if (elements.deploymentScopeCard) {
+    const limited = deployment.sqliteSingleServerOnly || deployment.singleServerMode;
+    elements.deploymentScopeCard.classList.toggle("is-limited", limited);
+  }
+  if (elements.deploymentScopeStatusView) {
+    if (deployment.sqliteSingleServerOnly) {
+      setMetaText(
+        elements.deploymentScopeStatusView,
+        "当前为 SQLite：仅支持单服 standalone，跨服配置同步不可用。",
+        "warn"
+      );
+      return;
+    }
+    if (!deployment.clusterSyncEnabled) {
+      setMetaText(
+        elements.deploymentScopeStatusView,
+        "当前处于单服或未启用 Redis 集群总线，跨服配置同步未启用。",
+        "warn"
+      );
+      return;
+    }
+    setMetaText(elements.deploymentScopeStatusView, "当前已启用跨服配置同步（MySQL/MariaDB + 集群模式 + Redis）。", "success");
+  }
 }
 
 async function saveLeaderboardSettings() {
@@ -6598,6 +6696,12 @@ if (elements.marketEconomySaveBtn) {
   });
 }
 
+if (elements.inflationMode) {
+  elements.inflationMode.addEventListener("change", () => {
+    syncInflationFieldState();
+  });
+}
+
 if (elements.leaderboardSaveBtn) {
   elements.leaderboardSaveBtn.addEventListener("click", async () => {
     try {
@@ -7365,6 +7469,7 @@ switchProductDynamicParamTab("basic");
 renderProductDynamicParamEditors();
 populateMaterialOverrideForm(null);
 initializeMaterialCropDialog();
+syncInflationFieldState();
 
 applyCurrencyMetaToUi();
 loadCurrencyMeta();
@@ -7433,9 +7538,11 @@ if (elements.runtimeNotificationStatusView) {
 if (elements.runtimeAnnouncementStatusView) {
   setMetaText(elements.runtimeAnnouncementStatusView, "等待发送公告", "info");
 }
+if (elements.deploymentScopeStatusView) {
+  setMetaText(elements.deploymentScopeStatusView, "等待加载部署模式", "info");
+}
 if (elements.materialOverrideStatusView) {
   setMetaText(elements.materialOverrideStatusView, "等待加载材质映射", "info");
 }
 renderAdminProfile();
 populateAdminForm(null);
-
