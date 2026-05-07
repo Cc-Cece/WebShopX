@@ -201,19 +201,25 @@ class MarketService {
     String ownerName = databaseManager.withConnection(connection -> readBoundUserById(connection, ownerUserId, false))
         .username();
     publishListingCreatedEvent(ownerUserId, ownerName, result, TradeMode.DIRECT);
-    plugin.getLogger().info(
-        "MARKET_BUY_ORDER_CREATE ownerUserId="
-            + ownerUserId
-            + ", listingId="
-            + result.listingId()
-            + ", side=BUY, currency="
-            + result.currency().name()
-            + ", quantity="
-            + result.quantity()
-            + ", price="
-            + result.price()
-            + ", escrow="
-            + result.escrowTotal());
+    plugin.getLogger()
+      .info(
+        messageService.formatConsole(
+          "console.market_buy_order_create",
+          Map.of(
+            "ownerUserId",
+            ownerUserId,
+            "listingId",
+            result.listingId(),
+            "side",
+            "BUY",
+            "currency",
+            result.currency().name(),
+            "quantity",
+            result.quantity(),
+            "price",
+            result.price(),
+            "escrow",
+            result.escrowTotal())));
     return result;
   }
 
@@ -239,17 +245,23 @@ class MarketService {
         deliveryModeRaw));
     if (result.state() == TradeState.CREATED) {
       publishTradeCreatedEvent(result.tradeId());
-      plugin.getLogger().info(
-          "MARKET_BUY_ORDER_FILL sellerUserId="
-              + sellerUserId
-              + ", listingId="
-              + result.listingId()
-              + ", side=BUY, currency="
-              + result.currency().name()
-              + ", quantity="
-              + result.quantity()
-              + ", price="
-              + result.unitPrice());
+      plugin.getLogger()
+        .info(
+          messageService.formatConsole(
+            "console.market_buy_order_fill",
+            Map.of(
+              "sellerUserId",
+              sellerUserId,
+              "listingId",
+              result.listingId(),
+              "side",
+              "BUY",
+              "currency",
+              result.currency().name(),
+              "quantity",
+              result.quantity(),
+              "price",
+              result.unitPrice())));
     }
     return result;
   }
@@ -267,15 +279,15 @@ class MarketService {
     }
     TagRecalcResult result =
         databaseManager.inTransaction(connection -> recalcTagsInTransaction(connection, normalizedScope));
-    plugin.getLogger().info(
-        "MARKET_TAG_RECALC scope="
-            + normalizedScope
-            + ", scanned="
-            + result.scanned()
-            + ", changed="
-            + result.changed()
-            + ", elapsedMs="
-            + result.elapsedMs());
+    plugin.getLogger()
+      .info(
+        messageService.formatConsole(
+          "console.market_tag_recalc",
+          Map.of(
+            "scope", normalizedScope,
+            "scanned", result.scanned(),
+            "changed", result.changed(),
+            "elapsed", result.elapsedMs())));
     return result;
   }
 
@@ -444,7 +456,7 @@ class MarketService {
       throw new ServiceException("supply_missing", "Supply container is unavailable");
     }
     if (templateItem == null || templateItem.getType() == Material.AIR) {
-      throw new ServiceException("invalid_item", "濡剝婢橀悧鈺佹惂娑撳秷鍏樻稉铏光敄");
+      throw new ServiceException("invalid_item", "未检测到有效物品");
     }
     SupplyConfig normalizedSupply = normalizeSupplyConfig(0, 0);
     ItemStack template = templateItem.clone();
@@ -839,7 +851,7 @@ class MarketService {
         return null;
       });
     } catch (Exception exception) {
-      plugin.getLogger().warning("Market cycle processing failed: " + exception.getMessage());
+      plugin.getLogger().warning(messageService.formatConsole("console.market_cycle_failed", Map.of("reason", exception.getMessage())));
     }
   }
 
@@ -1441,16 +1453,15 @@ class MarketService {
       statement.executeUpdate();
     }
     plugin.getLogger().info(
-        "MARKET_BUY_ORDER_REFUND_ESCROW listingId="
-            + listing.id()
-            + ", ownerUserId="
-            + listing.sellerUserId()
-            + ", side=BUY, currency="
-            + listing.currency().name()
-            + ", amount="
-            + refundable
-            + ", reason="
-            + reason);
+      messageService.formatConsole(
+        "console.market_buy_order_refund_escrow",
+        MapUtils.mapOf(
+          "listingId", listing.id(),
+          "ownerUserId", listing.sellerUserId(),
+          "side", "BUY",
+          "currency", listing.currency().name(),
+          "amount", refundable,
+          "reason", reason)));
     enqueueBuyEscrowRefundNotification(listing, refundable);
     return refundable;
   }
@@ -1465,9 +1476,11 @@ class MarketService {
         notifyMarketEvent(
             listing.sellerUserId(),
             "MARKET_BUY_ORDER_REFUND_ESCROW",
-            "收购托管退款",
+          messageService.getConsole("notify.market.buy_escrow_refund_title"),
             TEMPLATE_MARKET_BUY_ESCROW_REFUND,
-            "收购单 #" + listing.id() + " 托管金额已退回：" + amountText + "。",
+          messageService.formatConsole(
+            "notify.market.buy_escrow_refund_content",
+            MapUtils.mapOf("listingId", listing.id(), "amountText", amountText)),
             Map.of(
                 "listingId", listing.id(),
                 "amountText", amountText));
@@ -2058,13 +2071,12 @@ class MarketService {
           && (previousHighestBidderUserId == null || previousHighestBidderUserId != bidder.userId())) {
         notifyPlayerAsync(
             previousHighestBidderUuid,
-            "You were outbid on auction #"
-                + listing.id()
-                + ". Previous highest bid was "
-                + previousHighestBid
-                + " "
-                + listing.currency().name()
-                + ".");
+          messageService.formatConsole(
+            "notify.market.auction_outbid_previous",
+            MapUtils.mapOf(
+              "listingId", listing.id(),
+              "previousBid", previousHighestBid,
+              "currency", listing.currency().name())));
       }
     } else {
       String updateSql = """
@@ -2278,7 +2290,9 @@ class MarketService {
       if (refund.bidderUuid() != null) {
         notifyPlayerAsync(
             refund.bidderUuid(),
-            "Auction #" + listing.id() + " was reset or cancelled, and your frozen bid funds were returned.");
+            messageService.formatConsole(
+                "notify.market.auction_reset_refund",
+                MapUtils.mapOf("listingId", listing.id())));
       }
     }
 
@@ -2350,7 +2364,7 @@ class MarketService {
         listing,
         notices,
         "auction-expired-dutch",
-        "Auction #" + listing.id() + " ended without a buyer, item returned for delivery.");
+      messageService.formatConsole("notify.market.auction_no_buyer", MapUtils.mapOf("listingId", listing.id())));
   }
 
   private void settleAscendingAuction(
@@ -2366,7 +2380,7 @@ class MarketService {
           listing,
           notices,
           "auction-expired-no-bid",
-          "Auction #" + listing.id() + " ended with no bids, item returned for delivery.");
+          messageService.formatConsole("notify.market.auction_no_bid", MapUtils.mapOf("listingId", listing.id())));
       return;
     }
 
@@ -2378,7 +2392,7 @@ class MarketService {
           listing,
           notices,
           "auction-expired-reserve",
-          "Auction #" + listing.id() + " ended below reserve price, item returned for delivery.");
+          messageService.formatConsole("notify.market.auction_below_reserve", MapUtils.mapOf("listingId", listing.id())));
       return;
     }
 
@@ -2397,12 +2411,14 @@ class MarketService {
 
     notices.add(new AuctionSettlementNotice(
         winner.boundUuid(),
-        "You won auction #" + listing.id() + " at "
-            + finalBid + " " + listing.currency().name() + ". Delivery is queued."));
+      messageService.formatConsole(
+        "notify.market.auction_win",
+        MapUtils.mapOf("listingId", listing.id(), "finalBid", finalBid, "currency", listing.currency().name()))));
     notices.add(new AuctionSettlementNotice(
         listing.sellerUuid(),
-        "Your auction #" + listing.id() + " was sold at "
-            + finalBid + " " + listing.currency().name() + "."));
+      messageService.formatConsole(
+        "notify.market.auction_sold",
+        MapUtils.mapOf("listingId", listing.id(), "finalBid", finalBid, "currency", listing.currency().name()))));
   }
 
   private void settleVickreyAuction(
@@ -2442,7 +2458,7 @@ class MarketService {
           listing,
           notices,
           "auction-expired-no-bid",
-          "Auction #" + listing.id() + " ended with no bids, item returned for delivery.");
+          messageService.formatConsole("notify.market.auction_no_bid", MapUtils.mapOf("listingId", listing.id())));
       return;
     }
 
@@ -2455,7 +2471,7 @@ class MarketService {
           listing,
           notices,
           "auction-expired-reserve",
-          "Auction #" + listing.id() + " ended below reserve price, item returned for delivery.");
+          messageService.formatConsole("notify.market.auction_below_reserve", MapUtils.mapOf("listingId", listing.id())));
       return;
     }
 
@@ -2489,19 +2505,18 @@ class MarketService {
 
     notices.add(new AuctionSettlementNotice(
         winner.boundUuid(),
-        "You won auction #"
-            + listing.id()
-            + " with bid "
-            + winnerBid.bidAmount()
-            + " "
-            + listing.currency().name()
-            + ", and the final clearing price is "
-            + finalBid
-            + "."));
+      messageService.formatConsole(
+        "notify.market.auction_win_vickrey",
+        MapUtils.mapOf(
+          "listingId", listing.id(),
+          "bidAmount", winnerBid.bidAmount(),
+          "currency", listing.currency().name(),
+          "finalBid", finalBid))));
     notices.add(new AuctionSettlementNotice(
         listing.sellerUuid(),
-        "Your auction #" + listing.id() + " was sold (Vickrey) at "
-            + finalBid + " " + listing.currency().name() + "."));
+      messageService.formatConsole(
+        "notify.market.auction_sold_vickrey",
+        MapUtils.mapOf("listingId", listing.id(), "finalBid", finalBid, "currency", listing.currency().name()))));
   }
 
   private void finalizeAuctionWithoutWinner(
@@ -2605,7 +2620,9 @@ class MarketService {
       if (bid.bidderUuid() != null) {
         notifyPlayerAsync(
             bid.bidderUuid(),
-            "Auction #" + listing.id() + " has ended, you did not win, and your frozen funds were returned.");
+            messageService.formatConsole(
+                "notify.market.auction_loser_refunded",
+                MapUtils.mapOf("listingId", listing.id())));
       }
     }
   }
@@ -3734,17 +3751,22 @@ class MarketService {
       notifyMarketEvent(
           sellerUserId,
           "MARKET_LISTED",
-          "上架提醒",
+          messageService.getConsole("notify.market.listed_title"),
           TEMPLATE_MARKET_LISTED,
-          "你的上架 #" + result.listingId() + " 已发布："
-              + itemLabel + " x" + result.quantity() + "，单价 " + amountText + "。",
+          messageService.formatConsole(
+            "notify.market.listed_content",
+            MapUtils.mapOf(
+              "listingId", result.listingId(),
+              "item", itemLabel,
+              "quantity", result.quantity(),
+              "priceText", amountText)),
           Map.of(
               "listingId", result.listingId(),
               "item", itemLabel,
               "quantity", result.quantity(),
               "priceText", amountText));
     } catch (Exception exception) {
-      plugin.getLogger().warning("Failed to publish listing-created event: " + exception.getMessage());
+      plugin.getLogger().warning(messageService.formatConsole("console.failed_publish_listing_created", Map.of("reason", exception.getMessage())));
     }
   }
 
@@ -3771,17 +3793,22 @@ class MarketService {
       notifyMarketEvents(
           List.of(context.sellerUserId(), context.buyerUserId()),
           "MARKET_TRADE",
-          "市场成交",
+          messageService.getConsole("notify.market.trade_title"),
           TEMPLATE_MARKET_TRADE,
-          "上架 #" + context.listingId() + " 已成交："
-              + itemLabel + " x" + context.quantity() + "，总价 " + totalText + "。",
+          messageService.formatConsole(
+            "notify.market.trade_content",
+            MapUtils.mapOf(
+              "listingId", context.listingId(),
+              "item", itemLabel,
+              "quantity", context.quantity(),
+              "totalText", totalText)),
           Map.of(
               "listingId", context.listingId(),
               "item", itemLabel,
               "quantity", context.quantity(),
               "totalText", totalText));
     } catch (Exception exception) {
-      plugin.getLogger().warning("Failed to publish trade event: " + exception.getMessage());
+      plugin.getLogger().warning(messageService.formatConsole("console.failed_publish_trade_event", Map.of("reason", exception.getMessage())));
     }
   }
 
@@ -3812,14 +3839,19 @@ class MarketService {
                 "bidAmountText", amountText));
       }
 
-      String bidderMessage = result.sealedBid()
-          ? "你已提交拍卖 #" + context.listingId() + " 的密封出价。"
-          : "你在拍卖 #" + context.listingId() + " 出价成功："
-              + formatAmount(context.bidAmount(), context.currency()) + "。";
+        String bidderMessage = result.sealedBid()
+          ? messageService.formatConsole(
+            "notify.market.auction_bid_self_sealed",
+            MapUtils.mapOf("listingId", context.listingId()))
+          : messageService.formatConsole(
+            "notify.market.auction_bid_self_open",
+            MapUtils.mapOf(
+              "listingId", context.listingId(),
+              "bidAmountText", formatAmount(context.bidAmount(), context.currency())));
       notifyMarketEvent(
           context.bidderUserId(),
           "AUCTION_BID",
-          "竞拍提醒",
+          messageService.getConsole("notify.market.auction_bid_title"),
           TEMPLATE_AUCTION_BID_SELF,
           bidderMessage,
           Map.of(
@@ -3828,9 +3860,11 @@ class MarketService {
       notifyMarketEvent(
           context.sellerUserId(),
           "AUCTION_BID",
-          "竞拍提醒",
+          messageService.getConsole("notify.market.auction_bid_title"),
           TEMPLATE_AUCTION_BID_SELLER,
-          "拍卖 #" + context.listingId() + " 收到来自 " + context.bidderName() + " 的新出价。",
+          messageService.formatConsole(
+            "notify.market.auction_bid_seller",
+            MapUtils.mapOf("listingId", context.listingId(), "bidderName", context.bidderName())),
           Map.of(
               "listingId", context.listingId(),
               "bidderName", context.bidderName()));
@@ -3840,13 +3874,15 @@ class MarketService {
         notifyMarketEvent(
             result.previousHighestBidderUserId(),
             "AUCTION_OUTBID",
-            "超价提醒",
+          messageService.getConsole("notify.market.auction_outbid_title"),
             TEMPLATE_AUCTION_OUTBID,
-            "你在拍卖 #" + context.listingId() + " 的领先出价已被超过。",
+          messageService.formatConsole(
+            "notify.market.auction_outbid_content",
+            MapUtils.mapOf("listingId", context.listingId())),
             Map.of("listingId", context.listingId()));
       }
     } catch (Exception exception) {
-      plugin.getLogger().warning("Failed to publish auction bid event: " + exception.getMessage());
+      plugin.getLogger().warning(messageService.formatConsole("console.failed_publish_auction_bid_event", Map.of("reason", exception.getMessage())));
     }
   }
 
@@ -3866,12 +3902,12 @@ class MarketService {
         notifyMarketEvent(
             userId,
             "AUCTION_SETTLEMENT",
-            "拍卖结算",
+          messageService.getConsole("notify.market.auction_settlement_title"),
             TEMPLATE_AUCTION_SETTLEMENT,
             notice.message(),
             Map.of("message", notice.message()));
       } catch (Exception exception) {
-        plugin.getLogger().warning("Failed to persist auction notice: " + exception.getMessage());
+        plugin.getLogger().warning(messageService.formatConsole("console.failed_persist_auction_notice", Map.of("reason", exception.getMessage())));
       }
     }
   }

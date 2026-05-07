@@ -56,11 +56,10 @@ class DatabaseManager {
             exception);
       }
       if (containsMissingRsaPublicKey(exception) && settings.canAutoRetryWithPublicKeyRetrieval()) {
+        MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
         plugin
             .getLogger()
-            .warning(
-                "Database login requires RSA public key exchange while TLS is disabled. "
-                    + "Retrying with allowPublicKeyRetrieval=true for compatibility.");
+            .warning(ms.getConsole("console.database_retry_with_public_key_retrieval"));
         this.dataSource = createDataSource(settings.mysqlJdbcUrl(true));
         return;
       }
@@ -265,23 +264,21 @@ class DatabaseManager {
         boolean canRetry = attempt < maxRetries && isRetryableSqliteException(exception);
         if (!canRetry) {
           if (dialect.dbType().isSqlite() && isRetryableSqliteException(exception)) {
+            MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
             plugin
                 .getLogger()
-                .log(Level.SEVERE, "SQLite retry exhausted after " + attempt + " retries.", exception);
+                .log(Level.SEVERE, ms.formatConsole("console.sqlite_retry_exhausted", MapUtils.mapOf("attempt", attempt)), exception);
           }
           throw new DataAccessException(failureMessage, exception);
         }
         int nextAttempt = attempt + 1;
         Level level = nextAttempt >= maxRetries ? Level.WARNING : Level.FINE;
+        MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
         plugin
             .getLogger()
             .log(
                 level,
-                "SQLite lock contention detected, retrying (attempt "
-                    + nextAttempt
-                    + "/"
-                    + maxRetries
-                    + ").");
+                ms.formatConsole("console.sqlite_retrying", MapUtils.mapOf("attempt", nextAttempt, "max", maxRetries)));
         sleepBeforeRetry(attempt);
         attempt = nextAttempt;
       }

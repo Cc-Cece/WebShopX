@@ -56,7 +56,8 @@ class TextureAssetManager {
 
   void ensureLocalTextureCache(Path staticRoot, String minecraftVersion) {
     if (minecraftVersion == null || minecraftVersion.isBlank()) {
-      plugin.getLogger().warning("Skip texture cache: missing minecraft version.");
+      MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
+      plugin.getLogger().warning(ms.getConsole("console.skip_texture_cache_missing_version"));
       return;
     }
 
@@ -72,15 +73,15 @@ class TextureAssetManager {
       try {
         ExtractionStats stats = extractTextureFiles(clientJar, textureRoot);
         writeMarker(markerFile, minecraftVersion);
-        plugin.getLogger().info(
-            "Texture cache ready: " + stats.total() + " files (item="
-                + stats.itemCount() + ", block=" + stats.blockCount() + ").");
+        MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
+        plugin.getLogger().info(ms.formatConsole("console.texture_cache_ready", MapUtils.mapOf(
+           "total", stats.total(), "item", stats.itemCount(), "block", stats.blockCount())));
       } finally {
         Files.deleteIfExists(clientJar);
       }
     } catch (Exception exception) {
-      plugin.getLogger().warning(
-          "Texture cache init failed, keep remote fallback only: " + exception.getMessage());
+      MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
+      plugin.getLogger().warning(ms.formatConsole("console.texture_cache_init_failed", MapUtils.mapOf("reason", exception.getMessage())));
     }
   }
 

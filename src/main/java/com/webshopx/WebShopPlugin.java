@@ -168,13 +168,13 @@ public class WebShopPlugin extends JavaPlugin {
       restartWebRuntime();
       initializeMetrics();
 
-      getLogger().info("WebShopX enabled successfully.");
+      getLogger().info(messageService.getConsole("console.enabled_success"));
     } catch (DefaultDatabaseConfigurationException exception) {
-      getLogger().warning("WebShopX detected the default database configuration in config.yml.");
-      getLogger().warning("Please update the database connection settings and start the server again.");
+      getLogger().warning(messageService.getConsole("console.default_database_config"));
+      getLogger().warning(messageService.getConsole("console.update_database_instructions"));
       getServer().getPluginManager().disablePlugin(this);
     } catch (Exception exception) {
-      getLogger().log(Level.SEVERE, "WebShopX failed to start", exception);
+      getLogger().log(Level.SEVERE, messageService.getConsole("console.failed_startup"), exception);
       getServer().getPluginManager().disablePlugin(this);
     }
   }
@@ -206,7 +206,7 @@ public class WebShopPlugin extends JavaPlugin {
       try {
         playerPresenceService.markServerOffline(settings.clusterSettings().serverId());
       } catch (Exception exception) {
-        getLogger().warning("Failed to mark local server offline: " + exception.getMessage());
+        getLogger().warning(messageService.formatConsole("console.failed_mark_local_offline", MapUtils.mapOf("reason", exception.getMessage())));
       }
     }
     if (databaseManager != null) {
@@ -270,18 +270,15 @@ public class WebShopPlugin extends JavaPlugin {
       startMarketCycleLoop();
       restartWebRuntime();
     } catch (Exception exception) {
-      getLogger().log(Level.WARNING, "Failed to reload runtime business settings from database.", exception);
+      getLogger().log(Level.WARNING, messageService.getConsole("console.failed_reload_runtime_business_settings"), exception);
     }
   }
 
   private void handleClusterConfigRefreshEvent(String sourceServerId, long version) {
     getServer().getScheduler().runTask(this, () -> {
-      getLogger().info(
-          "Received cluster config refresh from "
-              + sourceServerId
-              + " (version="
-              + version
-              + "), reloading runtime business settings.");
+      getLogger().info(messageService.formatConsole(
+          "console.cluster_refresh_received",
+          MapUtils.mapOf("source", sourceServerId, "version", version)));
       reloadRuntimeBusinessSettings();
     });
   }
@@ -292,7 +289,7 @@ public class WebShopPlugin extends JavaPlugin {
     try {
       ConfigUpdater.update(this, MAIN_CONFIG_RESOURCE, configFile);
     } catch (IOException exception) {
-      getLogger().log(Level.WARNING, "Failed to update config.yml via Config-Updater.", exception);
+      getLogger().log(Level.WARNING, messageService.getConsole("console.failed_update_main_config"), exception);
     }
     reloadConfig();
   }
@@ -323,7 +320,7 @@ public class WebShopPlugin extends JavaPlugin {
       try {
         playerPresenceService.markOnline(player.getUniqueId(), player.getName());
       } catch (Exception exception) {
-        getLogger().warning("Failed to sync online presence for " + player.getName() + ": " + exception.getMessage());
+        getLogger().warning(messageService.formatConsole("console.failed_sync_online_presence", MapUtils.mapOf("player", player.getName(), "reason", exception.getMessage())));
       }
     }
   }
@@ -338,9 +335,9 @@ public class WebShopPlugin extends JavaPlugin {
     if (!backupFile.exists()) {
       try {
         Files.copy(configFile.toPath(), backupFile.toPath(), StandardCopyOption.COPY_ATTRIBUTES);
-        getLogger().info("Legacy config backup created: " + backupFile.getName());
+        getLogger().info(messageService.formatConsole("console.legacy_backup_created", MapUtils.mapOf("name", backupFile.getName())));
       } catch (IOException exception) {
-        getLogger().warning("Failed to create legacy config backup: " + exception.getMessage());
+        getLogger().warning(messageService.formatConsole("console.failed_create_legacy_backup", MapUtils.mapOf("reason", exception.getMessage())));
       }
     }
 
@@ -355,7 +352,7 @@ public class WebShopPlugin extends JavaPlugin {
     }
     saveConfig();
     reloadConfig();
-    getLogger().info("Legacy runtime config migrated to database, config.yml has been pruned to minimal startup fields.");
+    getLogger().info(messageService.getConsole("console.legacy_runtime_migrated"));
   }
 
   private String[] minimalConfigRemovalPaths() {
@@ -437,10 +434,10 @@ public class WebShopPlugin extends JavaPlugin {
         () -> {
           marketService.processMarketCycles();
           if (productService != null) {
-            try {
+              try {
               productService.processDynamicPriceCycles();
             } catch (Exception exception) {
-              getLogger().warning("Official dynamic price cycle failed: " + exception.getMessage());
+              getLogger().warning(messageService.formatConsole("console.official_dynamic_price_cycle_failed", MapUtils.mapOf("reason", exception.getMessage())));
             }
           }
         },
@@ -453,17 +450,16 @@ public class WebShopPlugin extends JavaPlugin {
       embeddedWebServer.stop();
     }
     if (!settings.clusterSettings().shouldStartWebApi()) {
-      getLogger().info(
-          "Cluster role is "
-              + settings.clusterSettings().role().name().toLowerCase(Locale.ROOT)
-              + ", embedded Web/API is disabled on this node.");
+      getLogger().info(messageService.formatConsole(
+          "console.cluster_web_api_disabled_on_role",
+          MapUtils.mapOf("role", settings.clusterSettings().role().name().toLowerCase(Locale.ROOT))));
       return;
     }
 
     Path staticRoot = staticAssetInstaller.install(settings.embeddedWebSettings().staticRoot(), settings);
     textureAssetManager.ensureLocalTextureCacheAsync(staticRoot, resolveMinecraftVersion());
     if (settings.serverMode() == PluginSettings.ServerMode.EXTERNAL) {
-      getLogger().info("server-mode=external, static files extracted to: " + staticRoot);
+      getLogger().info(messageService.formatConsole("console.server_mode_external", MapUtils.mapOf("path", staticRoot)));
     }
 
     try {
@@ -509,9 +505,9 @@ public class WebShopPlugin extends JavaPlugin {
       metrics.addCustomChart(
           new SimplePie("cluster_role", () -> settings.clusterSettings().role().name().toLowerCase(Locale.ROOT)));
       metrics.addCustomChart(new SimplePie("default_locale", settings::defaultLocale));
-      getLogger().info("bStats metrics enabled.");
+      getLogger().info(messageService.getConsole("console.bstats_enabled"));
     } catch (Exception exception) {
-      getLogger().log(Level.WARNING, "Failed to initialize bStats metrics.", exception);
+      getLogger().log(Level.WARNING, messageService.getConsole("console.failed_init_bstats"), exception);
     }
   }
 

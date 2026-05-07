@@ -1,0 +1,34 @@
+main: ${PACKAGE}.WebShopPlugin
+name: ${NAME}
+version: "${VERSION}"
+api-version: "1.20"
+author: Kanbara
+description: Web-first Minecraft shop plugin (Phase 1 + Phase 2)
+libraries:
+  - org.bstats:bstats-bukkit:3.2.1
+  - com.tchristofferson:ConfigUpdater:2.2
+  - io.papermc:paperlib:1.0.8
+  - org.mariadb.jdbc:mariadb-java-client:3.3.3
+  - org.xerial:sqlite-jdbc:3.50.3.0
+  - redis.clients:jedis:5.2.0
+  - com.zaxxer:HikariCP:5.1.0
+  - com.google.code.gson:gson:2.11.0
+commands:
+  webshopx:
+    description: WebShopX unified command
+    usage: "/webshopx <password|market|claim|mailbox|reload|redeem|help>"
+    aliases: [ws]
+softdepend: [Vault]
+permissions:
+  webshop.admin:
+    description: Allows admin operations for WebShop
+    default: op
+  webshop.use:
+    description: Allows normal player operations for WebShop
+    default: true
+  webshop.market.auction:
+    description: Allows using auction mode when limitation rules require permission
+    default: op
+  webshop.market.limitation.bypass:
+    description: Bypasses market limitation rules for create/edit operations
+    default: op

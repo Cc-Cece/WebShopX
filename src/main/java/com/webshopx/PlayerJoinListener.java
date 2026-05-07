@@ -29,7 +29,8 @@ class PlayerJoinListener implements Listener {
           try {
             playerPresenceService.markOnline(playerUuid, playerName);
           } catch (Exception exception) {
-            plugin.getLogger().warning("Failed to mark player online in presence table: " + exception.getMessage());
+            MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
+            plugin.getLogger().warning(ms.formatConsole("console.failed_mark_player_online", MapUtils.mapOf("reason", exception.getMessage())));
           }
         });
     plugin.getServer().getScheduler().runTaskLater(

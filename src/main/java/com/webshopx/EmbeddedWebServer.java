@@ -201,8 +201,9 @@ class EmbeddedWebServer {
     }
 
     server.start();
-    plugin.getLogger().info("Embedded HTTP server started at " + webSettings.host() + ":"
-        + webSettings.port() + " (mode: " + serverMode + ")");
+    MessageService ms = new MessageService(plugin, settingsSupplier);
+    plugin.getLogger().info(ms.formatConsole("console.embedded_http_started", Map.of(
+      "host", webSettings.host(), "port", webSettings.port(), "mode", serverMode.name())));
   }
 
   void stop() {
@@ -4629,7 +4630,8 @@ class EmbeddedWebServer {
       }
       Files.deleteIfExists(target);
     } catch (Exception exception) {
-      plugin.getLogger().warning("Failed to cleanup old material icon: " + exception.getMessage());
+      MessageService ms = new MessageService(plugin, settingsSupplier);
+      plugin.getLogger().warning(ms.formatConsole("console.failed_cleanup_old_material", Map.of("reason", exception.getMessage())));
     }
   }
 
@@ -4662,7 +4664,8 @@ class EmbeddedWebServer {
       }
       Files.deleteIfExists(target);
     } catch (Exception exception) {
-      plugin.getLogger().warning("Failed to cleanup old " + label + ": " + exception.getMessage());
+      MessageService ms = new MessageService(plugin, settingsSupplier);
+      plugin.getLogger().warning(ms.formatConsole("console.failed_cleanup_old", Map.of("label", label, "reason", exception.getMessage())));
     }
   }
 

@@ -207,7 +207,8 @@ class LeaderboardService {
         return stats;
       }).get();
     } catch (Exception exception) {
-      plugin.getLogger().warning("Failed to read leaderboard runtime stats: " + exception.getMessage());
+      MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
+      plugin.getLogger().warning(ms.formatConsole("console.failed_read_leaderboard_stats", Map.of("reason", exception.getMessage())));
       return users.stream().collect(Collectors.toMap(UserBaseRow::userId, ignored -> OnlineRuntimeStat.EMPTY));
     }
   }

@@ -121,12 +121,25 @@ jobs:
           echo "build_version=${BUILD_VERSION}" >> "$GITHUB_OUTPUT"
           echo "Resolved build version: ${BUILD_VERSION}"
 
-      - name: Build jars
+      - name: Build plugin variants
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon clean assemble releaseObfuscated \
+          ./gradlew --no-daemon clean packagePluginVariants \
             -x test -x checkstyleMain -x checkstyleTest -x spotbugsMain -x spotbugsTest \
             -Pver="${{ steps.meta.outputs.build_version }}"
+
+      - name: Verify expected variant artifacts
+        shell: bash
+        run: |
+          shopt -s nullglob
+          variants=(slim full full-linux full-win)
+          for variant in "${variants[@]}"; do
+            files=(build/libs/*-"${variant}".jar)
+            if (( ${#files[@]} == 0 )); then
+              echo "::error::Missing artifact for variant '${variant}'."
+              exit 1
+            fi
+          done
 
       - name: Upload compiled jars
         uses: actions/upload-artifact@v4

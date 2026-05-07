@@ -295,7 +295,7 @@ class DeliveryService {
           SET next_retry_at = CURRENT_TIMESTAMP
           WHERE mc_uuid = ?
             AND status = 'PENDING'
-            AND last_error = '鐜╁绂荤嚎'
+            AND (last_error = 'player is offline' OR last_error = '鐜╁绂荤嚎')
             AND next_retry_at > CURRENT_TIMESTAMP
             AND EXISTS (
               SELECT 1
@@ -314,7 +314,7 @@ class DeliveryService {
           SET next_retry_at = CURRENT_TIMESTAMP
           WHERE target_uuid = ?
             AND status = 'PENDING'
-            AND last_error = '鐜╁绂荤嚎'
+            AND (last_error = 'player is offline' OR last_error = '鐜╁绂荤嚎')
             AND next_retry_at > CURRENT_TIMESTAMP
           """;
       try (PreparedStatement statement = connection.prepareStatement(marketSql)) {
@@ -508,11 +508,11 @@ class DeliveryService {
     DeliveryKind kind = DeliveryKind.fromRaw(task.deliveryKind());
     Player player = forcedPlayer == null ? Bukkit.getPlayer(task.playerUuid()) : forcedPlayer;
     if (player == null || !player.isOnline()) {
-      if (!claimMode && kind == DeliveryKind.GIVE_ITEM && tryMoveCommandItemToMailbox(task, claimMode, "鐜╁绂荤嚎", null)) {
+      if (!claimMode && kind == DeliveryKind.GIVE_ITEM && tryMoveCommandItemToMailbox(task, claimMode, "player is offline", null)) {
         return true;
       }
       if (!claimMode) {
-        rescheduleCommand(task.id(), "鐜╁绂荤嚎", false);
+        rescheduleCommand(task.id(), "player is offline", false);
       }
       return false;
     }
@@ -573,11 +573,11 @@ class DeliveryService {
   private boolean handleMarketTask(MarketItemDeliveryTask task, boolean claimMode, Player forcedPlayer) {
     Player player = forcedPlayer == null ? Bukkit.getPlayer(task.targetUuid()) : forcedPlayer;
     if (player == null || !player.isOnline()) {
-      if (!claimMode && tryMoveMarketItemToMailbox(task, claimMode, "鐜╁绂荤嚎", null)) {
+      if (!claimMode && tryMoveMarketItemToMailbox(task, claimMode, "player is offline", null)) {
         return true;
       }
       if (!claimMode) {
-        rescheduleMarket(task.id(), "鐜╁绂荤嚎", false);
+        rescheduleMarket(task.id(), "player is offline", false);
       }
       return false;
     }
@@ -585,7 +585,7 @@ class DeliveryService {
     try {
       ItemStack itemStack = itemSnapshotCodec.deserialize(task.itemBlob());
       if (itemStack.getType() == Material.AIR) {
-        throw new IllegalStateException("鐗╁搧蹇収涓虹┖");
+        throw new IllegalStateException("item snapshot is empty");
       }
 
       addItemToInventory(player, itemStack, task.quantity());
@@ -914,9 +914,10 @@ class DeliveryService {
             userId,
             "DELIVERY_WAIT_CLAIM",
             TEMPLATE_DELIVERY_WAIT_CLAIM_ORDER,
-            "订单待领取提醒",
-            "订单 " + token + " 自动发货失败，请在游戏内执行 /ws claim "
-                + token + " 领取。原因：" + reason,
+          messageService.getConsole("notify.delivery.wait_claim_order_title"),
+          messageService.formatConsole(
+            "notify.delivery.wait_claim_order_content",
+            MapUtils.mapOf("token", token, "reason", reason)),
             Map.of(
                 "token", token,
                 "reason", reason));
@@ -953,9 +954,10 @@ class DeliveryService {
         task.targetUserId(),
         "DELIVERY_WAIT_CLAIM",
         TEMPLATE_DELIVERY_WAIT_CLAIM_MARKET,
-        "市场物品待领取提醒",
-        "市场物品自动发货失败，请在游戏内执行 /ws claim "
-            + token + " 领取。原因：" + reason,
+      messageService.getConsole("notify.delivery.wait_claim_market_title"),
+      messageService.formatConsole(
+        "notify.delivery.wait_claim_market_content",
+        MapUtils.mapOf("token", token, "reason", reason)),
         Map.of(
             "token", token,
             "reason", reason));
@@ -991,7 +993,7 @@ class DeliveryService {
     int amount = payload.has("amount") ? payload.get("amount").getAsInt() : task.quantity();
     Material material = resolveMaterial(materialRaw);
     if (material == null || material == Material.AIR) {
-      throw new ServiceException("invalid_delivery_payload", "鐗╁搧鏉愯川鏃犳晥");
+      throw new ServiceException("invalid_delivery_payload", "invalid item material");
     }
     addItemToInventory(player, new ItemStack(material, 1), amount);
   }
@@ -1004,7 +1006,7 @@ class DeliveryService {
 
     PotionEffectType effectType = resolvePotionEffectType(effectRaw);
     if (effectType == null) {
-      throw new ServiceException("invalid_delivery_payload", "鑽按鏁堟灉鏃犳晥");
+      throw new ServiceException("invalid_delivery_payload", "invalid potion effect");
     }
     int durationTicks = Math.max(20, seconds * 20);
     player.addPotionEffect(new PotionEffect(effectType, durationTicks, Math.max(0, amplifier)), true);
@@ -1022,7 +1024,7 @@ class DeliveryService {
       stack.setAmount(chunk);
       Map<Integer, ItemStack> leftovers = player.getInventory().addItem(stack);
       if (!leftovers.isEmpty()) {
-        throw new IllegalStateException("鑳屽寘宸叉弧");
+        throw new IllegalStateException("inventory is full");
       }
       remaining -= chunk;
     }
@@ -1088,7 +1090,7 @@ class DeliveryService {
     String materialRaw = payload.has("material") ? payload.get("material").getAsString() : "";
     Material material = resolveMaterial(materialRaw);
     if (material == null || material == Material.AIR) {
-      throw new ServiceException("invalid_delivery_payload", "鐗╁搧鏉愯川鏃犳晥");
+      throw new ServiceException("invalid_delivery_payload", "invalid item material");
     }
     return new ItemStack(material, 1);
   }
@@ -1101,9 +1103,10 @@ class DeliveryService {
         userId,
         "MAILBOX_PENDING",
         TEMPLATE_MAILBOX_PENDING,
-        "信箱待领取提醒",
-        "自动发货时背包不可用，物品已存入游戏信箱。请在游戏内执行 /ws mailbox claim 领取。来源："
-            + sourceType + " " + sourceRef,
+      messageService.getConsole("notify.delivery.mailbox_pending_title"),
+      messageService.formatConsole(
+        "notify.delivery.mailbox_pending_content",
+        MapUtils.mapOf("sourceType", sourceType, "sourceRef", sourceRef)),
         Map.of(
             "sourceType", sourceType,
             "sourceRef", sourceRef));
@@ -1152,7 +1155,7 @@ class DeliveryService {
       return false;
     }
     String normalized = message.toLowerCase(Locale.ROOT);
-    return normalized.contains("inventory is full") || message.contains("鑳屽寘宸叉弧");
+    return normalized.contains("inventory is full") || message.contains("背包已满");
   }
 
   private Material resolveMaterial(String raw) {
@@ -1193,19 +1196,19 @@ class DeliveryService {
     }
     String raw = message.trim();
     String normalized = message.toLowerCase(Locale.ROOT);
-    if (normalized.contains("inventory is full") || raw.contains("鑳屽寘宸叉弧")) {
+    if (normalized.contains("inventory is full") || raw.contains("背包已满")) {
       return msg(player, "chat.delivery.inventory_full");
     }
-    if (normalized.contains("player is offline") || raw.contains("鐜╁绂荤嚎")) {
+    if (normalized.contains("player is offline") || raw.contains("玩家离线")) {
       return msg(player, "chat.delivery.player_offline");
     }
-    if (normalized.contains("item snapshot is empty") || raw.contains("鐗╁搧蹇収涓虹┖")) {
+    if (normalized.contains("item snapshot is empty") || raw.contains("物品快照为空")) {
       return msg(player, "chat.delivery.empty_snapshot");
     }
-    if (normalized.contains("invalid item material") || raw.contains("鐗╁搧鏉愯川鏃犳晥")) {
+    if (normalized.contains("invalid item material") || raw.contains("物品材质无效")) {
       return msg(player, "chat.delivery.invalid_material");
     }
-    if (normalized.contains("invalid potion effect") || raw.contains("鑽按鏁堟灉鏃犳晥")) {
+    if (normalized.contains("invalid potion effect") || raw.contains("药水效果无效")) {
       return msg(player, "chat.delivery.invalid_potion");
     }
     return message;

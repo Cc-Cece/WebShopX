@@ -48,8 +48,9 @@ class ClusterEventBusService {
         return;
       }
       String channel = redisSettings.clusterChannel();
+      MessageService ms = new MessageService(plugin, settingsSupplier);
       if (channel == null || channel.isBlank()) {
-        plugin.getLogger().warning("Redis cluster channel is empty, cluster event bus is disabled.");
+        plugin.getLogger().warning(ms.getConsole("console.cluster_channel_empty"));
         return;
       }
       String serverId = settings.clusterSettings().serverId();
@@ -60,9 +61,9 @@ class ClusterEventBusService {
             redisSettings.password(),
             channel,
             serverId);
-        plugin.getLogger().info("Cluster event bus is enabled on Redis channel: " + channel);
+        plugin.getLogger().info(ms.format(settings.defaultLocale(), "console.cluster_event_bus_enabled", MapUtils.mapOf("channel", channel)));
       } catch (Exception exception) {
-        plugin.getLogger().warning("Failed to initialize cluster event bus: " + exception.getMessage());
+        plugin.getLogger().warning(ms.format(settings.defaultLocale(), "console.failed_publish_cluster_refresh", MapUtils.mapOf("reason", exception.getMessage())));
       }
     }
   }
@@ -139,11 +140,12 @@ class ClusterEventBusService {
             }
           };
           jedis.subscribe(subscriber, channel);
-        } catch (Exception exception) {
+          } catch (Exception exception) {
           if (!running.get()) {
             return;
           }
-          plugin.getLogger().warning("Cluster event subscriber disconnected: " + exception.getMessage());
+          MessageService ms = new MessageService(plugin, settingsSupplier);
+          plugin.getLogger().warning(ms.format(settingsSupplier.get().defaultLocale(), "console.cluster_subscriber_disconnected", MapUtils.mapOf("reason", exception.getMessage())));
           try {
             Thread.sleep(2000L);
           } catch (InterruptedException interruptedException) {
@@ -174,7 +176,8 @@ class ClusterEventBusService {
             : 0L;
         configRefreshListener.onConfigRefresh(source, version);
       } catch (Exception exception) {
-        plugin.getLogger().warning("Invalid cluster event payload: " + exception.getMessage());
+        MessageService ms = new MessageService(plugin, settingsSupplier);
+        plugin.getLogger().warning(ms.format(settingsSupplier.get().defaultLocale(), "console.invalid_cluster_event_payload", MapUtils.mapOf("reason", exception.getMessage())));
       }
     }
 
@@ -189,7 +192,8 @@ class ClusterEventBusService {
         payload.addProperty("version", Math.max(0L, version));
         publisher.publish(channel, gson.toJson(payload));
       } catch (Exception exception) {
-        plugin.getLogger().warning("Failed to publish cluster refresh event: " + exception.getMessage());
+        MessageService ms = new MessageService(plugin, settingsSupplier);
+        plugin.getLogger().warning(ms.format(settingsSupplier.get().defaultLocale(), "console.failed_publish_cluster_refresh", MapUtils.mapOf("reason", exception.getMessage())));
       }
     }
 

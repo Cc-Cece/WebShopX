@@ -24,7 +24,8 @@ class PlayerQuitListener implements Listener {
           try {
             playerPresenceService.markOffline(uuid);
           } catch (Exception exception) {
-            plugin.getLogger().warning("Failed to mark player offline in presence table: " + exception.getMessage());
+            MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
+            plugin.getLogger().warning(ms.formatConsole("console.failed_mark_player_offline", MapUtils.mapOf("reason", exception.getMessage())));
           }
         });
   }

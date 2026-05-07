@@ -53,14 +53,17 @@ class BroadcastService {
       String password = redisSettings.password();
       String channel = redisSettings.broadcastChannel();
       if (channel == null || channel.isBlank()) {
-        plugin.getLogger().warning("Redis channel is empty, skip cross-server broadcast.");
+        MessageService ms = new MessageService(plugin, settingsSupplier);
+        plugin.getLogger().warning(ms.getConsole("console.redis_channel_empty"));
         return;
       }
       try {
         redisBridge = new RedisBridge(host, port, password, channel, instanceId);
-        plugin.getLogger().info("Market broadcast Redis bridge is enabled on " + host + ":" + port);
+        MessageService ms = new MessageService(plugin, settingsSupplier);
+        plugin.getLogger().info(ms.formatConsole("console.broadcast_bridge_enabled", Map.of("host", host, "port", port)));
       } catch (Exception exception) {
-        plugin.getLogger().warning("Failed to start Redis broadcast bridge: " + exception.getMessage());
+        MessageService ms = new MessageService(plugin, settingsSupplier);
+        plugin.getLogger().warning(ms.formatConsole("console.failed_start_broadcast", Map.of("reason", exception.getMessage())));
       }
     }
   }
@@ -202,7 +205,8 @@ class BroadcastService {
                   broadcastLocal(normalized);
                 }
               } catch (Exception exception) {
-                plugin.getLogger().warning("Failed to parse Redis broadcast payload: " + exception.getMessage());
+                MessageService ms = new MessageService(plugin, settingsSupplier);
+                plugin.getLogger().warning(ms.formatConsole("console.failed_parse_broadcast_payload", Map.of("reason", exception.getMessage())));
               }
             }
           };
@@ -211,7 +215,8 @@ class BroadcastService {
           if (!running.get()) {
             return;
           }
-          plugin.getLogger().warning("Redis subscriber disconnected: " + exception.getMessage());
+          MessageService ms = new MessageService(plugin, settingsSupplier);
+          plugin.getLogger().warning(ms.formatConsole("console.redis_subscriber_disconnected", Map.of("reason", exception.getMessage())));
           try {
             Thread.sleep(2000L);
           } catch (InterruptedException interruptedException) {
@@ -232,7 +237,8 @@ class BroadcastService {
         payload.addProperty("message", message);
         publisher.publish(channel, gson.toJson(payload));
       } catch (Exception exception) {
-        plugin.getLogger().warning("Failed to publish Redis broadcast: " + exception.getMessage());
+        MessageService ms = new MessageService(plugin, settingsSupplier);
+        plugin.getLogger().warning(ms.formatConsole("console.failed_publish_redis_broadcast", Map.of("reason", exception.getMessage())));
       }
     }
 

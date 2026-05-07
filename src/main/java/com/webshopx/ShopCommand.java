@@ -258,16 +258,12 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     String scope = args.length >= 3 ? args[2] : "active";
     try {
       MarketService.TagRecalcResult result = marketService.recalcTags(scope);
-      sender.sendMessage(
-          "§aTag recalc completed: scanned "
-              + result.scanned()
-              + ", changed "
-              + result.changed()
-              + ", elapsed "
-              + result.elapsedMs()
-              + "ms.");
+      sender.sendMessage(msg(sender, "command.tag_recalc_completed", Map.of(
+          "scanned", result.scanned(),
+          "changed", result.changed(),
+          "elapsed", result.elapsedMs())));
     } catch (ServiceException exception) {
-      sender.sendMessage("§cTag recalc failed: " + humanizeMarketError(sender, exception));
+      sender.sendMessage(msg(sender, "command.tag_recalc_failed", Map.of("reason", humanizeMarketError(sender, exception))));
     }
     return true;
   }
@@ -354,7 +350,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       sender.sendMessage(msg(sender, "command.reload.success"));
     } catch (Exception exception) {
       sender.sendMessage(msg(sender, "command.reload.failed"));
-      plugin.getLogger().log(Level.SEVERE, "Reload failed", exception);
+      plugin.getLogger().log(Level.SEVERE, messageService.getConsole("console.reload_failed"), exception);
     }
     return true;
   }

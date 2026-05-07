@@ -44,9 +44,11 @@ class PluginLogService {
       logger.addHandler(handler);
       logger.setLevel(toJdkLevel(settings.level()));
       fileHandler = handler;
-      logger.info("File logging enabled at: " + dir.toAbsolutePath());
+      MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
+      logger.info(ms.formatConsole("console.file_logging_enabled", MapUtils.mapOf("path", dir.toAbsolutePath())));
     } catch (IOException exception) {
-      plugin.getLogger().log(Level.WARNING, "Failed to initialize file logger", exception);
+      MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
+      plugin.getLogger().log(Level.WARNING, ms.getConsole("console.failed_init_file_logger"), exception);
     }
   }
 
@@ -63,7 +65,8 @@ class PluginLogService {
       stream.filter(path -> path.getFileName().toString().toLowerCase().endsWith(".log"))
           .forEach(path -> tryDeleteIfExpired(path, cutoff));
     } catch (IOException exception) {
-      plugin.getLogger().log(Level.WARNING, "Failed to clean old log files", exception);
+      MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
+      plugin.getLogger().log(Level.WARNING, ms.getConsole("console.failed_cleanup_old_logs"), exception);
     }
   }
 
@@ -89,7 +92,8 @@ class PluginLogService {
         Files.deleteIfExists(path);
       }
     } catch (IOException exception) {
-      plugin.getLogger().log(Level.WARNING, "Failed to delete old log file: " + path, exception);
+      MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
+      plugin.getLogger().log(Level.WARNING, ms.formatConsole("console.failed_delete_old_log_file", MapUtils.mapOf("path", path)), exception);
     }
   }
 

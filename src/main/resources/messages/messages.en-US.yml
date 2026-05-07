@@ -61,6 +61,102 @@ command:
     admin:
       - "§e/webshopx reload §7- Reload config and embedded web assets"
       - "§e/webshopx redeem create <shop> <game> [max] [perUserMax] [minutes] [code] §7- Create a redeem code"
+  tag_recalc_completed: "§aTag recalc completed: scanned {scanned}, changed {changed}, elapsed {elapsed}ms."
+  tag_recalc_failed: "§cTag recalc failed: {reason}"
+
+console:
+  enabled_success: "WebShopX enabled successfully."
+  default_database_config: "WebShopX detected the default database configuration in config.yml."
+  update_database_instructions: "Please update the database connection settings and start the server again."
+  failed_mark_local_offline: "Failed to mark local server offline: {reason}"
+  legacy_backup_created: "Legacy config backup created: {name}"
+  failed_create_legacy_backup: "Failed to create legacy config backup: {reason}"
+  legacy_runtime_migrated: "Legacy runtime config migrated to database, config.yml has been pruned to minimal startup fields."
+  server_mode_external: "server-mode=external, static files extracted to: {path}"
+  bstats_enabled: "bStats metrics enabled."
+  failed_sync_online_presence: "Failed to sync online presence for {player}: {reason}"
+
+  redis_channel_empty: "Redis channel is empty, skip cross-server broadcast."
+  broadcast_bridge_enabled: "Market broadcast Redis bridge is enabled on {host}:{port}"
+  failed_start_broadcast: "Failed to start Redis broadcast bridge: {reason}"
+  failed_parse_broadcast_payload: "Failed to parse Redis broadcast payload: {reason}"
+  redis_subscriber_disconnected: "Redis subscriber disconnected: {reason}"
+  failed_publish_redis_broadcast: "Failed to publish Redis broadcast: {reason}"
+
+  embedded_http_started: "Embedded HTTP server started at {host}:{port} (mode: {mode})"
+  failed_cleanup_old_material: "Failed to cleanup old material icon: {reason}"
+  failed_cleanup_old: "Failed to cleanup old {label}: {reason}"
+
+  skip_texture_cache_missing_version: "Skip texture cache: missing minecraft version."
+  texture_cache_ready: "Texture cache ready: {total} files (item={item}, block={block})."
+  texture_cache_init_failed: "Texture cache init failed, keep remote fallback only: {reason}"
+
+  market_cycle_failed: "Market cycle processing failed: {reason}"
+  failed_publish_listing_created: "Failed to publish listing-created event: {reason}"
+  failed_publish_trade_event: "Failed to publish trade event: {reason}"
+  failed_publish_auction_bid_event: "Failed to publish auction bid event: {reason}"
+  failed_persist_auction_notice: "Failed to persist auction notice: {reason}"
+
+  market_buy_order_create: "Market buy order created: ownerUserId={ownerUserId}, listingId={listingId}, side={side}, currency={currency}, quantity={quantity}, price={price}, escrow={escrow}"
+  market_buy_order_fill: "Market buy order filled: sellerUserId={sellerUserId}, listingId={listingId}, side={side}, currency={currency}, quantity={quantity}, price={price}"
+  market_tag_recalc: "Tag recalc completed: scope={scope}, scanned={scanned}, changed={changed}, elapsed={elapsed}ms"
+
+  failed_read_leaderboard_stats: "Failed to read leaderboard runtime stats: {reason}"
+
+  failed_mark_player_online: "Failed to mark player online in presence table: {reason}"
+  failed_mark_player_offline: "Failed to mark player offline in presence table: {reason}"
+  official_dynamic_price_cycle_failed: "Official dynamic price cycle failed: {reason}"
+  failed_startup: "WebShopX failed to start."
+  failed_reload_runtime_business_settings: "Failed to reload runtime business settings from database."
+  cluster_refresh_received: "Received cluster config refresh: source={source}, version={version}; reloading runtime settings."
+  failed_update_main_config: "Failed to update config.yml via Config-Updater."
+  cluster_web_api_disabled_on_role: "Cluster role is {role}; embedded Web/API is disabled on this node."
+  failed_init_bstats: "Failed to initialize bStats metrics."
+  reload_failed: "Reload failed."
+  database_retry_with_public_key_retrieval: "Database login requires RSA public key exchange while TLS is disabled. Retrying with allowPublicKeyRetrieval=true for compatibility."
+  sqlite_retry_exhausted: "SQLite retry exhausted after {attempt} retries."
+  sqlite_retrying: "SQLite lock contention detected, retrying ({attempt}/{max})."
+  file_logging_enabled: "File logging enabled at: {path}"
+  failed_init_file_logger: "Failed to initialize file logger."
+  failed_cleanup_old_logs: "Failed to clean old log files."
+  failed_delete_old_log_file: "Failed to delete old log file: {path}"
+  missing_embedded_asset: "Missing embedded asset: {asset}"
+
+  market_buy_order_refund_escrow: "Market buy escrow refunded: listingId={listingId}, ownerUserId={ownerUserId}, side={side}, currency={currency}, amount={amount}, reason={reason}"
+
+notify:
+  market:
+    buy_escrow_refund_title: "Buy Escrow Refund"
+    buy_escrow_refund_content: "Buy order #{listingId} escrow was refunded: {amountText}."
+    listed_title: "Listing Notice"
+    listed_content: "Your listing #{listingId} is published: {item} x{quantity}, unit price {priceText}."
+    trade_title: "Market Trade"
+    trade_content: "Listing #{listingId} sold: {item} x{quantity}, total {totalText}."
+    auction_bid_title: "Auction Bid Notice"
+    auction_bid_self_sealed: "You submitted a sealed bid on auction #{listingId}."
+    auction_bid_self_open: "Your bid on auction #{listingId} succeeded: {bidAmountText}."
+    auction_bid_seller: "Auction #{listingId} received a new bid from {bidderName}."
+    auction_outbid_title: "Outbid Notice"
+    auction_outbid_content: "Your leading bid on auction #{listingId} has been outbid."
+    auction_settlement_title: "Auction Settlement"
+    auction_outbid_previous: "You were outbid on auction #{listingId}. Previous highest bid was {previousBid} {currency}."
+    auction_reset_refund: "Auction #{listingId} was reset or cancelled, and your frozen bid funds were returned."
+    auction_no_buyer: "Auction #{listingId} ended without a buyer, item returned for delivery."
+    auction_no_bid: "Auction #{listingId} ended with no bids, item returned for delivery."
+    auction_below_reserve: "Auction #{listingId} ended below reserve price, item returned for delivery."
+    auction_win: "You won auction #{listingId} at {finalBid} {currency}. Delivery is queued."
+    auction_sold: "Your auction #{listingId} was sold at {finalBid} {currency}."
+    auction_win_vickrey: "You won auction #{listingId} with bid {bidAmount} {currency}; final clearing price is {finalBid}."
+    auction_sold_vickrey: "Your auction #{listingId} was sold (Vickrey) at {finalBid} {currency}."
+    auction_loser_refunded: "Auction #{listingId} has ended, you did not win, and your frozen funds were returned."
+
+  delivery:
+    wait_claim_order_title: "Order Waiting for Claim"
+    wait_claim_order_content: "Auto delivery for order {token} failed. Run /ws claim {token} in-game. Reason: {reason}"
+    wait_claim_market_title: "Market Item Waiting for Claim"
+    wait_claim_market_content: "Auto delivery for market item failed. Run /ws claim {token} in-game. Reason: {reason}"
+    mailbox_pending_title: "Mailbox Pending Notice"
+    mailbox_pending_content: "Inventory was unavailable during auto delivery, item moved to mailbox. Run /ws mailbox claim in-game. Source: {sourceType} {sourceRef}"
 
 chat:
   delivery:

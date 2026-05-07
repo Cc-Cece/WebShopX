@@ -57,6 +57,15 @@ class MessageService {
     return format(resolveLocale(sender), key, params);
   }
 
+  // Convenience methods for console/server-side localized messages
+  String getConsole(String key) {
+    return get(normalizeLocale(settingsSupplier.get().defaultLocale()), key);
+  }
+
+  String formatConsole(String key, Map<String, ?> params) {
+    return format(normalizeLocale(settingsSupplier.get().defaultLocale()), key, params);
+  }
+
   List<String> getList(CommandSender sender, String key) {
     return getList(resolveLocale(sender), key, Collections.emptyMap());
   }

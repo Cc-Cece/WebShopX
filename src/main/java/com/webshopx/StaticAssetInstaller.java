@@ -95,7 +95,8 @@ class StaticAssetInstaller {
 
     try (InputStream inputStream = plugin.getResource(assetPath)) {
       if (inputStream == null) {
-        plugin.getLogger().log(Level.WARNING, "Missing embedded asset: {0}", assetPath);
+        MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
+        plugin.getLogger().warning(ms.formatConsole("console.missing_embedded_asset", MapUtils.mapOf("asset", assetPath)));
         return;
       }
       Files.copy(inputStream, outputFile, StandardCopyOption.REPLACE_EXISTING);
@@ -172,7 +173,8 @@ class StaticAssetInstaller {
   private byte[] readEmbeddedBytes(String assetPath) throws IOException {
     try (InputStream inputStream = plugin.getResource(assetPath)) {
       if (inputStream == null) {
-        plugin.getLogger().log(Level.WARNING, "Missing embedded asset: {0}", assetPath);
+        MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
+        plugin.getLogger().warning(ms.formatConsole("console.missing_embedded_asset", MapUtils.mapOf("asset", assetPath)));
         return null;
       }
       return inputStream.readAllBytes();
