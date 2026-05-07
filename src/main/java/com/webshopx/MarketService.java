@@ -17,12 +17,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 import java.util.function.Supplier;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
@@ -59,6 +60,7 @@ class MarketService {
   private final BroadcastService broadcastService;
   private final PlayerPresenceService playerPresenceService;
   private final UserMarketSettingsService userMarketSettingsService;
+  private final SchedulerBridge schedulerBridge;
   private final ItemSnapshotCodec itemSnapshotCodec;
   private final MarketTagService marketTagService;
   private final MarketLimitationService marketLimitationService;
@@ -73,7 +75,8 @@ class MarketService {
       NotificationService notificationService,
       BroadcastService broadcastService,
       PlayerPresenceService playerPresenceService,
-      UserMarketSettingsService userMarketSettingsService) {
+      UserMarketSettingsService userMarketSettingsService,
+      SchedulerBridge schedulerBridge) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.sqlProvider = databaseManager.sqlProvider();
@@ -85,6 +88,7 @@ class MarketService {
     this.broadcastService = broadcastService;
     this.playerPresenceService = playerPresenceService;
     this.userMarketSettingsService = userMarketSettingsService;
+    this.schedulerBridge = schedulerBridge;
     this.itemSnapshotCodec = new ItemSnapshotCodec();
     this.marketTagService = new MarketTagService(sqlProvider, runtimeConfigService, itemSnapshotCodec);
     this.marketLimitationService = new MarketLimitationService(runtimeConfigService, itemSnapshotCodec);
@@ -1269,9 +1273,11 @@ class MarketService {
       byte[] rawItemBlob,
       String itemMetaJson) {
     boolean bypass = hasLimitationBypass(actorUuid);
+    Set<String> playerPermissions = resolvePlayerPermissions(actorUuid);
     MarketLimitationService.Decision decision = marketLimitationService.evaluate(
         new MarketLimitationService.DecisionContext(
             actorUuid,
+            playerPermissions,
             side.name(),
             tradeMode.name(),
             currency.name(),
@@ -1369,8 +1375,35 @@ class MarketService {
     if (actorUuid == null) {
       return false;
     }
-    Player player = Bukkit.getPlayer(actorUuid);
-    return player != null && player.hasPermission("webshop.market.limitation.bypass");
+    try {
+      return schedulerBridge
+          .supplyPlayer(actorUuid, player -> player.hasPermission("webshop.market.limitation.bypass"))
+          .completeOnTimeout(false, 2L, TimeUnit.SECONDS)
+          .exceptionally(ignored -> false)
+          .join();
+    } catch (Exception ignored) {
+      return false;
+    }
+  }
+
+  private Set<String> resolvePlayerPermissions(UUID actorUuid) {
+    if (actorUuid == null) {
+      return Collections.emptySet();
+    }
+    try {
+      Set<String> permissions = schedulerBridge
+          .<Set<String>>supplyPlayer(actorUuid, player -> player.getEffectivePermissions().stream()
+              .filter(info -> info.getValue() && info.getPermission() != null)
+              .map(info -> info.getPermission().trim().toLowerCase(Locale.ROOT))
+              .filter(value -> !value.isEmpty())
+              .collect(Collectors.toCollection(LinkedHashSet::new)))
+          .completeOnTimeout(Collections.<String>emptySet(), 2L, TimeUnit.SECONDS)
+          .exceptionally(ignored -> Collections.<String>emptySet())
+          .join();
+      return permissions == null ? Collections.emptySet() : permissions;
+    } catch (Exception ignored) {
+      return Collections.emptySet();
+    }
   }
 
   private TagRecalcResult recalcTagsInTransaction(Connection connection, String scope) throws SQLException {
@@ -1470,7 +1503,7 @@ class MarketService {
     if (listing == null || refundable <= 0L) {
       return;
     }
-    Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, () -> {
+    schedulerBridge.runAsyncLater(() -> {
       try {
         String amountText = formatAmount(refundable, listing.currency());
         notifyMarketEvent(
@@ -3630,7 +3663,7 @@ class MarketService {
       SupplySource source,
       ItemStack template,
       int requestedAmount) {
-    return runSync(() -> withdrawSupplyStockSync(source, template, requestedAmount));
+    return runOnLocation(source, () -> withdrawSupplyStockSync(source, template, requestedAmount));
   }
 
   private SupplyTransfer withdrawSupplyStockSync(
@@ -3669,7 +3702,7 @@ class MarketService {
     if (amount <= 0) {
       return;
     }
-    runSync(() -> {
+    runOnLocation(source, () -> {
       Container container = resolveContainer(source);
       int remaining = amount;
       while (remaining > 0) {
@@ -3708,25 +3741,20 @@ class MarketService {
   }
 
   private void notifySupplyPausedIfOnline(MarketListing listing) {
-    Player player = Bukkit.getPlayer(listing.sellerUuid());
-    if (player != null && player.isOnline()) {
-      player.sendMessage(messageService.format(
-          player,
-          "chat.market.supply_paused_external",
-          java.util.Map.of("listingId", listing.id())));
-    }
+    schedulerBridge.runPlayer(
+        listing.sellerUuid(),
+        player -> player.sendMessage(messageService.format(
+            player,
+            "chat.market.supply_paused_external",
+            java.util.Map.of("listingId", listing.id()))),
+        null);
   }
 
   private void notifyPlayerAsync(UUID playerUuid, String message) {
     if (playerUuid == null || message == null || message.isBlank()) {
       return;
     }
-    Bukkit.getScheduler().runTask(plugin, () -> {
-      Player player = Bukkit.getPlayer(playerUuid);
-      if (player != null && player.isOnline()) {
-        player.sendMessage(message);
-      }
-    });
+    schedulerBridge.runPlayer(playerUuid, player -> player.sendMessage(message), null);
   }
 
   private void publishListingCreatedEvent(
@@ -4151,7 +4179,7 @@ class MarketService {
     if (quantity <= 0) {
       throw new ServiceException("invalid_quantity", "Quantity must be positive");
     }
-    runSync(() -> {
+    runOnPlayer(sellerUuid, () -> {
       Player player = sellerUuid == null ? null : Bukkit.getPlayer(sellerUuid);
       if (player == null || !player.isOnline()) {
         throw new ServiceException("fulfill_item_not_match", "Seller must be online with matching items");
@@ -4200,7 +4228,7 @@ class MarketService {
       return;
     }
     try {
-      runSync(() -> {
+      runOnPlayer(sellerUuid, () -> {
         Player player = sellerUuid == null ? null : Bukkit.getPlayer(sellerUuid);
         if (player == null || !player.isOnline()) {
           return null;
@@ -4242,29 +4270,44 @@ class MarketService {
     }
   }
 
-  private <T> T runSync(java.util.concurrent.Callable<T> task) {
-    if (Bukkit.isPrimaryThread()) {
-      try {
-        return task.call();
-      } catch (ServiceException exception) {
-        throw exception;
-      } catch (Exception exception) {
-        throw new IllegalStateException("Supply operation failed", exception);
-      }
+  private <T> T runOnLocation(SupplySource source, java.util.concurrent.Callable<T> task) {
+    if (source == null) {
+      throw new ServiceException("supply_missing", "Supply container is unavailable");
     }
+    World world = Bukkit.getWorld(source.worldName());
+    if (world == null) {
+      throw new ServiceException("supply_missing", "Supply container is unavailable");
+    }
+    Location location = new Location(world, source.x(), source.y(), source.z());
+    return awaitScheduledTask(schedulerBridge.supplyLocation(location, () -> invokeTask(task)));
+  }
+
+  private <T> T runOnPlayer(UUID playerUuid, java.util.concurrent.Callable<T> task) {
+    if (playerUuid == null) {
+      return invokeTask(task);
+    }
+    return awaitScheduledTask(schedulerBridge.supplyPlayer(playerUuid, ignored -> invokeTask(task)));
+  }
+
+  private <T> T awaitScheduledTask(java.util.concurrent.CompletableFuture<T> future) {
     try {
-      return Bukkit.getScheduler().callSyncMethod(plugin, task).get(10, TimeUnit.SECONDS);
-    } catch (InterruptedException exception) {
-      Thread.currentThread().interrupt();
-      throw new ServiceException("sync_interrupted", "Supply operation interrupted; please try again later");
-    } catch (TimeoutException exception) {
-      throw new ServiceException("sync_timeout", "Sync task timed out; please try again later");
-    } catch (ExecutionException exception) {
+      return future.orTimeout(10L, TimeUnit.SECONDS).join();
+    } catch (CompletionException exception) {
       Throwable cause = exception.getCause();
       if (cause instanceof ServiceException serviceException) {
         throw serviceException;
       }
       throw new IllegalStateException("Supply operation failed", cause);
+    }
+  }
+
+  private <T> T invokeTask(java.util.concurrent.Callable<T> task) {
+    try {
+      return task.call();
+    } catch (ServiceException exception) {
+      throw exception;
+    } catch (Exception exception) {
+      throw new IllegalStateException("Supply operation failed", exception);
     }
   }
 
@@ -4501,8 +4544,7 @@ class MarketService {
       LocalDateTime nextRetryAt) throws SQLException {
     String targetServerId = playerPresenceService.resolveOnlineServer(connection, targetUuid);
     if ((targetServerId == null || targetServerId.isBlank())) {
-      Player player = Bukkit.getPlayer(targetUuid);
-      if (player != null && player.isOnline()) {
+      if (isPlayerOnline(targetUuid)) {
         String localServerId = settingsSupplier.get().clusterSettings().serverId();
         targetServerId = localServerId == null || localServerId.isBlank() ? null : localServerId;
       }
@@ -4530,6 +4572,21 @@ class MarketService {
       statement.setString(9, status);
       statement.setTimestamp(10, Timestamp.valueOf(nextRetryAt));
       statement.executeUpdate();
+    }
+  }
+
+  private boolean isPlayerOnline(UUID playerUuid) {
+    if (playerUuid == null) {
+      return false;
+    }
+    try {
+      return schedulerBridge
+          .supplyPlayer(playerUuid, Player::isOnline)
+          .completeOnTimeout(false, 1L, TimeUnit.SECONDS)
+          .exceptionally(ignored -> false)
+          .join();
+    } catch (Exception ignored) {
+      return false;
     }
   }
 

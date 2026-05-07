@@ -25,15 +25,20 @@ class BroadcastService {
 
   private final JavaPlugin plugin;
   private final Supplier<PluginSettings> settingsSupplier;
+  private final SchedulerBridge schedulerBridge;
   private final Gson gson;
   private final String instanceId;
 
   private final Object bridgeLock = new Object();
   private RedisBridge redisBridge;
 
-  BroadcastService(JavaPlugin plugin, Supplier<PluginSettings> settingsSupplier) {
+  BroadcastService(
+      JavaPlugin plugin,
+      Supplier<PluginSettings> settingsSupplier,
+      SchedulerBridge schedulerBridge) {
     this.plugin = plugin;
     this.settingsSupplier = settingsSupplier;
+    this.schedulerBridge = schedulerBridge;
     this.gson = new GsonBuilder().disableHtmlEscaping().create();
     this.instanceId = UUID.randomUUID().toString();
   }
@@ -134,16 +139,11 @@ class BroadcastService {
   }
 
   private void broadcastLocal(String message) {
-    Runnable job = () -> {
+    schedulerBridge.runGlobal(() -> {
       for (Player player : Bukkit.getOnlinePlayers()) {
-        player.sendMessage(message);
+        schedulerBridge.runPlayer(player.getUniqueId(), p -> p.sendMessage(message), null);
       }
-    };
-    if (Bukkit.isPrimaryThread()) {
-      job.run();
-    } else {
-      Bukkit.getScheduler().runTask(plugin, job);
-    }
+    });
   }
 
   private final class RedisBridge {

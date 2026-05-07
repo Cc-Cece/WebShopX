@@ -1,17 +1,18 @@
 # ============================================================
-# WebShopX Minimal Startup Config
-# Runtime/business settings are stored in DB and managed in Web Admin.
-# Legacy keys will be auto-migrated on first startup after upgrade.
+# WebShopX 最小启动配置
+# 运行时/业务设置存储在数据库中，并在 Web 管理后台维护。
+# 升级后首次启动会自动迁移旧配置项。
+# 英文版本及文档: https://docs.akihito.dpdns.org/
 # ============================================================
 
 webshop:
-  # internal: serve built-in static web + API
-  # external: API only (static files served by reverse proxy/CDN)
+  # internal: 启用内置静态网页 + API
+  # external: 仅启用 API（静态资源由反向代理/CDN 提供）
   server-mode: internal
   api-base-url: ""
 
-  # Bootstrap admin account used only for first-time setup.
-  # After login, create a new admin and disable this.
+  # 引导管理员账号，仅用于首次初始化。
+  # 首次登录后请创建新管理员并关闭此功能。
   admin-bootstrap:
     enabled: true
     username: admin
@@ -29,19 +30,21 @@ webshop:
 
 database:
   # mysql | mariadb | sqlite
-  type: mysql
+  # 为了快速上手，默认使用 sqlite。
+  # 强烈建议生产环境使用 mysql 或 mariadb（性能/并发/稳定性更好）。
+  type: sqlite
   host: 127.0.0.1
   port: 3306
   schema: webshop
   username: webshop
   password: change_me
   use-ssl: false
-  # Non-TLS compatibility for MySQL 8 / MariaDB accounts using caching_sha2_password.
+  # MySQL 8 / MariaDB 在非 TLS 且使用 caching_sha2_password 时的兼容选项。
   allow-public-key-retrieval: true
-  # Optional: absolute path to a server RSA public key file or PEM text.
+  # 可选：服务端 RSA 公钥文件绝对路径或 PEM 文本。
   server-rsa-public-key-file: ""
-  # Used only when database.type=sqlite.
-  sqlite-file: data/webshopx.db
+  # 仅在 database.type=sqlite 时生效。
+  sqlite-file: plugins/WebShopX/webshopx.db
   pool-size: 10
 
 cluster:
@@ -55,9 +58,9 @@ redis:
   host: 127.0.0.1
   port: 6379
   password: ""
-  # Market broadcast channel
+  # 市场广播频道
   broadcast-channel: webshopx:market:broadcast
-  # Cluster control/event channel
+  # 集群控制/事件频道
   cluster-channel: webshopx:cluster:event
-  # Legacy alias (optional)
+  # 旧版别名（可选）
   channel: webshopx:market:broadcast

@@ -23,7 +23,7 @@ JavaVersion runtimeJavaVersion = legacy18Runtime ? JavaVersion.VERSION_17 : Java
 int runtimeJavaLanguageVersion = legacy18Runtime ? 17 : 21
 String runtimePaperApiVersion = legacy18Runtime ? '1.18.2-R0.1-SNAPSHOT' : '1.20.6-R0.1-SNAPSHOT'
 String runtimePluginApiVersion = legacy18Runtime ? '1.18' : '1.20'
-String runtimeClassifierSuffix = legacy18Runtime ? '1.18.2plus' : '1.20.6plus'
+String runtimeClassifierSuffix = legacy18Runtime ? '1.18.2+' : '1.20.6+'
 
 def variantClassifier = { String baseClassifier ->
     "${baseClassifier}-${runtimeClassifierSuffix}"
@@ -200,6 +200,19 @@ def configureShadowVariant = { ShadowJar task, String classifier ->
     task.mergeServiceFiles()
 }
 
+def configureFoliaShadowVariant = { ShadowJar task, String classifier ->
+    task.group = 'build'
+    task.archiveClassifier.set(variantClassifier(classifier))
+    task.from(sourceSets.main.output) {
+        exclude 'plugin.yml'
+        exclude 'plugin-slim.yml'
+        rename('plugin-folia.yml', 'plugin.yml')
+    }
+    task.configurations = [project.configurations.runtimeClasspath]
+    task.relocate 'org.bstats', "${project.group}.libs.bstats"
+    task.mergeServiceFiles()
+}
+
 shadowJar {
     configureShadowVariant(delegate as ShadowJar, 'full')
 }
@@ -211,6 +224,28 @@ tasks.register('slimJar', Jar) {
     from(sourceSets.main.output) {
         exclude 'plugin.yml'
         rename('plugin-slim.yml', 'plugin.yml')
+    }
+}
+
+tasks.register('foliaPreviewJar', Jar) {
+    group = 'build'
+    description = "Builds a Folia metadata preview JAR for ${targetRuntime} (not included in default release variants)."
+    archiveClassifier.set(variantClassifier('folia-preview'))
+    from(sourceSets.main.output) {
+        exclude 'plugin.yml'
+        exclude 'plugin-slim.yml'
+        rename('plugin-folia.yml', 'plugin.yml')
+    }
+}
+
+tasks.register('foliaSlimJar', Jar) {
+    group = 'build'
+    description = "Builds the Folia slim plugin JAR without bundled runtime dependencies for ${targetRuntime}."
+    archiveClassifier.set(variantClassifier('slim-folia'))
+    from(sourceSets.main.output) {
+        exclude 'plugin.yml'
+        exclude 'plugin-slim.yml'
+        rename('plugin-folia.yml', 'plugin.yml')
     }
 }
 
@@ -226,13 +261,34 @@ tasks.register('fullWinJar', ShadowJar) {
     SQLITE_NON_WINDOWS_NATIVE_GLOBS.each { exclude it }
 }
 
+tasks.register('fullFoliaJar', ShadowJar) {
+    description = "Builds the full plugin JAR with Folia metadata for ${targetRuntime}."
+    configureFoliaShadowVariant(delegate as ShadowJar, 'full-folia')
+}
+
+tasks.register('fullFoliaLinuxJar', ShadowJar) {
+    description = "Builds the Folia full plugin JAR with Linux SQLite natives only for ${targetRuntime}."
+    configureFoliaShadowVariant(delegate as ShadowJar, 'full-linux-folia')
+    SQLITE_NON_LINUX_NATIVE_GLOBS.each { exclude it }
+}
+
+tasks.register('fullFoliaWinJar', ShadowJar) {
+    description = "Builds the Folia full plugin JAR with Windows SQLite natives only for ${targetRuntime}."
+    configureFoliaShadowVariant(delegate as ShadowJar, 'full-win-folia')
+    SQLITE_NON_WINDOWS_NATIVE_GLOBS.each { exclude it }
+}
+
 tasks.register('packagePluginVariants') {
     group = 'build'
-    description = "Builds slim/full/full-linux/full-win plugin variants for ${targetRuntime}."
+    description = "Builds slim/full/full-linux/full-win and Folia slim/full/full-linux/full-win plugin variants for ${targetRuntime}."
     dependsOn tasks.named('slimJar')
     dependsOn tasks.named('shadowJar')
     dependsOn tasks.named('fullLinuxJar')
     dependsOn tasks.named('fullWinJar')
+    dependsOn tasks.named('foliaSlimJar')
+    dependsOn tasks.named('fullFoliaJar')
+    dependsOn tasks.named('fullFoliaLinuxJar')
+    dependsOn tasks.named('fullFoliaWinJar')
 }
 
 tasks.register('plainPluginJar', Jar) {

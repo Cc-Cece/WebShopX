@@ -5,6 +5,8 @@ import com.zaxxer.hikari.HikariDataSource;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -43,6 +45,7 @@ class DatabaseManager {
   void start() {
     ensureDriverLoaded();
     if (dialect.dbType().isSqlite()) {
+      ensureSqliteDirectoryExists();
       this.dataSource = createDataSource(settings.sqliteJdbcUrl());
       return;
     }
@@ -101,6 +104,25 @@ class DatabaseManager {
           String.valueOf(settings.normalizedSqliteBusyTimeoutMs()));
     }
     return new HikariDataSource(hikariConfig);
+  }
+
+  private void ensureSqliteDirectoryExists() {
+    String sqliteFile = settings.normalizedSqliteFile();
+    if (sqliteFile.equals(":memory:")) {
+      return;
+    }
+    Path dbPath = Path.of(sqliteFile);
+    Path parent = dbPath.getParent();
+    if (parent == null) {
+      return;
+    }
+    try {
+      Files.createDirectories(parent);
+    } catch (Exception exception) {
+      throw new IllegalStateException(
+          "Failed to create SQLite directory: " + parent.toAbsolutePath(),
+          exception);
+    }
   }
 
   private void ensureDriverLoaded() {

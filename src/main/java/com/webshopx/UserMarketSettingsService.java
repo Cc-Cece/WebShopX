@@ -7,17 +7,19 @@ import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.Locale;
 import java.util.UUID;
-import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.permissions.PermissionAttachmentInfo;
+import java.util.concurrent.TimeUnit;
 
 class UserMarketSettingsService {
   private final DatabaseManager databaseManager;
   private final SqlProvider sqlProvider;
+  private final SchedulerBridge schedulerBridge;
 
-  UserMarketSettingsService(DatabaseManager databaseManager) {
+  UserMarketSettingsService(DatabaseManager databaseManager, SchedulerBridge schedulerBridge) {
     this.databaseManager = databaseManager;
     this.sqlProvider = databaseManager.sqlProvider();
+    this.schedulerBridge = schedulerBridge;
   }
 
   UserMarketSettings readUserSettings(long userId) {
@@ -52,8 +54,9 @@ class UserMarketSettingsService {
     int baseLimit = Math.max(1, globalDefaultLimit);
     UserMarketSettings settings = readUserSettings(userId);
     Integer override = settings.listingLimitOverride();
-    Player player = boundUuid == null ? null : Bukkit.getPlayer(boundUuid);
-    Integer permissionLimit = player == null ? null : resolvePermissionLimit(player, baseLimit);
+    PermissionProbe permissionProbe = readPermissionLimit(boundUuid, baseLimit);
+    Integer permissionLimit = permissionProbe.limit();
+    boolean playerOnline = permissionProbe.online();
 
     if (override != null && override > 0) {
       return new ResolvedListingLimit(
@@ -63,7 +66,7 @@ class UserMarketSettingsService {
           override,
           permissionLimit,
           baseLimit,
-          player != null,
+          playerOnline,
           settings.updatedAt());
     }
     if (permissionLimit != null && permissionLimit > baseLimit) {
@@ -74,7 +77,7 @@ class UserMarketSettingsService {
           null,
           permissionLimit,
           baseLimit,
-          true,
+          playerOnline,
           settings.updatedAt());
     }
     return new ResolvedListingLimit(
@@ -84,8 +87,24 @@ class UserMarketSettingsService {
         null,
         permissionLimit,
         baseLimit,
-        player != null,
+        playerOnline,
         settings.updatedAt());
+  }
+
+  private PermissionProbe readPermissionLimit(UUID boundUuid, int baseLimit) {
+    if (boundUuid == null) {
+      return new PermissionProbe(null, false);
+    }
+    try {
+      Integer limit = schedulerBridge
+          .supplyPlayer(boundUuid, player -> resolvePermissionLimit(player, baseLimit))
+          .completeOnTimeout(null, 2L, TimeUnit.SECONDS)
+          .exceptionally(ignored -> null)
+          .join();
+      return new PermissionProbe(limit, limit != null);
+    } catch (Exception ignored) {
+      return new PermissionProbe(null, false);
+    }
   }
 
   private UserMarketSettings readUserSettings(Connection connection, long userId) throws SQLException {
@@ -175,5 +194,8 @@ class UserMarketSettingsService {
       int globalDefaultLimit,
       boolean playerOnline,
       LocalDateTime updatedAt) {
+  }
+
+  private record PermissionProbe(Integer limit, boolean online) {
   }
 }

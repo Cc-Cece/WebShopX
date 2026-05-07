@@ -1,0 +1,27 @@
+main: ${PACKAGE}.WebShopPlugin
+name: ${NAME}
+version: "${VERSION}"
+api-version: "${API_VERSION}"
+author: Kanbara
+description: Web-first Minecraft shop plugin (Phase 1 + Phase 2)
+folia-supported: true
+commands:
+  webshopx:
+    description: WebShopX unified command
+    usage: "/webshopx <password|market|claim|mailbox|reload|redeem|help>"
+    aliases: [ws]
+softdepend: [Vault]
+permissions:
+  webshop.admin:
+    description: Allows admin operations for WebShop
+    default: op
+  webshop.use:
+    description: Allows normal player operations for WebShop
+    default: true
+  webshop.market.auction:
+    description: Allows using auction mode when limitation rules require permission
+    default: op
+  webshop.market.limitation.bypass:
+    description: Bypasses market limitation rules for create/edit operations
+    default: op
+

@@ -13,8 +13,9 @@ import java.util.ArrayList;
 import java.util.Locale;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -43,8 +44,9 @@ class DeliveryService {
   private final MessageService messageService;
   private final NotificationService notificationService;
   private final MailboxService mailboxService;
+  private final SchedulerBridge schedulerBridge;
   private final ItemSnapshotCodec itemSnapshotCodec;
-  private final Map<UUID, Long> claimHintSentAt = new HashMap<>();
+  private final Map<UUID, Long> claimHintSentAt = new ConcurrentHashMap<>();
 
   DeliveryService(
       JavaPlugin plugin,
@@ -54,7 +56,8 @@ class DeliveryService {
       Supplier<PluginSettings> settingsSupplier,
       MessageService messageService,
       NotificationService notificationService,
-      MailboxService mailboxService) {
+      MailboxService mailboxService,
+      SchedulerBridge schedulerBridge) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.sqlProvider = databaseManager.sqlProvider();
@@ -64,6 +67,7 @@ class DeliveryService {
     this.messageService = messageService;
     this.notificationService = notificationService;
     this.mailboxService = mailboxService;
+    this.schedulerBridge = schedulerBridge;
     this.itemSnapshotCodec = new ItemSnapshotCodec();
   }
 
@@ -276,7 +280,7 @@ class DeliveryService {
     List<CommandDeliveryTask> tasks = databaseManager.withConnection(
         connection -> readDueCommandTasks(connection, playerUuid));
     for (CommandDeliveryTask task : tasks) {
-      handleCommandTask(task, false, null);
+      handleCommandTaskAsync(task);
     }
   }
 
@@ -284,8 +288,34 @@ class DeliveryService {
     List<MarketItemDeliveryTask> tasks = databaseManager.withConnection(
         connection -> readDueMarketItemTasks(connection, playerUuid));
     for (MarketItemDeliveryTask task : tasks) {
-      handleMarketTask(task, false, null);
+      handleMarketTaskAsync(task);
     }
+  }
+
+  private void handleCommandTaskAsync(CommandDeliveryTask task) {
+    DeliveryKind kind = DeliveryKind.fromRaw(task.deliveryKind());
+    schedulerBridge.runPlayer(
+        task.playerUuid(),
+        player -> handleCommandTask(task, false, player),
+        () -> {
+          if (kind == DeliveryKind.GIVE_ITEM
+              && tryMoveCommandItemToMailbox(task, false, "player is offline", null)) {
+            return;
+          }
+          rescheduleCommand(task.id(), "player is offline", false);
+        });
+  }
+
+  private void handleMarketTaskAsync(MarketItemDeliveryTask task) {
+    schedulerBridge.runPlayer(
+        task.targetUuid(),
+        player -> handleMarketTask(task, false, player),
+        () -> {
+          if (tryMoveMarketItemToMailbox(task, false, "player is offline", null)) {
+            return;
+          }
+          rescheduleMarket(task.id(), "player is offline", false);
+        });
   }
 
   private void promoteOfflineRetries(UUID playerUuid) {
@@ -506,7 +536,7 @@ class DeliveryService {
 
   private boolean handleCommandTask(CommandDeliveryTask task, boolean claimMode, Player forcedPlayer) {
     DeliveryKind kind = DeliveryKind.fromRaw(task.deliveryKind());
-    Player player = forcedPlayer == null ? Bukkit.getPlayer(task.playerUuid()) : forcedPlayer;
+    Player player = forcedPlayer;
     if (player == null || !player.isOnline()) {
       if (!claimMode && kind == DeliveryKind.GIVE_ITEM && tryMoveCommandItemToMailbox(task, claimMode, "player is offline", null)) {
         return true;
@@ -522,14 +552,14 @@ class DeliveryService {
         case COMMAND -> {
           if (usesQuantityPlaceholder(task.commandText())) {
             String command = renderCommand(task.commandText(), player.getName(), task.quantity(), task.orderNo());
-            boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
+            boolean success = dispatchConsoleCommand(command);
             if (!success) {
               throw new IllegalStateException("Command execution returned false");
             }
           } else {
             for (int count = 0; count < Math.max(1, task.quantity()); count++) {
               String command = renderCommand(task.commandText(), player.getName(), 1, task.orderNo());
-              boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
+              boolean success = dispatchConsoleCommand(command);
               if (!success) {
                 throw new IllegalStateException("Command execution returned false");
               }
@@ -571,7 +601,7 @@ class DeliveryService {
   }
 
   private boolean handleMarketTask(MarketItemDeliveryTask task, boolean claimMode, Player forcedPlayer) {
-    Player player = forcedPlayer == null ? Bukkit.getPlayer(task.targetUuid()) : forcedPlayer;
+    Player player = forcedPlayer;
     if (player == null || !player.isOnline()) {
       if (!claimMode && tryMoveMarketItemToMailbox(task, claimMode, "player is offline", null)) {
         return true;
@@ -974,6 +1004,17 @@ class DeliveryService {
       rendered = rendered.substring(1);
     }
     return rendered.trim();
+  }
+
+  private boolean dispatchConsoleCommand(String command) {
+    try {
+      return schedulerBridge
+          .supplyGlobal(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command))
+          .orTimeout(3L, TimeUnit.SECONDS)
+          .join();
+    } catch (Exception exception) {
+      throw new IllegalStateException("Command execution failed", exception);
+    }
   }
 
   private boolean usesQuantityPlaceholder(String template) {

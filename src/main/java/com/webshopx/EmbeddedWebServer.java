@@ -30,16 +30,19 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
-import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 class EmbeddedWebServer {
   private final JavaPlugin plugin;
+  private final SchedulerBridge schedulerBridge;
   private final Supplier<PluginSettings> settingsSupplier;
   private final AuthService authService;
   private final WalletService walletService;
@@ -67,6 +70,7 @@ class EmbeddedWebServer {
 
   EmbeddedWebServer(
       JavaPlugin plugin,
+      SchedulerBridge schedulerBridge,
       Supplier<PluginSettings> settingsSupplier,
       AuthService authService,
       WalletService walletService,
@@ -84,6 +88,7 @@ class EmbeddedWebServer {
       RuntimeConfigService runtimeConfigService,
       ClusterEventBusService clusterEventBusService) {
     this.plugin = plugin;
+    this.schedulerBridge = schedulerBridge;
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
     this.walletService = walletService;
@@ -1332,11 +1337,9 @@ class EmbeddedWebServer {
         if (!tradeMode.equals("DIRECT")) {
           throw new ServiceException("invalid_trade_mode", "SELL listing creation currently supports DIRECT only");
         }
-        Player player = Bukkit.getPlayer(user.boundUuid());
-        if (player == null || !player.isOnline()) {
-          throw new ServiceException("player_offline", "SELL listing creation requires player online");
-        }
-        result = marketService.createListingFromPlayer(player, price, quantity, currency, tag);
+        result = awaitPlayerTask(
+            user.boundUuid(),
+            player -> marketService.createListingFromPlayer(player, price, quantity, currency, tag));
       }
 
       JsonObject response = new JsonObject();
@@ -4671,10 +4674,29 @@ class EmbeddedWebServer {
 
   private void publishRuntimeConfigRefresh(long version) {
     if (plugin instanceof WebShopPlugin webShopPlugin) {
-      org.bukkit.Bukkit.getScheduler().runTask(plugin, webShopPlugin::reloadRuntimeBusinessSettings);
+      schedulerBridge.runGlobal(webShopPlugin::reloadRuntimeBusinessSettings);
     }
     if (clusterEventBusService != null) {
       clusterEventBusService.publishConfigRefresh(version);
+    }
+  }
+
+  private <T> T awaitPlayerTask(UUID playerUuid, java.util.function.Function<Player, T> task) {
+    try {
+      return schedulerBridge
+          .supplyPlayer(playerUuid, task)
+          .get(10L, TimeUnit.SECONDS);
+    } catch (InterruptedException exception) {
+      Thread.currentThread().interrupt();
+      throw new ServiceException("sync_interrupted", "Player task interrupted");
+    } catch (TimeoutException exception) {
+      throw new ServiceException("sync_timeout", "Player task timed out");
+    } catch (ExecutionException exception) {
+      Throwable cause = exception.getCause();
+      if (cause instanceof RuntimeException runtimeException) {
+        throw runtimeException;
+      }
+      throw new IllegalStateException("Player task failed", cause);
     }
   }
 

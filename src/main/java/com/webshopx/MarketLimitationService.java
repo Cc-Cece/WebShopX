@@ -9,10 +9,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
-import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
@@ -474,10 +472,14 @@ class MarketLimitationService {
         }
       }
       if (!playerLacksPermission.isEmpty()) {
-        Player player = context.playerUuid() == null ? null : Bukkit.getPlayer(context.playerUuid());
+        Set<String> permissions = context.playerPermissions();
         boolean lacksAny = false;
         for (String permission : playerLacksPermission) {
-          if (player == null || !player.hasPermission(permission)) {
+          String normalized = permission == null ? "" : permission.trim().toLowerCase(Locale.ROOT);
+          if (normalized.isEmpty()) {
+            continue;
+          }
+          if (permissions == null || !permissions.contains(normalized)) {
             lacksAny = true;
             break;
           }
@@ -597,6 +599,7 @@ class MarketLimitationService {
 
   record DecisionContext(
       java.util.UUID playerUuid,
+      Set<String> playerPermissions,
       String side,
       String tradeMode,
       String currency,

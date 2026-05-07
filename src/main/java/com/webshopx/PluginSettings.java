@@ -55,7 +55,7 @@ record PluginSettings(
         config.getInt("webshop.embedded-http.port", 8819),
         config.getString("webshop.embedded-http.static-root", "web"));
 
-    DbType databaseType = DbType.fromRaw(config.getString("database.type", "mysql"));
+    DbType databaseType = DbType.fromRaw(config.getString("database.type", "sqlite"));
     DatabaseSettings databaseSettings = new DatabaseSettings(
         databaseType,
         config.getString("database.host", "127.0.0.1"),
@@ -67,7 +67,7 @@ record PluginSettings(
         config.getBoolean("database.allow-public-key-retrieval", true),
         config.getString("database.server-rsa-public-key-file", ""),
         config.getInt("database.pool-size", 10),
-        config.getString("database.sqlite-file", "data/webshopx.db"),
+        config.getString("database.sqlite-file", "plugins/WebShopX/webshopx.db"),
         config.getString("database.sqlite-journal-mode", "WAL"),
         config.getString("database.sqlite-synchronous", "NORMAL"),
         config.getInt("database.sqlite-busy-timeout-ms", 5_000),
@@ -464,7 +464,7 @@ record PluginSettings(
 
     String normalizedSqliteFile() {
       if (sqliteFile == null || sqliteFile.isBlank()) {
-        return "data/webshopx.db";
+        return "plugins/WebShopX/webshopx.db";
       }
       return sqliteFile.trim();
     }

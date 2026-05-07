@@ -14,7 +14,6 @@ import org.bstats.charts.SimplePie;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitTask;
 
 /**
  * Main entry point for the WebShop plugin.
@@ -52,14 +51,16 @@ public class WebShopPlugin extends JavaPlugin {
   private MaintenanceService maintenanceService;
   private PluginLogService pluginLogService;
   private BusinessLedgerLogService businessLedgerLogService;
+  private SchedulerBridge schedulerBridge;
   private Metrics metrics;
-  private BukkitTask deliveryTask;
-  private BukkitTask maintenanceTask;
-  private BukkitTask marketCycleTask;
+  private SchedulerBridge.TaskHandle deliveryTask;
+  private SchedulerBridge.TaskHandle maintenanceTask;
+  private SchedulerBridge.TaskHandle marketCycleTask;
 
   @Override
   public void onEnable() {
     refreshMainConfig();
+    schedulerBridge = SchedulerBridge.create(this);
 
     try {
       settings = PluginSettings.fromConfig(getConfig());
@@ -68,8 +69,9 @@ public class WebShopPlugin extends JavaPlugin {
       businessLedgerLogService = new BusinessLedgerLogService(this);
       businessLedgerLogService.apply(settings.businessLedgerSettings());
       staticAssetInstaller = new StaticAssetInstaller(this);
-      textureAssetManager = new TextureAssetManager(this);
+      textureAssetManager = new TextureAssetManager(this, schedulerBridge);
       messageService = new MessageService(this, this::settings);
+      getLogger().info("Scheduler runtime detected: " + schedulerBridge.runtimeName());
 
       enforceDatabaseModeGuard();
       initializeDatabase();
@@ -91,18 +93,18 @@ public class WebShopPlugin extends JavaPlugin {
       redeemCodeService = new RedeemCodeService(databaseManager, walletService);
       productService = new ProductService(databaseManager);
       orderService = new OrderService(
-          this,
           databaseManager,
           this::settings,
           productService,
           walletService,
-          playerPresenceService);
+          playerPresenceService,
+          schedulerBridge);
       notificationService = new NotificationService(databaseManager);
       mailboxService = new MailboxService(databaseManager);
-      broadcastService = new BroadcastService(this, this::settings);
+      broadcastService = new BroadcastService(this, this::settings, schedulerBridge);
       broadcastService.reload();
       clusterEventBusService.reload();
-      userMarketSettingsService = new UserMarketSettingsService(databaseManager);
+      userMarketSettingsService = new UserMarketSettingsService(databaseManager, schedulerBridge);
       marketService = new MarketService(
           this,
           databaseManager,
@@ -113,7 +115,8 @@ public class WebShopPlugin extends JavaPlugin {
           notificationService,
           broadcastService,
           playerPresenceService,
-          userMarketSettingsService);
+          userMarketSettingsService,
+          schedulerBridge);
       materialVisualService = new MaterialVisualService(databaseManager);
       visualCustomizationService = new VisualCustomizationService(databaseManager);
       marketGuiService = new MarketGuiService(marketService, this::settings, messageService);
@@ -125,13 +128,15 @@ public class WebShopPlugin extends JavaPlugin {
           this::settings,
           messageService,
           notificationService,
-          mailboxService);
+          mailboxService,
+          schedulerBridge);
       adminService = new AdminService(databaseManager, authService, walletService);
       adminAuditService = new AdminAuditService(databaseManager);
-          leaderboardService = new LeaderboardService(this, databaseManager);
+          leaderboardService = new LeaderboardService(this, databaseManager, schedulerBridge);
       maintenanceService = new MaintenanceService(this, databaseManager, this::settings, pluginLogService);
       embeddedWebServer = new EmbeddedWebServer(
           this,
+          schedulerBridge,
           this::settings,
           authService,
           walletService,
@@ -154,13 +159,13 @@ public class WebShopPlugin extends JavaPlugin {
 
       registerCommands();
       getServer().getPluginManager().registerEvents(
-          new PlayerJoinListener(this, deliveryService, playerPresenceService),
+          new PlayerJoinListener(this, deliveryService, playerPresenceService, schedulerBridge),
           this);
       getServer().getPluginManager().registerEvents(
-          new PlayerQuitListener(this, playerPresenceService),
+          new PlayerQuitListener(this, playerPresenceService, schedulerBridge),
           this);
       getServer().getPluginManager().registerEvents(
-          new MarketGuiListener(marketGuiService, marketService, messageService),
+          new MarketGuiListener(marketGuiService, marketService, messageService, schedulerBridge),
           this);
       synchronizeOnlinePresence();
       startDeliveryLoop();
@@ -285,7 +290,7 @@ public class WebShopPlugin extends JavaPlugin {
   }
 
   private void handleClusterConfigRefreshEvent(String sourceServerId, long version) {
-    getServer().getScheduler().runTask(this, () -> {
+    schedulerBridge.runGlobal(() -> {
       getLogger().info(messageService.formatConsole(
           "console.cluster_refresh_received",
           MapUtils.mapOf("source", sourceServerId, "version", version)));
@@ -404,11 +409,7 @@ public class WebShopPlugin extends JavaPlugin {
     if (deliveryTask != null) {
       deliveryTask.cancel();
     }
-    deliveryTask = getServer().getScheduler().runTaskTimer(
-        this,
-        () -> deliveryService.processDueDeliveries(null),
-        40L,
-        100L);
+    deliveryTask = schedulerBridge.runGlobalTimer(() -> deliveryService.processDueDeliveries(null), 40L, 100L);
   }
 
   private void startMaintenanceLoop() {
@@ -424,11 +425,7 @@ public class WebShopPlugin extends JavaPlugin {
       return;
     }
     long intervalTicks = Math.max(20L, intervalMinutes * 1200L);
-    maintenanceTask = getServer().getScheduler().runTaskTimerAsynchronously(
-        this,
-        maintenanceService::runCleanup,
-        200L,
-        intervalTicks);
+    maintenanceTask = schedulerBridge.runAsyncTimer(maintenanceService::runCleanup, 200L, intervalTicks);
   }
 
   private void startMarketCycleLoop() {
@@ -439,12 +436,11 @@ public class WebShopPlugin extends JavaPlugin {
     if (marketService == null) {
       return;
     }
-    marketCycleTask = getServer().getScheduler().runTaskTimerAsynchronously(
-        this,
+    marketCycleTask = schedulerBridge.runAsyncTimer(
         () -> {
           marketService.processMarketCycles();
           if (productService != null) {
-              try {
+            try {
               productService.processDynamicPriceCycles();
             } catch (Exception exception) {
               getLogger().warning(messageService.formatConsole("console.official_dynamic_price_cycle_failed", MapUtils.mapOf("reason", exception.getMessage())));

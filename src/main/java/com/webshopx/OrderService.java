@@ -12,42 +12,40 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.plugin.java.JavaPlugin;
 
 class OrderService {
   private static final String GROUP_BUY_VOUCHER_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
-  private final JavaPlugin plugin;
   private final DatabaseManager databaseManager;
   private final SqlProvider sqlProvider;
   private final Supplier<PluginSettings> settingsSupplier;
   private final ProductService productService;
   private final WalletService walletService;
   private final PlayerPresenceService playerPresenceService;
+  private final SchedulerBridge schedulerBridge;
   private final SecureRandom secureRandom;
 
   OrderService(
-      JavaPlugin plugin,
       DatabaseManager databaseManager,
       Supplier<PluginSettings> settingsSupplier,
       ProductService productService,
       WalletService walletService,
-      PlayerPresenceService playerPresenceService) {
-    this.plugin = plugin;
+      PlayerPresenceService playerPresenceService,
+      SchedulerBridge schedulerBridge) {
     this.databaseManager = databaseManager;
     this.sqlProvider = databaseManager.sqlProvider();
     this.settingsSupplier = settingsSupplier;
     this.productService = productService;
     this.walletService = walletService;
     this.playerPresenceService = playerPresenceService;
+    this.schedulerBridge = schedulerBridge;
     this.secureRandom = new SecureRandom();
   }
 
@@ -62,7 +60,7 @@ class OrderService {
     if (product.productType() == ProductService.ProductType.RECYCLE_ITEM) {
       int maxQuantity = resolveProductMaxQuantity(product);
       validatePurchaseQuantity(quantity, maxQuantity);
-      return runSync(() -> placeRecycleOrder(userId, product.id(), quantity, maxQuantity, idempotencyKey));
+      return runOnPlayer(userId, () -> placeRecycleOrder(userId, product.id(), quantity, maxQuantity, idempotencyKey));
     }
 
     int cooldownSeconds = normalizedOrderCooldownSeconds();
@@ -757,12 +755,26 @@ class OrderService {
     if (onlineServer != null && !onlineServer.isBlank()) {
       return onlineServer;
     }
-    Player player = Bukkit.getPlayer(playerUuid);
-    if (player != null && player.isOnline()) {
+    if (isPlayerOnline(playerUuid)) {
       String localServerId = settingsSupplier.get().clusterSettings().serverId();
       return localServerId == null || localServerId.isBlank() ? null : localServerId;
     }
     return null;
+  }
+
+  private boolean isPlayerOnline(UUID playerUuid) {
+    if (playerUuid == null) {
+      return false;
+    }
+    try {
+      return schedulerBridge
+          .supplyPlayer(playerUuid, Player::isOnline)
+          .completeOnTimeout(false, 1L, TimeUnit.SECONDS)
+          .exceptionally(ignored -> false)
+          .join();
+    } catch (Exception ignored) {
+      return false;
+    }
   }
 
   private String normalizeIdempotencyKey(String idempotencyKey) {
@@ -863,32 +875,33 @@ class OrderService {
         .forEach(leftover -> player.getWorld().dropItemNaturally(player.getLocation(), leftover));
   }
 
-  private OrderPlacementResult runSync(java.util.concurrent.Callable<OrderPlacementResult> task) {
-    if (Bukkit.isPrimaryThread()) {
-      try {
-        return task.call();
-      } catch (Exception exception) {
-        if (exception instanceof RuntimeException runtimeException) {
-          throw runtimeException;
-        }
-        throw new ServiceException("internal_error", "Sync task failed");
-      }
-    }
+  private OrderPlacementResult runOnPlayer(
+      long userId,
+      java.util.concurrent.Callable<OrderPlacementResult> task) {
+    UUID playerUuid = databaseManager.withConnection(connection -> readBoundUuidForUpdate(connection, userId));
     try {
-      return Bukkit.getScheduler()
-          .callSyncMethod(plugin, task)
-          .get(8, TimeUnit.SECONDS);
-    } catch (InterruptedException exception) {
-      Thread.currentThread().interrupt();
-      throw new ServiceException("sync_interrupted", "Sync task interrupted");
-    } catch (ExecutionException exception) {
+      return schedulerBridge
+          .supplyPlayer(playerUuid, ignoredPlayer -> callOrderTask(task))
+          .orTimeout(8L, TimeUnit.SECONDS)
+          .join();
+    } catch (CompletionException exception) {
       Throwable cause = exception.getCause();
       if (cause instanceof RuntimeException runtimeException) {
         throw runtimeException;
       }
       throw new ServiceException("internal_error", "Sync task failed");
-    } catch (TimeoutException exception) {
-      throw new ServiceException("sync_timeout", "Sync task timed out");
+    }
+  }
+
+  private OrderPlacementResult callOrderTask(
+      java.util.concurrent.Callable<OrderPlacementResult> task) {
+    try {
+      return task.call();
+    } catch (Exception exception) {
+      if (exception instanceof RuntimeException runtimeException) {
+        throw runtimeException;
+      }
+      throw new ServiceException("internal_error", "Sync task failed");
     }
   }
 

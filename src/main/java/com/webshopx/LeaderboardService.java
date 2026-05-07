@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
@@ -23,10 +24,15 @@ import org.bukkit.plugin.java.JavaPlugin;
 class LeaderboardService {
   private final JavaPlugin plugin;
   private final DatabaseManager databaseManager;
+  private final SchedulerBridge schedulerBridge;
 
-  LeaderboardService(JavaPlugin plugin, DatabaseManager databaseManager) {
+  LeaderboardService(
+      JavaPlugin plugin,
+      DatabaseManager databaseManager,
+      SchedulerBridge schedulerBridge) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
+    this.schedulerBridge = schedulerBridge;
   }
 
   LeaderboardResult list(
@@ -195,22 +201,23 @@ class LeaderboardService {
     if (!needRuntime || users.isEmpty()) {
       return Map.of();
     }
-
-    try {
-      return Bukkit.getScheduler().callSyncMethod(plugin, () -> {
-        Map<Long, OnlineRuntimeStat> stats = new HashMap<>();
-        for (UserBaseRow row : users) {
-          boolean online = isOnline(row);
-          long onlineMinutes = readOnlineTimeMinutes(row);
-          stats.put(row.userId(), new OnlineRuntimeStat(online, onlineMinutes));
-        }
-        return stats;
-      }).get();
-    } catch (Exception exception) {
-      MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
-      plugin.getLogger().warning(ms.formatConsole("console.failed_read_leaderboard_stats", Map.of("reason", exception.getMessage())));
-      return users.stream().collect(Collectors.toMap(UserBaseRow::userId, ignored -> OnlineRuntimeStat.EMPTY));
-    }
+    return schedulerBridge
+        .supplyGlobal(() -> {
+          Map<Long, OnlineRuntimeStat> stats = new HashMap<>();
+          for (UserBaseRow row : users) {
+            boolean online = isOnline(row);
+            long onlineMinutes = readOnlineTimeMinutes(row);
+            stats.put(row.userId(), new OnlineRuntimeStat(online, onlineMinutes));
+          }
+          return stats;
+        })
+        .orTimeout(8L, TimeUnit.SECONDS)
+        .exceptionally(exception -> {
+          MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
+          plugin.getLogger().warning(ms.formatConsole("console.failed_read_leaderboard_stats", Map.of("reason", exception.getMessage())));
+          return users.stream().collect(Collectors.toMap(UserBaseRow::userId, ignored -> OnlineRuntimeStat.EMPTY));
+        })
+        .join();
   }
 
   private boolean isOnline(UserBaseRow row) {

@@ -29,11 +29,13 @@ class TextureAssetManager {
   private static final String BLOCK_PREFIX = "assets/minecraft/textures/block/";
 
   private final JavaPlugin plugin;
+  private final SchedulerBridge schedulerBridge;
   private final HttpClient httpClient;
   private final AtomicBoolean cacheRunning;
 
-  TextureAssetManager(JavaPlugin plugin) {
+  TextureAssetManager(JavaPlugin plugin, SchedulerBridge schedulerBridge) {
     this.plugin = plugin;
+    this.schedulerBridge = schedulerBridge;
     this.httpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(15))
         .followRedirects(HttpClient.Redirect.NORMAL)
@@ -45,7 +47,7 @@ class TextureAssetManager {
     if (!cacheRunning.compareAndSet(false, true)) {
       return;
     }
-    plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+    schedulerBridge.runAsync(() -> {
       try {
         ensureLocalTextureCache(staticRoot, minecraftVersion);
       } finally {

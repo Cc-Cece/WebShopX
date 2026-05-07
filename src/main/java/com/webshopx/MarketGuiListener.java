@@ -3,7 +3,6 @@ package com.webshopx;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import org.bukkit.Bukkit;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -22,14 +21,17 @@ class MarketGuiListener implements Listener {
   private final MarketGuiService marketGuiService;
   private final MarketService marketService;
   private final MessageService messageService;
+  private final SchedulerBridge schedulerBridge;
 
   MarketGuiListener(
       MarketGuiService marketGuiService,
       MarketService marketService,
-      MessageService messageService) {
+      MessageService messageService,
+      SchedulerBridge schedulerBridge) {
     this.marketGuiService = marketGuiService;
     this.marketService = marketService;
     this.messageService = messageService;
+    this.schedulerBridge = schedulerBridge;
   }
 
   @EventHandler
@@ -115,9 +117,7 @@ class MarketGuiListener implements Listener {
     }
     event.setCancelled(true);
     String message = event.getMessage();
-    Bukkit.getScheduler().runTask(
-        marketService.plugin(),
-        () -> marketGuiService.handlePlayerChat(player, message));
+    schedulerBridge.runPlayer(player.getUniqueId(), p -> marketGuiService.handlePlayerChat(p, message), null);
   }
 
   @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
