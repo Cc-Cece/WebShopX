@@ -12,6 +12,22 @@ version = '1.2.0-SNAPSHOT'
 String declaredProjectVersion = version.toString()
 
 group = "com.webshopx"
+String targetRuntime = hasProperty('targetRuntime')
+        ? property('targetRuntime').toString().trim().toLowerCase(Locale.ROOT)
+        : '1.20.6+'
+if (!(targetRuntime in ['1.20.6+', '1.18.2+'])) {
+    throw new GradleException("Unsupported targetRuntime: ${targetRuntime}. Allowed values: 1.20.6+, 1.18.2+")
+}
+boolean legacy18Runtime = targetRuntime == '1.18.2+'
+JavaVersion runtimeJavaVersion = legacy18Runtime ? JavaVersion.VERSION_17 : JavaVersion.VERSION_21
+int runtimeJavaLanguageVersion = legacy18Runtime ? 17 : 21
+String runtimePaperApiVersion = legacy18Runtime ? '1.18.2-R0.1-SNAPSHOT' : '1.20.6-R0.1-SNAPSHOT'
+String runtimePluginApiVersion = legacy18Runtime ? '1.18' : '1.20'
+String runtimeClassifierSuffix = legacy18Runtime ? '1.18.2plus' : '1.20.6plus'
+
+def variantClassifier = { String baseClassifier ->
+    "${baseClassifier}-${runtimeClassifierSuffix}"
+}
 
 static boolean isTruthy(Object value) {
     if (value == null) {
@@ -36,8 +52,8 @@ if (hasProperty('snapshot') && isTruthy(property('snapshot')) && !version.toStri
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = runtimeJavaVersion
+    targetCompatibility = runtimeJavaVersion
 }
 
 repositories {
@@ -72,7 +88,7 @@ configurations {
 }
 
 dependencies {
-    compileOnly 'io.papermc.paper:paper-api:1.20.6-R0.1-SNAPSHOT'
+    compileOnly "io.papermc.paper:paper-api:${runtimePaperApiVersion}"
     compileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
     implementation 'org.bstats:bstats-bukkit:3.2.1'
     implementation 'com.tchristofferson:ConfigUpdater:2.2'
@@ -86,7 +102,7 @@ dependencies {
     compileOnly 'com.github.MilkBowl:VaultAPI:1.7.1'
     spotbugsPlugins 'com.h3xstream.findsecbugs:findsecbugs-plugin:1.14.0'
     testCompileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
-    testImplementation 'io.papermc.paper:paper-api:1.20.6-R0.1-SNAPSHOT'
+    testImplementation "io.papermc.paper:paper-api:${runtimePaperApiVersion}"
     testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'
     testImplementation 'org.testcontainers:junit-jupiter:1.21.3'
     testImplementation 'org.testcontainers:mariadb:1.21.3'
@@ -98,9 +114,18 @@ test {
     useJUnitPlatform()
 }
 
+tasks.withType(JavaCompile).configureEach {
+    options.release = runtimeJavaLanguageVersion
+}
+
 processResources {
     filesMatching("**/plugin*.yml") {
-        expand(NAME: rootProject.name, VERSION: version, PACKAGE: rootProject.group.toString())
+        expand(
+                NAME: rootProject.name,
+                VERSION: version,
+                PACKAGE: rootProject.group.toString(),
+                API_VERSION: runtimePluginApiVersion
+        )
     }
     String updateCheckVersion = declaredProjectVersion
     if (hasProperty('updateVersion')) {
@@ -166,7 +191,7 @@ def SQLITE_NON_WINDOWS_NATIVE_GLOBS = [
 
 def configureShadowVariant = { ShadowJar task, String classifier ->
     task.group = 'build'
-    task.archiveClassifier.set(classifier)
+    task.archiveClassifier.set(variantClassifier(classifier))
     task.from(sourceSets.main.output) {
         exclude 'plugin-slim.yml'
     }
@@ -181,8 +206,8 @@ shadowJar {
 
 tasks.register('slimJar', Jar) {
     group = 'build'
-    description = 'Builds the slim plugin JAR without bundled runtime dependencies.'
-    archiveClassifier.set('slim')
+    description = "Builds the slim plugin JAR without bundled runtime dependencies for ${targetRuntime}."
+    archiveClassifier.set(variantClassifier('slim'))
     from(sourceSets.main.output) {
         exclude 'plugin.yml'
         rename('plugin-slim.yml', 'plugin.yml')
@@ -190,20 +215,20 @@ tasks.register('slimJar', Jar) {
 }
 
 tasks.register('fullLinuxJar', ShadowJar) {
-    description = 'Builds the full plugin JAR with Linux SQLite natives only.'
+    description = "Builds the full plugin JAR with Linux SQLite natives only for ${targetRuntime}."
     configureShadowVariant(delegate as ShadowJar, 'full-linux')
     SQLITE_NON_LINUX_NATIVE_GLOBS.each { exclude it }
 }
 
 tasks.register('fullWinJar', ShadowJar) {
-    description = 'Builds the full plugin JAR with Windows SQLite natives only.'
+    description = "Builds the full plugin JAR with Windows SQLite natives only for ${targetRuntime}."
     configureShadowVariant(delegate as ShadowJar, 'full-win')
     SQLITE_NON_WINDOWS_NATIVE_GLOBS.each { exclude it }
 }
 
 tasks.register('packagePluginVariants') {
     group = 'build'
-    description = 'Builds slim/full/full-linux/full-win plugin variants.'
+    description = "Builds slim/full/full-linux/full-win plugin variants for ${targetRuntime}."
     dependsOn tasks.named('slimJar')
     dependsOn tasks.named('shadowJar')
     dependsOn tasks.named('fullLinuxJar')
@@ -230,7 +255,7 @@ tasks.register('obfuscatePluginJar', JavaExec) {
     def rulesFile = layout.projectDirectory.file('proguard-rules.pro')
     def outputFile = layout.buildDirectory.file("tmp/proguard/${rootProject.name}-plugin-obf.jar")
     def javaHome = javaToolchains.launcherFor {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(runtimeJavaLanguageVersion)
     }.get().metadata.installationPath.asFile
     def jmodsDir = new File(javaHome, 'jmods')
 
@@ -264,7 +289,7 @@ tasks.register('obfuscatedJar', ShadowJar) {
     description = 'Builds the obfuscated plugin JAR with bundled runtime dependencies.'
     dependsOn tasks.named('obfuscatePluginJar')
 
-    archiveClassifier.set('obf')
+    archiveClassifier.set(variantClassifier('obf'))
     from({
         zipTree(layout.buildDirectory.file("tmp/proguard/${rootProject.name}-plugin-obf.jar").get().asFile)
     })
@@ -280,7 +305,7 @@ tasks.register('releaseObfuscated') {
 
     doLast {
         def obfuscatedFile = tasks.named('obfuscatedJar', ShadowJar).get().archiveFile.get().asFile
-        def releaseFile = layout.buildDirectory.file("libs/${rootProject.name}-release-obf.jar").get().asFile
+        def releaseFile = layout.buildDirectory.file("libs/${rootProject.name}-release-obf-${runtimeClassifierSuffix}.jar").get().asFile
         if (releaseFile.exists()) {
             releaseFile.delete()
         }

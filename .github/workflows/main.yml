@@ -126,26 +126,64 @@ jobs:
           chmod +x ./gradlew
           ./gradlew --no-daemon clean packagePluginVariants \
             -x test -x checkstyleMain -x checkstyleTest -x spotbugsMain -x spotbugsTest \
+            -PtargetRuntime='1.20.6+' \
             -Pver="${{ steps.meta.outputs.build_version }}"
 
-      - name: Verify expected variant artifacts
+      - name: Verify expected 1.20.6+ artifacts
         shell: bash
         run: |
           shopt -s nullglob
           variants=(slim full full-linux full-win)
           for variant in "${variants[@]}"; do
-            files=(build/libs/*-"${variant}".jar)
+            files=(build/libs/*-"${variant}"-1.20.6plus.jar)
             if (( ${#files[@]} == 0 )); then
-              echo "::error::Missing artifact for variant '${variant}'."
+              echo "::error::Missing 1.20.6+ artifact for variant '${variant}'."
               exit 1
             fi
           done
+
+      - name: Collect modern artifacts
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp build/libs/*.jar dist/
+
+      - name: Switch to JDK 17 for legacy build
+        uses: ./.github/actions/common-setup
+        with:
+          java-version: '17'
+
+      - name: Build plugin variants (1.18.2+)
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon clean packagePluginVariants \
+            -x test -x checkstyleMain -x checkstyleTest -x spotbugsMain -x spotbugsTest \
+            -PtargetRuntime='1.18.2+' \
+            -Pver="${{ steps.meta.outputs.build_version }}"
+
+      - name: Verify expected 1.18.2+ artifacts
+        shell: bash
+        run: |
+          shopt -s nullglob
+          variants=(slim full full-linux full-win)
+          for variant in "${variants[@]}"; do
+            files=(build/libs/*-"${variant}"-1.18.2plus.jar)
+            if (( ${#files[@]} == 0 )); then
+              echo "::error::Missing 1.18.2+ artifact for variant '${variant}'."
+              exit 1
+            fi
+          done
+
+      - name: Collect legacy artifacts
+        shell: bash
+        run: |
+          cp build/libs/*.jar dist/
 
       - name: Upload compiled jars
         uses: actions/upload-artifact@v4
         with:
           name: compiled-jars
-          path: build/libs/*.jar
+          path: dist/*.jar
           if-no-files-found: error
           retention-days: 14
 

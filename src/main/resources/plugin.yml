@@ -1,7 +1,7 @@
 main: ${PACKAGE}.WebShopPlugin
 name: ${NAME}
 version: "${VERSION}"
-api-version: "1.20"
+api-version: "${API_VERSION}"
 author: Kanbara
 description: Web-first Minecraft shop plugin (Phase 1 + Phase 2)
 commands:
