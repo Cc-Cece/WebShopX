@@ -19,6 +19,7 @@ class WalletService {
   private final DatabaseManager databaseManager;
   private final SqlProvider sqlProvider;
   private final Supplier<PluginSettings> settingsSupplier;
+  private final BusinessLedgerLogService businessLedgerLogService;
 
   private volatile Economy vaultEconomy;
   private volatile String vaultProviderName;
@@ -26,11 +27,13 @@ class WalletService {
   WalletService(
       JavaPlugin plugin,
       DatabaseManager databaseManager,
-      Supplier<PluginSettings> settingsSupplier) {
+      Supplier<PluginSettings> settingsSupplier,
+      BusinessLedgerLogService businessLedgerLogService) {
     this.plugin = plugin;
     this.databaseManager = databaseManager;
     this.sqlProvider = databaseManager.sqlProvider();
     this.settingsSupplier = settingsSupplier;
+    this.businessLedgerLogService = businessLedgerLogService;
     refreshVaultHook();
   }
 
@@ -194,6 +197,7 @@ class WalletService {
       boolean enforceBalance) throws SQLException {
     ensureWallet(connection, userId);
     long walletId = readWalletId(connection, userId, true);
+    String username = readUsername(connection, userId, false);
 
     if (!insertLedger(connection, walletId, currency, delta, bizType, bizId)) {
       return false;
@@ -203,6 +207,8 @@ class WalletService {
       GameCoinAccount account = readGameCoinAccount(connection, userId, true);
       long gameCoin = applyVaultDelta(account, delta, enforceBalance);
       updateGameCoinMirror(connection, walletId, gameCoin);
+      LedgerBusinessContext context = resolveLedgerBusinessContext(connection, bizType, bizId);
+      logBusinessLedger(userId, username, walletId, currency, delta, bizType, bizId, context, enforceBalance);
       return true;
     }
 
@@ -224,7 +230,246 @@ class WalletService {
       }
     }
 
+    LedgerBusinessContext context = resolveLedgerBusinessContext(connection, bizType, bizId);
+    logBusinessLedger(userId, username, walletId, currency, delta, bizType, bizId, context, enforceBalance);
     return true;
+  }
+
+  private void logBusinessLedger(
+      long userId,
+      String username,
+      long walletId,
+      CurrencyType currency,
+      long delta,
+      String bizType,
+      String bizId,
+      LedgerBusinessContext context,
+      boolean enforceBalance) {
+    if (businessLedgerLogService == null) {
+      return;
+    }
+    businessLedgerLogService.logWalletLedger(
+        userId,
+        username,
+        walletId,
+        currency,
+        delta,
+        bizType,
+        bizId,
+        context.tradeType(),
+        context.itemDetail(),
+        enforceBalance,
+        isGameCoinBackedByVault());
+  }
+
+  private LedgerBusinessContext resolveLedgerBusinessContext(
+      Connection connection,
+      String bizType,
+      String bizId) {
+    String type = bizType == null ? "" : bizType.trim().toUpperCase(java.util.Locale.ROOT);
+    try {
+      if (type.startsWith("ORDER_") || type.startsWith("RECYCLE_")) {
+        return readOrderContext(connection, bizId, type);
+      }
+      if (type.startsWith("MARKET_")) {
+        return readMarketContext(connection, bizId, type);
+      }
+    } catch (Exception ignored) {
+      // Fall through to default context for logging robustness.
+    }
+    if (type.startsWith("EXCHANGE_")) {
+      return new LedgerBusinessContext("系统兑换", "-");
+    }
+    if ("REDEEM_CODE".equals(type)) {
+      return new LedgerBusinessContext("官方商城|兑换码", "-");
+    }
+    return new LedgerBusinessContext("-", "-");
+  }
+
+  private LedgerBusinessContext readOrderContext(
+      Connection connection,
+      String orderNo,
+      String bizType) throws SQLException {
+    if (orderNo == null || orderNo.isBlank()) {
+      return new LedgerBusinessContext("官方商城", "-");
+    }
+    String sql = """
+        SELECT p.product_type, p.item_material, p.title, oi.quantity
+        FROM orders o
+        JOIN order_items oi ON oi.order_id = o.id
+        JOIN products p ON p.id = oi.product_id
+        WHERE o.order_no = ?
+        ORDER BY oi.id ASC
+        LIMIT 1
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, orderNo);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return new LedgerBusinessContext("官方商城", "-");
+        }
+        String productType = resultSet.getString("product_type");
+        String material = resultSet.getString("item_material");
+        String title = resultSet.getString("title");
+        int quantity = resultSet.getInt("quantity");
+        String tradeType = "官方商城";
+        if ("RECYCLE_ITEM".equalsIgnoreCase(productType) || bizType.startsWith("RECYCLE_")) {
+          tradeType = "官方商城|回收";
+        } else if ("GROUP_BUY_VOUCHER".equalsIgnoreCase(productType)) {
+          tradeType = "官方商城|团购券";
+        } else {
+          tradeType = "官方商城|出售";
+        }
+        String item = formatItemDetail(material, title, quantity);
+        return new LedgerBusinessContext(tradeType, item);
+      }
+    }
+  }
+
+  private LedgerBusinessContext readMarketContext(
+      Connection connection,
+      String bizId,
+      String bizType) throws SQLException {
+    Long listingId = parseListingIdFromBizId(bizId);
+    Long tradeId = parseTradeIdFromBizId(bizId);
+    if (listingId == null && tradeId == null) {
+      return new LedgerBusinessContext(resolveMarketTypeLabel(bizType, null), "-");
+    }
+
+    String sqlByTrade = """
+        SELECT ml.trade_mode, ml.item_material, mt.quantity
+        FROM market_trades mt
+        JOIN market_listings ml ON ml.id = mt.listing_id
+        WHERE mt.id = ?
+        LIMIT 1
+        """;
+    String sqlByListing = """
+        SELECT trade_mode, item_material, quantity
+        FROM market_listings
+        WHERE id = ?
+        LIMIT 1
+        """;
+
+    if (tradeId != null) {
+      try (PreparedStatement statement = connection.prepareStatement(sqlByTrade)) {
+        statement.setLong(1, tradeId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (resultSet.next()) {
+            String mode = resultSet.getString("trade_mode");
+            String material = resultSet.getString("item_material");
+            int quantity = resultSet.getInt("quantity");
+            return new LedgerBusinessContext(
+                resolveMarketTypeLabel(bizType, mode),
+                formatItemDetail(material, null, quantity));
+          }
+        }
+      }
+    }
+
+    if (listingId != null) {
+      try (PreparedStatement statement = connection.prepareStatement(sqlByListing)) {
+        statement.setLong(1, listingId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (resultSet.next()) {
+            String mode = resultSet.getString("trade_mode");
+            String material = resultSet.getString("item_material");
+            int quantity = resultSet.getInt("quantity");
+            return new LedgerBusinessContext(
+                resolveMarketTypeLabel(bizType, mode),
+                formatItemDetail(material, null, quantity));
+          }
+        }
+      }
+    }
+
+    return new LedgerBusinessContext(resolveMarketTypeLabel(bizType, null), "-");
+  }
+
+  private String resolveMarketTypeLabel(String bizType, String tradeMode) {
+    String mode = tradeMode == null ? "" : tradeMode.trim().toUpperCase(java.util.Locale.ROOT);
+    if ("AUCTION".equals(mode)
+        || "MARKET_BID_HOLD".equals(bizType)
+        || "MARKET_BID_REFUND".equals(bizType)) {
+      return "玩家市场|拍卖";
+    }
+    return "玩家市场|出售";
+  }
+
+  private String formatItemDetail(String material, String title, int quantity) {
+    String qty = quantity > 0 ? " x" + quantity : "";
+    if (material != null && !material.isBlank()) {
+      if (title != null && !title.isBlank()) {
+        return material.trim() + qty + " (" + title.trim() + ")";
+      }
+      return material.trim() + qty;
+    }
+    if (title != null && !title.isBlank()) {
+      return title.trim() + qty;
+    }
+    return "-";
+  }
+
+  private Long parseListingIdFromBizId(String bizId) {
+    if (bizId == null || bizId.isBlank()) {
+      return null;
+    }
+    String[] parts = bizId.split(":");
+    if (parts.length < 2) {
+      return null;
+    }
+    String head = parts[0].toLowerCase(java.util.Locale.ROOT);
+    if (!head.equals("mkt-buy-escrow")
+        && !head.equals("mkt-create-cost")
+        && !head.equals("mkt-bid-hold")
+        && !head.equals("mkt-bid-refund")) {
+      return null;
+    }
+    return parsePositiveLong(parts[1]);
+  }
+
+  private Long parseTradeIdFromBizId(String bizId) {
+    if (bizId == null || bizId.isBlank()) {
+      return null;
+    }
+    String[] parts = bizId.split(":");
+    if (parts.length < 2) {
+      return null;
+    }
+    String head = parts[0].toLowerCase(java.util.Locale.ROOT);
+    if (head.equals("mkt-sell") || head.equals("mkt-sink")) {
+      return parsePositiveLong(parts[1]);
+    }
+    return null;
+  }
+
+  private Long parsePositiveLong(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return null;
+    }
+    try {
+      long parsed = Long.parseLong(raw.trim());
+      return parsed > 0 ? parsed : null;
+    } catch (NumberFormatException exception) {
+      return null;
+    }
+  }
+
+  private String readUsername(Connection connection, long userId, boolean forUpdate) throws SQLException {
+    String lockClause = forUpdate ? sqlProvider.forUpdateClause() : "";
+    String sql = "SELECT username FROM web_users WHERE id = ?" + lockClause;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return "unknown";
+        }
+        String username = resultSet.getString("username");
+        if (username == null || username.isBlank()) {
+          return "unknown";
+        }
+        return username;
+      }
+    }
   }
 
   private long applyVaultDelta(GameCoinAccount account, long delta, boolean enforceBalance) {
@@ -417,5 +662,8 @@ class WalletService {
       String bizType,
       String bizId,
       java.time.LocalDateTime createdAt) {
+  }
+
+  private record LedgerBusinessContext(String tradeType, String itemDetail) {
   }
 }

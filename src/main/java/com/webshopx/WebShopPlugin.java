@@ -51,6 +51,7 @@ public class WebShopPlugin extends JavaPlugin {
   private TextureAssetManager textureAssetManager;
   private MaintenanceService maintenanceService;
   private PluginLogService pluginLogService;
+  private BusinessLedgerLogService businessLedgerLogService;
   private Metrics metrics;
   private BukkitTask deliveryTask;
   private BukkitTask maintenanceTask;
@@ -64,6 +65,8 @@ public class WebShopPlugin extends JavaPlugin {
       settings = PluginSettings.fromConfig(getConfig());
       pluginLogService = new PluginLogService(this);
       pluginLogService.apply(settings.loggingSettings());
+      businessLedgerLogService = new BusinessLedgerLogService(this);
+      businessLedgerLogService.apply(settings.businessLedgerSettings());
       staticAssetInstaller = new StaticAssetInstaller(this);
       textureAssetManager = new TextureAssetManager(this);
       messageService = new MessageService(this, this::settings);
@@ -84,7 +87,7 @@ public class WebShopPlugin extends JavaPlugin {
           this::handleClusterConfigRefreshEvent);
 
       authService = new AuthService(databaseManager, this::settings);
-      walletService = new WalletService(this, databaseManager, this::settings);
+      walletService = new WalletService(this, databaseManager, this::settings, businessLedgerLogService);
       redeemCodeService = new RedeemCodeService(databaseManager, walletService);
       productService = new ProductService(databaseManager);
       orderService = new OrderService(
@@ -213,6 +216,9 @@ public class WebShopPlugin extends JavaPlugin {
     if (pluginLogService != null) {
       pluginLogService.close();
     }
+    if (businessLedgerLogService != null) {
+      businessLedgerLogService.close();
+    }
   }
 
   void reloadRuntimeConfig() {
@@ -229,6 +235,9 @@ public class WebShopPlugin extends JavaPlugin {
     settings = fileSettings;
     if (pluginLogService != null) {
       pluginLogService.apply(settings.loggingSettings());
+    }
+    if (businessLedgerLogService != null) {
+      businessLedgerLogService.apply(settings.businessLedgerSettings());
     }
     if (walletService != null) {
       walletService.refreshVaultHook();
@@ -260,6 +269,9 @@ public class WebShopPlugin extends JavaPlugin {
       settings = runtimeConfigService.applyTo(settings);
       if (pluginLogService != null) {
         pluginLogService.apply(settings.loggingSettings());
+      }
+      if (businessLedgerLogService != null) {
+        businessLedgerLogService.apply(settings.businessLedgerSettings());
       }
       if (marketService != null) {
         marketService.refreshRuntimePolicies();

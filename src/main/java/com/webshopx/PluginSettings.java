@@ -30,6 +30,7 @@ record PluginSettings(
     CurrencyDisplaySettings currencyDisplaySettings,
     MaintenanceSettings maintenanceSettings,
     LoggingSettings loggingSettings,
+    BusinessLedgerSettings businessLedgerSettings,
     BroadcastSettings broadcastSettings,
     AdminBootstrapSettings adminBootstrapSettings,
     EmbeddedWebSettings embeddedWebSettings,
@@ -135,6 +136,10 @@ record PluginSettings(
         config.getInt("webshop.logging.max-file-size-mb", 8),
         config.getInt("webshop.logging.max-files", 8),
         config.getInt("webshop.logging.retention-days", 14));
+    BusinessLedgerSettings businessLedgerSettings = new BusinessLedgerSettings(
+        config.getBoolean("webshop.business-ledger.enabled", true),
+        config.getString("webshop.business-ledger.directory", "logs/business-ledger"),
+        config.getInt("webshop.business-ledger.retention-days", 30));
     BroadcastSettings broadcastSettings = new BroadcastSettings(
         config.getBoolean("webshop.broadcast.enabled", true),
         readBroadcastTemplates(config.getConfigurationSection("webshop.broadcast.templates")));
@@ -159,6 +164,7 @@ record PluginSettings(
         currencyDisplaySettings,
         maintenanceSettings,
         loggingSettings,
+        businessLedgerSettings,
         broadcastSettings,
         adminBootstrapSettings,
         webSettings,
@@ -209,6 +215,7 @@ record PluginSettings(
         currencyDisplaySettings,
         maintenanceSettings,
         loggingSettings,
+        businessLedgerSettings,
         broadcastSettings,
         adminBootstrapSettings,
         embeddedWebSettings,
@@ -584,6 +591,12 @@ record PluginSettings(
       String directory,
       int maxFileSizeMb,
       int maxFiles,
+      int retentionDays) {
+  }
+
+  record BusinessLedgerSettings(
+      boolean enabled,
+      String directory,
       int retentionDays) {
   }
 

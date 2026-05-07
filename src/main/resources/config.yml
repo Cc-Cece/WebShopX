@@ -22,6 +22,10 @@ webshop:
     host: 0.0.0.0
     port: 8819
     static-root: web
+  business-ledger:
+    enabled: true
+    directory: logs/business-ledger
+    retention-days: 30
 
 database:
   # mysql | mariadb | sqlite
