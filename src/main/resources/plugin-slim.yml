@@ -7,7 +7,6 @@ description: Web-first Minecraft shop plugin (Phase 1 + Phase 2)
 libraries:
   - org.bstats:bstats-bukkit:3.2.1
   - com.tchristofferson:ConfigUpdater:2.2
-  - io.papermc:paperlib:1.0.8
   - org.mariadb.jdbc:mariadb-java-client:3.3.3
   - org.xerial:sqlite-jdbc:3.50.3.0
   - redis.clients:jedis:5.2.0

@@ -3,7 +3,6 @@ package com.webshopx;
 import com.tchristofferson.configupdater.ConfigUpdater;
 import java.io.File;
 import java.io.IOException;
-import io.papermc.lib.PaperLib;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -59,7 +58,6 @@ public class WebShopPlugin extends JavaPlugin {
 
   @Override
   public void onEnable() {
-    PaperLib.suggestPaper(this);
     refreshMainConfig();
 
     try {
@@ -506,9 +504,37 @@ public class WebShopPlugin extends JavaPlugin {
           new SimplePie("cluster_role", () -> settings.clusterSettings().role().name().toLowerCase(Locale.ROOT)));
       metrics.addCustomChart(new SimplePie("default_locale", settings::defaultLocale));
       getLogger().info(messageService.getConsole("console.bstats_enabled"));
-    } catch (Exception exception) {
+    } catch (Throwable exception) {
+      if (isMissingBStats(exception) || isRelocationGuard(exception)) {
+        getLogger().info("bStats is unavailable in this build variant; metrics will be skipped.");
+        return;
+      }
       getLogger().log(Level.WARNING, messageService.getConsole("console.failed_init_bstats"), exception);
     }
+  }
+
+  private boolean isMissingBStats(Throwable throwable) {
+    return throwable instanceof NoClassDefFoundError
+        || throwable instanceof ClassNotFoundException
+        || containsTypeOrMessage(throwable, "org.bstats");
+  }
+
+  private boolean isRelocationGuard(Throwable throwable) {
+    return containsTypeOrMessage(throwable, "has not been relocated correctly");
+  }
+
+  private boolean containsTypeOrMessage(Throwable throwable, String needle) {
+    String normalizedNeedle = needle.toLowerCase(Locale.ROOT);
+    Throwable current = throwable;
+    while (current != null) {
+      String type = current.getClass().getName().toLowerCase(Locale.ROOT);
+      String message = current.getMessage() == null ? "" : current.getMessage().toLowerCase(Locale.ROOT);
+      if (type.contains(normalizedNeedle) || message.contains(normalizedNeedle)) {
+        return true;
+      }
+      current = current.getCause();
+    }
+    return false;
   }
 
   private PluginSettings settings() {
