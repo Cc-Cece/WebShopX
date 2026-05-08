@@ -347,7 +347,6 @@ jobs:
             if [[ "${IS_PRERELEASE}" == "true" ]]; then
               gh release create "${TAG_NAME}" "${files[@]}" \
                 --repo "${MIRROR_REPO}" \
-                --target "${GITHUB_SHA}" \
                 --title "Main Snapshot (${TAG_NAME})" \
                 --notes-file release-notes-mirror.md \
                 --prerelease
