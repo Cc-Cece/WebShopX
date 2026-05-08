@@ -4,6 +4,7 @@
   const SUPPORTED_LOCALES = ["zh-CN", "en-US"];
   const ATTRIBUTE_NAMES = ["placeholder", "title", "aria-label", "alt"];
   const SKIP_PARENTS = new Set(["CODE", "SCRIPT", "STYLE", "TEXTAREA"]);
+  const BUNDLE_CACHE = new Map();
 
   const EN_EXACT = Object.freeze({
     "WebShopX - MC网页商店系统": "WebShopX - Minecraft Web Shop",
@@ -632,6 +633,74 @@
     return currentLocale;
   }
 
+  function cloneJsonValue(value) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch (error) {
+      return value;
+    }
+  }
+
+  function readJsonSync(path) {
+    if (!path || typeof XMLHttpRequest !== "function") {
+      return null;
+    }
+    try {
+      const request = new XMLHttpRequest();
+      request.open("GET", path, false);
+      request.setRequestHeader("Cache-Control", "no-cache");
+      request.send(null);
+      if (request.status < 200 || request.status >= 300) {
+        return null;
+      }
+      const text = String(request.responseText || "").trim();
+      if (!text) {
+        return null;
+      }
+      return JSON.parse(text);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function buildBundleCandidates(namespace, locale, fallbackLocale) {
+    const normalizedLocale = normalizeLocale(locale);
+    const normalizedFallback = normalizeLocale(fallbackLocale || "zh-CN");
+    return [
+      `i18n/${namespace}/${normalizedLocale}.json`,
+      `i18n/${namespace}/${normalizedFallback}.json`,
+      `i18n/${namespace}/en-US.json`,
+    ];
+  }
+
+  function loadBundleSync(namespace, options = {}) {
+    const normalizedNamespace = String(namespace || "").trim().replace(/^\/+|\/+$/g, "");
+    if (!normalizedNamespace) {
+      return {};
+    }
+    const requestedLocale = normalizeLocale(options.locale || currentLocale);
+    const fallbackLocale = normalizeLocale(options.fallbackLocale || "zh-CN");
+    const candidates = Array.isArray(options.candidates) && options.candidates.length > 0
+      ? options.candidates
+      : buildBundleCandidates(normalizedNamespace, requestedLocale, fallbackLocale);
+    const cacheKey = `${normalizedNamespace}::${requestedLocale}::${fallbackLocale}::${candidates.join("|")}`;
+    if (BUNDLE_CACHE.has(cacheKey)) {
+      return cloneJsonValue(BUNDLE_CACHE.get(cacheKey));
+    }
+    for (const path of candidates) {
+      const parsed = readJsonSync(path);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        BUNDLE_CACHE.set(cacheKey, parsed);
+        return cloneJsonValue(parsed);
+      }
+    }
+    BUNDLE_CACHE.set(cacheKey, {});
+    return {};
+  }
+
   function shouldLoadMaterialMap(locale = currentLocale) {
     return isChineseLocale(locale);
   }
@@ -807,6 +876,7 @@
   window.WebShopXI18n = {
     getIntlLocale,
     getLocale,
+    loadBundleSync,
     getPotionEffectLabel,
     getThemeToggleLabel,
     humanizeEnum,

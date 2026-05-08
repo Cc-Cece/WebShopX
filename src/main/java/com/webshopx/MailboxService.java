@@ -172,7 +172,7 @@ class MailboxService {
 
   private void addItemToInventory(Player player, ItemStack source, int totalAmount) {
     if (source == null || source.getType() == Material.AIR) {
-      throw new IllegalStateException("待领取物品为空");
+      throw new IllegalStateException("item snapshot is empty");
     }
     int remaining = Math.max(1, totalAmount);
     int maxStack = Math.max(1, source.getMaxStackSize());
@@ -182,7 +182,7 @@ class MailboxService {
       stack.setAmount(chunk);
       Map<Integer, ItemStack> leftovers = player.getInventory().addItem(stack);
       if (!leftovers.isEmpty()) {
-        throw new IllegalStateException("背包已满");
+        throw new IllegalStateException("inventory is full");
       }
       remaining -= chunk;
     }

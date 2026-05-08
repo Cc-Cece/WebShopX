@@ -374,3 +374,53 @@ error:
   redeem:
     invalid_amount: "至少需要一种货币数量大于 0。"
     code_exists: "兑换码已存在，请更换后重试。"
+
+admin:
+  permissions:
+    group:
+      catalog: "商品与商城"
+      orders_users: "订单与用户"
+      market: "玩家市场"
+      economy: "经济配置"
+      audit: "审计"
+    permission:
+      PRODUCT_MANAGE:
+        label: "商品管理"
+        description: "创建、编辑、启用或停用官方商品。"
+      PRODUCT_ZERO_PRICE:
+        label: "允许零价格"
+        description: "允许商品价格设置为 0，但仍禁止负数。"
+      REDEEM_MANAGE:
+        label: "兑换码管理"
+        description: "创建与查看兑换码。"
+      ORDER_VIEW:
+        label: "订单查看"
+        description: "查看官方订单与玩家市场订单。"
+      USER_SUPPORT:
+        label: "用户支持"
+        description: "查询用户、重置密码、解绑、强制下线与余额调整。"
+      MARKET_MANAGE:
+        label: "市场管理"
+        description: "查看并强制下架玩家市场上架。"
+      ECONOMY_MANAGE:
+        label: "经济配置"
+        description: "更新汇率、手续费、税率与 Vault 集成设置。"
+      AUDIT_VIEW:
+        label: "审计日志查看"
+        description: "查看管理员操作审计日志。"
+    template:
+      SHOP_ADMIN:
+        label: "商城运营"
+        description: "管理商品、零价商品与兑换码，并查看订单。"
+      SUPPORT_ADMIN:
+        label: "客服管理员"
+        description: "处理账号支持事项并查看订单。"
+      MARKET_MODERATOR:
+        label: "市场版主"
+        description: "查看并管理玩家市场活动。"
+      AUDITOR:
+        label: "审计只读"
+        description: "仅查看审计日志，不进行写操作。"
+      SUPER_ADMIN:
+        label: "超级管理员"
+        description: "拥有全部权限，并可管理其他管理员。"

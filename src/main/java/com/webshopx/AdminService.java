@@ -169,88 +169,88 @@ class AdminService {
     return List.of(
         new PermissionGroup(
             "catalog",
-            "商品与商城",
+            "admin.permissions.group.catalog",
             List.of(
                 permissionDefinition(
                     AdminPermission.PRODUCT_MANAGE,
-                    "商品管理",
-                    "创建、编辑、启用或停用官方商品"),
+                    "admin.permissions.permission.PRODUCT_MANAGE.label",
+                    "admin.permissions.permission.PRODUCT_MANAGE.description"),
                 permissionDefinition(
                     AdminPermission.PRODUCT_ZERO_PRICE,
-                    "允许零价商品",
-                    "允许将任意商品价格设置为 0，仍不允许负数"),
+                    "admin.permissions.permission.PRODUCT_ZERO_PRICE.label",
+                    "admin.permissions.permission.PRODUCT_ZERO_PRICE.description"),
                 permissionDefinition(
                     AdminPermission.REDEEM_MANAGE,
-                    "兑换码管理",
-                    "创建和查看兑换码"))),
+                    "admin.permissions.permission.REDEEM_MANAGE.label",
+                    "admin.permissions.permission.REDEEM_MANAGE.description"))),
         new PermissionGroup(
             "orders_users",
-            "订单与用户",
+            "admin.permissions.group.orders_users",
             List.of(
                 permissionDefinition(
                     AdminPermission.ORDER_VIEW,
-                    "订单查看",
-                    "查看官方订单和玩家市场订单"),
+                    "admin.permissions.permission.ORDER_VIEW.label",
+                    "admin.permissions.permission.ORDER_VIEW.description"),
                 permissionDefinition(
                     AdminPermission.USER_SUPPORT,
-                    "用户支持",
-                    "查询用户、重置密码、解绑、强制下线与调整余额"))),
+                    "admin.permissions.permission.USER_SUPPORT.label",
+                    "admin.permissions.permission.USER_SUPPORT.description"))),
         new PermissionGroup(
             "market",
-            "玩家市场",
+            "admin.permissions.group.market",
             List.of(
                 permissionDefinition(
                     AdminPermission.MARKET_MANAGE,
-                    "市场管理",
-                    "查看并强制下架玩家市场商品"))),
+                    "admin.permissions.permission.MARKET_MANAGE.label",
+                    "admin.permissions.permission.MARKET_MANAGE.description"))),
         new PermissionGroup(
             "economy",
-            "经济设置",
+            "admin.permissions.group.economy",
             List.of(
                 permissionDefinition(
                     AdminPermission.ECONOMY_MANAGE,
-                    "经济设置",
-                    "修改兑换比例、手续费、税率与 Vault 对接相关设置"))),
+                    "admin.permissions.permission.ECONOMY_MANAGE.label",
+                    "admin.permissions.permission.ECONOMY_MANAGE.description"))),
         new PermissionGroup(
             "audit",
-            "审计",
+            "admin.permissions.group.audit",
             List.of(
                 permissionDefinition(
                     AdminPermission.AUDIT_VIEW,
-                    "查看审计日志",
-                    "查看后台操作的审计记录"))));
+                    "admin.permissions.permission.AUDIT_VIEW.label",
+                    "admin.permissions.permission.AUDIT_VIEW.description"))));
   }
 
   List<PermissionTemplate> listPermissionTemplates() {
     return List.of(
         new PermissionTemplate(
             "SHOP_ADMIN",
-            "商城运营",
-            "适合管理商品、零价商品、兑换码，并查看订单。",
+            "admin.permissions.template.SHOP_ADMIN.label",
+            "admin.permissions.template.SHOP_ADMIN.description",
             false,
             sortedPermissionCodes(AdminRole.SHOP_ADMIN.permissions())),
         new PermissionTemplate(
             "SUPPORT_ADMIN",
-            "客服支持",
-            "适合处理账号支持并查看订单。",
+            "admin.permissions.template.SUPPORT_ADMIN.label",
+            "admin.permissions.template.SUPPORT_ADMIN.description",
             false,
             sortedPermissionCodes(AdminRole.SUPPORT_ADMIN.permissions())),
         new PermissionTemplate(
             "MARKET_MODERATOR",
-            "市场管理",
-            "适合巡查和处理玩家市场。",
+            "admin.permissions.template.MARKET_MODERATOR.label",
+            "admin.permissions.template.MARKET_MODERATOR.description",
             false,
             sortedPermissionCodes(AdminRole.MARKET_MODERATOR.permissions())),
         new PermissionTemplate(
             "AUDITOR",
-            "审计只读",
-            "只查看审计日志，不执行写操作。",
+            "admin.permissions.template.AUDITOR.label",
+            "admin.permissions.template.AUDITOR.description",
             false,
             sortedPermissionCodes(AdminRole.AUDITOR.permissions())),
         new PermissionTemplate(
             "SUPER_ADMIN",
-            "超级管理员",
-            "拥有全部权限，并可管理其他管理员。",
+            "admin.permissions.template.SUPER_ADMIN.label",
+            "admin.permissions.template.SUPER_ADMIN.description",
             true,
             sortedPermissionCodes(EnumSet.allOf(AdminPermission.class))));
   }

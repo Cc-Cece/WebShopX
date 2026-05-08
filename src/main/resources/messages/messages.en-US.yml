@@ -352,3 +352,53 @@ error:
   redeem:
     invalid_amount: "At least one currency amount must be greater than 0."
     code_exists: "The redeem code already exists."
+
+admin:
+  permissions:
+    group:
+      catalog: "Catalog and Shop"
+      orders_users: "Orders and Users"
+      market: "Player Market"
+      economy: "Economy"
+      audit: "Audit"
+    permission:
+      PRODUCT_MANAGE:
+        label: "Product Management"
+        description: "Create, edit, enable, or disable official products."
+      PRODUCT_ZERO_PRICE:
+        label: "Allow Zero Price"
+        description: "Allow product price to be set to 0, but still forbid negative values."
+      REDEEM_MANAGE:
+        label: "Redeem Code Management"
+        description: "Create and view redeem codes."
+      ORDER_VIEW:
+        label: "Order Access"
+        description: "View official orders and player market orders."
+      USER_SUPPORT:
+        label: "User Support"
+        description: "Lookup users, reset password, unbind, force logout, and adjust balances."
+      MARKET_MANAGE:
+        label: "Market Moderation"
+        description: "Inspect and force-unlist player market listings."
+      ECONOMY_MANAGE:
+        label: "Economy Configuration"
+        description: "Update exchange ratios, fees, tax, and Vault integration settings."
+      AUDIT_VIEW:
+        label: "Audit Log Access"
+        description: "View audit logs for admin operations."
+    template:
+      SHOP_ADMIN:
+        label: "Shop Operator"
+        description: "Manage products, zero-price items, and redeem codes, and review orders."
+      SUPPORT_ADMIN:
+        label: "Support Admin"
+        description: "Handle account support tasks and review orders."
+      MARKET_MODERATOR:
+        label: "Market Moderator"
+        description: "Review and moderate player market activity."
+      AUDITOR:
+        label: "Audit Read-Only"
+        description: "View audit logs without write operations."
+      SUPER_ADMIN:
+        label: "Super Admin"
+        description: "Has all permissions and can manage other admins."

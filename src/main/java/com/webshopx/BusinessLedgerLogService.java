@@ -105,7 +105,7 @@ class BusinessLedgerLogService {
     String sign = delta >= 0 ? "+" : "";
     return String.format(
         Locale.ROOT,
-        "[%s] user=%s(id=%d) wallet=%d 资金变动 %s %s%d | 业务=%s(%s) | 交易类型=%s | 物品=%s | 校验余额=%s | 游戏币走Vault=%s",
+        "[%s] user=%s(id=%d) wallet=%d balance_delta %s %s%d | biz=%s(%s) | trade_type=%s | item=%s | enforce_balance=%s | game_coin_vault_backed=%s",
         ts,
         safeText(username),
         userId,
@@ -130,7 +130,7 @@ class BusinessLedgerLogService {
   }
 
   private String yesNo(boolean value) {
-    return value ? "是" : "否";
+    return value ? "yes" : "no";
   }
 
   private void cleanupOldLogs(PluginSettings.BusinessLedgerSettings settings) {

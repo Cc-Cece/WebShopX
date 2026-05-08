@@ -3677,18 +3677,23 @@ class EmbeddedWebServer {
     }
     withServiceHandling(exchange, () -> {
       requireSuperAdmin(exchange, null);
+      Map<String, String> query = parseQuery(exchange);
+      String locale = query.containsKey("locale")
+          ? readLocaleField(query.get("locale"), "locale")
+          : settingsSupplier.get().defaultLocale();
+      MessageService messageService = new MessageService(plugin, settingsSupplier);
       JsonObject response = new JsonObject();
       JsonArray groups = new JsonArray();
       for (AdminService.PermissionGroup group : adminService.listPermissionGroups()) {
         JsonObject groupJson = new JsonObject();
         groupJson.addProperty("key", group.key());
-        groupJson.addProperty("label", group.label());
+        groupJson.addProperty("label", messageService.get(locale, group.label()));
         JsonArray permissions = new JsonArray();
         for (AdminService.PermissionDefinition permission : group.permissions()) {
           JsonObject item = new JsonObject();
           item.addProperty("code", permission.code());
-          item.addProperty("label", permission.label());
-          item.addProperty("description", permission.description());
+          item.addProperty("label", messageService.get(locale, permission.label()));
+          item.addProperty("description", messageService.get(locale, permission.description()));
           permissions.add(item);
         }
         groupJson.add("permissions", permissions);
@@ -3698,8 +3703,8 @@ class EmbeddedWebServer {
       for (AdminService.PermissionTemplate template : adminService.listPermissionTemplates()) {
         JsonObject item = new JsonObject();
         item.addProperty("key", template.key());
-        item.addProperty("label", template.label());
-        item.addProperty("description", template.description());
+        item.addProperty("label", messageService.get(locale, template.label()));
+        item.addProperty("description", messageService.get(locale, template.description()));
         item.addProperty("superAdmin", template.superAdmin());
         JsonArray permissions = new JsonArray();
         for (String code : template.permissions()) {

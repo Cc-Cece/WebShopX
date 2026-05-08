@@ -460,7 +460,7 @@ class MarketService {
       throw new ServiceException("supply_missing", "Supply container is unavailable");
     }
     if (templateItem == null || templateItem.getType() == Material.AIR) {
-      throw new ServiceException("invalid_item", "未检测到有效物品");
+      throw new ServiceException("invalid_item", "No valid item was detected.");
     }
     SupplyConfig normalizedSupply = normalizeSupplyConfig(0, 0);
     ItemStack template = templateItem.clone();

@@ -99,7 +99,42 @@
   timeZone: "Asia/Shanghai",
 };
 
-const CURRENCY_META = {
+const I18N = window.WebShopXI18n || null;
+if (I18N) {
+  I18N.preparePage("app", { selectId: "localeSelect" });
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergeLocaleValue(fallbackValue, localeValue) {
+  if (Array.isArray(fallbackValue)) {
+    return Array.isArray(localeValue) ? localeValue.slice() : fallbackValue.slice();
+  }
+  if (!isPlainObject(fallbackValue)) {
+    return localeValue === undefined ? fallbackValue : localeValue;
+  }
+  const result = { ...fallbackValue };
+  if (!isPlainObject(localeValue)) {
+    return result;
+  }
+  Object.keys(localeValue).forEach((key) => {
+    result[key] = mergeLocaleValue(fallbackValue[key], localeValue[key]);
+  });
+  return result;
+}
+
+function loadAppLocaleBundle() {
+  if (!I18N || typeof I18N.loadBundleSync !== "function") {
+    return {};
+  }
+  return I18N.loadBundleSync("app");
+}
+
+const APP_LOCALE_BUNDLE = loadAppLocaleBundle();
+
+const FALLBACK_CURRENCY_META = {
   SHOP_COIN: {
     label: "网页币",
     short: "SC",
@@ -109,6 +144,84 @@ const CURRENCY_META = {
     short: "GC",
   },
 };
+
+const FALLBACK_APP_UI_TEXT = Object.freeze({
+  themeToggleLight: "切换亮色",
+  themeToggleDark: "切换暗色",
+  marketModeLabel: Object.freeze({
+    auction: Object.freeze({
+      public: "拍卖在售",
+      stores: "拍卖店铺",
+      mine: "我的拍卖",
+    }),
+    direct: Object.freeze({
+      public: "市场在售",
+      stores: "玩家店铺",
+      mine: "我的上架",
+    }),
+  }),
+  marketEmptyState: Object.freeze({
+    auction: Object.freeze({
+      listing: "当前没有可显示的拍卖上架。",
+      store: "当前没有可显示的拍卖店铺。",
+    }),
+    direct: Object.freeze({
+      listing: "当前没有可显示的市场上架。",
+      store: "当前没有可显示的玩家店铺。",
+    }),
+  }),
+  marketSection: Object.freeze({
+    auction: Object.freeze({
+      title: "拍卖行（C2C）",
+      desc: "仅显示拍卖模式上架，可直接出价或买断。其他商品请前往玩家市场。",
+      listBtn: "拍卖在售",
+      storeBtn: "拍卖店铺",
+      mineBtn: "我的拍卖",
+      createBuyTitle: "拍卖页不支持创建收购单，请切换到玩家市场。",
+    }),
+    direct: Object.freeze({
+      title: "玩家市场（C2C）",
+      desc: "玩家自行上架的商品。出售单需在游戏内创建；收购单可在网页直接发布。",
+      listBtn: "市场在售",
+      storeBtn: "玩家店铺",
+      mineBtn: "我的上架",
+      createBuyTitle: "",
+    }),
+  }),
+  initMeta: Object.freeze({
+    walletView: "等待刷新余额",
+    walletLedgerView: "等待加载记录",
+    redeemView: "等待兑换操作",
+    exchangeRateHint: "等待加载兑换比例",
+    exchangeView: "等待兑换操作",
+    orderView: "暂无订单",
+    notificationsView: "暂无通知",
+    marketView: "暂无市场数据",
+    leaderboardView: "等待加载榜单",
+    leaderboardMyRank: "我的名次：-",
+  }),
+  templates: Object.freeze({
+    loadFailed: "Load failed: {message}",
+    saveFailed: "Save failed: {message}",
+    loginFailed: "Login failed: {message}",
+    logoutFailed: "Logout failed: {message}",
+    walletRefreshFailed: "Wallet refresh failed: {message}",
+    productsLoadFailed: "Product load failed: {message}",
+    marketLoadFailed: "Market load failed: {message}",
+    notificationsLoadFailed: "Notification load failed: {message}",
+    ordersLoadFailed: "Order load failed: {message}",
+    redeemFailed: "Redeem failed: {message}",
+    exchangeFailed: "Exchange failed: {message}",
+    operationFailed: "Operation failed: {message}",
+    markReadFailed: "Mark read failed: {message}",
+    markAllReadFailed: "Mark all read failed: {message}",
+    buyOrderCreateFailed: "Buy order publish failed: {message}",
+    refundFailed: "Refund failed: {message}",
+    marketActionFailed: "Market operation failed: {message}",
+    iconProcessFailed: "Icon processing failed: {message}",
+    leaderboardLoadFailed: "Leaderboard load failed: {message}",
+  }),
+});
 
 const FALLBACK_MARKET_ALGORITHM_GLOSSARY = Object.freeze({
   dynamic: [
@@ -223,7 +336,7 @@ function resolveProductTextureMaterial(product) {
 
 const AVATAR_BASE = "https://nmsr.nickac.dev/face/";
 
-const ERROR_TIPS_COMMON = {
+const FALLBACK_ERROR_TIPS_COMMON = {
   auth_required: "请先登录后再操作。",
   auth_invalid: "登录状态已失效，请重新登录。",
   invalid_credentials: "账号或密码错误，请检查后重试。",
@@ -239,7 +352,7 @@ const ERROR_TIPS_COMMON = {
   tag_disabled: "该分类标签已停用。",
 };
 
-const ERROR_TIPS_BY_SCENE = {
+const FALLBACK_ERROR_TIPS_BY_SCENE = {
   login: {
     invalid_identifier: "请输入用户名。",
     invalid_password: "密码长度需为 8-64 位。",
@@ -388,7 +501,7 @@ const ERROR_TIPS_BY_SCENE = {
   },
 };
 
-const REDEEM_STATUS_TIPS = {
+const FALLBACK_REDEEM_STATUS_TIPS = {
   SUCCESS: { tone: "success", text: "兑换成功，资产已入账。" },
   INVALID_CODE: { tone: "warn", text: "兑换失败：兑换码无效。" },
   EXPIRED: { tone: "warn", text: "兑换失败：兑换码已过期。" },
@@ -397,7 +510,7 @@ const REDEEM_STATUS_TIPS = {
   USER_LIMIT_REACHED: { tone: "warn", text: "兑换失败：你已达到该兑换码的个人使用上限。" },
 };
 
-const ORDER_STATUS_LABELS = {
+const FALLBACK_ORDER_STATUS_LABELS = {
   PENDING: { label: "待发放", tone: "pending" },
   WAIT_CLAIM: { label: "待领取", tone: "pending" },
   DELIVERED: { label: "已发放", tone: "delivered" },
@@ -406,7 +519,7 @@ const ORDER_STATUS_LABELS = {
   RECYCLED: { label: "已回收", tone: "delivered" },
 };
 
-const ENCHANTMENT_LABELS = {
+const FALLBACK_ENCHANTMENT_LABELS = {
   protection: "保护",
   fire_protection: "火焰保护",
   feather_falling: "摔落保护",
@@ -451,9 +564,24 @@ const ENCHANTMENT_LABELS = {
   wind_burst: "风爆",
 };
 
-const I18N = window.WebShopXI18n || null;
-if (I18N) {
-  I18N.preparePage("app", { selectId: "localeSelect" });
+const CURRENCY_META = mergeLocaleValue(FALLBACK_CURRENCY_META, APP_LOCALE_BUNDLE.currencyMeta);
+const APP_UI_TEXT = Object.freeze(mergeLocaleValue(FALLBACK_APP_UI_TEXT, APP_LOCALE_BUNDLE.uiText));
+const APP_TEXT_TEMPLATES = Object.freeze(APP_UI_TEXT.templates || {});
+const ERROR_TIPS_COMMON = mergeLocaleValue(FALLBACK_ERROR_TIPS_COMMON, APP_LOCALE_BUNDLE.errorTipsCommon);
+const ERROR_TIPS_BY_SCENE = mergeLocaleValue(FALLBACK_ERROR_TIPS_BY_SCENE, APP_LOCALE_BUNDLE.errorTipsByScene);
+const REDEEM_STATUS_TIPS = mergeLocaleValue(FALLBACK_REDEEM_STATUS_TIPS, APP_LOCALE_BUNDLE.redeemStatusTips);
+const ORDER_STATUS_LABELS = mergeLocaleValue(FALLBACK_ORDER_STATUS_LABELS, APP_LOCALE_BUNDLE.orderStatusLabels);
+const ENCHANTMENT_LABELS = mergeLocaleValue(FALLBACK_ENCHANTMENT_LABELS, APP_LOCALE_BUNDLE.enchantmentLabels);
+
+function formatAppTemplate(key, params = {}) {
+  const template = APP_TEXT_TEMPLATES[key];
+  if (!template) {
+    return "";
+  }
+  return String(template).replace(/\{(\w+)\}/g, (_, token) => {
+    const value = params[token];
+    return value == null ? "" : String(value);
+  });
 }
 
 const elements = {
@@ -652,20 +780,18 @@ function filterListingsByTradeScope(listings, tradeScope) {
 
 function getMarketModeLabel(mode) {
   const normalizedMode = mode === "stores" ? "stores" : (mode === "mine" ? "mine" : "public");
-  if (normalizedMode === "stores") {
-    return isAuctionScope() ? "拍卖店铺" : "玩家店铺";
-  }
-  if (normalizedMode === "mine") {
-    return isAuctionScope() ? "我的拍卖" : "我的上架";
-  }
-  return isAuctionScope() ? "拍卖在售" : "市场在售";
+  const modeMap = isAuctionScope()
+    ? APP_UI_TEXT.marketModeLabel.auction
+    : APP_UI_TEXT.marketModeLabel.direct;
+  return modeMap[normalizedMode] || modeMap.public;
 }
 
 function getMarketEmptyStateText(kind = "listing") {
-  if (kind === "store") {
-    return isAuctionScope() ? "当前没有可显示的拍卖店铺。" : "当前没有可显示的玩家店铺。";
-  }
-  return isAuctionScope() ? "当前没有可显示的拍卖上架。" : "当前没有可显示的市场上架。";
+  const key = kind === "store" ? "store" : "listing";
+  const textMap = isAuctionScope()
+    ? APP_UI_TEXT.marketEmptyState.auction
+    : APP_UI_TEXT.marketEmptyState.direct;
+  return textMap[key] || textMap.listing;
 }
 
 function updateMarketSectionContext() {
@@ -673,31 +799,29 @@ function updateMarketSectionContext() {
     return;
   }
 
+  const sectionText = isAuctionScope()
+    ? APP_UI_TEXT.marketSection.auction
+    : APP_UI_TEXT.marketSection.direct;
+
+  setNodeText(elements.marketSectionTitle, sectionText.title);
+  setNodeText(elements.marketSectionDesc, sectionText.desc);
+  setNodeText(document.getElementById("marketListBtn"), sectionText.listBtn);
+  setNodeText(document.getElementById("marketMineBtn"), sectionText.mineBtn);
+  if (elements.marketStoreBtn) {
+    setNodeText(elements.marketStoreBtn, sectionText.storeBtn);
+  }
+
   if (isAuctionScope()) {
-    setNodeText(elements.marketSectionTitle, "拍卖行（C2C）");
-    setNodeText(elements.marketSectionDesc, "仅显示拍卖模式上架，可直接出价或买断。其他商品请前往玩家市场。");
-    setNodeText(document.getElementById("marketListBtn"), "拍卖在售");
-    if (elements.marketStoreBtn) {
-      setNodeText(elements.marketStoreBtn, "拍卖店铺");
-    }
-    setNodeText(document.getElementById("marketMineBtn"), "我的拍卖");
     if (elements.marketCreateBuyBtn) {
       elements.marketCreateBuyBtn.disabled = true;
-      elements.marketCreateBuyBtn.title = "拍卖页不支持创建收购单，请切换到玩家市场。";
+      elements.marketCreateBuyBtn.title = sectionText.createBuyTitle;
     }
     return;
   }
 
-  setNodeText(elements.marketSectionTitle, "玩家市场（C2C）");
-  setNodeText(elements.marketSectionDesc, "玩家自行上架的商品。出售单需在游戏内创建；收购单可在网页直接发布。");
-  setNodeText(document.getElementById("marketListBtn"), "市场在售");
-  if (elements.marketStoreBtn) {
-    setNodeText(elements.marketStoreBtn, "玩家店铺");
-  }
-  setNodeText(document.getElementById("marketMineBtn"), "我的上架");
   if (elements.marketCreateBuyBtn) {
     elements.marketCreateBuyBtn.disabled = false;
-    elements.marketCreateBuyBtn.title = "";
+    elements.marketCreateBuyBtn.title = sectionText.createBuyTitle;
   }
 }
 
@@ -773,7 +897,7 @@ function applyTheme(theme) {
   if (elements.themeToggleBtn) {
     elements.themeToggleBtn.textContent = I18N
       ? I18N.getThemeToggleLabel(normalized)
-      : (normalized === "dark" ? "切换亮色" : "切换暗色");
+      : (normalized === "dark" ? APP_UI_TEXT.themeToggleLight : APP_UI_TEXT.themeToggleDark);
   }
 }
 
@@ -1640,8 +1764,8 @@ async function openListingVisualDialog({
           updateListingIconPreview("新的自定义图片已加入待保存队列。", "success");
         } catch (error) {
           const message = resolveErrorMessage(error, "market_icon_upload");
-          updateListingIconPreview(`图标处理失败：${message}`, "error");
-          notify(`图标处理失败：${message}`, "error");
+          updateListingIconPreview(formatAppTemplate("iconProcessFailed", { message }), "error");
+          notify(formatAppTemplate("iconProcessFailed", { message }), "error");
         } finally {
           iconUploadBtn.disabled = false;
         }
@@ -2271,7 +2395,7 @@ function switchTab(tabName, skipHistory = false) {
     if (state.token) {
       refreshWallet().then(() => loadWalletLedger()).catch((error) => {
         const message = resolveErrorMessage(error, "wallet_refresh");
-        setMetaText(elements.walletView, `刷新钱包失败：${message}`, "error");
+        setMetaText(elements.walletView, formatAppTemplate("walletRefreshFailed", { message }), "error");
       });
     } else {
       setMetaText(elements.walletView, "请先登录后查看钱包。", "warn");
@@ -2302,7 +2426,7 @@ function switchTab(tabName, skipHistory = false) {
   if (tabName === "leaderboard") {
     loadLeaderboardConfig().then(() => loadLeaderboard()).catch((error) => {
       const message = resolveErrorMessage(error, "leaderboard");
-      setMetaText(elements.leaderboardView, `加载榜单失败：${message}`, "error");
+      setMetaText(elements.leaderboardView, formatAppTemplate("leaderboardLoadFailed", { message }), "error");
     });
     startLeaderboardRealtime();
   } else {
@@ -5974,9 +6098,9 @@ async function loadProducts(options = {}) {
     }
   } catch (error) {
     const message = resolveErrorMessage(error, "products_load");
-    log(`加载商品失败：${message}`, "ERROR");
+    log(formatAppTemplate("productsLoadFailed", { message }), "ERROR");
     if (announce) {
-      notify(`加载商品失败：${message}`, "error");
+      notify(formatAppTemplate("productsLoadFailed", { message }), "error");
     }
   }
 }
@@ -6079,10 +6203,10 @@ async function loadMarket(mode, options = {}) {
     }
   } catch (error) {
     const message = resolveErrorMessage(error, "market_load");
-    setMetaText(elements.marketView, `加载市场失败：${message}`, "error");
-    log(`加载市场失败：${message}`, "ERROR");
+    setMetaText(elements.marketView, formatAppTemplate("marketLoadFailed", { message }), "error");
+    log(formatAppTemplate("marketLoadFailed", { message }), "ERROR");
     if (announce) {
-      notify(`加载市场失败：${message}`, "error");
+      notify(formatAppTemplate("marketLoadFailed", { message }), "error");
     }
   }
 }
@@ -6344,12 +6468,12 @@ async function loadNotifications(options = {}) {
     }
   } catch (error) {
     const message = resolveErrorMessage(error, "notifications_load");
-    setMetaText(elements.notificationsView, `加载通知失败：${message}`, "error");
+    setMetaText(elements.notificationsView, formatAppTemplate("notificationsLoadFailed", { message }), "error");
     if (announce && !silent) {
-      notify(`加载通知失败：${message}`, "error");
+      notify(formatAppTemplate("notificationsLoadFailed", { message }), "error");
     }
     if (!silent) {
-      log(`加载通知失败：${message}`, "ERROR");
+      log(formatAppTemplate("notificationsLoadFailed", { message }), "ERROR");
     }
   }
 }
@@ -6429,10 +6553,10 @@ async function loadOrders(options = {}) {
     }
   } catch (error) {
     const message = resolveErrorMessage(error, "orders_load");
-    setMetaText(elements.orderView, `加载订单失败：${message}`, "error");
-    log(`加载订单失败：${message}`, "ERROR");
+    setMetaText(elements.orderView, formatAppTemplate("ordersLoadFailed", { message }), "error");
+    log(formatAppTemplate("ordersLoadFailed", { message }), "ERROR");
     if (announce) {
-      notify(`加载订单失败：${message}`, "error");
+      notify(formatAppTemplate("ordersLoadFailed", { message }), "error");
     }
   }
 }
@@ -7233,8 +7357,8 @@ if (elements.loginBtn) {
     notify("登录成功。", "success");
   } catch (error) {
     const message = resolveErrorMessage(error, "login");
-    log(`登录失败：${message}`, "ERROR");
-    notify(`登录失败：${message}`, "error");
+    log(formatAppTemplate("loginFailed", { message }), "ERROR");
+    notify(formatAppTemplate("loginFailed", { message }), "error");
   }
   });
 }
@@ -7258,8 +7382,8 @@ elements.logoutBtn.addEventListener("click", async () => {
     notify("已退出登录。", "success");
   } catch (error) {
     const message = resolveErrorMessage(error, "logout");
-    log(`退出登录失败：${message}`, "ERROR");
-    notify(`退出登录失败：${message}`, "error");
+    log(formatAppTemplate("logoutFailed", { message }), "ERROR");
+    notify(formatAppTemplate("logoutFailed", { message }), "error");
   }
 });
 
@@ -7271,8 +7395,8 @@ document.getElementById("walletBtn").addEventListener("click", async () => {
     notify("钱包余额已刷新。", "success");
   } catch (error) {
     const message = resolveErrorMessage(error, "wallet_refresh");
-    log(`刷新钱包失败：${message}`, "ERROR");
-    notify(`刷新钱包失败：${message}`, "error");
+    log(formatAppTemplate("walletRefreshFailed", { message }), "ERROR");
+    notify(formatAppTemplate("walletRefreshFailed", { message }), "error");
   }
 });
 
@@ -7305,9 +7429,9 @@ document.getElementById("redeemBtn").addEventListener("click", async () => {
     notify(detailText, tip.tone);
   } catch (error) {
     const message = resolveErrorMessage(error, "redeem");
-    setMetaText(elements.redeemView, `兑换失败：${message}`, "error");
-    log(`兑换失败：${message}`, "ERROR");
-    notify(`兑换失败：${message}`, "error");
+    setMetaText(elements.redeemView, formatAppTemplate("redeemFailed", { message }), "error");
+    log(formatAppTemplate("redeemFailed", { message }), "ERROR");
+    notify(formatAppTemplate("redeemFailed", { message }), "error");
   }
 });
 
@@ -7386,9 +7510,9 @@ document.getElementById("exchangeBtn").addEventListener("click", async () => {
     notify(successText, "success");
   } catch (error) {
     const message = resolveErrorMessage(error, "exchange");
-    setMetaText(elements.exchangeView, `兑换失败：${message}`, "error");
-    log(`兑换失败：${message}`, "ERROR");
-    notify(`兑换失败：${message}`, "error");
+    setMetaText(elements.exchangeView, formatAppTemplate("exchangeFailed", { message }), "error");
+    log(formatAppTemplate("exchangeFailed", { message }), "ERROR");
+    notify(formatAppTemplate("exchangeFailed", { message }), "error");
   }
 });
 
@@ -7470,8 +7594,8 @@ if (elements.notificationsMarkAllBtn) {
       notify("已全部标记为已读。", "success");
     } catch (error) {
       const message = resolveErrorMessage(error, "notifications_mark_read");
-      notify(`操作失败：${message}`, "error");
-      log(`通知全部已读失败：${message}`, "ERROR");
+      notify(formatAppTemplate("markAllReadFailed", { message }), "error");
+      log(formatAppTemplate("markAllReadFailed", { message }), "ERROR");
     }
   });
 }
@@ -7490,8 +7614,8 @@ if (elements.notificationsList) {
       await markNotificationRead(notificationId);
     } catch (error) {
       const message = resolveErrorMessage(error, "notifications_mark_read");
-      notify(`标记已读失败：${message}`, "error");
-      log(`通知标记已读失败：${message}`, "ERROR");
+      notify(formatAppTemplate("markReadFailed", { message }), "error");
+      log(formatAppTemplate("markReadFailed", { message }), "ERROR");
     } finally {
       button.disabled = false;
     }
@@ -7590,8 +7714,8 @@ if (elements.marketCreateBuyBtn) {
       await createBuyListing(params);
     } catch (error) {
       const message = resolveErrorMessage(error, "market_create");
-      notify(`收购单发布失败：${message}`, "error");
-      log(`收购单发布失败：${message}`, "ERROR");
+      notify(formatAppTemplate("buyOrderCreateFailed", { message }), "error");
+      log(formatAppTemplate("buyOrderCreateFailed", { message }), "ERROR");
     } finally {
       elements.marketCreateBuyBtn.disabled = false;
       setNodeText(elements.marketCreateBuyBtn, "发布收购单");
@@ -7605,7 +7729,7 @@ if (elements.leaderboardRefreshBtn) {
       notify("排行榜已刷新。", "success");
     }).catch((error) => {
       const message = resolveErrorMessage(error, "leaderboard");
-      notify(`加载失败：${message}`, "error");
+      notify(formatAppTemplate("loadFailed", { message }), "error");
     });
   });
 }
@@ -7742,8 +7866,8 @@ if (elements.orderList) {
       await refundOrder(orderNo);
     } catch (error) {
       const message = resolveErrorMessage(error, "order_refund");
-      log(`退款失败：${message}`, "ERROR");
-      notify(`退款失败：${message}`, "error");
+      log(formatAppTemplate("refundFailed", { message }), "ERROR");
+      notify(formatAppTemplate("refundFailed", { message }), "error");
     } finally {
       button.disabled = false;
       setNodeText(button, "申请退款");
@@ -7936,8 +8060,8 @@ elements.marketList.addEventListener("click", async (event) => {
         ? "market_price"
         : "market_buy";
     const message = resolveErrorMessage(error, scene);
-    log(`市场操作失败：${message}`, "ERROR");
-    notify(`市场操作失败：${message}`, "error");
+    log(formatAppTemplate("marketActionFailed", { message }), "ERROR");
+    notify(formatAppTemplate("marketActionFailed", { message }), "error");
   } finally {
     button.disabled = false;
     button.textContent = originalText;
@@ -8027,19 +8151,19 @@ if (elements.marketHideOwnToggle) {
 setAuthMode("login");
 updateAuthLayout();
 updateMarketSectionContext();
-setMetaText(elements.walletView, "等待刷新余额", "info");
-setMetaText(elements.walletLedgerView, "等待加载记录", "info");
-setMetaText(elements.redeemView, "等待兑换操作", "info");
-setMetaText(elements.exchangeRateHint, "等待加载兑换比例", "info");
-setMetaText(elements.exchangeView, "等待兑换操作", "info");
-setMetaText(elements.orderView, "暂无订单", "info");
-setMetaText(elements.notificationsView, "暂无通知", "info");
-setMetaText(elements.marketView, "暂无市场数据", "info");
+setMetaText(elements.walletView, APP_UI_TEXT.initMeta.walletView, "info");
+setMetaText(elements.walletLedgerView, APP_UI_TEXT.initMeta.walletLedgerView, "info");
+setMetaText(elements.redeemView, APP_UI_TEXT.initMeta.redeemView, "info");
+setMetaText(elements.exchangeRateHint, APP_UI_TEXT.initMeta.exchangeRateHint, "info");
+setMetaText(elements.exchangeView, APP_UI_TEXT.initMeta.exchangeView, "info");
+setMetaText(elements.orderView, APP_UI_TEXT.initMeta.orderView, "info");
+setMetaText(elements.notificationsView, APP_UI_TEXT.initMeta.notificationsView, "info");
+setMetaText(elements.marketView, APP_UI_TEXT.initMeta.marketView, "info");
 if (elements.leaderboardView) {
-  setMetaText(elements.leaderboardView, "等待加载榜单", "info");
+  setMetaText(elements.leaderboardView, APP_UI_TEXT.initMeta.leaderboardView, "info");
 }
 if (elements.leaderboardMyRankView) {
-  setNodeText(elements.leaderboardMyRankView, "我的名次：-");
+  setNodeText(elements.leaderboardMyRankView, APP_UI_TEXT.initMeta.leaderboardMyRank);
 }
 renderNotifications(state.notifications);
 updateNotificationBadge();

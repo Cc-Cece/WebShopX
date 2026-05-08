@@ -91,6 +91,86 @@
   },
 };
 
+const I18N = window.WebShopXI18n || null;
+if (I18N) {
+  I18N.preparePage("admin", { selectId: "adminLocaleSelect" });
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergeLocaleValue(fallbackValue, localeValue) {
+  if (Array.isArray(fallbackValue)) {
+    return Array.isArray(localeValue) ? localeValue.slice() : fallbackValue.slice();
+  }
+  if (!isPlainObject(fallbackValue)) {
+    return localeValue === undefined ? fallbackValue : localeValue;
+  }
+  const result = { ...fallbackValue };
+  if (!isPlainObject(localeValue)) {
+    return result;
+  }
+  Object.keys(localeValue).forEach((key) => {
+    result[key] = mergeLocaleValue(fallbackValue[key], localeValue[key]);
+  });
+  return result;
+}
+
+function loadAdminLocaleBundle() {
+  if (!I18N || typeof I18N.loadBundleSync !== "function") {
+    return {};
+  }
+  return I18N.loadBundleSync("admin");
+}
+
+const ADMIN_LOCALE_BUNDLE = loadAdminLocaleBundle();
+state.currencyMeta = mergeLocaleValue(state.currencyMeta, ADMIN_LOCALE_BUNDLE.currencyMeta);
+
+const FALLBACK_ADMIN_UI_TEXT = Object.freeze({
+  themeToggleLight: "切换亮色",
+  themeToggleDark: "切换暗色",
+  initMeta: Object.freeze({
+    adminLoginStatus: "等待登录",
+    productListStatus: "等待加载商品列表",
+    groupBuyConsumeStatus: "等待核销",
+    userListStatus: "等待加载列表",
+    adminManagerStatus: "等待操作",
+    adminManagerListStatus: "等待加载管理员列表",
+    currencyStatusView: "等待操作",
+    runtimeWebshopStatusView: "等待操作",
+    runtimeMarketStatusView: "等待操作",
+    marketTagMetaStatusView: "等待加载标签",
+    marketLimitationSummaryView: "等待加载限制摘要",
+    marketTagConfigStatusView: "等待加载标签规则",
+    marketLimitationConfigStatusView: "等待加载上架限制",
+    runtimeMaintenanceStatusView: "等待操作",
+    runtimeLoggingStatusView: "等待操作",
+    runtimeBroadcastStatusView: "等待操作",
+    runtimeNotificationStatusView: "等待操作",
+    runtimeAnnouncementStatusView: "等待发送公告",
+    deploymentScopeStatusView: "等待加载部署模式",
+    materialOverrideStatusView: "等待加载材质映射",
+  }),
+  templates: Object.freeze({
+    saveFailed: "Save failed: {message}",
+    loadFailed: "Load failed: {message}",
+    uploadFailed: "Upload failed: {message}",
+    deleteFailed: "Delete failed: {message}",
+    applyFailed: "Apply failed: {message}",
+    createFailed: "Create failed: {message}",
+    consumeFailed: "Consume failed: {message}",
+    sendFailed: "Send failed: {message}",
+    queryFailed: "Query failed: {message}",
+    resetFailed: "Reset failed: {message}",
+    unbindFailed: "Unbind failed: {message}",
+    forceLogoutFailed: "Force logout failed: {message}",
+    adjustFailed: "Adjust failed: {message}",
+    tagLoadFailed: "Tag load failed: {message}",
+    limitationLoadFailed: "Listing limitation load failed: {message}",
+  }),
+});
+
 const POTION_EFFECT_OPTIONS = [
   "speed",
   "slowness",
@@ -194,7 +274,7 @@ function getFallbackTexture() {
   );
 }
 
-const POTION_EFFECT_LABELS = {
+const FALLBACK_POTION_EFFECT_LABELS = {
   speed: "速度",
   slowness: "缓慢",
   haste: "急迫",
@@ -253,7 +333,7 @@ const PARAM_KEY_ALIAS_MAP = Object.freeze({
   eta: ["elasticity"],
 });
 
-const DEFAULT_NOTIFICATION_TEMPLATES = Object.freeze({
+const FALLBACK_DEFAULT_NOTIFICATION_TEMPLATES = Object.freeze({
   market_listed: "你的上架 #{listingId} 已发布：{item} x{quantity}，单价 {priceText}。",
   market_trade: "上架 #{listingId} 已成交：{item} x{quantity}，总价 {totalText}。",
   auction_bid_self: "你在拍卖 #{listingId} 出价成功：{bidAmountText}。",
@@ -266,10 +346,23 @@ const DEFAULT_NOTIFICATION_TEMPLATES = Object.freeze({
   mailbox_pending: "自动发货时背包不可用，物品已存入游戏信箱。请在游戏内执行 /ws mailbox claim 领取。来源：{sourceType} {sourceRef}",
 });
 
-const I18N = window.WebShopXI18n || null;
-if (I18N) {
-  I18N.preparePage("admin", { selectId: "adminLocaleSelect" });
+const ADMIN_UI_TEXT = Object.freeze(mergeLocaleValue(FALLBACK_ADMIN_UI_TEXT, ADMIN_LOCALE_BUNDLE.uiText));
+const ADMIN_TEXT_TEMPLATES = Object.freeze(ADMIN_UI_TEXT.templates || {});
+
+function formatAdminTemplate(key, params = {}) {
+  const template = ADMIN_TEXT_TEMPLATES[key];
+  if (!template) {
+    return "";
+  }
+  return String(template).replace(/\{(\w+)\}/g, (_, token) => {
+    const value = params[token];
+    return value == null ? "" : String(value);
+  });
 }
+const POTION_EFFECT_LABELS = mergeLocaleValue(FALLBACK_POTION_EFFECT_LABELS, ADMIN_LOCALE_BUNDLE.potionEffectLabels);
+const DEFAULT_NOTIFICATION_TEMPLATES = Object.freeze(
+  mergeLocaleValue(FALLBACK_DEFAULT_NOTIFICATION_TEMPLATES, ADMIN_LOCALE_BUNDLE.defaultNotificationTemplates)
+);
 
 const elements = {
   statusChip: document.getElementById("adminStatusChip"),
@@ -674,7 +767,7 @@ function applyTheme(theme) {
   if (elements.adminThemeToggleBtn) {
     elements.adminThemeToggleBtn.textContent = I18N
       ? I18N.getThemeToggleLabel(normalized)
-      : (normalized === "dark" ? "切换亮色" : "切换暗色");
+      : (normalized === "dark" ? ADMIN_UI_TEXT.themeToggleLight : ADMIN_UI_TEXT.themeToggleDark);
   }
 }
 
@@ -5194,12 +5287,12 @@ async function loadEconomySettings() {
   try {
     await loadMaterialOverrideList();
   } catch (error) {
-    setMetaText(elements.materialOverrideStatusView, `材质映射加载失败：${error.message}`, "error");
+    setMetaText(elements.materialOverrideStatusView, formatAdminTemplate("materialOverrideLoadFailed", { message: error.message }), "error");
   }
   try {
     await loadMarketTagMeta();
   } catch (error) {
-    setMetaText(elements.marketTagMetaStatusView, `标签加载失败：${error.message}`, "error");
+    setMetaText(elements.marketTagMetaStatusView, formatAdminTemplate("tagLoadFailed", { message: error.message }), "error");
   }
   try {
     await loadMarketPolicyConfigs({
@@ -5207,8 +5300,8 @@ async function loadEconomySettings() {
       marketLimitationConfig: payload.marketLimitationConfig || null,
     });
   } catch (error) {
-    setMetaText(elements.marketTagConfigStatusView, `标签规则加载失败：${error.message}`, "error");
-    setMetaText(elements.marketLimitationConfigStatusView, `上架限制加载失败：${error.message}`, "error");
+    setMetaText(elements.marketTagConfigStatusView, formatAdminTemplate("tagRuleLoadFailed", { message: error.message }), "error");
+    setMetaText(elements.marketLimitationConfigStatusView, formatAdminTemplate("limitationLoadFailed", { message: error.message }), "error");
   }
 
   setMetaText(elements.exchangeStatusView, "已加载兑换配置", "info");
@@ -5353,8 +5446,8 @@ function renderMaterialOverrideCard(row) {
     try {
       await deleteMaterialOverride(normalized.materialKey);
     } catch (error) {
-      setMetaText(elements.materialOverrideStatusView, `删除失败：${error.message}`, "error");
-      notify(`删除失败：${error.message}`, "error");
+      setMetaText(elements.materialOverrideStatusView, formatAdminTemplate("deleteFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("deleteFailed", { message: error.message }), "error");
     }
   });
   actionWrap.appendChild(editBtn);
@@ -6459,7 +6552,8 @@ async function loadAdminManagerMeta() {
   if (!state.admin?.canManageAdmins) {
     return;
   }
-  state.adminMeta = await apiAdmin("/api/admin/admin-users/meta", { method: "GET" });
+  const locale = I18N && typeof I18N.getLocale === "function" ? I18N.getLocale() : "zh-CN";
+  state.adminMeta = await apiAdmin(`/api/admin/admin-users/meta?locale=${encodeURIComponent(locale)}`, { method: "GET" });
   populateAdminTemplates();
   renderAdminPermissionGroups();
 }
@@ -6562,8 +6656,8 @@ elements.redeemCreateBtn.addEventListener("click", async () => {
   try {
     await createRedeemCode();
   } catch (error) {
-    setMetaText(elements.redeemCreateResult, `生成失败：${error.message}`, "error");
-    notify(`生成失败：${error.message}`, "error");
+    setMetaText(elements.redeemCreateResult, formatAdminTemplate("createFailed", { message: error.message }), "error");
+    notify(formatAdminTemplate("createFailed", { message: error.message }), "error");
   }
 });
 
@@ -6583,7 +6677,7 @@ elements.redeemRefreshBtn.addEventListener("click", async () => {
     await loadRedeemList();
     notify("兑换码列表已刷新", "success");
   } catch (error) {
-    notify(`加载失败：${error.message}`, "error");
+    notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
   }
 });
 
@@ -6591,8 +6685,8 @@ elements.productSaveBtn.addEventListener("click", async () => {
   try {
     await saveProduct();
   } catch (error) {
-    setMetaText(elements.productStatus, `保存失败：${error.message}`, "error");
-    notify(`保存失败：${error.message}`, "error");
+    setMetaText(elements.productStatus, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+    notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
   }
 });
 
@@ -6625,8 +6719,8 @@ if (elements.productIconUploadBtn) {
     try {
       await uploadProductIcon();
     } catch (error) {
-      setMetaText(elements.productIconStatus, `上传失败：${error.message}`, "error");
-      notify(`上传失败：${error.message}`, "error");
+      setMetaText(elements.productIconStatus, formatAdminTemplate("uploadFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("uploadFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6647,8 +6741,8 @@ if (elements.groupBuyConsumeBtn) {
       await consumeGroupBuyVoucher();
     } catch (error) {
       const message = resolveAdminErrorMessage(error);
-      setMetaText(elements.groupBuyConsumeStatus, `核销失败：${message}`, "error");
-      notify(`核销失败：${message}`, "error");
+      setMetaText(elements.groupBuyConsumeStatus, formatAdminTemplate("consumeFailed", { message }), "error");
+      notify(formatAdminTemplate("consumeFailed", { message }), "error");
     }
   });
 }
@@ -6658,7 +6752,7 @@ elements.productRefreshBtn.addEventListener("click", async () => {
     await loadProducts();
     notify("商品列表已刷新", "success");
   } catch (error) {
-    notify(`加载失败：${error.message}`, "error");
+    notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
   }
 });
 
@@ -6668,8 +6762,8 @@ if (elements.orderRefreshBtn) {
       await loadAdminOrders();
       notify("订单列表已刷新", "success");
     } catch (error) {
-      setMetaText(elements.orderStatusView, `加载失败：${error.message}`, "error");
-      notify(`加载失败：${error.message}`, "error");
+      setMetaText(elements.orderStatusView, formatAdminTemplate("loadFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6679,8 +6773,8 @@ if (elements.exchangeSaveBtn) {
     try {
       await saveExchangeSettings();
     } catch (error) {
-      setMetaText(elements.exchangeStatusView, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.exchangeStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6690,8 +6784,8 @@ if (elements.marketEconomySaveBtn) {
     try {
       await saveMarketEconomySettings();
     } catch (error) {
-      setMetaText(elements.marketEconomyStatusView, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.marketEconomyStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6707,8 +6801,8 @@ if (elements.leaderboardSaveBtn) {
     try {
       await saveLeaderboardSettings();
     } catch (error) {
-      setMetaText(elements.leaderboardStatusView, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.leaderboardStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6718,8 +6812,8 @@ if (elements.currencySaveBtn) {
     try {
       await saveCurrencyDisplaySettings();
     } catch (error) {
-      setMetaText(elements.currencyStatusView, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.currencyStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6729,8 +6823,8 @@ if (elements.runtimeWebshopSaveBtn) {
     try {
       await saveWebshopRuntimeSettings();
     } catch (error) {
-      setMetaText(elements.runtimeWebshopStatusView, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.runtimeWebshopStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6740,8 +6834,8 @@ if (elements.runtimeMarketSaveBtn) {
     try {
       await saveMarketRuntimeSettings();
     } catch (error) {
-      setMetaText(elements.runtimeMarketStatusView, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.runtimeMarketStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6751,8 +6845,8 @@ if (elements.marketTagRefreshBtn) {
     try {
       await loadMarketTagMeta({ announce: true });
     } catch (error) {
-      setMetaText(elements.marketTagMetaStatusView, `标签加载失败：${error.message}`, "error");
-      notify(`标签加载失败：${error.message}`, "error");
+      setMetaText(elements.marketTagMetaStatusView, formatAdminTemplate("tagLoadFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("tagLoadFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6763,8 +6857,8 @@ if (elements.marketLimitationRefreshBtn) {
       await loadMarketPolicyConfigs({ marketTagsConfig: state.marketTagConfig || {} });
       notify("上架限制已刷新。", "success");
     } catch (error) {
-      setMetaText(elements.marketLimitationConfigStatusView, `上架限制加载失败：${error.message}`, "error");
-      notify(`上架限制加载失败：${error.message}`, "error");
+      setMetaText(elements.marketLimitationConfigStatusView, formatAdminTemplate("limitationLoadFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("limitationLoadFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6793,7 +6887,7 @@ if (elements.marketTagEditSaveBtn) {
       saveMarketTagEditDialog();
       notify("标签已更新，请记得点击“保存标签规则”提交到数据库。", "success");
     } catch (error) {
-      notify(`标签保存失败：${error.message}`, "error");
+      notify(formatAdminTemplate("tagSaveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6818,7 +6912,7 @@ if (elements.marketRuleEditSaveBtn) {
       saveMarketLimitationRuleEditDialog();
       notify("限制规则已更新，请记得点击“保存上架限制”提交到数据库。", "success");
     } catch (error) {
-      notify(`规则保存失败：${error.message}`, "error");
+      notify(formatAdminTemplate("ruleSaveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6880,8 +6974,8 @@ if (elements.marketTagJsonApplyBtn) {
       applyMarketTagJsonToVisual();
       notify("标签 JSON 已应用到可视化表单", "success");
     } catch (error) {
-      setMetaText(elements.marketTagConfigStatusView, `应用失败：${error.message}`, "error");
-      notify(`应用失败：${error.message}`, "error");
+      setMetaText(elements.marketTagConfigStatusView, formatAdminTemplate("applyFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("applyFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6892,8 +6986,8 @@ if (elements.marketLimitationJsonApplyBtn) {
       applyMarketLimitationJsonToVisual();
       notify("上架限制 JSON 已应用到可视化表单", "success");
     } catch (error) {
-      setMetaText(elements.marketLimitationConfigStatusView, `应用失败：${error.message}`, "error");
-      notify(`应用失败：${error.message}`, "error");
+      setMetaText(elements.marketLimitationConfigStatusView, formatAdminTemplate("applyFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("applyFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6903,8 +6997,8 @@ if (elements.marketTagConfigSaveBtn) {
     try {
       await saveMarketTagConfig();
     } catch (error) {
-      setMetaText(elements.marketTagConfigStatusView, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.marketTagConfigStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6914,8 +7008,8 @@ if (elements.marketLimitationConfigSaveBtn) {
     try {
       await saveMarketLimitationConfig();
     } catch (error) {
-      setMetaText(elements.marketLimitationConfigStatusView, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.marketLimitationConfigStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6925,8 +7019,8 @@ if (elements.runtimeMaintenanceSaveBtn) {
     try {
       await saveMaintenanceSettings();
     } catch (error) {
-      setMetaText(elements.runtimeMaintenanceStatusView, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.runtimeMaintenanceStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6936,8 +7030,8 @@ if (elements.runtimeLoggingSaveBtn) {
     try {
       await saveLoggingSettings();
     } catch (error) {
-      setMetaText(elements.runtimeLoggingStatusView, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.runtimeLoggingStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6947,8 +7041,8 @@ if (elements.runtimeBroadcastSaveBtn) {
     try {
       await saveBroadcastSettings();
     } catch (error) {
-      setMetaText(elements.runtimeBroadcastStatusView, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.runtimeBroadcastStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6984,8 +7078,8 @@ if (elements.runtimeNotificationSaveBtn) {
     try {
       await saveNotificationSettings();
     } catch (error) {
-      setMetaText(elements.runtimeNotificationStatusView, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.runtimeNotificationStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -6995,8 +7089,8 @@ if (elements.runtimeAnnouncementSendBtn) {
     try {
       await sendAdminAnnouncement();
     } catch (error) {
-      setMetaText(elements.runtimeAnnouncementStatusView, `发送失败：${error.message}`, "error");
-      notify(`发送失败：${error.message}`, "error");
+      setMetaText(elements.runtimeAnnouncementStatusView, formatAdminTemplate("sendFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("sendFailed", { message: error.message }), "error");
     }
   });
 }
@@ -7006,8 +7100,8 @@ if (elements.visualSettingsSaveBtn) {
     try {
       await saveVisualSettings();
     } catch (error) {
-      setMetaText(elements.visualSettingsStatusView, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.visualSettingsStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -7018,8 +7112,8 @@ if (elements.materialOverrideRefreshBtn) {
       await loadMaterialOverrideList();
       notify("材质映射列表已刷新", "success");
     } catch (error) {
-      setMetaText(elements.materialOverrideStatusView, `加载失败：${error.message}`, "error");
-      notify(`加载失败：${error.message}`, "error");
+      setMetaText(elements.materialOverrideStatusView, formatAdminTemplate("loadFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
     }
   });
 }
@@ -7029,8 +7123,8 @@ if (elements.materialOverrideSaveBtn) {
     try {
       await saveMaterialOverride();
     } catch (error) {
-      setMetaText(elements.materialOverrideStatusView, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.materialOverrideStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -7040,8 +7134,8 @@ if (elements.materialOverrideUploadBtn) {
     try {
       await uploadMaterialOverrideIcon();
     } catch (error) {
-      setMetaText(elements.materialOverrideStatusView, `上传失败：${error.message}`, "error");
-      notify(`上传失败：${error.message}`, "error");
+      setMetaText(elements.materialOverrideStatusView, formatAdminTemplate("uploadFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("uploadFailed", { message: error.message }), "error");
     }
   });
 }
@@ -7051,8 +7145,8 @@ if (elements.materialOverrideDeleteBtn) {
     try {
       await deleteMaterialOverride();
     } catch (error) {
-      setMetaText(elements.materialOverrideStatusView, `删除失败：${error.message}`, "error");
-      notify(`删除失败：${error.message}`, "error");
+      setMetaText(elements.materialOverrideStatusView, formatAdminTemplate("deleteFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("deleteFailed", { message: error.message }), "error");
     }
   });
 }
@@ -7078,7 +7172,7 @@ elements.marketRefreshBtn.addEventListener("click", async () => {
     await loadMarket();
     notify("市场列表已刷新", "success");
   } catch (error) {
-    notify(`加载失败：${error.message}`, "error");
+    notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
   }
 });
 
@@ -7143,8 +7237,8 @@ elements.userSearchBtn.addEventListener("click", async () => {
   try {
     await lookupUser();
   } catch (error) {
-    setMetaText(elements.userLookupStatus, `查询失败：${error.message}`, "error");
-    notify(`查询失败：${error.message}`, "error");
+    setMetaText(elements.userLookupStatus, formatAdminTemplate("queryFailed", { message: error.message }), "error");
+    notify(formatAdminTemplate("queryFailed", { message: error.message }), "error");
   }
 });
 
@@ -7154,8 +7248,8 @@ if (elements.userListRefreshBtn) {
       await loadUserList();
       notify("用户列表已刷新", "success");
     } catch (error) {
-      setMetaText(elements.userListStatus, `加载失败：${error.message}`, "error");
-      notify(`加载失败：${error.message}`, "error");
+      setMetaText(elements.userListStatus, formatAdminTemplate("loadFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
     }
   });
 }
@@ -7181,8 +7275,8 @@ elements.userResetPasswordBtn.addEventListener("click", async () => {
     await resetPassword();
     await loadUserList();
   } catch (error) {
-    setMetaText(elements.userActionStatus, `重置失败：${error.message}`, "error");
-    notify(`重置失败：${error.message}`, "error");
+    setMetaText(elements.userActionStatus, formatAdminTemplate("resetFailed", { message: error.message }), "error");
+    notify(formatAdminTemplate("resetFailed", { message: error.message }), "error");
   }
 });
 
@@ -7191,8 +7285,8 @@ elements.userUnbindBtn.addEventListener("click", async () => {
     await unbindUser();
     await loadUserList();
   } catch (error) {
-    setMetaText(elements.userActionStatus, `解绑失败：${error.message}`, "error");
-    notify(`解绑失败：${error.message}`, "error");
+    setMetaText(elements.userActionStatus, formatAdminTemplate("unbindFailed", { message: error.message }), "error");
+    notify(formatAdminTemplate("unbindFailed", { message: error.message }), "error");
   }
 });
 
@@ -7201,8 +7295,8 @@ elements.userForceLogoutBtn.addEventListener("click", async () => {
     await forceLogoutUser();
     await loadUserList();
   } catch (error) {
-    setMetaText(elements.userActionStatus, `强制下线失败：${error.message}`, "error");
-    notify(`强制下线失败：${error.message}`, "error");
+    setMetaText(elements.userActionStatus, formatAdminTemplate("forceLogoutFailed", { message: error.message }), "error");
+    notify(formatAdminTemplate("forceLogoutFailed", { message: error.message }), "error");
   }
 });
 
@@ -7228,8 +7322,8 @@ if (elements.adminManagerSaveBtn) {
     try {
       await saveAdminManager();
     } catch (error) {
-      setMetaText(elements.adminManagerStatus, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.adminManagerStatus, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -7247,8 +7341,8 @@ if (elements.adminManagerRefreshBtn) {
       await loadAdminManagerData();
       notify("管理员列表已刷新", "success");
     } catch (error) {
-      setMetaText(elements.adminManagerListStatus, `加载失败：${error.message}`, "error");
-      notify(`加载失败：${error.message}`, "error");
+      setMetaText(elements.adminManagerListStatus, formatAdminTemplate("loadFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
     }
   });
 }
@@ -7258,8 +7352,8 @@ elements.walletAdjustBtn.addEventListener("click", async () => {
     await adjustWallet();
     await loadUserList();
   } catch (error) {
-    setMetaText(elements.userActionStatus, `调整失败：${error.message}`, "error");
-    notify(`调整失败：${error.message}`, "error");
+    setMetaText(elements.userActionStatus, formatAdminTemplate("adjustFailed", { message: error.message }), "error");
+    notify(formatAdminTemplate("adjustFailed", { message: error.message }), "error");
   }
 });
 
@@ -7268,8 +7362,8 @@ if (elements.userVisualPermissionSaveBtn) {
     try {
       await saveSelectedUserVisualPermission();
     } catch (error) {
-      setMetaText(elements.userVisualPermissionStatus, `保存失败：${error.message}`, "error");
-      notify(`保存失败：${error.message}`, "error");
+      setMetaText(elements.userVisualPermissionStatus, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });
 }
@@ -7279,7 +7373,7 @@ elements.auditRefreshBtn.addEventListener("click", async () => {
     await loadAuditLogs();
     notify("审计日志已刷新", "success");
   } catch (error) {
-    notify(`加载失败：${error.message}`, "error");
+    notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
   }
 });
 
@@ -7486,63 +7580,63 @@ ensureMarketAlgorithmGlossary()
     updateProductIconPreview();
   });
 populatePotionEffectSuggest();
-setMetaText(elements.adminLoginStatus, "等待登录", "info");
+setMetaText(elements.adminLoginStatus, ADMIN_UI_TEXT.initMeta.adminLoginStatus, "info");
 if (elements.productListStatus) {
-  setMetaText(elements.productListStatus, "等待加载商品列表", "info");
+  setMetaText(elements.productListStatus, ADMIN_UI_TEXT.initMeta.productListStatus, "info");
 }
 if (elements.groupBuyConsumeStatus) {
-  setMetaText(elements.groupBuyConsumeStatus, "等待核销", "info");
+  setMetaText(elements.groupBuyConsumeStatus, ADMIN_UI_TEXT.initMeta.groupBuyConsumeStatus, "info");
 }
 if (elements.userListStatus) {
-  setMetaText(elements.userListStatus, "等待加载列表", "info");
+  setMetaText(elements.userListStatus, ADMIN_UI_TEXT.initMeta.userListStatus, "info");
 }
 if (elements.adminManagerStatus) {
-  setMetaText(elements.adminManagerStatus, "等待操作", "info");
+  setMetaText(elements.adminManagerStatus, ADMIN_UI_TEXT.initMeta.adminManagerStatus, "info");
 }
 if (elements.adminManagerListStatus) {
-  setMetaText(elements.adminManagerListStatus, "等待加载管理员列表", "info");
+  setMetaText(elements.adminManagerListStatus, ADMIN_UI_TEXT.initMeta.adminManagerListStatus, "info");
 }
 if (elements.currencyStatusView) {
-  setMetaText(elements.currencyStatusView, "等待操作", "info");
+  setMetaText(elements.currencyStatusView, ADMIN_UI_TEXT.initMeta.currencyStatusView, "info");
 }
 if (elements.runtimeWebshopStatusView) {
-  setMetaText(elements.runtimeWebshopStatusView, "等待操作", "info");
+  setMetaText(elements.runtimeWebshopStatusView, ADMIN_UI_TEXT.initMeta.runtimeWebshopStatusView, "info");
 }
 if (elements.runtimeMarketStatusView) {
-  setMetaText(elements.runtimeMarketStatusView, "等待操作", "info");
+  setMetaText(elements.runtimeMarketStatusView, ADMIN_UI_TEXT.initMeta.runtimeMarketStatusView, "info");
 }
 if (elements.marketTagMetaStatusView) {
-  setMetaText(elements.marketTagMetaStatusView, "等待加载标签", "info");
+  setMetaText(elements.marketTagMetaStatusView, ADMIN_UI_TEXT.initMeta.marketTagMetaStatusView, "info");
 }
 if (elements.marketLimitationSummaryView) {
-  setMetaText(elements.marketLimitationSummaryView, "等待加载限制摘要", "info");
+  setMetaText(elements.marketLimitationSummaryView, ADMIN_UI_TEXT.initMeta.marketLimitationSummaryView, "info");
 }
 if (elements.marketTagConfigStatusView) {
-  setMetaText(elements.marketTagConfigStatusView, "等待加载标签规则", "info");
+  setMetaText(elements.marketTagConfigStatusView, ADMIN_UI_TEXT.initMeta.marketTagConfigStatusView, "info");
 }
 if (elements.marketLimitationConfigStatusView) {
-  setMetaText(elements.marketLimitationConfigStatusView, "等待加载上架限制", "info");
+  setMetaText(elements.marketLimitationConfigStatusView, ADMIN_UI_TEXT.initMeta.marketLimitationConfigStatusView, "info");
 }
 if (elements.runtimeMaintenanceStatusView) {
-  setMetaText(elements.runtimeMaintenanceStatusView, "等待操作", "info");
+  setMetaText(elements.runtimeMaintenanceStatusView, ADMIN_UI_TEXT.initMeta.runtimeMaintenanceStatusView, "info");
 }
 if (elements.runtimeLoggingStatusView) {
-  setMetaText(elements.runtimeLoggingStatusView, "等待操作", "info");
+  setMetaText(elements.runtimeLoggingStatusView, ADMIN_UI_TEXT.initMeta.runtimeLoggingStatusView, "info");
 }
 if (elements.runtimeBroadcastStatusView) {
-  setMetaText(elements.runtimeBroadcastStatusView, "等待操作", "info");
+  setMetaText(elements.runtimeBroadcastStatusView, ADMIN_UI_TEXT.initMeta.runtimeBroadcastStatusView, "info");
 }
 if (elements.runtimeNotificationStatusView) {
-  setMetaText(elements.runtimeNotificationStatusView, "等待操作", "info");
+  setMetaText(elements.runtimeNotificationStatusView, ADMIN_UI_TEXT.initMeta.runtimeNotificationStatusView, "info");
 }
 if (elements.runtimeAnnouncementStatusView) {
-  setMetaText(elements.runtimeAnnouncementStatusView, "等待发送公告", "info");
+  setMetaText(elements.runtimeAnnouncementStatusView, ADMIN_UI_TEXT.initMeta.runtimeAnnouncementStatusView, "info");
 }
 if (elements.deploymentScopeStatusView) {
-  setMetaText(elements.deploymentScopeStatusView, "等待加载部署模式", "info");
+  setMetaText(elements.deploymentScopeStatusView, ADMIN_UI_TEXT.initMeta.deploymentScopeStatusView, "info");
 }
 if (elements.materialOverrideStatusView) {
-  setMetaText(elements.materialOverrideStatusView, "等待加载材质映射", "info");
+  setMetaText(elements.materialOverrideStatusView, ADMIN_UI_TEXT.initMeta.materialOverrideStatusView, "info");
 }
 renderAdminProfile();
 populateAdminForm(null);

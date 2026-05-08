@@ -911,34 +911,34 @@ class RuntimeConfigService {
       Map<String, String> templates = new LinkedHashMap<>();
       templates.put(
           "market_listed",
-          "你的上架 #{listingId} 已发布：{item} x{quantity}，单价 {priceText}。");
+          "Your listing #{listingId} is published: {item} x{quantity}, unit price {priceText}.");
       templates.put(
           "market_trade",
-          "上架 #{listingId} 已成交：{item} x{quantity}，总价 {totalText}。");
+          "Listing #{listingId} sold: {item} x{quantity}, total {totalText}.");
       templates.put(
           "auction_bid_self",
-          "你在拍卖 #{listingId} 出价成功：{bidAmountText}。");
+          "Your bid on auction #{listingId} succeeded: {bidAmountText}.");
       templates.put(
           "auction_bid_seller",
-          "拍卖 #{listingId} 收到来自 {bidderName} 的新出价。");
+          "Auction #{listingId} received a new bid from {bidderName}.");
       templates.put(
           "auction_outbid",
-          "你在拍卖 #{listingId} 的领先出价已被超过。");
+          "Your leading bid on auction #{listingId} has been outbid.");
       templates.put(
           "auction_settlement",
           "{message}");
       templates.put(
           "market_buy_escrow_refund",
-          "收购单 #{listingId} 托管金额已退回：{amountText}。");
+          "Buy order #{listingId} escrow was refunded: {amountText}.");
       templates.put(
           "delivery_wait_claim_order",
-          "订单 {token} 自动发货失败，请在游戏内执行 /ws claim {token} 领取。原因：{reason}");
+          "Auto delivery for order {token} failed. Run /ws claim {token} in-game. Reason: {reason}");
       templates.put(
           "delivery_wait_claim_market",
-          "市场物品自动发货失败，请在游戏内执行 /ws claim {token} 领取。原因：{reason}");
+          "Auto delivery for market item failed. Run /ws claim {token} in-game. Reason: {reason}");
       templates.put(
           "mailbox_pending",
-          "自动发货时背包不可用，物品已存入游戏信箱。请在游戏内执行 /ws mailbox claim 领取。来源：{sourceType} {sourceRef}");
+          "Inventory was unavailable during auto delivery, item moved to mailbox. Run /ws mailbox claim in-game. Source: {sourceType} {sourceRef}");
       return templates;
     }
 

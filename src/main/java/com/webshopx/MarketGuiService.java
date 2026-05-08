@@ -86,11 +86,11 @@ class MarketGuiService {
       return messageService.get(player, "error.market.invalid_item");
     }
     return switch (rawMessage) {
-      case "请先在箱子 GUI 中放入要上架的物品" -> messageService.get(player, "error.market.input_empty");
-      case "普通上架一次只允许放入一种物品" -> messageService.get(player, "error.market.manual_single_item");
-      case "未检测到有效物品" -> messageService.get(player, "error.market.invalid_item");
-      case "请先放入 1 个模板物品" -> messageService.get(player, "error.market.template_missing");
-      case "供货箱上架只允许放入 1 个模板物品" -> messageService.get(player, "error.market.template_single");
+      case "Place items to list in the GUI first." -> messageService.get(player, "error.market.input_empty");
+      case "Manual listing supports exactly one item type at a time." -> messageService.get(player, "error.market.manual_single_item");
+      case "No valid item was detected." -> messageService.get(player, "error.market.invalid_item");
+      case "Place exactly one template item first." -> messageService.get(player, "error.market.template_missing");
+      case "Supply listing only allows exactly one template item." -> messageService.get(player, "error.market.template_single");
       default -> messageService.get(player, "error.market.invalid_item");
     };
   }
@@ -495,7 +495,7 @@ class MarketGuiService {
   private ItemStack extractManualItem(Inventory inventory) {
     List<ItemStack> items = collectContentItems(inventory);
     if (items.isEmpty()) {
-      throw new ServiceException("empty_hand", "请先在箱子 GUI 中放入要上架的物品");
+      throw new ServiceException("empty_hand", "Place items to list in the GUI first.");
     }
     ItemStack first = null;
     int total = 0;
@@ -504,12 +504,12 @@ class MarketGuiService {
         first = stack.clone();
         first.setAmount(1);
       } else if (!sameTemplate(first, stack)) {
-        throw new ServiceException("invalid_item", "普通上架一次只允许放入一种物品");
+        throw new ServiceException("invalid_item", "Manual listing supports exactly one item type at a time.");
       }
       total += stack.getAmount();
     }
     if (first == null || total <= 0) {
-      throw new ServiceException("invalid_item", "未检测到有效物品");
+      throw new ServiceException("invalid_item", "No valid item was detected.");
     }
     first.setAmount(total);
     return first;
@@ -518,10 +518,10 @@ class MarketGuiService {
   private ItemStack extractSupplyTemplate(Inventory inventory) {
     List<ItemStack> items = collectContentItems(inventory);
     if (items.isEmpty()) {
-      throw new ServiceException("invalid_item", "请先放入 1 个模板物品");
+      throw new ServiceException("invalid_item", "Place exactly one template item first.");
     }
     if (items.size() != 1 || items.get(0).getAmount() != 1) {
-      throw new ServiceException("invalid_item", "供货箱上架只允许放入 1 个模板物品");
+      throw new ServiceException("invalid_item", "Supply listing only allows exactly one template item.");
     }
     ItemStack template = items.get(0).clone();
     template.setAmount(1);

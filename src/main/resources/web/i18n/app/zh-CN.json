@@ -1,0 +1,348 @@
+{
+  "currencyMeta": {
+    "SHOP_COIN": {
+      "label": "网页币",
+      "short": "SC"
+    },
+    "GAME_COIN": {
+      "label": "游戏币",
+      "short": "GC"
+    }
+  },
+  "uiText": {
+    "themeToggleLight": "切换亮色",
+    "themeToggleDark": "切换暗色",
+    "marketModeLabel": {
+      "auction": {
+        "public": "拍卖在售",
+        "stores": "拍卖店铺",
+        "mine": "我的拍卖"
+      },
+      "direct": {
+        "public": "市场在售",
+        "stores": "玩家店铺",
+        "mine": "我的上架"
+      }
+    },
+    "marketEmptyState": {
+      "auction": {
+        "listing": "当前没有可显示的拍卖上架。",
+        "store": "当前没有可显示的拍卖店铺。"
+      },
+      "direct": {
+        "listing": "当前没有可显示的市场上架。",
+        "store": "当前没有可显示的玩家店铺。"
+      }
+    },
+    "marketSection": {
+      "auction": {
+        "title": "拍卖行（C2C）",
+        "desc": "仅显示拍卖模式上架，可直接出价或买断。其他商品请前往玩家市场。",
+        "listBtn": "拍卖在售",
+        "storeBtn": "拍卖店铺",
+        "mineBtn": "我的拍卖",
+        "createBuyTitle": "拍卖页不支持创建收购单，请切换到玩家市场。"
+      },
+      "direct": {
+        "title": "玩家市场（C2C）",
+        "desc": "玩家自行上架的商品。出售单需在游戏内创建；收购单可在网页直接发布。",
+        "listBtn": "市场在售",
+        "storeBtn": "玩家店铺",
+        "mineBtn": "我的上架",
+        "createBuyTitle": ""
+      }
+    },
+    "initMeta": {
+      "walletView": "等待刷新余额",
+      "walletLedgerView": "等待加载记录",
+      "redeemView": "等待兑换操作",
+      "exchangeRateHint": "等待加载兑换比例",
+      "exchangeView": "等待兑换操作",
+      "orderView": "暂无订单",
+      "notificationsView": "暂无通知",
+      "marketView": "暂无市场数据",
+      "leaderboardView": "等待加载榜单",
+      "leaderboardMyRank": "我的名次：-"
+    },
+    "templates": {
+      "loadFailed": "加载失败：{message}",
+      "saveFailed": "保存失败：{message}",
+      "loginFailed": "登录失败：{message}",
+      "logoutFailed": "退出登录失败：{message}",
+      "walletRefreshFailed": "刷新钱包失败：{message}",
+      "productsLoadFailed": "加载商品失败：{message}",
+      "marketLoadFailed": "加载市场失败：{message}",
+      "notificationsLoadFailed": "加载通知失败：{message}",
+      "ordersLoadFailed": "加载订单失败：{message}",
+      "redeemFailed": "兑换失败：{message}",
+      "exchangeFailed": "兑换失败：{message}",
+      "operationFailed": "操作失败：{message}",
+      "markReadFailed": "标记已读失败：{message}",
+      "markAllReadFailed": "通知全部已读失败：{message}",
+      "buyOrderCreateFailed": "收购单发布失败：{message}",
+      "refundFailed": "退款失败：{message}",
+      "marketActionFailed": "市场操作失败：{message}",
+      "iconProcessFailed": "图标处理失败：{message}",
+      "leaderboardLoadFailed": "加载榜单失败：{message}"
+    }
+  },
+  "errorTipsCommon": {
+    "auth_required": "请先登录后再操作。",
+    "auth_invalid": "登录状态已失效，请重新登录。",
+    "invalid_credentials": "账号或密码错误，请检查后重试。",
+    "not_bound": "当前账号未完成游戏内密码设置，请先在游戏内执行 /webshopx password <新密码>。",
+    "insufficient_funds": "余额不足，请先充值或兑换后再试。",
+    "internal_error": "服务器内部错误，请稍后重试。",
+    "method_not_allowed": "请求方式错误，请刷新页面后重试。",
+    "wallet_missing": "钱包不存在，请联系管理员检查数据。",
+    "user_missing": "账号数据不存在，请联系管理员处理。",
+    "feature_disabled": "该功能当前已被管理员关闭。",
+    "invalid_market_side": "上架方向无效，只支持 SELL 或 BUY。",
+    "invalid_tag": "分类标签无效或不允许。",
+    "tag_disabled": "该分类标签已停用。"
+  },
+  "errorTipsByScene": {
+    "login": {
+      "invalid_identifier": "请输入用户名。",
+      "invalid_password": "密码长度需为 8-64 位。"
+    },
+    "order_create": {
+      "invalid_quantity": "购买数量需在 1-64 之间。",
+      "product_missing": "该商品已下架或不可购买。",
+      "product_user_limit_reached": "该商品已达到你的限购上限，请等待管理员重置或退款后再试。",
+      "not_bound": "账号未绑定游戏角色，无法下单。",
+      "idempotency_too_long": "请求参数异常，请刷新后重试。",
+      "player_offline": "回收类商品需玩家在线且背包满足回收条件。",
+      "insufficient_item": "回收失败：背包物品不足。",
+      "invalid_product_type": "商品类型配置有误，请联系管理员。",
+      "invalid_product": "商品配置有误，请联系管理员。",
+      "sync_timeout": "回收操作超时，请稍后再试。",
+      "sync_interrupted": "回收操作被中断，请稍后再试。"
+    },
+    "orders_load": {
+      "auth_required": "请先登录后查看订单。",
+      "not_found": "订单接口不可用，请稍后重试。"
+    },
+    "order_refund": {
+      "refund_disabled": "当前服务器未开启“未发放可退款”，且该订单不在可退款窗口内。",
+      "refund_expired": "冷静期已结束，无法退款。",
+      "refund_not_allowed": "当前订单状态不支持退款。",
+      "already_refunded": "该订单已退款。",
+      "order_missing": "未找到该订单，请刷新后再试。",
+      "voucher_consumed": "该团购券已核销，无法退款。"
+    },
+    "market_buy": {
+      "invalid_listing": "上架 ID 无效，请刷新列表后重试。",
+      "listing_missing": "该上架不存在，可能已被移除。",
+      "listing_unavailable": "该上架已下架或已售出。",
+      "auction_only_bid": "该上架为拍卖模式，请使用出价竞拍。",
+      "buy_order_not_active": "该收购单当前不可成交，请刷新后重试。",
+      "buy_requires_direct_mode": "收购单仅支持一口价模式。",
+      "invalid_trade": "不能购买自己上架的物品。",
+      "invalid_idempotency": "请求参数异常，请刷新后重试。",
+      "invalid_quantity": "购买数量需在 1-64 之间。",
+      "insufficient_quantity": "当前上架可购买数量不足，请刷新后重试。"
+    },
+    "market_sell_to_buy": {
+      "invalid_listing": "收购单 ID 无效，请刷新列表后重试。",
+      "listing_missing": "该收购单不存在，可能已被移除。",
+      "buy_order_not_active": "该收购单当前不可交货。",
+      "cannot_fulfill_own_buy_order": "不能向自己的收购单交货。",
+      "fulfill_item_not_match": "交货物品与收购单模板不匹配。",
+      "invalid_quantity": "交货数量需在 1-64 之间。",
+      "insufficient_quantity": "收购单剩余数量不足，请刷新后重试。",
+      "buy_escrow_insufficient": "收购单冻结金额不足，请稍后重试。"
+    },
+    "market_bid": {
+      "invalid_listing": "上架 ID 无效，请刷新列表后重试。",
+      "listing_missing": "该上架不存在，可能已被移除。",
+      "listing_unavailable": "该上架当前不可竞拍。",
+      "invalid_trade_mode": "该上架不是拍卖模式。",
+      "invalid_bid": "出价金额必须大于 0，且不能竞拍自己的上架。",
+      "bid_too_low": "出价低于当前最低有效竞价。",
+      "auction_closed": "拍卖已结束，无法继续出价。",
+      "idempotency_conflict": "请求参数冲突，请刷新后重试。"
+    },
+    "market_unlist": {
+      "invalid_listing": "上架 ID 无效，请刷新列表后重试。",
+      "listing_missing": "该上架不存在，可能已被移除。",
+      "listing_unavailable": "该上架已下架或已售出。",
+      "forbidden": "仅上架者本人可以执行下架。"
+    },
+    "market_price": {
+      "invalid_listing": "上架 ID 无效，请刷新列表后重试。",
+      "listing_missing": "该上架不存在，可能已被移除。",
+      "listing_unavailable": "该上架已下架或已售出。",
+      "forbidden": "当前无权修改该上架，可能因非本人或自定义策略受限。",
+      "invalid_price": "价格必须大于 0。",
+      "invalid_trade_mode": "交易模式无效，仅支持 DIRECT 或 AUCTION。",
+      "limitation_item_forbidden": "当前物品不满足上架规则。",
+      "limitation_currency_not_allowed": "该币种不允许用于当前上架。",
+      "limitation_trade_mode_not_allowed": "该交易模式不允许用于当前上架。",
+      "limitation_side_not_allowed": "该上架方向不允许执行当前操作。",
+      "invalid_tag": "分类标签无效或不允许。",
+      "tag_disabled": "该分类标签已停用。",
+      "buy_requires_fixed_price": "收购单创建后不能改价或开启动态定价。",
+      "buy_requires_direct_mode": "收购单仅支持 DIRECT 模式。",
+      "buy_requires_manual_source": "收购单仅支持手动来源。",
+      "invalid_dynamic_base": "动态基准价必须大于 0。",
+      "invalid_dynamic_floor": "动态地板价必须大于 0。",
+      "invalid_dynamic_cap": "动态封顶价必须大于 0。",
+      "invalid_dynamic_step": "动态波动系数必须大于 0。",
+      "invalid_dynamic_range": "动态地板价不能高于封顶价。",
+      "invalid_auction_start": "起拍价必须大于 0。",
+      "invalid_auction_increment": "最小加价幅度必须大于 0。",
+      "invalid_auction_end": "拍卖结束时间必须晚于当前时间。",
+      "listing_empty": "拍卖模式需要有可售库存。"
+    },
+    "market_remark": {
+      "invalid_listing": "上架 ID 无效，请刷新列表后重试。",
+      "listing_missing": "该上架不存在，可能已被移除。",
+      "listing_unavailable": "该上架已下架或已售出。",
+      "forbidden": "仅上架者本人可以编辑备注。",
+      "invalid_remark": "备注长度超出限制。"
+    },
+    "market_supply": {
+      "invalid_listing": "上架 ID 无效，请刷新列表后重试。",
+      "listing_missing": "该上架不存在，可能已被移除。",
+      "listing_unavailable": "该上架当前不可刷新。",
+      "forbidden": "仅上架者本人可以刷新供货。",
+      "supply_missing": "当前未找到有效供货箱，请回到游戏内检查绑定。",
+      "supply_empty": "供货箱中没有匹配的库存。"
+    },
+    "wallet_refresh": {
+      "bad_request": "请求参数异常，请重新登录后再试。"
+    },
+    "exchange": {
+      "invalid_exchange": "兑换方向无效，请重新选择。",
+      "invalid_amount": "兑换数量必须大于 0。",
+      "exchange_disabled": "当前服务器未开放该兑换方向。",
+      "invalid_ratio": "兑换比例导致结果为 0，请增大兑换数量。"
+    },
+    "redeem": {
+      "invalid_code": "兑换码格式不正确，请检查后重试。"
+    },
+    "products_load": {
+      "not_found": "商品接口不可用，请稍后重试。"
+    },
+    "market_load": {
+      "not_found": "市场接口不可用，请稍后重试。"
+    },
+    "market_create": {
+      "invalid_market_side": "上架方向无效，只支持 SELL 或 BUY。",
+      "buy_requires_direct_mode": "收购单仅支持 DIRECT 模式。",
+      "buy_requires_manual_source": "收购单仅支持手动来源。",
+      "buy_requires_fixed_price": "收购单不支持动态定价或拍卖。",
+      "invalid_quantity": "数量需在 1-64 之间。",
+      "invalid_tag": "分类标签无效或不允许。",
+      "tag_disabled": "该分类标签已停用。",
+      "limitation_item_forbidden": "当前物品不满足上架规则。",
+      "limitation_currency_not_allowed": "该币种不允许用于当前上架。",
+      "limitation_trade_mode_not_allowed": "该交易模式不允许用于当前上架。",
+      "limitation_side_not_allowed": "该上架方向不允许执行当前操作。"
+    },
+    "notifications_load": {
+      "not_found": "通知接口不可用，请稍后重试。"
+    },
+    "notifications_mark_read": {
+      "bad_request": "通知参数有误，请刷新后重试。",
+      "not_found": "通知不存在或已被删除。"
+    }
+  },
+  "redeemStatusTips": {
+    "SUCCESS": {
+      "tone": "success",
+      "text": "兑换成功，资产已入账。"
+    },
+    "INVALID_CODE": {
+      "tone": "warn",
+      "text": "兑换失败：兑换码无效。"
+    },
+    "EXPIRED": {
+      "tone": "warn",
+      "text": "兑换失败：兑换码已过期。"
+    },
+    "OUT_OF_STOCK": {
+      "tone": "warn",
+      "text": "兑换失败：兑换码已领完。"
+    },
+    "ALREADY_USED": {
+      "tone": "warn",
+      "text": "兑换失败：你已使用过该兑换码。"
+    },
+    "USER_LIMIT_REACHED": {
+      "tone": "warn",
+      "text": "兑换失败：你已达到该兑换码的个人使用上限。"
+    }
+  },
+  "orderStatusLabels": {
+    "PENDING": {
+      "label": "待发放",
+      "tone": "pending"
+    },
+    "WAIT_CLAIM": {
+      "label": "待领取",
+      "tone": "pending"
+    },
+    "DELIVERED": {
+      "label": "已发放",
+      "tone": "delivered"
+    },
+    "REFUNDED": {
+      "label": "已退款",
+      "tone": "refunded"
+    },
+    "FAILED": {
+      "label": "失败",
+      "tone": "failed"
+    },
+    "RECYCLED": {
+      "label": "已回收",
+      "tone": "delivered"
+    }
+  },
+  "enchantmentLabels": {
+    "protection": "保护",
+    "fire_protection": "火焰保护",
+    "feather_falling": "摔落保护",
+    "blast_protection": "爆炸保护",
+    "projectile_protection": "弹射物保护",
+    "respiration": "水下呼吸",
+    "aqua_affinity": "水下速掘",
+    "thorns": "荆棘",
+    "depth_strider": "深海探索者",
+    "frost_walker": "冰霜行者",
+    "binding_curse": "绑定诅咒",
+    "soul_speed": "灵魂疾行",
+    "swift_sneak": "迅捷潜行",
+    "sharpness": "锋利",
+    "smite": "亡灵杀手",
+    "bane_of_arthropods": "节肢杀手",
+    "knockback": "击退",
+    "fire_aspect": "火焰附加",
+    "looting": "抢夺",
+    "sweeping_edge": "横扫之刃",
+    "efficiency": "效率",
+    "silk_touch": "精准采集",
+    "unbreaking": "耐久",
+    "fortune": "时运",
+    "power": "力量",
+    "punch": "冲击",
+    "flame": "火矢",
+    "infinity": "无限",
+    "luck_of_the_sea": "海之眷顾",
+    "lure": "饵钓",
+    "loyalty": "忠诚",
+    "impaling": "穿刺",
+    "riptide": "激流",
+    "channeling": "引雷",
+    "multishot": "多重射击",
+    "quick_charge": "快速装填",
+    "piercing": "穿透",
+    "mending": "经验修补",
+    "vanishing_curse": "消失诅咒",
+    "density": "致密",
+    "breach": "破甲",
+    "wind_burst": "风爆"
+  }
+}

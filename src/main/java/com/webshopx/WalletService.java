@@ -278,10 +278,10 @@ class WalletService {
       // Fall through to default context for logging robustness.
     }
     if (type.startsWith("EXCHANGE_")) {
-      return new LedgerBusinessContext("系统兑换", "-");
+      return new LedgerBusinessContext("System Exchange", "-");
     }
     if ("REDEEM_CODE".equals(type)) {
-      return new LedgerBusinessContext("官方商城|兑换码", "-");
+      return new LedgerBusinessContext("Official Shop|Redeem Code", "-");
     }
     return new LedgerBusinessContext("-", "-");
   }
@@ -291,7 +291,7 @@ class WalletService {
       String orderNo,
       String bizType) throws SQLException {
     if (orderNo == null || orderNo.isBlank()) {
-      return new LedgerBusinessContext("官方商城", "-");
+      return new LedgerBusinessContext("Official Shop", "-");
     }
     String sql = """
         SELECT p.product_type, p.item_material, p.title, oi.quantity
@@ -306,19 +306,19 @@ class WalletService {
       statement.setString(1, orderNo);
       try (ResultSet resultSet = statement.executeQuery()) {
         if (!resultSet.next()) {
-          return new LedgerBusinessContext("官方商城", "-");
+          return new LedgerBusinessContext("Official Shop", "-");
         }
         String productType = resultSet.getString("product_type");
         String material = resultSet.getString("item_material");
         String title = resultSet.getString("title");
         int quantity = resultSet.getInt("quantity");
-        String tradeType = "官方商城";
+        String tradeType = "Official Shop";
         if ("RECYCLE_ITEM".equalsIgnoreCase(productType) || bizType.startsWith("RECYCLE_")) {
-          tradeType = "官方商城|回收";
+          tradeType = "Official Shop|Recycle";
         } else if ("GROUP_BUY_VOUCHER".equalsIgnoreCase(productType)) {
-          tradeType = "官方商城|团购券";
+          tradeType = "Official Shop|Group Buy Voucher";
         } else {
-          tradeType = "官方商城|出售";
+          tradeType = "Official Shop|Sale";
         }
         String item = formatItemDetail(material, title, quantity);
         return new LedgerBusinessContext(tradeType, item);
@@ -390,9 +390,9 @@ class WalletService {
     if ("AUCTION".equals(mode)
         || "MARKET_BID_HOLD".equals(bizType)
         || "MARKET_BID_REFUND".equals(bizType)) {
-      return "玩家市场|拍卖";
+      return "Player Market|Auction";
     }
-    return "玩家市场|出售";
+    return "Player Market|Sale";
   }
 
   private String formatItemDetail(String material, String title, int quantity) {

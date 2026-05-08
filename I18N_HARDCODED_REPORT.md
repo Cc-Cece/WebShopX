@@ -1,0 +1,251 @@
+﻿# Hardcoded i18n Audit
+
+- Generated at: 2026-05-08 17:56:34 +08:00
+- Scope: web js/html + java (excluding web/i18n, docs, vendor, material_zh.json, web/js/i18n.js)
+- Files with CJK hits: 6
+- Total CJK line hits: 2164
+
+## By File
+
+- src\main\resources\web\js\app.js: 817
+- src\main\resources\web\admin.html: 594
+- src\main\resources\web\js\admin.js: 527
+- src\main\resources\web\index.html: 195
+- src\main\resources\web\js\help.js: 18
+- src\main\resources\web\help.html: 13
+
+## Top Literal Candidates
+
+- `保存失败：${error.message}` (34)
+- `加载失败：${error.message}` (12)
+- "等待操作" (9)
+- "启用" (7)
+- "允许" (6)
+- "不限" (6)
+- "禁止" (6)
+- "上架 ID 无效，请刷新列表后重试。" (6)
+- `兑换失败：${message}` (6)
+- "该上架不存在，可能已被移除。" (6)
+- "停用" (6)
+- "状态" (5)
+- `应用失败：${error.message}` (4)
+- "该上架已下架或已售出。" (4)
+- "确认购买" (4)
+- "预计入账" (4)
+- `上传失败：${error.message}` (4)
+- "留空=不限" (4)
+- "编辑" (4)
+- "图片尺寸无效" (4)
+- "未绑定" (4)
+- "未命名商品" (4)
+- `删除失败：${error.message}` (4)
+- "图片裁剪失败" (4)
+- `加载市场失败：${message}` (3)
+- "例如 SELL,BUY" (3)
+- "未登录" (3)
+- "购买数量需在 1-64 之间。" (3)
+- "请先选择图标文件。" (3)
+- "分类标签无效或不允许。" (3)
+
+## First 200 Detailed Hits
+
+- src\main\resources\web\js\admin.js:66 :: SHOP_COIN: { name: "网页币", short: "SC" },
+- src\main\resources\web\js\admin.js:67 :: GAME_COIN: { name: "游戏币", short: "GC" },
+- src\main\resources\web\js\admin.js:131 :: themeToggleLight: "切换亮色",
+- src\main\resources\web\js\admin.js:132 :: themeToggleDark: "切换暗色",
+- src\main\resources\web\js\admin.js:134 :: adminLoginStatus: "等待登录",
+- src\main\resources\web\js\admin.js:135 :: productListStatus: "等待加载商品列表",
+- src\main\resources\web\js\admin.js:136 :: groupBuyConsumeStatus: "等待核销",
+- src\main\resources\web\js\admin.js:137 :: userListStatus: "等待加载列表",
+- src\main\resources\web\js\admin.js:138 :: adminManagerStatus: "等待操作",
+- src\main\resources\web\js\admin.js:139 :: adminManagerListStatus: "等待加载管理员列表",
+- src\main\resources\web\js\admin.js:140 :: currencyStatusView: "等待操作",
+- src\main\resources\web\js\admin.js:141 :: runtimeWebshopStatusView: "等待操作",
+- src\main\resources\web\js\admin.js:142 :: runtimeMarketStatusView: "等待操作",
+- src\main\resources\web\js\admin.js:143 :: marketTagMetaStatusView: "等待加载标签",
+- src\main\resources\web\js\admin.js:144 :: marketLimitationSummaryView: "等待加载限制摘要",
+- src\main\resources\web\js\admin.js:145 :: marketTagConfigStatusView: "等待加载标签规则",
+- src\main\resources\web\js\admin.js:146 :: marketLimitationConfigStatusView: "等待加载上架限制",
+- src\main\resources\web\js\admin.js:147 :: runtimeMaintenanceStatusView: "等待操作",
+- src\main\resources\web\js\admin.js:148 :: runtimeLoggingStatusView: "等待操作",
+- src\main\resources\web\js\admin.js:149 :: runtimeBroadcastStatusView: "等待操作",
+- src\main\resources\web\js\admin.js:150 :: runtimeNotificationStatusView: "等待操作",
+- src\main\resources\web\js\admin.js:151 :: runtimeAnnouncementStatusView: "等待发送公告",
+- src\main\resources\web\js\admin.js:152 :: deploymentScopeStatusView: "等待加载部署模式",
+- src\main\resources\web\js\admin.js:153 :: materialOverrideStatusView: "等待加载材质映射",
+- src\main\resources\web\js\admin.js:261 :: speed: "速度",
+- src\main\resources\web\js\admin.js:262 :: slowness: "缓慢",
+- src\main\resources\web\js\admin.js:263 :: haste: "急迫",
+- src\main\resources\web\js\admin.js:264 :: mining_fatigue: "挖掘疲劳",
+- src\main\resources\web\js\admin.js:265 :: strength: "力量",
+- src\main\resources\web\js\admin.js:266 :: instant_health: "瞬间治疗",
+- src\main\resources\web\js\admin.js:267 :: instant_damage: "瞬间伤害",
+- src\main\resources\web\js\admin.js:268 :: jump_boost: "跳跃提升",
+- src\main\resources\web\js\admin.js:269 :: nausea: "反胃",
+- src\main\resources\web\js\admin.js:270 :: regeneration: "生命恢复",
+- src\main\resources\web\js\admin.js:271 :: resistance: "抗性提升",
+- src\main\resources\web\js\admin.js:272 :: fire_resistance: "抗火",
+- src\main\resources\web\js\admin.js:273 :: water_breathing: "水下呼吸",
+- src\main\resources\web\js\admin.js:274 :: invisibility: "隐身",
+- src\main\resources\web\js\admin.js:275 :: blindness: "失明",
+- src\main\resources\web\js\admin.js:276 :: night_vision: "夜视",
+- src\main\resources\web\js\admin.js:277 :: hunger: "饥饿",
+- src\main\resources\web\js\admin.js:278 :: weakness: "虚弱",
+- src\main\resources\web\js\admin.js:279 :: poison: "中毒",
+- src\main\resources\web\js\admin.js:280 :: wither: "凋零",
+- src\main\resources\web\js\admin.js:281 :: health_boost: "生命提升",
+- src\main\resources\web\js\admin.js:282 :: absorption: "伤害吸收",
+- src\main\resources\web\js\admin.js:283 :: saturation: "饱和",
+- src\main\resources\web\js\admin.js:284 :: glowing: "发光",
+- src\main\resources\web\js\admin.js:285 :: levitation: "漂浮",
+- src\main\resources\web\js\admin.js:286 :: luck: "幸运",
+- src\main\resources\web\js\admin.js:287 :: unluck: "霉运",
+- src\main\resources\web\js\admin.js:288 :: slow_falling: "缓降",
+- src\main\resources\web\js\admin.js:289 :: conduit_power: "潮涌能量",
+- src\main\resources\web\js\admin.js:290 :: dolphins_grace: "海豚的恩惠",
+- src\main\resources\web\js\admin.js:291 :: bad_omen: "不祥之兆",
+- src\main\resources\web\js\admin.js:292 :: hero_of_the_village: "村庄英雄",
+- src\main\resources\web\js\admin.js:293 :: darkness: "黑暗",
+- src\main\resources\web\js\admin.js:320 :: market_listed: "你的上架 #{listingId} 已发布：{item} x{quantity}，单价 {priceText}。",
+- src\main\resources\web\js\admin.js:321 :: market_trade: "上架 #{listingId} 已成交：{item} x{quantity}，总价 {totalText}。",
+- src\main\resources\web\js\admin.js:322 :: auction_bid_self: "你在拍卖 #{listingId} 出价成功：{bidAmountText}。",
+- src\main\resources\web\js\admin.js:323 :: auction_bid_seller: "拍卖 #{listingId} 收到来自 {bidderName} 的新出价。",
+- src\main\resources\web\js\admin.js:324 :: auction_outbid: "你在拍卖 #{listingId} 的领先出价已被超过。",
+- src\main\resources\web\js\admin.js:326 :: market_buy_escrow_refund: "收购单 #{listingId} 托管金额已退回：{amountText}。",
+- src\main\resources\web\js\admin.js:327 :: delivery_wait_claim_order: "订单 {token} 自动发货失败，请在游戏内执行 /ws claim {token} 领取。原因：{reason}",
+- src\main\resources\web\js\admin.js:328 :: delivery_wait_claim_market: "市场物品自动发货失败，请在游戏内执行 /ws claim {token} 领取。原因：{reason}",
+- src\main\resources\web\js\admin.js:329 :: mailbox_pending: "自动发货时背包不可用，物品已存入游戏信箱。请在游戏内执行 /ws mailbox claim 领取。来源：{sourceType} {sourceRef}",
+- src\main\resources\web\js\admin.js:752 :: throw new Error(localizeDisplayText("没有可复制的内容。"));
+- src\main\resources\web\js\admin.js:792 :: return "未知";
+- src\main\resources\web\js\admin.js:825 :: setNodeText(elements.adminUpdateDialogSummary, `当前版本 ${CURRENT_WEBSHOPX_VERSION}，Modrinth 已发布新版本 ${state.updateInfo.latestVersion}。`);
+- src\main\resources\web\js\admin.js:827 :: setNodeText(elements.adminUpdateDialogLatestVersion, state.updateInfo.latestName || state.updateInfo.latestVersion || "未知");
+- src\main\resources\web\js\admin.js:829 :: setNodeText(elements.adminUpdateDialogFileName, state.updateInfo.fileName || "未知文件");
+- src\main\resources\web\js\admin.js:831 :: elements.adminUpdateDialogChangelog.textContent = state.updateInfo.changelog || "暂无更新内容。";
+- src\main\resources\web\js\admin.js:842 :: notify("没有可用的下载地址。", "warn");
+- src\main\resources\web\js\admin.js:861 :: const versionLabel = state.updateInfo.latestName || state.updateInfo.latestVersion || "未知版本";
+- src\main\resources\web\js\admin.js:863 :: const downloadLabel = state.updateInfo.fileName || "未知文件";
+- src\main\resources\web\js\admin.js:864 :: setNodeText(elements.adminUpdateCardDesc, `检测到新版本 ${versionLabel}，可查看更新详情或直接下载 JAR。`);
+- src\main\resources\web\js\admin.js:865 :: setNodeText(elements.adminUpdateCardMeta, `当前 ${currentLabel} · 最新 ${versionLabel} · ${formatModrinthPublishedAt(state.updateInfo.publishedAt)}`);
+- src\main\resources\web\js\admin.js:970 :: login: "状态",
+- src\main\resources\web\js\admin.js:971 :: audit: "审计",
+- src\main\resources\web\js\admin.js:972 :: products: "官方商品",
+- src\main\resources\web\js\admin.js:973 :: redeem: "兑换码",
+- src\main\resources\web\js\admin.js:974 :: orders: "订单",
+- src\main\resources\web\js\admin.js:975 :: market: "上架管理",
+- src\main\resources\web\js\admin.js:976 :: users: "账号管理",
+- src\main\resources\web\js\admin.js:977 :: admins: "管理员",
+- src\main\resources\web\js\admin.js:978 :: economy: "经济与配置",
+- src\main\resources\web\js\admin.js:1230 :: reader.onerror = () => reject(new Error("读取图片失败"));
+- src\main\resources\web\js\admin.js:1239 :: node.onerror = () => reject(new Error("解析图片失败"));
+- src\main\resources\web\js\admin.js:1254 :: throw new Error("图片尺寸无效");
+- src\main\resources\web\js\admin.js:1264 :: throw new Error("无法创建图片画布");
+- src\main\resources\web\js\admin.js:1273 :: throw new Error("图片裁剪失败");
+- src\main\resources\web\js\admin.js:1431 :: throw new Error("图片尺寸无效");
+- src\main\resources\web\js\admin.js:1465 :: throw new Error("裁剪器未准备好");
+- src\main\resources\web\js\admin.js:1483 :: throw new Error("无法创建输出画布");
+- src\main\resources\web\js\admin.js:1502 :: throw new Error("图片裁剪失败");
+- src\main\resources\web\js\admin.js:1577 :: notify(error.message || "裁剪失败，请重试。", "error");
+- src\main\resources\web\js\admin.js:1805 :: throw new Error("请先登录管理员账号。");
+- src\main\resources\web\js\admin.js:1915 :: return "未知时间";
+- src\main\resources\web\js\admin.js:1951 :: setNodeText(elements.productScheduleHint, `商品上下架时间按时区 ${state.timeZone} 解释与显示。`);
+- src\main\resources\web\js\admin.js:1956 :: setNodeText(elements.adminProfileView, "未登录");
+- src\main\resources\web\js\admin.js:1962 :: ? "拥有全部权限"
+- src\main\resources\web\js\admin.js:1963 :: : `权限数：${permissionCount}${state.admin.canManageAdmins ? " | 可管理管理员" : ""}`;
+- src\main\resources\web\js\admin.js:1964 :: setNodeText(elements.adminProfileView, `账号：${state.admin.username} | 身份：${roleLabel} | ${suffix}`);
+- src\main\resources\web\js\admin.js:1977 :: setStatus("未登录", "offline");
+- src\main\resources\web\js\admin.js:1979 :: setMetaText(elements.adminLoginStatus, "已退出登录", "info");
+- src\main\resources\web\js\admin.js:1986 :: throw new Error("请输入管理员账号和密码。");
+- src\main\resources\web\js\admin.js:1995 :: setStatus(`已登录：${state.admin.username}`, "online");
+- src\main\resources\web\js\admin.js:1997 :: setMetaText(elements.adminLoginStatus, "登录成功", "success");
+- src\main\resources\web\js\admin.js:2011 :: setStatus(`已登录：${state.admin.username}`, "online");
+- src\main\resources\web\js\admin.js:2027 :: setNodeText(empty, "暂无数据");
+- src\main\resources\web\js\admin.js:2047 :: tags.appendChild(createTag(tag.enabled ? "启用" : "停用", tag.enabled ? "success" : "muted"));
+- src\main\resources\web\js\admin.js:2048 :: tags.appendChild(createTag(`优先级 ${tag.priority}`, "info"));
+- src\main\resources\web\js\admin.js:2049 :: tags.appendChild(createTag(`出售单 ${tag.activeSellCount}`, "accent"));
+- src\main\resources\web\js\admin.js:2050 :: tags.appendChild(createTag(`收购单 ${tag.activeBuyCount}`, "neutral"));
+- src\main\resources\web\js\admin.js:2091 :: setMetaText(elements.marketTagMetaStatusView, `已加载 ${state.marketTags.length} 个标签`, "info");
+- src\main\resources\web\js\admin.js:2093 :: notify(`标签已刷新：${state.marketTags.length} 个。`, "success");
+- src\main\resources\web\js\admin.js:2108 :: throw new Error(`${label}不能为空。`);
+- src\main\resources\web\js\admin.js:2114 :: throw new Error(`${label}不是有效的 JSON。`);
+- src\main\resources\web\js\admin.js:2117 :: throw new Error(`${label}必须是 JSON 对象。`);
+- src\main\resources\web\js\admin.js:2357 :: setNodeText(title, `${tag.displayName || tag.code || `标签 #${index + 1}`} (${tag.code || "-"})`);
+- src\main\resources\web\js\admin.js:2364 :: setNodeText(editBtn, "编辑");
+- src\main\resources\web\js\admin.js:2371 :: setNodeText(deleteBtn, "删除");
+- src\main\resources\web\js\admin.js:2387 :: tagsRow.appendChild(createTag(tag.enabled === false ? "停用" : "启用", tag.enabled === false ? "muted" : "success"));
+- src\main\resources\web\js\admin.js:2388 :: tagsRow.appendChild(createTag(`优先级 ${Number(tag.priority || 0)}`, "info"));
+- src\main\resources\web\js\admin.js:2389 :: tagsRow.appendChild(createTag(`材质 ${Array.isArray(tag.materialIn) ? tag.materialIn.length : 0}`, "neutral"));
+- src\main\resources\web\js\admin.js:2392 :: tagsRow.appendChild(createTag("默认标签", "warn"));
+- src\main\resources\web\js\admin.js:2402 :: `材质: ${materialPreview || "不限"}${(tag.materialIn || []).length > 4 ? " ..." : ""} | NBT: ${nbtPreview || "不限"}${(tag.nbtHasAny || []).length > 4 ? " ..." : ""}`
+- src\main\resources\web\js\admin.js:2429 :: setNodeText(title, `规则 #${index + 1} · ${rule.id || "未命名"}`);
+- src\main\resources\web\js\admin.js:2436 :: setNodeText(editBtn, "编辑");
+- src\main\resources\web\js\admin.js:2443 :: setNodeText(deleteBtn, "删除");
+- src\main\resources\web\js\admin.js:2461 :: tagsRow.appendChild(createTag(`优先级 ${Number(rule.priority || 0)}`, "info"));
+- src\main\resources\web\js\admin.js:2462 :: tagsRow.appendChild(createTag(rule.actionDeny ? "拒绝规则" : "限制规则", rule.actionDeny ? "error" : "accent"));
+- src\main\resources\web\js\admin.js:2463 :: tagsRow.appendChild(createTag(`方向条件 ${Array.isArray(rule.whenSideIn) ? rule.whenSideIn.length : 0}`, "neutral"));
+- src\main\resources\web\js\admin.js:2464 :: tagsRow.appendChild(createTag(`币种限制 ${Array.isArray(rule.actionCurrencyWhitelist) ? rule.actionCurrencyWhitelist.length : 0}`, "warn"));
+- src\main\resources\web\js\admin.js:2469 :: const whenText = joinTokenList(rule.whenSideIn || []) || "不限";
+- src\main\resources\web\js\admin.js:2470 :: const tradeText = joinTokenList(rule.actionTradeModeWhitelist || []) || "不限";
+- src\main\resources\web\js\admin.js:2471 :: const currencyText = joinTokenList(rule.actionCurrencyWhitelist || []) || "不限";
+- src\main\resources\web\js\admin.js:2473 :: setNodeText(summary, `触发方向: ${whenText} | 交易模式: ${tradeText} | 币种: ${currencyText}${denyCode}`);
+- src\main\resources\web\js\admin.js:2527 :: throw new Error("当前没有可保存的标签。");
+- src\main\resources\web\js\admin.js:2540 :: throw new Error("标签 code 不能为空。");
+- src\main\resources\web\js\admin.js:2547 :: throw new Error(`标签 code 重复：${updated.code}`);
+- src\main\resources\web\js\admin.js:2635 :: throw new Error("当前没有可保存的规则。");
+- src\main\resources\web\js\admin.js:2659 :: throw new Error("规则 ID 不能为空。");
+- src\main\resources\web\js\admin.js:2663 :: throw new Error(`规则 ID 重复：${updated.id}`);
+- src\main\resources\web\js\admin.js:2813 :: throw new Error("标签 code 不能为空。");
+- src\main\resources\web\js\admin.js:2816 :: throw new Error(`标签 code 重复：${tag.code}`);
+- src\main\resources\web\js\admin.js:2835 :: throw new Error(`第 ${index + 1} 条规则缺少 ID。`);
+- src\main\resources\web\js\admin.js:2838 :: throw new Error(`规则 ID 重复：${rule.id}`);
+- src\main\resources\web\js\admin.js:2929 :: const config = parseJsonObjectFromEditor(elements.marketTagConfigEditor?.value, "标签规则 JSON");
+- src\main\resources\web\js\admin.js:2933 :: setMetaText(elements.marketTagConfigStatusView, "已应用标签 JSON 到可视化表单", "success");
+- src\main\resources\web\js\admin.js:2937 :: const config = parseJsonObjectFromEditor(elements.marketLimitationConfigEditor?.value, "上架限制 JSON");
+- src\main\resources\web\js\admin.js:2947 :: setMetaText(elements.marketLimitationConfigStatusView, "已应用限制 JSON 到可视化表单", "success");
+- src\main\resources\web\js\admin.js:2956 :: return `默认最大上架数：${defaultLimit}；限制规则：${rules} 条；默认允许方向：${sideText}。`;
+- src\main\resources\web\js\admin.js:2984 :: setMetaText(elements.marketTagConfigStatusView, `已加载标签规则（${tagCount} 项）`, "info");
+- src\main\resources\web\js\admin.js:2985 :: setMetaText(elements.marketLimitationConfigStatusView, `已加载上架限制（${ruleCount} 条规则）`, "info");
+- src\main\resources\web\js\admin.js:3002 :: setMetaText(elements.marketTagConfigStatusView, "标签规则已保存", "success");
+- src\main\resources\web\js\admin.js:3003 :: notify("标签规则已保存", "success");
+- src\main\resources\web\js\admin.js:3016 :: setMetaText(elements.marketLimitationConfigStatusView, "上架限制已保存", "success");
+- src\main\resources\web\js\admin.js:3017 :: notify("上架限制已保存", "success");
+- src\main\resources\web\js\admin.js:3056 :: PENDING: "待发放",
+- src\main\resources\web\js\admin.js:3057 :: WAIT_CLAIM: "待领取",
+- src\main\resources\web\js\admin.js:3058 :: DELIVERED: "已发放",
+- src\main\resources\web\js\admin.js:3059 :: REFUNDED: "已退款",
+- src\main\resources\web\js\admin.js:3060 :: FAILED: "失败",
+- src\main\resources\web\js\admin.js:3061 :: RECYCLED: "已回收",
+- src\main\resources\web\js\admin.js:3084 :: const displayName = String(name || "").trim() || "玩家";
+- src\main\resources\web\js\admin.js:3141 :: identity.appendChild(createPlayerAvatarNode(order.username || order.boundUuid || order.mcUuid || "玩家"));
+- src\main\resources\web\js\admin.js:3147 :: setNodeText(title, order.username ? `${order.username} (#${order.userId || "-"})` : `用户 #${order.userId || "-"}`);
+- src\main\resources\web\js\admin.js:3150 :: setNodeText(sub, `订单 ${order.orderNo || "-"} · ${order.createdAt || "-"}`);
+- src\main\resources\web\js\admin.js:3172 :: : "无材质";
+- src\main\resources\web\js\admin.js:3185 :: tags.appendChild(createTag(`团购券 ${order.groupBuyVoucherStatus}`, "info"));
+- src\main\resources\web\js\admin.js:3192 :: infoGrid.appendChild(createInfoItem("备注", order.productRemark || "-", true));
+- src\main\resources\web\js\admin.js:3194 :: infoGrid.appendChild(createInfoItem("团购码", order.groupBuyVoucherCode, true));
+- src\main\resources\web\js\admin.js:3234 :: setNodeText(title, product.title || product.sku || "未命名商品");
+- src\main\resources\web\js\admin.js:3245 :: setNodeText(status, product.active ? "启用中" : "已停用");
+- src\main\resources\web\js\admin.js:3257 :: setNodeText(desc, product.remark || "暂无备注");
+- src\main\resources\web\js\admin.js:3269 :: : "无材质",
+- src\main\resources\web\js\admin.js:3274 :: tags.appendChild(createTag("含显示覆盖", "neutral"));
+- src\main\resources\web\js\admin.js:3284 :: createInfoItem("库存", product.itemAmount != null ? `x${product.itemAmount}` : "长期供应")
+- src\main\resources\web\js\admin.js:3287 :: createInfoItem("剩余", product.stockRemaining != null ? `x${product.stockRemaining}` : "长期供应")
+- src\main\resources\web\js\admin.js:3290 :: createInfoItem("单人限购", product.perUserLimit != null ? `x${product.perUserLimit}` : "不限购", true)
+- src\main\resources\web\js\admin.js:3293 :: createInfoItem("上下架", `${product.publishAt ? formatDateTime(product.publishAt) : "立即"} / ${product.unpublishAt ? formatDateTime(product.unpublishAt) : "不下架"}`, true)
+- src\main\resources\web\js\admin.js:3309 :: ACTIVE: "在售",
+- src\main\resources\web\js\admin.js:3310 :: SOLD: "已售",
+- src\main\resources\web\js\admin.js:3311 :: UNLISTED: "已下架",
+- src\main\resources\web\js\admin.js:3312 :: SUPPLY_EMPTY: "库存不足",
+- src\main\resources\web\js\admin.js:3366 :: setNodeText(sub, `上架 #${listing.id || "-"} · ${listing.createdAt || "-"}`);
+- src\main\resources\web\js\admin.js:3388 :: `卖家 ${listing.sellerName || "-"} · 买家 ${listing.buyerName || "未成交"}`
+- src\main\resources\web\js\admin.js:3403 :: tags.appendChild(createTag("含显示覆盖", "neutral"));
+- src\main\resources\web\js\admin.js:3406 :: tags.appendChild(createTag("含备注", "neutral"));
+- src\main\resources\web\js\admin.js:3412 :: infoGrid.appendChild(createInfoItem("卖家 UUID", listing.sellerUuid || "-", true));
+- src\main\resources\web\js\admin.js:3413 :: infoGrid.appendChild(createInfoItem("买家 UUID", listing.buyerUuid || "-", true));
+- src\main\resources\web\js\admin.js:3414 :: infoGrid.appendChild(createInfoItem("成交时间", listing.soldAt || "-", true));
+- src\main\resources\web\js\admin.js:3415 :: infoGrid.appendChild(createInfoItem("下架时间", listing.unlistedAt || "-", true));
+- src\main\resources\web\js\admin.js:3417 :: infoGrid.appendChild(createInfoItem("备注", listing.remark, true));
+- src\main\resources\web\js\admin.js:3455 :: input.placeholder = isUnlimited ? "无限库存" : "";
+- src\main\resources\web\js\admin.js:3466 :: setNodeText(elements.productAmountPreview, "无限");
+- src\main\resources\web\js\admin.js:3469 :: setNodeText(elements.productTotalPreview, "不限");
+- src\main\resources\web\js\admin.js:3506 :: "": "全部",
+- src\main\resources\web\js\admin.js:3507 :: PENDING: "待发放",

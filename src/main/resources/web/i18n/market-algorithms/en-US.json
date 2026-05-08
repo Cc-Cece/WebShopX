@@ -58,7 +58,7 @@
       "params": [
         {
           "key": "alpha",
-          "label": "Smoothing α",
+          "label": "Smoothing alpha",
           "type": "number",
           "required": false,
           "advanced": true,
@@ -78,7 +78,7 @@
       "params": [
         {
           "key": "beta",
-          "label": "Exponent β",
+          "label": "Exponent beta",
           "type": "number",
           "required": false,
           "advanced": true,
@@ -138,18 +138,18 @@
       "params": [
         {
           "key": "eta",
-          "label": "Elasticity η",
+          "label": "Elasticity eta",
           "type": "number",
           "required": false,
           "advanced": true,
           "min": 0,
           "step": 0.1,
           "default": 1,
-          "description": "η<1 smooths movement, η>1 increases sensitivity."
+          "description": "eta < 1 smooths movement, eta > 1 increases sensitivity."
         },
         {
           "key": "epsilon",
-          "label": "Smoothing ε",
+          "label": "Smoothing epsilon",
           "type": "number",
           "required": false,
           "advanced": true,
@@ -201,7 +201,7 @@
         },
         {
           "key": "gamma",
-          "label": "Quadratic gain γ",
+          "label": "Quadratic gain gamma",
           "type": "number",
           "required": false,
           "advanced": true,

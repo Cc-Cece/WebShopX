@@ -161,7 +161,7 @@ class DeliveryService {
     if (upper.startsWith("MKT-")) {
       Long tradeId = parseTradeIdFilter(upper);
       if (tradeId == null) {
-        throw new ServiceException("claim_token_invalid", "领取命令格式不正确，请重新复制。");
+        throw new ServiceException("claim_token_invalid", "Claim token format is invalid. Please copy it again.");
       }
       return new ClaimFilters(null, null, false, playerUuid, tradeId, true);
     }
@@ -184,7 +184,7 @@ class DeliveryService {
     if (settingsSupplier.get().allowSharedClaimCommand()) {
       return;
     }
-    throw new ServiceException("claim_forbidden", "该领取命令仅限订单本人使用。");
+    throw new ServiceException("claim_forbidden", "This claim token can only be used by the order owner.");
   }
 
   private OrderClaimTarget findOrderClaimTarget(String token) {
@@ -200,7 +200,7 @@ class DeliveryService {
         statement.setString(1, token);
         try (ResultSet resultSet = statement.executeQuery()) {
           if (!resultSet.next()) {
-            throw new ServiceException("claim_token_invalid", "领取命令已失效，请在订单界面重新复制。");
+            throw new ServiceException("claim_token_invalid", "Claim token has expired. Please copy it again from the order page.");
           }
           String uuidRaw = resultSet.getString("mc_uuid");
           return new OrderClaimTarget(
@@ -228,12 +228,12 @@ class DeliveryService {
         statement.setString(1, token);
         try (ResultSet resultSet = statement.executeQuery()) {
           if (!resultSet.next()) {
-            throw new ServiceException("claim_token_invalid", "领取命令已失效，请在订单界面重新复制。");
+            throw new ServiceException("claim_token_invalid", "Claim token has expired. Please copy it again from the order page.");
           }
           String uuidRaw = resultSet.getString("target_uuid");
           UUID ownerUuid = uuidRaw == null ? null : UUID.fromString(uuidRaw);
           if (ownerUuid == null) {
-            throw new ServiceException("claim_token_invalid", "领取命令暂不可用，请稍后重试。");
+            throw new ServiceException("claim_token_invalid", "Claim token is temporarily unavailable. Please try again later.");
           }
           return new MarketClaimTarget(resultSet.getLong("id"), ownerUuid);
         }
@@ -325,7 +325,7 @@ class DeliveryService {
           SET next_retry_at = CURRENT_TIMESTAMP
           WHERE mc_uuid = ?
             AND status = 'PENDING'
-            AND (last_error = 'player is offline' OR last_error = '鐜╁绂荤嚎')
+            AND last_error = 'player is offline'
             AND next_retry_at > CURRENT_TIMESTAMP
             AND EXISTS (
               SELECT 1
@@ -344,7 +344,7 @@ class DeliveryService {
           SET next_retry_at = CURRENT_TIMESTAMP
           WHERE target_uuid = ?
             AND status = 'PENDING'
-            AND (last_error = 'player is offline' OR last_error = '鐜╁绂荤嚎')
+            AND last_error = 'player is offline'
             AND next_retry_at > CURRENT_TIMESTAMP
           """;
       try (PreparedStatement statement = connection.prepareStatement(marketSql)) {
@@ -1055,7 +1055,7 @@ class DeliveryService {
 
   private void addItemToInventory(Player player, ItemStack source, int totalAmount) {
     if (source == null || source.getType() == Material.AIR) {
-      throw new IllegalStateException("待发放物品为空");
+      throw new IllegalStateException("item snapshot is empty");
     }
     int remaining = Math.max(1, totalAmount);
     int maxStack = Math.max(1, source.getMaxStackSize());
@@ -1196,7 +1196,7 @@ class DeliveryService {
       return false;
     }
     String normalized = message.toLowerCase(Locale.ROOT);
-    return normalized.contains("inventory is full") || message.contains("背包已满");
+    return normalized.contains("inventory is full");
   }
 
   private Material resolveMaterial(String raw) {
@@ -1237,19 +1237,19 @@ class DeliveryService {
     }
     String raw = message.trim();
     String normalized = message.toLowerCase(Locale.ROOT);
-    if (normalized.contains("inventory is full") || raw.contains("背包已满")) {
+    if (normalized.contains("inventory is full")) {
       return msg(player, "chat.delivery.inventory_full");
     }
-    if (normalized.contains("player is offline") || raw.contains("玩家离线")) {
+    if (normalized.contains("player is offline")) {
       return msg(player, "chat.delivery.player_offline");
     }
-    if (normalized.contains("item snapshot is empty") || raw.contains("物品快照为空")) {
+    if (normalized.contains("item snapshot is empty")) {
       return msg(player, "chat.delivery.empty_snapshot");
     }
-    if (normalized.contains("invalid item material") || raw.contains("物品材质无效")) {
+    if (normalized.contains("invalid item material")) {
       return msg(player, "chat.delivery.invalid_material");
     }
-    if (normalized.contains("invalid potion effect") || raw.contains("药水效果无效")) {
+    if (normalized.contains("invalid potion effect")) {
       return msg(player, "chat.delivery.invalid_potion");
     }
     return message;

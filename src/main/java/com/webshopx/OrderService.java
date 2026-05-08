@@ -366,7 +366,7 @@ class OrderService {
 
   private void validatePurchaseQuantity(int quantity, int maxQuantity) {
     if (maxQuantity <= 0) {
-      throw new ServiceException("out_of_stock", "商品已售罄。");
+      throw new ServiceException("out_of_stock", "Product is sold out.");
     }
     if (quantity < 1 || quantity > maxQuantity) {
       throw new ServiceException("invalid_quantity", "Quantity must be between 1 and " + maxQuantity);
@@ -408,7 +408,7 @@ class OrderService {
         }
       }
     }
-    throw new ServiceException("out_of_stock", "商品库存不足。");
+    throw new ServiceException("out_of_stock", "Not enough stock remains for this product.");
   }
 
   private void restoreProductStock(Connection connection, long productId, int quantity) throws SQLException {
@@ -443,7 +443,7 @@ class OrderService {
     int usedCount = readPersonalLimitUsageForUpdate(connection, product.id(), userId);
     int remaining = Math.max(0, perUserLimit - usedCount);
     if (quantity > remaining) {
-      throw new ServiceException("product_user_limit_reached", "该商品已达到单个玩家限购上限。");
+      throw new ServiceException("product_user_limit_reached", "You have reached the purchase limit for this product.");
     }
     incrementPersonalLimitUsage(connection, product.id(), userId, quantity);
   }
@@ -1653,7 +1653,7 @@ class OrderService {
 
     long totalAmount = buyerTotal > 0 ? buyerTotal : totalPrice;
     String title = itemMaterial == null || itemMaterial.isBlank()
-        ? "玩家市场商品"
+        ? "Market Listing Item"
         : itemMaterial;
 
     return new OrderView(
