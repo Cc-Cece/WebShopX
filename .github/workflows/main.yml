@@ -431,6 +431,123 @@ jobs:
           echo "folia_file=${folia[0]}" >> "$GITHUB_OUTPUT"
           echo "modern_file=${modern[0]}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve CurseForge game version IDs
+        id: cf-versions
+        if: steps.cf-meta.outputs.enabled == 'true'
+        shell: bash
+        env:
+          CF_ENDPOINT: ${{ steps.cf-meta.outputs.game_endpoint }}
+        run: |
+          set -euo pipefail
+
+          versions_json="$(mktemp)"
+          types_json="$(mktemp)"
+          curl -sSf "https://${CF_ENDPOINT}.curseforge.com/api/game/versions?token=${CURSEFORGE_TOKEN}" -o "${versions_json}"
+          curl -sSf "https://${CF_ENDPOINT}.curseforge.com/api/game/version-types?token=${CURSEFORGE_TOKEN}" -o "${types_json}"
+
+          type_id() {
+            local key="$1"
+            jq -r --arg key "${key}" '
+              .[]
+              | select(
+                  ((.slug // "" | ascii_downcase) == ($key | ascii_downcase))
+                  or ((.name // "" | ascii_downcase) == ($key | ascii_downcase))
+                )
+              | .id
+              ' "${types_json}" | head -n1
+          }
+
+          version_ids_for_minecraft_range() {
+            local minv="$1"
+            local maxv="${2:-}"
+            local mc_type_id="$3"
+            jq -r --arg minv "${minv}" --arg maxv "${maxv}" --argjson type_id "${mc_type_id}" '
+              def semver: split(".") | map(tonumber);
+              def ge($a; $b):
+                ($a[0] > $b[0]) or
+                ($a[0] == $b[0] and $a[1] > $b[1]) or
+                ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) >= ($b[2] // 0));
+              def le($a; $b):
+                ($a[0] < $b[0]) or
+                ($a[0] == $b[0] and $a[1] < $b[1]) or
+                ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) <= ($b[2] // 0));
+              [ .[]
+                | select(((.gameVersionTypeID // .gameVersionTypeId // .gameVersionType // -1) | tonumber) == $type_id)
+                | { id, name: (.name // .slug // "") }
+                | select(.name | test("^\\d+\\.\\d+(\\.\\d+)?$"))
+                | select(ge(((.name | semver) + [0,0])[0:3]; (($minv | semver) + [0,0])[0:3]))
+                | select(($maxv == "") or le(((.name | semver) + [0,0])[0:3]; (($maxv | semver) + [0,0])[0:3]))
+              ]
+              | sort_by(.name | split(".") | map(tonumber))
+              | map(.id | tostring)
+              | unique
+              | join(",")
+            ' "${versions_json}"
+          }
+
+          one_version_id() {
+            local typeid="$1"
+            local value="$2"
+            jq -r --argjson type_id "${typeid}" --arg value "${value}" '
+              .[]
+              | select(((.gameVersionTypeID // .gameVersionTypeId // .gameVersionType // -1) | tonumber) == $type_id)
+              | select((.name // .slug // "") == $value)
+              | .id
+            ' "${versions_json}" | head -n1
+          }
+
+          mc_type="$(type_id "minecraft")"
+          java_type="$(type_id "java")"
+          bukkit_type="$(type_id "bukkit")"
+          spigot_type="$(type_id "spigot")"
+          paper_type="$(type_id "paper")"
+          purpur_type="$(type_id "purpur")"
+          folia_type="$(type_id "folia")"
+
+          if [[ -z "${mc_type}" || -z "${java_type}" ]]; then
+            echo "::error::Failed to resolve required CurseForge version type IDs."
+            exit 1
+          fi
+
+          legacy_mc_ids="$(version_ids_for_minecraft_range "1.18.2" "1.20.5" "${mc_type}")"
+          modern_mc_ids="$(version_ids_for_minecraft_range "1.20.6" "" "${mc_type}")"
+          folia_mc_ids="$(version_ids_for_minecraft_range "1.19.4" "" "${mc_type}")"
+
+          java17_id="$(one_version_id "${java_type}" "Java 17")"
+          java21_id="$(one_version_id "${java_type}" "Java 21")"
+          bukkit_id="$( [[ -n "${bukkit_type}" ]] && one_version_id "${bukkit_type}" "Bukkit" || true )"
+          spigot_id="$( [[ -n "${spigot_type}" ]] && one_version_id "${spigot_type}" "Spigot" || true )"
+          paper_id="$( [[ -n "${paper_type}" ]] && one_version_id "${paper_type}" "Paper" || true )"
+          purpur_id="$( [[ -n "${purpur_type}" ]] && one_version_id "${purpur_type}" "Purpur" || true )"
+          folia_id="$( [[ -n "${folia_type}" ]] && one_version_id "${folia_type}" "Folia" || true )"
+
+          append_ids() {
+            local base="$1"
+            shift
+            local out="${base}"
+            for id in "$@"; do
+              if [[ -n "${id}" ]]; then
+                if [[ -n "${out}" ]]; then out="${out},${id}"; else out="${id}"; fi
+              fi
+            done
+            printf '%s' "${out}"
+          }
+
+          legacy_ids="$(append_ids "${legacy_mc_ids}" "${java17_id}" "${bukkit_id}" "${spigot_id}" "${paper_id}" "${purpur_id}")"
+          modern_ids="$(append_ids "${modern_mc_ids}" "${java21_id}" "${bukkit_id}" "${spigot_id}" "${paper_id}" "${purpur_id}")"
+          folia_ids="$(append_ids "${folia_mc_ids}" "${java21_id}" "${folia_id}")"
+
+          if [[ -z "${legacy_ids}" || -z "${modern_ids}" || -z "${folia_ids}" ]]; then
+            echo "::error::Failed to build CurseForge game_versions ID list."
+            exit 1
+          fi
+
+          echo "legacy_ids=${legacy_ids}" >> "$GITHUB_OUTPUT"
+          echo "modern_ids=${modern_ids}" >> "$GITHUB_OUTPUT"
+          echo "folia_ids=${folia_ids}" >> "$GITHUB_OUTPUT"
+
+          rm -f "${versions_json}" "${types_json}"
+
       - name: Upload slim 1.18.2+ (Paper)
         if: steps.cf-meta.outputs.enabled == 'true'
         uses: itsmeow/curseforge-upload@v3.1.2
@@ -445,7 +562,7 @@ jobs:
             由 GitHub 标签 `${{ github.ref_name }}` 自动发布。
             完整更新信息请查看 GitHub Release 页面：
             https://github.com/Cc-Cece/WebShopX-Issues/releases/tag/${{ github.ref_name }}
-          game_versions: Minecraft 1.18.2:1.18.2,Java 17,Paper,Spigot,Bukkit,Purpur
+          game_versions: ${{ steps.cf-versions.outputs.legacy_ids }}
 
       - name: Upload slim 1.19.4+ (Folia)
         if: steps.cf-meta.outputs.enabled == 'true'
@@ -461,7 +578,7 @@ jobs:
             由 GitHub 标签 `${{ github.ref_name }}` 自动发布。
             完整更新信息请查看 GitHub Release 页面：
             https://github.com/Cc-Cece/WebShopX-Issues/releases/tag/${{ github.ref_name }}
-          game_versions: Minecraft 1.19.4:1.19.4,Java 21,Folia
+          game_versions: ${{ steps.cf-versions.outputs.folia_ids }}
 
       - name: Upload slim 1.20.6+ (Paper)
         if: steps.cf-meta.outputs.enabled == 'true'
@@ -477,7 +594,7 @@ jobs:
             由 GitHub 标签 `${{ github.ref_name }}` 自动发布。
             完整更新信息请查看 GitHub Release 页面：
             https://github.com/Cc-Cece/WebShopX-Issues/releases/tag/${{ github.ref_name }}
-          game_versions: Minecraft 1.20.6:1.20.6,Java 21,Paper,Spigot,Bukkit,Purpur
+          game_versions: ${{ steps.cf-versions.outputs.modern_ids }}
 
   publish-modrinth:
     name: Publish Slim Artifacts to Modrinth
