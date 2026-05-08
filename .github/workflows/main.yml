@@ -477,6 +477,7 @@ jobs:
                   version_type: $version_type,
                   loaders: $loaders,
                   game_versions: $game_versions,
+                  dependencies: [],
                   featured: false,
                   status: "listed",
                   file_parts: ["file"]
