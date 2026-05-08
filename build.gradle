@@ -25,9 +25,14 @@ int runtimeJavaLanguageVersion = legacy18Runtime ? 17 : 21
 String runtimePaperApiVersion = legacy18Runtime ? '1.18.2-R0.1-SNAPSHOT' : '1.20.6-R0.1-SNAPSHOT'
 String runtimePluginApiVersion = legacy18Runtime ? '1.18' : '1.20'
 String runtimeClassifierSuffix = legacy18Runtime ? '1.18.2+' : '1.20.6+'
+String foliaClassifierSuffix = '1.19.4+'
 
 def variantClassifier = { String baseClassifier ->
     "${baseClassifier}-${runtimeClassifierSuffix}"
+}
+
+def foliaVariantClassifier = { String baseClassifier ->
+    "${baseClassifier}-${foliaClassifierSuffix}"
 }
 
 static boolean isTruthy(Object value) {
@@ -203,7 +208,7 @@ def configureShadowVariant = { ShadowJar task, String classifier ->
 
 def configureFoliaShadowVariant = { ShadowJar task, String classifier ->
     task.group = 'build'
-    task.archiveClassifier.set(variantClassifier(classifier))
+    task.archiveClassifier.set(foliaVariantClassifier(classifier))
     task.from(sourceSets.main.output) {
         exclude 'plugin.yml'
         exclude 'plugin-slim.yml'
@@ -231,7 +236,7 @@ tasks.register('slimJar', Jar) {
 tasks.register('foliaPreviewJar', Jar) {
     group = 'build'
     description = "Builds a Folia metadata preview JAR for ${targetRuntime} (not included in default release variants)."
-    archiveClassifier.set(variantClassifier('folia-preview'))
+    archiveClassifier.set(foliaVariantClassifier('folia-preview'))
     from(sourceSets.main.output) {
         exclude 'plugin.yml'
         exclude 'plugin-slim.yml'
@@ -242,7 +247,7 @@ tasks.register('foliaPreviewJar', Jar) {
 tasks.register('foliaSlimJar', Jar) {
     group = 'build'
     description = "Builds the Folia slim plugin JAR without bundled runtime dependencies for ${targetRuntime}."
-    archiveClassifier.set(variantClassifier('slim-folia'))
+    archiveClassifier.set(foliaVariantClassifier('slim-folia'))
     from(sourceSets.main.output) {
         exclude 'plugin.yml'
         exclude 'plugin-slim.yml'

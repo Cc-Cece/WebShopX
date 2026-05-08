@@ -243,10 +243,16 @@ jobs:
             {
               echo '## 版本适用与下载指引'
               echo
+              echo '| 提示 | 内容 |'
+              echo '| ---- | ---- |'
+              echo '| 更新说明 | 具体更新内容请在 README 或 Modrinth 页面中查看 |'
+              echo '| 发布页面 | [Modrinth](https://modrinth.com/plugin/webshopx)、[MineBBS](https://www.minebbs.com/resources/webshopx.15688/) |'
+              echo '| Wiki | [Docusaurus](https://docs.akihito.dpdns.org/) |'
+              echo
               echo '| 简写 | 说明 |'
               echo '| ---- | ---- |'
-              echo '| full | 变体包含所有依赖，适合大多数用户； |'
-              echo '| slim | 变体不包含任何依赖，会在服务器启动时自动下载（需要联网环境）。 |'
+              echo '| full | 变体包含 Windows 和 Linux 所有依赖（体积较大）； |'
+              echo '| slim | 变体不包含任何依赖，会在服务器启动时自动下载（需要联网环境）； |'
               echo '| full-win | 变体包含 Windows 所需依赖，不包含 Linux 相关依赖； |'
               echo '| full-linux | 变体包含 Linux 所需依赖，不包含 Windows 相关依赖； |'
               echo
@@ -255,19 +261,19 @@ jobs:
               printf '| full | %s | %s | %s |\n' \
                 "$(link_cell "full" "1.18.2+")" \
                 "$(link_cell "full" "1.20.6+")" \
-                "$(link_cell "full-folia" "1.20.6+")"
+                "$(link_cell "full-folia" "1.19.4+")"
               printf '| slim | %s | %s | %s |\n' \
                 "$(link_cell "slim" "1.18.2+")" \
                 "$(link_cell "slim" "1.20.6+")" \
-                "$(link_cell "slim-folia" "1.20.6+")"
+                "$(link_cell "slim-folia" "1.19.4+")"
               printf '| full-win | %s | %s | %s |\n' \
                 "$(link_cell "full-win" "1.18.2+")" \
                 "$(link_cell "full-win" "1.20.6+")" \
-                "$(link_cell "full-win-folia" "1.20.6+")"
+                "$(link_cell "full-win-folia" "1.19.4+")"
               printf '| full-linux | %s | %s | %s |\n' \
                 "$(link_cell "full-linux" "1.18.2+")" \
                 "$(link_cell "full-linux" "1.20.6+")" \
-                "$(link_cell "full-linux-folia" "1.20.6+")"
+                "$(link_cell "full-linux-folia" "1.19.4+")"
             } > "${output_file}"
           }
           
