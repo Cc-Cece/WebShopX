@@ -1,10 +1,11 @@
-﻿<!doctype html>
-<html lang="zh-CN" class="light">
+﻿<!DOCTYPE html>
+
+<html class="light" lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WebShopX 控制台</title>
-  <script>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title data-i18n="uiText.page.title">WebShopX Control Panel</title>
+<script>
     (function() {
       try {
         var saved = window.localStorage.getItem("webshopx_theme");
@@ -19,1609 +20,1556 @@
       }
     })();
   </script>
-  <script>
+<script>
     window.WEBSHOPX_VERSION = "@VERSION@";
     window.WEBSHOPX_UPDATE_VERSION = "@UPDATE_VERSION@";
   </script>
-  <link rel="stylesheet" href="/css/light.css" />
-  <link rel="stylesheet" href="/css/dark.css" />
-  <link rel="stylesheet" href="/css/styles.css" />
+<link href="/css/light.css" rel="stylesheet"/>
+<link href="/css/dark.css" rel="stylesheet"/>
+<link href="/css/styles.css" rel="stylesheet"/>
 </head>
 <body class="page-admin">
-  <main class="app-shell">
-    <header class="app-header md-card">
-      <div>
-        <!-- <p class="app-kicker">WebShopX Admin</p> -->
-        <h1>WebShopX 控制台</h1>
-        <!-- <p class="app-subtitle">统一管理兑换码、官方商品、玩家市场与账号支持。</p> -->
-      </div>
-      <div class="header-controls">
-        <select id="adminLocaleSelect" class="header-locale-select" aria-label="Language"></select>
-        <button id="adminThemeToggleBtn" class="btn-tonal theme-toggle-btn" type="button">切换暗色</button>
-        <div class="status-chip" id="adminStatusChip" data-state="offline">未登录</div>
-      </div>
-    </header>
-
-    <nav class="top-tabs" role="tablist" aria-label="管理大类">
-      <button class="top-tab active" data-major-target="overview" type="button">总览</button>
-      <button class="top-tab" data-major-target="commerce" type="button">商品中心</button>
-      <button class="top-tab" data-major-target="market" type="button">玩家市场</button>
-      <button class="top-tab" data-major-target="users" type="button">用户中心</button>
-      <button class="top-tab" data-major-target="system" type="button">系统配置</button>
-    </nav>
-    <nav class="sub-tabs admin-sub-tabs" id="adminSubTabs" role="tablist" aria-label="管理子页面"></nav>
-
-    <section class="tab-panel active" data-tab-panel="login">
-      <div class="grid two-col">
-        <article class="md-card section-card">
-          <h2>管理员登录</h2>
-          <p class="card-desc">请使用管理员账号进入后台。</p>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>账号</span>
-              <input id="adminIdentifier" placeholder="用户名或 UUID" />
-            </label>
-            <label class="field">
-              <span>密码</span>
-              <input id="adminPassword" type="password" placeholder="输入密码" />
-            </label>
-          </div>
-          <div class="actions">
-            <button id="adminLoginBtn" type="button">登录</button>
-            <button id="adminLogoutBtn" class="btn-tonal" type="button">退出</button>
-          </div>
-          <p class="meta" id="adminLoginStatus">等待登录</p>
-          <div class="md-tip md-tip-info">
-            <strong>安全提醒</strong>
-            <p>不要在公共环境暴露管理员凭据。</p>
-          </div>
-        </article>
-
-        <article class="md-card section-card">
-          <h2>当前管理员</h2>
-          <p class="card-desc">显示当前会话的角色与权限。</p>
-          <div class="md-tip md-tip-success">
-            <strong>权限控制</strong>
-            <p>不同管理员角色可访问不同模块，权限不足时会提示拒绝。</p>
-          </div>
-          <p class="meta" id="adminProfileView">未登录</p>
-        </article>
-
-        <article class="md-card section-card" id="adminUpdateCard" hidden>
-          <h2>发现新版本</h2>
-          <p class="card-desc" id="adminUpdateCardDesc">正在检查 Modrinth 更新…</p>
-          <p class="meta" id="adminUpdateCardMeta">版本信息加载中</p>
-          <div class="actions">
-            <button id="adminUpdateDetailsBtn" class="btn-tonal" type="button">查看更新内容</button>
-            <button id="adminUpdateDownloadBtn" type="button">直接下载 JAR</button>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section class="tab-panel" data-tab-panel="redeem">
+<main class="app-shell">
+<header class="app-header md-card">
+<div>
+<!-- <p class="app-kicker">WebShopX Admin</p> -->
+<h1 data-i18n="uiText.page.headerTitle">WebShopX Control Panel</h1>
+<!-- <p class="app-subtitle">统一管理兑换码、官方商品、玩家市场与账号支持。</p> -->
+</div>
+<div class="header-controls">
+<select aria-label="Language" class="header-locale-select" id="adminLocaleSelect"></select>
+<button class="btn-tonal theme-toggle-btn" data-i18n="uiText.page.headerThemeToggle" id="adminThemeToggleBtn" type="button">Dark mode</button>
+<div class="status-chip" data-i18n="uiText.page.headerStatusOffline" data-state="offline" id="adminStatusChip">Not signed in</div>
+</div>
+</header>
+<nav aria-label="Admin categories" class="top-tabs" data-i18n-aria-label="uiText.page.navMajorAria" role="tablist">
+<button class="top-tab active" data-i18n="uiText.page.navOverview" data-major-target="overview" type="button">Overview</button>
+<button class="top-tab" data-i18n="uiText.page.navCommerce" data-major-target="commerce" type="button">Commerce</button>
+<button class="top-tab" data-i18n="uiText.page.navMarket" data-major-target="market" type="button">Player Market</button>
+<button class="top-tab" data-i18n="uiText.page.navUsers" data-major-target="users" type="button">Users</button>
+<button class="top-tab" data-i18n="uiText.page.navSystem" data-major-target="system" type="button">System</button>
+</nav>
+<nav aria-label="Admin sub pages" class="sub-tabs admin-sub-tabs" data-i18n-aria-label="uiText.page.navSubAria" id="adminSubTabs" role="tablist"></nav>
+<section class="tab-panel active" data-tab-panel="login">
+<div class="grid two-col">
+<article class="md-card section-card">
+<h2 data-i18n="uiText.page.loginTitle">Admin Sign In</h2>
+<p class="card-desc" data-i18n="uiText.page.loginDesc">Sign in with an admin account to access the control panel.</p>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.page.loginAccount">Account</span>
+<input data-i18n-placeholder="uiText.page.loginAccountPlaceholder" id="adminIdentifier" placeholder="Username or UUID"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.page.loginPassword">Password</span>
+<input data-i18n-placeholder="uiText.page.loginPasswordPlaceholder" id="adminPassword" placeholder="Password" type="password"/>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.page.loginBtn" id="adminLoginBtn" type="button">Sign In</button>
+<button class="btn-tonal" data-i18n="uiText.page.logoutBtn" id="adminLogoutBtn" type="button">Sign Out</button>
+</div>
+<p class="meta" data-i18n="uiText.page.loginStatusWaiting" id="adminLoginStatus">Waiting to sign in</p>
+<div class="md-tip md-tip-info">
+<strong data-i18n="uiText.page.loginSecurityTitle">Security Reminder</strong>
+<p data-i18n="uiText.page.loginSecurityDesc">Do not expose admin credentials in public environments.</p>
+</div>
+</article>
+<article class="md-card section-card">
+<h2 data-i18n="uiText.page.currentAdminTitle">Current Admin</h2>
+<p class="card-desc" data-i18n="uiText.page.currentAdminDesc">Displays current session role and permissions.</p>
+<div class="md-tip md-tip-success">
+<strong data-i18n="uiText.page.currentAdminTipTitle">Permission Control</strong>
+<p data-i18n="uiText.page.currentAdminTipDesc">Different admin roles can access different modules.</p>
+</div>
+<p class="meta" data-i18n="uiText.page.currentAdminStatusOffline" id="adminProfileView">Not signed in</p>
+</article>
+<article class="md-card section-card" hidden="" id="adminUpdateCard">
+<h2 data-i18n="uiText.page.updateTitle">New Version Available</h2>
+<p class="card-desc" data-i18n="uiText.page.updateChecking" id="adminUpdateCardDesc">Checking Modrinth updates...</p>
+<p class="meta" data-i18n="uiText.page.updateMetaLoading" id="adminUpdateCardMeta">Loading version info</p>
+<div class="actions">
+<button class="btn-tonal" data-i18n="uiText.page.updateDetailsBtn" id="adminUpdateDetailsBtn" type="button">View Changelog</button>
+<button data-i18n="uiText.page.updateDownloadBtn" id="adminUpdateDownloadBtn" type="button">Download JAR</button>
+</div>
+</article>
+</div>
+</section>
+<section class="tab-panel" data-tab-panel="redeem">
+<article class="md-card section-card">
+<div class="section-head">
+<div>
+<h2 data-i18n="uiText.autoHtml.k0001">兑换码管理</h2>
+</div>
+<button data-i18n="uiText.autoHtml.k0002" id="redeemRefreshBtn" type="button">刷新列表</button>
+</div>
+<div class="field-grid three-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0003" id="adminRedeemShopCoinLabel">网页币</span>
+<input id="redeemShopCoin" min="0" step="1" type="number" value="0"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0004" id="adminRedeemGameCoinLabel">游戏币</span>
+<input id="redeemGameCoin" min="0" step="1" type="number" value="0"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0005">最大使用次数</span>
+<input id="redeemMaxUses" min="1" step="1" type="number" value="1"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0006">单账号最大使用次数</span>
+<input id="redeemPerUserMaxUses" min="1" step="1" type="number" value="1"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0007">有效期（分钟，可空）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0008" id="redeemExpires" min="0" placeholder="留空=永久" step="30" type="number"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0009">自定义兑换码（可空）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0010" id="redeemCustomCode" placeholder="可选自定义 code"/>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0011" id="redeemCreateBtn" type="button">生成兑换码</button>
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0012" id="redeemCopyBtn" type="button">复制最新兑换码</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0013" id="redeemCreateResult">等待生成</p>
+<div class="md-tip md-tip-info">
+<strong data-i18n="uiText.autoHtml.k0014">提示</strong>
+<p data-i18n="uiText.autoHtml.k0015">兑换码默认一次性。若开启多次使用，请注意有效期与发放对象。</p>
+</div>
+<div class="admin-list" id="redeemList"></div>
+</article>
+</section>
+<section class="tab-panel" data-tab-panel="products">
+<article class="md-card section-card">
+<div class="section-head">
+<div>
+<h2 data-i18n="uiText.autoHtml.k0016">官方商品管理</h2>
+</div>
+<button data-i18n="uiText.autoHtml.k0017" id="productRefreshBtn" type="button">刷新商品</button>
+</div>
+<div aria-label="官方商品管理子标签" class="sub-tabs product-sub-tabs" data-i18n-aria-label="uiText.autoHtml.k0018" role="tablist">
+<button class="btn-segment active" data-i18n="uiText.autoHtml.k0019" id="productEditorTabBtn" type="button">新增/编辑商品</button>
+<button class="btn-segment" data-i18n="uiText.autoHtml.k0020" id="productListTabBtn" type="button">商品列表</button>
+<button class="btn-segment" data-i18n="uiText.autoHtml.k0021" id="productVoucherTabBtn" type="button">团购券核销</button>
+</div>
+<div class="sub-panel active" data-product-panel="editor">
+<div>
+<h4 data-i18n="uiText.autoHtml.k0022">基础信息</h4>
+</div>
+<div class="field-grid three-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0023">SKU（唯一标识）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0024" id="productSku" placeholder="例如 vip_week"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0025">标题（玩家端展示）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0026" id="productTitle" placeholder="商品标题"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0027">价格</span>
+<input id="productPrice" min="1" step="1" type="number" value="1"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0028">交易币种</span>
+<select id="productCurrency">
+<option data-i18n="uiText.autoHtml.k0029" value="SHOP_COIN">网页币</option>
+<option data-i18n="uiText.autoHtml.k0030" value="GAME_COIN">游戏币</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0031">上架时间</span>
+<input id="productPublishAt" type="datetime-local"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0032">下架时间</span>
+<input id="productUnpublishAt" type="datetime-local"/>
+</label>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0033" id="productScheduleHint">商品上下架时间按配置时区处理。</p>
+<div>
+<h4 data-i18n="uiText.autoHtml.k0034">动态价格（出售/回收）</h4>
+</div>
+<div class="field-grid three-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0035">启用动态价格</span>
+<select id="productDynamicEnabled">
+<option data-i18n="uiText.autoHtml.k0036" value="false">关闭</option>
+<option data-i18n="uiText.autoHtml.k0037" value="true">启用</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0038">动态算法</span>
+<select id="productDynamicAlgorithm">
+<option data-i18n="uiText.autoHtml.k0039" value="LINEAR_DEMAND_V1">线性需求</option>
+<option data-i18n="uiText.autoHtml.k0040" value="DIMINISHING_RETURN_V1">边际递减</option>
+<option data-i18n="uiText.autoHtml.k0041" value="LOG_SMOOTH_V1">对数平滑</option>
+<option data-i18n="uiText.autoHtml.k0042" value="EXPONENTIAL_DEFENSE_V1">指数防御</option>
+<option data-i18n="uiText.autoHtml.k0043" value="THRESHOLD_STEP_V1">阈值阶梯</option>
+<option data-i18n="uiText.autoHtml.k0044" value="ELASTICITY_V1">弹性模型</option>
+<option data-i18n="uiText.autoHtml.k0045" value="PANIC_BUYING_V1">抢购模式</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0046">基础价（可空，默认=当前价格）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0047" id="productDynamicBasePrice" min="1" placeholder="留空=跟随价格" step="1" type="number"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0048">最低价（可空）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0049" id="productDynamicFloorPrice" min="1" placeholder="留空=不限" step="1" type="number"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0050">最高价（可空）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0051" id="productDynamicCapPrice" min="1" placeholder="留空=不限" step="1" type="number"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0052">价格步长（可空，默认 1）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0053" id="productDynamicPriceStep" min="1" placeholder="留空=1" step="1" type="number"/>
+</label>
+<label class="field product-remark-field" id="productDynamicParamEditor">
+<span data-i18n="uiText.autoHtml.k0054">算法参数编辑器</span>
+<p class="field-hint" data-i18n="uiText.autoHtml.k0055" id="productDynamicSummary">参数说明加载中…</p>
+<div class="dialog-inline-config">
+<div></div>
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0056" id="productDynamicHelpBtn" type="button">查看算法文档</button>
+</div>
+<div class="dialog-param-tabs">
+<button class="dialog-param-tab is-active" data-i18n="uiText.autoHtml.k0057" id="productDynamicParamBasicTabBtn" type="button">基础参数</button>
+<button class="dialog-param-tab" data-i18n="uiText.autoHtml.k0058" id="productDynamicParamAdvancedTabBtn" type="button">高级参数</button>
+</div>
+<div class="dialog-param-panel" id="productDynamicParamBasicPanel">
+<div class="dialog-algo-params" id="productDynamicBasicParams"></div>
+</div>
+<div class="dialog-param-panel" id="productDynamicParamAdvancedPanel" style="display: none;">
+<details class="dialog-advanced-details" id="productDynamicAdvancedDetails" open="">
+<summary data-i18n="uiText.autoHtml.k0059">高级参数（查看文档 | 谨慎修改）</summary>
+<p class="field-hint" data-i18n="uiText.autoHtml.k0060">留空将自动回退到默认值。</p>
+<div class="dialog-algo-params" id="productDynamicAdvancedParams"></div>
+</details>
+</div>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0061">算法参数 JSON（可空，兼容手动覆盖）</span>
+<textarea data-i18n-placeholder="uiText.autoHtml.k0062" id="productDynamicParamsJson" placeholder='例如 {"elasticity": 1.2}' rows="3"></textarea>
+<p class="field-hint" data-i18n="uiText.autoHtml.k0063">通常可通过上方可视化编辑器配置；手动填写 JSON 时请使用对象格式。</p>
+</label>
+</div>
+<p class="meta" data-i18n-html="uiText.autoHtml.k0064">仅 出售/回收物品 支持动态价格；具体规则及算法查看
+                <a class="btn-tonal" href="/help.html?mode=single&amp;doc=manual.zh-CN&amp;lang=zh-CN#dynamic-algorithms" style="display:inline-block;padding:2px 12px;margin-left:6px;vertical-align:middle;">帮助文档</a></p>
+<div>
+<h4 data-i18n="uiText.autoHtml.k0066">商品信息</h4>
+</div>
+<div class="field-grid three-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0067">类型</span>
+<select id="productType">
+<option data-i18n="uiText.autoHtml.k0068" value="COMMAND">指令</option>
+<option data-i18n="uiText.autoHtml.k0069" value="GIVE_ITEM">出售物品</option>
+<option data-i18n="uiText.autoHtml.k0070" value="POTION_EFFECT">药水效果</option>
+<option data-i18n="uiText.autoHtml.k0071" value="RECYCLE_ITEM">回收物品</option>
+<option data-i18n="uiText.autoHtml.k0072" value="GROUP_BUY_VOUCHER">团购券（线下核销）</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0073">启用</span>
+<select id="productActive">
+<option data-i18n="uiText.autoHtml.k0074" value="true">启用</option>
+<option data-i18n="uiText.autoHtml.k0075" value="false">停用</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0076">命令模板（指令类）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0077" id="productCommand" placeholder="例如 give %player% minecraft:diamond %amount%"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0078">物品材质（出售/回收）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0079" id="productItemMaterial" list="materialSuggestList" placeholder="例如 DIAMOND / 钻石"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0080">展示材质覆盖（可空）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0081" id="productDisplayMaterial" list="materialSuggestList" placeholder="用于前端图标展示，不影响实际发货"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0082">展示名称覆盖（可空）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0083" id="productDisplayNameOverride" placeholder="用于前端名称展示，不影响实际发货"/>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0084">自定义图标（优先级高于展示材质）</span>
+<input id="productDisplayIconPath" type="hidden"/>
+<div class="material-override-preview">
+<img alt="商品图标预览" data-i18n-alt="uiText.autoHtml.k0085" id="productIconPreviewImage" src=""/>
+<div>
+<p class="meta" data-i18n="uiText.autoHtml.k0086">当前商品图标</p>
+<strong data-i18n="uiText.autoHtml.k0087" id="productIconPreviewLabel">未选择商品</strong>
+</div>
+</div>
+<input accept=".png,.webp,.jpg,.jpeg,.gif,image/*" id="productIconFile" type="file"/>
+<div class="actions compact-actions">
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0088" id="productIconUploadBtn" type="button">上传并绑定图标</button>
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0089" id="productIconClearBtn" type="button">清除自定义图标</button>
+</div>
+<p class="field-hint" data-i18n="uiText.autoHtml.k0090" id="productIconStatus">先保存商品后即可上传独立商品图标。</p>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0091">药水效果（POTION）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0092" id="productEffectType" list="potionEffectSuggestList" placeholder="例如 speed"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0093">药水时长（秒）</span>
+<input id="productEffectSeconds" min="1" step="1" type="number" value="30"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0094">药水等级（0=I）</span>
+<input id="productEffectAmplifier" min="0" step="1" type="number" value="0"/>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0095">商品备注（玩家端展示）</span>
+<textarea data-i18n-placeholder="uiText.autoHtml.k0096" id="productRemark" placeholder="可填写用途说明、注意事项、团购兑换说明等" rows="3"></textarea>
+</label>
+</div>
+<div class="field-grid three-col product-range-grid">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0097">库存模式</span>
+<select id="productStockMode">
+<option data-i18n="uiText.autoHtml.k0098" value="FINITE">有限库存</option>
+<option data-i18n="uiText.autoHtml.k0099" value="UNLIMITED">无限库存</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0100">总库存</span>
+<input id="productItemAmount" min="1" step="1" type="number" value="64"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0101">单玩家限购</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0102" id="productPerUserLimit" min="1" placeholder="留空 = 不限购" step="1" type="number"/>
+</label>
+<div class="range-summary-card">
+<p class="range-summary-kicker" data-i18n="uiText.autoHtml.k0103">库存预览</p>
+<input class="range-input" id="productItemAmountSlider" max="256" min="1" step="1" type="range" value="64"/>
+<div class="range-summary-row">
+<span data-i18n="uiText.autoHtml.k0104">当前状态</span>
+<strong id="productAmountPreview">x64</strong>
+</div>
+<div class="range-summary-row">
+<span data-i18n="uiText.autoHtml.k0105">库存货值预览</span>
+<strong data-i18n="uiText.autoHtml.k0106" id="productTotalPreview">待计算</strong>
+</div>
+</div>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0107" id="productSaveBtn" type="button">保存商品</button>
+<p class="meta" data-i18n="uiText.autoHtml.k0108" id="productStatus">等待操作</p>
+</div>
+</div>
+<div class="sub-panel" data-product-panel="list">
+<div>
+<h4 data-i18n="uiText.autoHtml.k0109">商品列表</h4>
+</div>
+<div class="field-grid three-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0110">商品检索</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0111" id="productSearchKeyword" placeholder="标题 / SKU / 材质 / 备注"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0112">类型筛选</span>
+<select id="productSearchType">
+<option data-i18n="uiText.autoHtml.k0113" value="">全部</option>
+<option data-i18n="uiText.autoHtml.k0114" value="COMMAND">指令</option>
+<option data-i18n="uiText.autoHtml.k0115" value="GIVE_ITEM">出售物品</option>
+<option data-i18n="uiText.autoHtml.k0116" value="POTION_EFFECT">药水效果</option>
+<option data-i18n="uiText.autoHtml.k0117" value="RECYCLE_ITEM">回收物品</option>
+<option data-i18n="uiText.autoHtml.k0118" value="GROUP_BUY_VOUCHER">团购券</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0119">启用筛选</span>
+<select id="productSearchActive">
+<option data-i18n="uiText.autoHtml.k0120" value="">全部</option>
+<option data-i18n="uiText.autoHtml.k0121" value="true">启用</option>
+<option data-i18n="uiText.autoHtml.k0122" value="false">停用</option>
+</select>
+</label>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0123" id="productListStatus">等待加载商品列表</p>
+<div class="admin-list" id="productList"></div>
+</div>
+<div class="sub-panel" data-product-panel="voucher">
+<div>
+<h4 data-i18n="uiText.autoHtml.k0124">团购券核销</h4>
+</div>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0125">核销团购兑换码</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0126" id="groupBuyConsumeCode" placeholder="例如 GB-XXXXXXXXXXXX"/>
+</label>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0127" id="groupBuyConsumeBtn" type="button">核销团购兑换码</button>
+<p class="meta" data-i18n="uiText.autoHtml.k0128" id="groupBuyConsumeStatus">等待核销</p>
+</div>
+</div>
+</div>
+</article>
+</section>
+<section class="tab-panel" data-tab-panel="orders">
+<article class="md-card section-card">
+<div class="section-head">
+<div>
+<h2 data-i18n="uiText.autoHtml.k0129">订单列表</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0130">查看最近订单与状态。</p>
+</div>
+<button data-i18n="uiText.autoHtml.k0131" id="orderRefreshBtn" type="button">刷新订单</button>
+</div>
+<div class="field-grid three-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0132">状态</span>
+<select id="orderStatus">
+<option data-i18n="uiText.autoHtml.k0133" value="">全部</option>
+<option data-i18n="uiText.autoHtml.k0134" value="PENDING">待发放</option>
+<option data-i18n="uiText.autoHtml.k0135" value="WAIT_CLAIM">待领取</option>
+<option data-i18n="uiText.autoHtml.k0136" value="DELIVERED">已发放</option>
+<option data-i18n="uiText.autoHtml.k0137" value="REFUNDED">已退款</option>
+<option data-i18n="uiText.autoHtml.k0138" value="FAILED">失败</option>
+<option data-i18n="uiText.autoHtml.k0139" value="RECYCLED">已回收</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0140">用户ID</span>
+<input id="orderUserId" placeholder="User ID"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0141">订单号</span>
+<input id="orderNo" placeholder="ODR-..."/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0142">用户名</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0143" id="orderUsername" placeholder="用户昵称（模糊搜索）"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0144">币种</span>
+<select id="orderCurrency">
+<option data-i18n="uiText.autoHtml.k0145" value="">全部</option>
+<option data-i18n="uiText.autoHtml.k0146" value="SHOP_COIN">网页币</option>
+<option data-i18n="uiText.autoHtml.k0147" value="GAME_COIN">游戏币</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0148">商品类型</span>
+<select id="orderProductType">
+<option data-i18n="uiText.autoHtml.k0149" value="">全部</option>
+<option data-i18n="uiText.autoHtml.k0150" value="COMMAND">指令</option>
+<option data-i18n="uiText.autoHtml.k0151" value="GIVE_ITEM">出售物品</option>
+<option data-i18n="uiText.autoHtml.k0152" value="POTION_EFFECT">药水效果</option>
+<option data-i18n="uiText.autoHtml.k0153" value="RECYCLE_ITEM">回收物品</option>
+<option data-i18n="uiText.autoHtml.k0154" value="GROUP_BUY_VOUCHER">团购券</option>
+<option data-i18n="uiText.autoHtml.k0155" value="MARKET">玩家市场</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0156">综合关键词</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0157" id="orderKeyword" placeholder="订单号 / SKU / 标题"/>
+</label>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0158" id="orderStatusView">等待刷新</p>
+<div class="admin-list" id="adminOrderList"></div>
+</article>
+</section>
+<section class="tab-panel" data-tab-panel="economy">
+<div class="grid two-col">
+<article class="md-card section-card">
+<h2 data-i18n="uiText.autoHtml.k0159">兑换方向与比例</h2>
+<p class="card-desc" data-i18n-html="uiText.autoHtml.k0160">配置 <span data-i18n="uiText.autoHtml.k0003" id="economyShopCoinName">网页币</span> 与 <span data-i18n="uiText.autoHtml.k0004" id="economyGameCoinName">游戏币</span> 的兑换方向与比例。</p>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n-html="uiText.autoHtml.k0163"><span data-i18n="uiText.autoHtml.k0003" id="exchangeShopToGameNameA">网页币</span> -&gt; <span data-i18n="uiText.autoHtml.k0004" id="exchangeShopToGameNameB">游戏币</span> 开关</span>
+<select id="exchangeShopToGameEnabled">
+<option data-i18n="uiText.autoHtml.k0166" value="true">启用</option>
+<option data-i18n="uiText.autoHtml.k0167" value="false">禁用</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n-html="uiText.autoHtml.k0168"><span data-i18n="uiText.autoHtml.k0003" id="exchangeShopToGameNameC">网页币</span> -&gt; <span data-i18n="uiText.autoHtml.k0004" id="exchangeShopToGameNameD">游戏币</span> 比例</span>
+<input id="exchangeShopToGameRatio" min="0" step="0.01" type="number" value="1.0"/>
+</label>
+<label class="field">
+<span data-i18n-html="uiText.autoHtml.k0171"><span data-i18n="uiText.autoHtml.k0004" id="exchangeGameToShopNameA">游戏币</span> -&gt; <span data-i18n="uiText.autoHtml.k0003" id="exchangeGameToShopNameB">网页币</span> 开关</span>
+<select id="exchangeGameToShopEnabled">
+<option data-i18n="uiText.autoHtml.k0174" value="true">启用</option>
+<option data-i18n="uiText.autoHtml.k0175" value="false">禁用</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n-html="uiText.autoHtml.k0176"><span data-i18n="uiText.autoHtml.k0004" id="exchangeGameToShopNameC">游戏币</span> -&gt; <span data-i18n="uiText.autoHtml.k0003" id="exchangeGameToShopNameD">网页币</span> 比例</span>
+<input id="exchangeGameToShopRatio" min="0" step="0.01" type="number" value="1.0"/>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0179" id="exchangeSaveBtn" type="button">保存兑换配置</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0180" id="exchangeStatusView">等待操作</p>
+</article>
+<article class="md-card section-card">
+<h2 data-i18n="uiText.autoHtml.k0181">交易手续费与税率</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0182">买家支付税率，卖家扣除手续费。</p>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0183">交易手续费（%）</span>
+<input id="marketFeePercent" max="100" min="0" step="0.01" type="number" value="0.0"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0184">交易税率（%）</span>
+<input id="marketTaxPercent" max="100" min="0" step="0.01" type="number" value="0.0"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0185">通胀控制模式</span>
+<select id="inflationMode">
+<option data-i18n="uiText.autoHtml.k0186" value="BURN">BURN（销毁）</option>
+<option data-i18n="uiText.autoHtml.k0187" value="TREASURY">TREASURY（国库）</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0188">国库用户 ID（TREASURY 模式必填）</span>
+<input id="inflationTreasuryUserId" min="0" step="1" type="number" value="0"/>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0189" id="marketEconomySaveBtn" type="button">保存经济策略</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0190" id="marketEconomyStatusView">等待操作</p>
+</article>
+<article class="md-card section-card">
+<h2 data-i18n="uiText.autoHtml.k0191">币种展示设置</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0192">统一设置玩家端与管理端显示名称/简称。</p>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0193">Shop 币名称</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0194" id="currencyShopCoinName" maxlength="24" placeholder="例如 ShopCoin"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0195">Shop 币简称</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0196" id="currencyShopCoinShort" maxlength="12" placeholder="例如 SC"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0197">Game 币名称</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0198" id="currencyGameCoinName" maxlength="24" placeholder="例如 GameCoin"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0199">Game 币简称</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0200" id="currencyGameCoinShort" maxlength="12" placeholder="例如 GC"/>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0201" id="currencySaveBtn" type="button">保存币种展示</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0202" id="currencyStatusView">等待操作</p>
+</article>
+<article class="md-card section-card">
+<h2 data-i18n="uiText.autoHtml.k0203">Vault 对接状态</h2>
+<p class="card-desc" data-i18n-html="uiText.autoHtml.k0204"><span data-i18n="uiText.autoHtml.k0004" id="vaultGameCoinName">游戏币</span> 与 Vault 经济系统的连接状态。</p>
+<p class="meta" data-i18n="uiText.autoHtml.k0206" id="vaultStatusView">等待加载</p>
+</article>
+<article class="md-card section-card config-scope-card" id="deploymentScopeCard">
+<h2 data-i18n="uiText.autoHtml.k0207">部署模式（只读）</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0208">由 `config.yml` 决定。SQLite 仅支持单服（cluster.role=standalone）。</p>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0209">数据库类型</span>
+<input id="deploymentDatabaseType" readonly=""/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0210">集群角色</span>
+<input id="deploymentClusterRole" readonly=""/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0211">Redis 集群总线</span>
+<input id="deploymentRedisEnabled" readonly=""/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0212">跨服配置同步</span>
+<input id="deploymentClusterSyncEnabled" readonly=""/>
+</label>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0213" id="deploymentScopeStatusView">等待加载部署模式</p>
+</article>
+<article class="md-card section-card">
+<h2 data-i18n="uiText.autoHtml.k0214">排行榜设置</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0215">控制玩家端排行榜页面开关、在线状态显示及默认排序。</p>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0216">开启排行榜页面</span>
+<select id="leaderboardEnabled">
+<option data-i18n="uiText.autoHtml.k0217" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0218" value="false">关闭</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0219">显示实时在线状态</span>
+<select id="leaderboardShowOnlineStatus">
+<option data-i18n="uiText.autoHtml.k0220" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0221" value="false">关闭</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0222">默认排行维度</span>
+<select id="leaderboardDefaultMetric">
+<option value="GAME_COIN">GameCoin</option>
+<option value="SHOP_COIN">ShopCoin</option>
+<option data-i18n="uiText.autoHtml.k0223" value="ONLINE_TIME">在线时长</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0224">默认排序方向</span>
+<select id="leaderboardDefaultOrder">
+<option data-i18n="uiText.autoHtml.k0225" value="DESC">高到低</option>
+<option data-i18n="uiText.autoHtml.k0226" value="ASC">低到高</option>
+</select>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0227" id="leaderboardSaveBtn" type="button">保存排行榜配置</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0228" id="leaderboardStatusView">等待操作</p>
+</article>
+<article class="md-card section-card">
+<h2 data-i18n="uiText.autoHtml.k0229">站点运行参数</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0230">控制会话、时区、发货与退款策略，适合多服统一下发。</p>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0231">默认语言</span>
+<select id="runtimeDefaultLocale">
+<option value="zh-CN">zh-CN</option>
+<option value="en-US">en-US</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0232">业务时区</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0233" id="runtimeTimeZone" placeholder="例如 Asia/Shanghai"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0234">会话有效期（小时）</span>
+<input id="runtimeSessionExpireHours" min="1" step="1" type="number" value="72"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0235">绑定请求有效期（分钟）</span>
+<input id="runtimeBindRequestExpireMinutes" min="1" step="1" type="number" value="15"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0236">访问令牌长度</span>
+<input id="runtimeAccessTokenLength" min="16" step="1" type="number" value="48"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0237">单轮发货批次</span>
+<input id="runtimeDeliveryBatchSize" min="1" step="1" type="number" value="20"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0238">发货重试间隔（秒）</span>
+<input id="runtimeDeliveryRetrySeconds" min="5" step="1" type="number" value="30"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0239">订单冷却（秒）</span>
+<input id="runtimeOrderCooldownSeconds" min="0" step="1" type="number" value="15"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0240">允许代领命令</span>
+<select id="runtimeAllowSharedClaimCommand">
+<option data-i18n="uiText.autoHtml.k0241" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0242" value="false">关闭</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0243">允许未发放退款</span>
+<select id="runtimeRefundUndeliveredEnabled">
+<option data-i18n="uiText.autoHtml.k0244" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0245" value="false">关闭</option>
+</select>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0246" id="runtimeWebshopSaveBtn" type="button">保存运行参数</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0247" id="runtimeWebshopStatusView">等待操作</p>
+</article>
+<article class="md-card section-card">
+<h2 data-i18n="uiText.autoHtml.k0248">市场运行参数</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0249">控制市场上架上限与供货自动补货策略。</p>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0250">默认最大上架数</span>
+<input id="runtimeMarketMaxActiveListings" min="1" step="1" type="number" value="10"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0251">自动补货阈值</span>
+<input id="runtimeMarketAutoRefreshThreshold" min="0" step="1" type="number" value="8"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0252">默认单次提取量</span>
+<input id="runtimeMarketDefaultTransferBatchSize" min="1" step="1" type="number" value="64"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0253">最大单次提取量</span>
+<input id="runtimeMarketMaxTransferBatchSize" min="1" step="1" type="number" value="256"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0254">默认中转库存</span>
+<input id="runtimeMarketDefaultTransitStock" min="1" step="1" type="number" value="256"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0255">最大中转库存</span>
+<input id="runtimeMarketMaxTransitStock" min="1" step="1" type="number" value="1024"/>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0256" id="runtimeMarketSaveBtn" type="button">保存市场参数</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0257" id="runtimeMarketStatusView">等待操作</p>
+</article>
+<article class="md-card section-card">
+<h2 data-i18n="uiText.autoHtml.k0258">维护任务</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0259">控制清理频率与绑定、兑换码等数据保留时间。</p>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0260">清理间隔（分钟）</span>
+<input id="runtimeCleanupIntervalMinutes" min="0" step="1" type="number" value="30"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0261">待绑定保留（小时）</span>
+<input id="runtimePendingBindRetentionHours" min="1" step="1" type="number" value="6"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0262">待密码设置保留（小时）</span>
+<input id="runtimePendingPasswordRetentionHours" min="1" step="1" type="number" value="6"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0263">绑定请求保留（小时）</span>
+<input id="runtimeBindRequestRetentionHours" min="1" step="1" type="number" value="24"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0264">兑换码保留（天）</span>
+<input id="runtimeRedeemCodeRetentionDays" min="1" step="1" type="number" value="7"/>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0265" id="runtimeMaintenanceSaveBtn" type="button">保存维护参数</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0266" id="runtimeMaintenanceStatusView">等待操作</p>
+</article>
+<article class="md-card section-card">
+<div class="section-head">
+<div>
+<h2 data-i18n="uiText.autoHtml.k0267">标签管理</h2>
+</div>
+<button data-i18n="uiText.autoHtml.k0268" id="marketTagRefreshBtn" type="button">刷新标签</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0269" id="marketTagMetaStatusView">等待加载标签</p>
+<h4 data-i18n="uiText.autoHtml.k0270">标签规则</h4>
+<div class="field-grid three-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0271">标签版本</span>
+<input id="marketTagVersionInput" min="1" step="1" type="number" value="1"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0272">兜底默认标签</span>
+<select id="marketTagDefaultTagSelect"></select>
+</label>
+<label class="field">
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0273" id="marketTagAddRowBtn" type="button">新增标签</button>
+</label>
+</div>
+<div class="admin-list market-policy-scroll-list" id="marketTagConfigList"></div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0274" id="marketTagConfigSaveBtn" type="button">保存标签规则</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0275" id="marketTagConfigStatusView">等待加载标签规则</p>
+<details class="dialog-advanced-details">
+<summary data-i18n="uiText.autoHtml.k0276">直接编辑 JSON (高级)</summary>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0277">可在此直接编辑 JSON，点“应用”即可同步到上面的表单。</p>
+<div class="field-grid">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0278">标签规则 JSON（market_tags）</span>
+<textarea id="marketTagConfigEditor" placeholder='{"tagVersion":1,"defaultTag":"default","tags":[]}' rows="10"></textarea>
+</label>
+</div>
+<div class="actions">
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0279" id="marketTagJsonApplyBtn" type="button">应用</button>
+</div>
+</details>
+</article>
+<article class="md-card section-card">
+<div class="section-head">
+<div>
+<h2 data-i18n="uiText.autoHtml.k0280">上架限制</h2>
+</div>
+<button data-i18n="uiText.autoHtml.k0281" id="marketLimitationRefreshBtn" type="button">刷新上架限制</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0282" id="marketLimitationSummaryView">等待加载限制摘要</p>
+<h4 data-i18n="uiText.autoHtml.k0283">上架限制</h4>
+<div class="md-tip md-tip-info">
+<strong data-i18n="uiText.autoHtml.k0284">配置说明</strong>
+<p data-i18n="uiText.autoHtml.k0285">带*的字段表示可使用逗号分隔填入多个值。如若对某个参数不理解请查阅相关文档。</p>
+</div>
+<div class="field-grid three-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0286">默认拒绝方向*</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0287" id="marketLimitationDefaultDenySidesInput" placeholder="例如 BUY"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0288">默认拒绝币种*</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0289" id="marketLimitationDefaultDenyCurrenciesInput" placeholder="例如 SHOP_COIN"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0290">默认允许方向*</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0291" id="marketLimitationDefaultAllowSidesInput" placeholder="例如 SELL,BUY"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0292">默认允许交易模式*</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0293" id="marketLimitationDefaultAllowTradeModesInput" placeholder="例如 DIRECT,AUCTION"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0294">默认允许币种*</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0295" id="marketLimitationDefaultAllowCurrenciesInput" placeholder="留空=不限"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0296">默认允许标签*</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0297" id="marketLimitationDefaultAllowTagsInput" placeholder="留空=不限"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0298">默认创建成本</span>
+<select id="marketLimitationDefaultCreateCostEnabled">
+<option data-i18n="uiText.autoHtml.k0299" value="false">关闭</option>
+<option data-i18n="uiText.autoHtml.k0300" value="true">开启</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0301">创建成本币种</span>
+<input id="marketLimitationDefaultCreateCostCurrency" placeholder="INHERIT / GAME_COIN / SHOP_COIN"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0302">创建成本金额</span>
+<input id="marketLimitationDefaultCreateCostAmount" min="0" step="1" type="number" value="0"/>
+</label>
+</div>
+<div class="actions">
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0303" id="marketLimitationAddRuleBtn" type="button">新增限制规则</button>
+</div>
+<div class="admin-list market-policy-scroll-list" id="marketLimitationRuleList"></div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0304" id="marketLimitationConfigSaveBtn" type="button">保存上架限制</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0305" id="marketLimitationConfigStatusView">等待加载上架限制</p>
+<details class="dialog-advanced-details">
+<summary data-i18n="uiText.autoHtml.k0306">直接编辑 JSON (高级)</summary>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0307">可在此直接编辑 JSON，点“应用到可视化”即可同步到上面的表单。</p>
+<div class="field-grid">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0308">上架限制 JSON（market_limitation）</span>
+<textarea id="marketLimitationConfigEditor" placeholder='{"default":{"allow":{"marketSides":["SELL","BUY"]}},"rules":[]}' rows="10"></textarea>
+</label>
+</div>
+<div class="actions">
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0309" id="marketLimitationJsonApplyBtn" type="button">应用限制 JSON 到可视化</button>
+</div>
+</details>
+</article>
+<article class="md-card section-card">
+<h2 data-i18n="uiText.autoHtml.k0310">日志设置</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0311">统一控制多服文件日志输出级别与保留策略。</p>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0312">启用文件日志</span>
+<select id="runtimeLoggingEnabled">
+<option data-i18n="uiText.autoHtml.k0313" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0314" value="false">关闭</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0315">日志级别</span>
+<select id="runtimeLoggingLevel">
+<option value="ERROR">ERROR</option>
+<option value="WARN">WARN</option>
+<option value="INFO">INFO</option>
+<option value="DEBUG">DEBUG</option>
+<option value="TRACE">TRACE</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0316">日志目录</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0317" id="runtimeLoggingDirectory" placeholder="例如 logs"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0318">单文件大小（MB）</span>
+<input id="runtimeLoggingMaxFileSizeMb" min="1" step="1" type="number" value="8"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0319">滚动文件数</span>
+<input id="runtimeLoggingMaxFiles" min="1" step="1" type="number" value="8"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0320">保留天数（0=不清理）</span>
+<input id="runtimeLoggingRetentionDays" min="0" step="1" type="number" value="14"/>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0321" id="runtimeLoggingSaveBtn" type="button">保存日志设置</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0322" id="runtimeLoggingStatusView">等待操作</p>
+</article>
+<article class="md-card section-card">
+<h2 data-i18n="uiText.autoHtml.k0323">广播模板</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0324">统一控制市场广播开关与跨服消息模板。</p>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0325">启用广播</span>
+<select id="runtimeBroadcastEnabled">
+<option data-i18n="uiText.autoHtml.k0326" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0327" value="false">关闭</option>
+</select>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0328">上架广播模板</span>
+<textarea id="runtimeBroadcastListingCreatedTemplate" rows="2"></textarea>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0329">成交广播模板</span>
+<textarea id="runtimeBroadcastTradeSuccessTemplate" rows="2"></textarea>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0330">竞拍广播模板</span>
+<textarea id="runtimeBroadcastAuctionBidTemplate" rows="2"></textarea>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0331">密封竞拍广播模板</span>
+<textarea id="runtimeBroadcastAuctionSealedBidTemplate" rows="2"></textarea>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0332" id="runtimeBroadcastSaveBtn" type="button">保存广播设置</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0333" id="runtimeBroadcastStatusView">等待操作</p>
+</article>
+<article class="md-card section-card">
+<h2 data-i18n="uiText.autoHtml.k0334">消息管理</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0335">可视化编辑公告消息、业务通知开关与通知模板。</p>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0336">市场业务事件通知</span>
+<select id="runtimeNotificationMarketEnabled">
+<option data-i18n="uiText.autoHtml.k0337" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0338" value="false">关闭</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0339">发货/信箱事件通知</span>
+<select id="runtimeNotificationDeliveryEnabled">
+<option data-i18n="uiText.autoHtml.k0340" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0341" value="false">关闭</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0342">公告标题</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0343" id="runtimeAnnouncementTitle" placeholder="例如 服务器维护通知"/>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0344">公告内容</span>
+<textarea data-i18n-placeholder="uiText.autoHtml.k0345" id="runtimeAnnouncementContent" placeholder="输入要推送给所有用户的公告内容" rows="3"></textarea>
+</label>
+</div>
+<div class="actions">
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0346" id="runtimeNotificationTemplateEditBtn" type="button">编辑消息模板</button>
+<button data-i18n="uiText.autoHtml.k0347" id="runtimeNotificationSaveBtn" type="button">保存消息设置</button>
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0348" id="runtimeAnnouncementSendBtn" type="button">发送公告</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0349" id="runtimeNotificationStatusView">等待操作</p>
+<p class="meta" data-i18n="uiText.autoHtml.k0350" id="runtimeAnnouncementStatusView">等待发送公告</p>
+</article>
+<article class="md-card section-card">
+<h2 data-i18n="uiText.autoHtml.k0351">商品自定义管理</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0352">控制全局商品图标、标题自定义的权限。</p>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0353">启用全局自定义图标</span>
+<select id="visualGlobalCustomIconEnabled">
+<option data-i18n="uiText.autoHtml.k0354" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0355" value="false">关闭</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0356">图标策略</span>
+<select id="visualIconPolicyMode">
+<option data-i18n="uiText.autoHtml.k0357" value="SOFT">SOFT（玩家/商品级优先）</option>
+<option data-i18n="uiText.autoHtml.k0358" value="HARD">HARD（全局优先）</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0359">启用全局自定义名称</span>
+<select id="visualGlobalCustomNameEnabled">
+<option data-i18n="uiText.autoHtml.k0360" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0361" value="false">关闭</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0362">名称策略</span>
+<select id="visualNamePolicyMode">
+<option data-i18n="uiText.autoHtml.k0363" value="SOFT">SOFT（玩家/商品级优先）</option>
+<option data-i18n="uiText.autoHtml.k0364" value="HARD">HARD（全局优先）</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0365">官方商品允许自定义图标</span>
+<select id="visualOfficialProductCustomIconEnabled">
+<option data-i18n="uiText.autoHtml.k0366" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0367" value="false">关闭</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0368">官方商品允许自定义名称</span>
+<select id="visualOfficialProductCustomNameEnabled">
+<option data-i18n="uiText.autoHtml.k0369" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0370" value="false">关闭</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0371">官方商品允许上传图片</span>
+<select id="visualOfficialProductUploadImageEnabled">
+<option data-i18n="uiText.autoHtml.k0372" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0373" value="false">关闭</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0374">玩家市场允许自定义图标</span>
+<select id="visualMarketListingCustomIconEnabled">
+<option data-i18n="uiText.autoHtml.k0375" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0376" value="false">关闭</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0377">玩家市场允许自定义名称</span>
+<select id="visualMarketListingCustomNameEnabled">
+<option data-i18n="uiText.autoHtml.k0378" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0379" value="false">关闭</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0380">玩家市场允许上传图片</span>
+<select id="visualMarketListingUploadImageEnabled">
+<option data-i18n="uiText.autoHtml.k0381" value="true">开启</option>
+<option data-i18n="uiText.autoHtml.k0382" value="false">关闭</option>
+</select>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0383" id="visualSettingsSaveBtn" type="button">保存设置</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0384" id="visualSettingsStatusView">等待操作</p>
+</article>
+<article class="md-card section-card">
+<div class="section-head">
+<div>
+<h2 data-i18n="uiText.autoHtml.k0385">图标与名称对照表</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0386">优先级：自定义 -&gt; 对照表 -&gt; 原版材质 -&gt; 默认占位图。</p>
+</div>
+<button data-i18n="uiText.autoHtml.k0387" id="materialOverrideRefreshBtn" type="button">刷新对照表</button>
+</div>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0388">检索关键字</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0389" id="materialOverrideKeyword" placeholder="材质Key / 显示名称"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0390">材质 Key</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0391" id="materialOverrideMaterial" list="materialSuggestList" placeholder="例如 DIAMOND / 钻石"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0392">显示名称覆盖（可空）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0393" id="materialOverrideDisplayName" placeholder="留空表示跟随默认翻译"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0394">图标文件（png/webp/jpg/gif）</span>
+<input accept=".png,.webp,.jpg,.jpeg,.gif,image/*" id="materialOverrideIconFile" type="file"/>
+</label>
+</div>
+<div class="material-override-preview">
+<img alt="材质图标预览" data-i18n-alt="uiText.autoHtml.k0395" id="materialOverridePreviewImage" src=""/>
+<div>
+<p class="meta" data-i18n="uiText.autoHtml.k0396">当前预览</p>
+<strong data-i18n="uiText.autoHtml.k0397" id="materialOverridePreviewLabel">未选择材质</strong>
+</div>
+</div>
+<div class="actions">
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0398" id="materialOverrideUploadBtn" type="button">上传图标</button>
+<button data-i18n="uiText.autoHtml.k0399" id="materialOverrideSaveBtn" type="button">保存映射</button>
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0400" disabled="" id="materialOverrideDeleteBtn" type="button">删除映射</button>
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0401" id="materialOverrideClearBtn" type="button">清空编辑器</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0402" id="materialOverrideStatusView">等待加载材质映射</p>
+<div class="admin-list" id="materialOverrideList"></div>
+</article>
+</div>
+</section>
+<section class="tab-panel" data-tab-panel="market">
+<article class="md-card section-card">
+<div class="section-head">
+<div>
+<h2 data-i18n="uiText.autoHtml.k0403">玩家市场管理</h2>
+</div>
+<button data-i18n="uiText.autoHtml.k0404" id="marketRefreshBtn" type="button">刷新列表</button>
+</div>
+<div class="field-grid three-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0405">状态筛选</span>
+<select id="marketStatus">
+<option data-i18n="uiText.autoHtml.k0406" value="">全部</option>
+<option data-i18n="uiText.autoHtml.k0407" value="ACTIVE">在售</option>
+<option data-i18n="uiText.autoHtml.k0408" value="SOLD">已售</option>
+<option data-i18n="uiText.autoHtml.k0409" value="UNLISTED">已下架</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0410">卖家</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0411" id="marketSeller" placeholder="卖家昵称（模糊）"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0412">买家</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0413" id="marketBuyer" placeholder="买家昵称（模糊）"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0414">材质</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0415" id="marketMaterial" list="materialSuggestList" placeholder="材质英文或中文名"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0416">币种</span>
+<select id="marketCurrency">
+<option data-i18n="uiText.autoHtml.k0417" value="">全部</option>
+<option data-i18n="uiText.autoHtml.k0418" value="SHOP_COIN">网页币</option>
+<option data-i18n="uiText.autoHtml.k0419" value="GAME_COIN">游戏币</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0420">综合关键词</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0421" id="marketKeyword" placeholder="ID / 材质 / 备注 / 用户名"/>
+</label>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0422" id="marketStatusView">等待加载</p>
+<div class="admin-list" id="adminMarketList"></div>
+</article>
+</section>
+<section class="tab-panel" data-tab-panel="users">
+<div class="grid two-col">
+<article class="md-card section-card">
+<h2 data-i18n="uiText.autoHtml.k0423">账号查询</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0424">输入昵称或 UUID 查询账号。</p>
+<div class="field-grid">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0425">用户名 / UUID</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0426" id="userIdentifier" placeholder="例如 玩家名或 UUID"/>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0427" id="userSearchBtn" type="button">查询账号</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0428" id="userLookupStatus">等待查询</p>
+<div class="admin-list" id="userInfoBox"></div>
+</article>
+<article class="md-card section-card">
+<h2 data-i18n="uiText.autoHtml.k0429">账号支持操作</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0430">对已查询的账号执行支持操作。</p>
+<div class="field-grid">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0431">新密码</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0432" id="userNewPassword" placeholder="8-64 位" type="password"/>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0433" id="userResetPasswordBtn" type="button">重置密码</button>
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0434" id="userUnbindBtn" type="button">解绑</button>
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0435" id="userForceLogoutBtn" type="button">强制下线</button>
+</div>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0436">调整币种</span>
+<select id="walletCurrency">
+<option data-i18n="uiText.autoHtml.k0437" value="SHOP_COIN">网页币</option>
+<option data-i18n="uiText.autoHtml.k0438" value="GAME_COIN">游戏币</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0439">调整数量（可负数）</span>
+<input id="walletDelta" step="1" type="number" value="0"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0440">原因</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0441" id="walletReason" placeholder="例如 补偿/退款"/>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0442" id="walletAdjustBtn" type="button">调整余额</button>
+</div>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0443">自定义图标权限</span>
+<select id="userVisualIconPermission">
+<option data-i18n="uiText.autoHtml.k0444" value="INHERIT">继承全局</option>
+<option data-i18n="uiText.autoHtml.k0445" value="ALLOW">允许（可绕过全局）</option>
+<option data-i18n="uiText.autoHtml.k0446" value="DENY">禁止</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0447">自定义名称权限</span>
+<select id="userVisualNamePermission">
+<option data-i18n="uiText.autoHtml.k0448" value="INHERIT">继承全局</option>
+<option data-i18n="uiText.autoHtml.k0449" value="ALLOW">允许（可绕过全局）</option>
+<option data-i18n="uiText.autoHtml.k0450" value="DENY">禁止</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0451">上传图片权限</span>
+<select id="userVisualUploadPermission">
+<option data-i18n="uiText.autoHtml.k0452" value="INHERIT">继承全局</option>
+<option data-i18n="uiText.autoHtml.k0453" value="ALLOW">允许（可绕过全局）</option>
+<option data-i18n="uiText.autoHtml.k0454" value="DENY">禁止</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0455">上架数量覆盖</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0456" id="userListingLimitOverride" min="1" placeholder="留空 = 跟随权限/全局" step="1" type="number"/>
+</label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0457" id="userVisualPermissionSaveBtn" type="button">保存自定义权限</button>
+<p class="meta" data-i18n="uiText.autoHtml.k0458" id="userVisualPermissionStatus">等待操作</p>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0459" id="userListingLimitStatus">等待读取上架数量限制</p>
+<p class="meta" data-i18n="uiText.autoHtml.k0460" id="userActionStatus">等待操作</p>
+</article>
+</div>
+       
       <article class="md-card section-card">
-        <div class="section-head">
-          <div>
-            <h2>兑换码管理</h2>
-          </div>
-          <button id="redeemRefreshBtn" type="button">刷新列表</button>
-        </div>
-        <div class="field-grid three-col">
-          <label class="field">
-            <span id="adminRedeemShopCoinLabel">网页币</span>
-            <input id="redeemShopCoin" type="number" min="0" step="1" value="0" />
-          </label>
-          <label class="field">
-            <span id="adminRedeemGameCoinLabel">游戏币</span>
-            <input id="redeemGameCoin" type="number" min="0" step="1" value="0" />
-          </label>
-          <label class="field">
-            <span>最大使用次数</span>
-            <input id="redeemMaxUses" type="number" min="1" step="1" value="1" />
-          </label>
-          <label class="field">
-            <span>单账号最大使用次数</span>
-            <input id="redeemPerUserMaxUses" type="number" min="1" step="1" value="1" />
-          </label>
-          <label class="field">
-            <span>有效期（分钟，可空）</span>
-            <input id="redeemExpires" type="number" min="0" step="30" placeholder="留空=永久" />
-          </label>
-          <label class="field">
-            <span>自定义兑换码（可空）</span>
-            <input id="redeemCustomCode" placeholder="可选自定义 code" />
-          </label>
-        </div>
-        <div class="actions">
-          <button id="redeemCreateBtn" type="button">生成兑换码</button>
-          <button id="redeemCopyBtn" class="btn-tonal" type="button">复制最新兑换码</button>
-        </div>
-        <p class="meta" id="redeemCreateResult">等待生成</p>
-        <div class="md-tip md-tip-info">
-          <strong>提示</strong>
-          <p>兑换码默认一次性。若开启多次使用，请注意有效期与发放对象。</p>
-        </div>
-        <div class="admin-list" id="redeemList"></div>
-      </article>
-    </section>
-
-    <section class="tab-panel" data-tab-panel="products">
-      <article class="md-card section-card">
-        <div class="section-head">
-          <div>
-            <h2>官方商品管理</h2>
-          </div>
-          <button id="productRefreshBtn" type="button">刷新商品</button>
-        </div>
-        <div class="sub-tabs product-sub-tabs" role="tablist" aria-label="官方商品管理子标签">
-          <button id="productEditorTabBtn" class="btn-segment active" type="button">新增/编辑商品</button>
-          <button id="productListTabBtn" class="btn-segment" type="button">商品列表</button>
-          <button id="productVoucherTabBtn" class="btn-segment" type="button">团购券核销</button>
-        </div>
-
-        <div class="sub-panel active" data-product-panel="editor">
-          <div>
-            <h4>基础信息</h4>
-          </div>
-          <div class="field-grid three-col">
-            <label class="field">
-              <span>SKU（唯一标识）</span>
-              <input id="productSku" placeholder="例如 vip_week" />
-            </label>
-            <label class="field">
-              <span>标题（玩家端展示）</span>
-              <input id="productTitle" placeholder="商品标题" />
-            </label>
-            <label class="field">
-              <span>价格</span>
-              <input id="productPrice" type="number" min="1" step="1" value="1" />
-            </label>
-            <label class="field">
-              <span>交易币种</span>
-              <select id="productCurrency">
-                <option value="SHOP_COIN">网页币</option>
-                <option value="GAME_COIN">游戏币</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>上架时间</span>
-              <input id="productPublishAt" type="datetime-local" />
-            </label>
-            <label class="field">
-              <span>下架时间</span>
-              <input id="productUnpublishAt" type="datetime-local" />
-            </label>
-          </div>
-          <p class="meta" id="productScheduleHint">商品上下架时间按配置时区处理。</p>
-          <div>
-            <h4>动态价格（出售/回收）</h4>
-          </div>
-          <div class="field-grid three-col">
-            <label class="field">
-              <span>启用动态价格</span>
-              <select id="productDynamicEnabled">
-                <option value="false">关闭</option>
-                <option value="true">启用</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>动态算法</span>
-              <select id="productDynamicAlgorithm">
-                <option value="LINEAR_DEMAND_V1">线性需求</option>
-                <option value="DIMINISHING_RETURN_V1">边际递减</option>
-                <option value="LOG_SMOOTH_V1">对数平滑</option>
-                <option value="EXPONENTIAL_DEFENSE_V1">指数防御</option>
-                <option value="THRESHOLD_STEP_V1">阈值阶梯</option>
-                <option value="ELASTICITY_V1">弹性模型</option>
-                <option value="PANIC_BUYING_V1">抢购模式</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>基础价（可空，默认=当前价格）</span>
-              <input id="productDynamicBasePrice" type="number" min="1" step="1" placeholder="留空=跟随价格" />
-            </label>
-            <label class="field">
-              <span>最低价（可空）</span>
-              <input id="productDynamicFloorPrice" type="number" min="1" step="1" placeholder="留空=不限" />
-            </label>
-            <label class="field">
-              <span>最高价（可空）</span>
-              <input id="productDynamicCapPrice" type="number" min="1" step="1" placeholder="留空=不限" />
-            </label>
-            <label class="field">
-              <span>价格步长（可空，默认 1）</span>
-              <input id="productDynamicPriceStep" type="number" min="1" step="1" placeholder="留空=1" />
-            </label>
-            <label class="field product-remark-field" id="productDynamicParamEditor">
-              <span>算法参数编辑器</span>
-              <p class="field-hint" id="productDynamicSummary">参数说明加载中…</p>
-              <div class="dialog-inline-config">
-                <div></div>
-                <button id="productDynamicHelpBtn" class="btn-tonal" type="button">查看算法文档</button>
-              </div>
-              <div class="dialog-param-tabs">
-                <button id="productDynamicParamBasicTabBtn" class="dialog-param-tab is-active" type="button">基础参数</button>
-                <button id="productDynamicParamAdvancedTabBtn" class="dialog-param-tab" type="button">高级参数</button>
-              </div>
-              <div id="productDynamicParamBasicPanel" class="dialog-param-panel">
-                <div id="productDynamicBasicParams" class="dialog-algo-params"></div>
-              </div>
-              <div id="productDynamicParamAdvancedPanel" class="dialog-param-panel" style="display: none;">
-                <details id="productDynamicAdvancedDetails" class="dialog-advanced-details" open>
-                  <summary>高级参数（查看文档 | 谨慎修改）</summary>
-                  <p class="field-hint">留空将自动回退到默认值。</p>
-                  <div id="productDynamicAdvancedParams" class="dialog-algo-params"></div>
-                </details>
-              </div>
-            </label>
-            <label class="field product-remark-field">
-              <span>算法参数 JSON（可空，兼容手动覆盖）</span>
-              <textarea id="productDynamicParamsJson" rows="3" placeholder='例如 {"elasticity": 1.2}'></textarea>
-              <p class="field-hint">通常可通过上方可视化编辑器配置；手动填写 JSON 时请使用对象格式。</p>
-            </label>
-          </div>
-            <p class="meta">
-                仅 出售/回收物品 支持动态价格；具体规则及算法查看
-                <a href="/help.html?mode=single&doc=manual.zh-CN&lang=zh-CN#dynamic-algorithms" class="btn-tonal" style="display:inline-block;padding:2px 12px;margin-left:6px;vertical-align:middle;">帮助文档</a>
-            </p>          
-          <div>
-            <h4>商品信息</h4>
-          </div>
-          <div class="field-grid three-col">
-            <label class="field">
-              <span>类型</span>
-              <select id="productType">
-                <option value="COMMAND">指令</option>
-                <option value="GIVE_ITEM">出售物品</option>
-                <option value="POTION_EFFECT">药水效果</option>
-                <option value="RECYCLE_ITEM">回收物品</option>
-                <option value="GROUP_BUY_VOUCHER">团购券（线下核销）</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>启用</span>
-              <select id="productActive">
-                <option value="true">启用</option>
-                <option value="false">停用</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>命令模板（指令类）</span>
-              <input id="productCommand" placeholder="例如 give %player% minecraft:diamond %amount%" />
-            </label>
-            <label class="field">
-              <span>物品材质（出售/回收）</span>
-              <input id="productItemMaterial" list="materialSuggestList" placeholder="例如 DIAMOND / 钻石" />
-            </label>
-            <label class="field">
-              <span>展示材质覆盖（可空）</span>
-              <input id="productDisplayMaterial" list="materialSuggestList" placeholder="用于前端图标展示，不影响实际发货" />
-            </label>
-            <label class="field">
-              <span>展示名称覆盖（可空）</span>
-              <input id="productDisplayNameOverride" placeholder="用于前端名称展示，不影响实际发货" />
-            </label>
-            <label class="field product-remark-field">
-              <span>自定义图标（优先级高于展示材质）</span>
-              <input id="productDisplayIconPath" type="hidden" />
-              <div class="material-override-preview">
-                <img id="productIconPreviewImage" src="" alt="商品图标预览" />
-                <div>
-                  <p class="meta">当前商品图标</p>
-                  <strong id="productIconPreviewLabel">未选择商品</strong>
-                </div>
-              </div>
-              <input id="productIconFile" type="file" accept=".png,.webp,.jpg,.jpeg,.gif,image/*" />
-              <div class="actions compact-actions">
-                <button id="productIconUploadBtn" class="btn-tonal" type="button">上传并绑定图标</button>
-                <button id="productIconClearBtn" class="btn-tonal" type="button">清除自定义图标</button>
-              </div>
-              <p class="field-hint" id="productIconStatus">先保存商品后即可上传独立商品图标。</p>
-            </label>
-            <label class="field">
-              <span>药水效果（POTION）</span>
-              <input id="productEffectType" list="potionEffectSuggestList" placeholder="例如 speed" />
-            </label>
-            <label class="field">
-              <span>药水时长（秒）</span>
-              <input id="productEffectSeconds" type="number" min="1" step="1" value="30" />
-            </label>
-            <label class="field">
-              <span>药水等级（0=I）</span>
-              <input id="productEffectAmplifier" type="number" min="0" step="1" value="0" />
-            </label>
-            <label class="field product-remark-field">
-              <span>商品备注（玩家端展示）</span>
-              <textarea id="productRemark" rows="3" placeholder="可填写用途说明、注意事项、团购兑换说明等"></textarea>
-            </label>
-          </div>
-          <div class="field-grid three-col product-range-grid">
-            <label class="field">
-              <span>库存模式</span>
-              <select id="productStockMode">
-                <option value="FINITE">有限库存</option>
-                <option value="UNLIMITED">无限库存</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>总库存</span>
-              <input id="productItemAmount" type="number" min="1" step="1" value="64" />
-            </label>
-            <label class="field">
-              <span>单玩家限购</span>
-              <input id="productPerUserLimit" type="number" min="1" step="1" placeholder="留空 = 不限购" />
-            </label>
-            <div class="range-summary-card">
-              <p class="range-summary-kicker">库存预览</p>
-              <input id="productItemAmountSlider" class="range-input" type="range" min="1" max="256" step="1" value="64" />
-              <div class="range-summary-row">
-                <span>当前状态</span>
-                <strong id="productAmountPreview">x64</strong>
-              </div>
-              <div class="range-summary-row">
-                <span>库存货值预览</span>
-                <strong id="productTotalPreview">待计算</strong>
-              </div>
-            </div>
-          </div>
-          <div class="actions">
-            <button id="productSaveBtn" type="button">保存商品</button>
-            <p class="meta" id="productStatus">等待操作</p>
-          </div>
-        </div>
-
-        <div class="sub-panel" data-product-panel="list">
-          <div>
-            <h4>商品列表</h4>
-          </div>
-          <div class="field-grid three-col">
-            <label class="field">
-              <span>商品检索</span>
-              <input id="productSearchKeyword" placeholder="标题 / SKU / 材质 / 备注" />
-            </label>
-            <label class="field">
-              <span>类型筛选</span>
-              <select id="productSearchType">
-                <option value="">全部</option>
-                <option value="COMMAND">指令</option>
-                <option value="GIVE_ITEM">出售物品</option>
-                <option value="POTION_EFFECT">药水效果</option>
-                <option value="RECYCLE_ITEM">回收物品</option>
-                <option value="GROUP_BUY_VOUCHER">团购券</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>启用筛选</span>
-              <select id="productSearchActive">
-                <option value="">全部</option>
-                <option value="true">启用</option>
-                <option value="false">停用</option>
-              </select>
-            </label>
-          </div>
-          <p class="meta" id="productListStatus">等待加载商品列表</p>
-          <div class="admin-list" id="productList"></div>
-        </div>
-
-        <div class="sub-panel" data-product-panel="voucher">
-          <div>
-            <h4>团购券核销</h4>
-          </div>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>核销团购兑换码</span>
-              <input id="groupBuyConsumeCode" placeholder="例如 GB-XXXXXXXXXXXX" />
-            </label>
-            <div class="actions">
-              <button id="groupBuyConsumeBtn" type="button">核销团购兑换码</button>
-              <p class="meta" id="groupBuyConsumeStatus">等待核销</p>
-            </div>
-          </div>
-        </div>
-      </article>
-    </section>
-
-    <section class="tab-panel" data-tab-panel="orders">
-      <article class="md-card section-card">
-        <div class="section-head">
-          <div>
-            <h2>订单列表</h2>
-            <p class="card-desc">查看最近订单与状态。</p>
-          </div>
-          <button id="orderRefreshBtn" type="button">刷新订单</button>
-        </div>
-        <div class="field-grid three-col">
-          <label class="field">
-            <span>状态</span>
-            <select id="orderStatus">
-              <option value="">全部</option>
-              <option value="PENDING">待发放</option>
-              <option value="WAIT_CLAIM">待领取</option>
-              <option value="DELIVERED">已发放</option>
-              <option value="REFUNDED">已退款</option>
-              <option value="FAILED">失败</option>
-              <option value="RECYCLED">已回收</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>用户ID</span>
-            <input id="orderUserId" placeholder="User ID" />
-          </label>
-          <label class="field">
-            <span>订单号</span>
-            <input id="orderNo" placeholder="ODR-..." />
-          </label>
-          <label class="field">
-            <span>用户名</span>
-            <input id="orderUsername" placeholder="用户昵称（模糊搜索）" />
-          </label>
-          <label class="field">
-            <span>币种</span>
-            <select id="orderCurrency">
-              <option value="">全部</option>
-              <option value="SHOP_COIN">网页币</option>
-              <option value="GAME_COIN">游戏币</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>商品类型</span>
-            <select id="orderProductType">
-              <option value="">全部</option>
-              <option value="COMMAND">指令</option>
-              <option value="GIVE_ITEM">出售物品</option>
-              <option value="POTION_EFFECT">药水效果</option>
-              <option value="RECYCLE_ITEM">回收物品</option>
-              <option value="GROUP_BUY_VOUCHER">团购券</option>
-              <option value="MARKET">玩家市场</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>综合关键词</span>
-            <input id="orderKeyword" placeholder="订单号 / SKU / 标题" />
-          </label>
-        </div>
-        <p class="meta" id="orderStatusView">等待刷新</p>
-        <div class="admin-list" id="adminOrderList"></div>
-      </article>
-    </section>
-
-    <section class="tab-panel" data-tab-panel="economy">
-      <div class="grid two-col">
-        <article class="md-card section-card">
-          <h2>兑换方向与比例</h2>
-          <p class="card-desc">配置 <span id="economyShopCoinName">网页币</span> 与 <span id="economyGameCoinName">游戏币</span> 的兑换方向与比例。</p>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span><span id="exchangeShopToGameNameA">网页币</span> -> <span id="exchangeShopToGameNameB">游戏币</span> 开关</span>
-              <select id="exchangeShopToGameEnabled">
-                <option value="true">启用</option>
-                <option value="false">禁用</option>
-              </select>
-            </label>
-            <label class="field">
-              <span><span id="exchangeShopToGameNameC">网页币</span> -> <span id="exchangeShopToGameNameD">游戏币</span> 比例</span>
-              <input id="exchangeShopToGameRatio" type="number" min="0" step="0.01" value="1.0" />
-            </label>
-            <label class="field">
-              <span><span id="exchangeGameToShopNameA">游戏币</span> -> <span id="exchangeGameToShopNameB">网页币</span> 开关</span>
-              <select id="exchangeGameToShopEnabled">
-                <option value="true">启用</option>
-                <option value="false">禁用</option>
-              </select>
-            </label>
-            <label class="field">
-              <span><span id="exchangeGameToShopNameC">游戏币</span> -> <span id="exchangeGameToShopNameD">网页币</span> 比例</span>
-              <input id="exchangeGameToShopRatio" type="number" min="0" step="0.01" value="1.0" />
-            </label>
-          </div>
-          <div class="actions">
-            <button id="exchangeSaveBtn" type="button">保存兑换配置</button>
-          </div>
-          <p class="meta" id="exchangeStatusView">等待操作</p>
-        </article>
-
-        <article class="md-card section-card">
-          <h2>交易手续费与税率</h2>
-          <p class="card-desc">买家支付税率，卖家扣除手续费。</p>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>交易手续费（%）</span>
-              <input id="marketFeePercent" type="number" min="0" max="100" step="0.01" value="0.0" />
-            </label>
-            <label class="field">
-              <span>交易税率（%）</span>
-              <input id="marketTaxPercent" type="number" min="0" max="100" step="0.01" value="0.0" />
-            </label>
-            <label class="field">
-              <span>通胀控制模式</span>
-              <select id="inflationMode">
-                <option value="BURN">BURN（销毁）</option>
-                <option value="TREASURY">TREASURY（国库）</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>国库用户 ID（TREASURY 模式必填）</span>
-              <input id="inflationTreasuryUserId" type="number" min="0" step="1" value="0" />
-            </label>
-          </div>
-          <div class="actions">
-            <button id="marketEconomySaveBtn" type="button">保存经济策略</button>
-          </div>
-          <p class="meta" id="marketEconomyStatusView">等待操作</p>
-        </article>
-
-        <article class="md-card section-card">
-          <h2>币种展示设置</h2>
-          <p class="card-desc">统一设置玩家端与管理端显示名称/简称。</p>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>Shop 币名称</span>
-              <input id="currencyShopCoinName" maxlength="24" placeholder="例如 ShopCoin" />
-            </label>
-            <label class="field">
-              <span>Shop 币简称</span>
-              <input id="currencyShopCoinShort" maxlength="12" placeholder="例如 SC" />
-            </label>
-            <label class="field">
-              <span>Game 币名称</span>
-              <input id="currencyGameCoinName" maxlength="24" placeholder="例如 GameCoin" />
-            </label>
-            <label class="field">
-              <span>Game 币简称</span>
-              <input id="currencyGameCoinShort" maxlength="12" placeholder="例如 GC" />
-            </label>
-          </div>
-          <div class="actions">
-            <button id="currencySaveBtn" type="button">保存币种展示</button>
-          </div>
-          <p class="meta" id="currencyStatusView">等待操作</p>
-        </article>
-
-        <article class="md-card section-card">
-          <h2>Vault 对接状态</h2>
-          <p class="card-desc"><span id="vaultGameCoinName">游戏币</span> 与 Vault 经济系统的连接状态。</p>
-          <p class="meta" id="vaultStatusView">等待加载</p>
-        </article>
-
-        <article class="md-card section-card config-scope-card" id="deploymentScopeCard">
-          <h2>部署模式（只读）</h2>
-          <p class="card-desc">由 `config.yml` 决定。SQLite 仅支持单服（cluster.role=standalone）。</p>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>数据库类型</span>
-              <input id="deploymentDatabaseType" readonly />
-            </label>
-            <label class="field">
-              <span>集群角色</span>
-              <input id="deploymentClusterRole" readonly />
-            </label>
-            <label class="field">
-              <span>Redis 集群总线</span>
-              <input id="deploymentRedisEnabled" readonly />
-            </label>
-            <label class="field">
-              <span>跨服配置同步</span>
-              <input id="deploymentClusterSyncEnabled" readonly />
-            </label>
-          </div>
-          <p class="meta" id="deploymentScopeStatusView">等待加载部署模式</p>
-        </article>
-
-        <article class="md-card section-card">
-          <h2>排行榜设置</h2>
-          <p class="card-desc">控制玩家端排行榜页面开关、在线状态显示及默认排序。</p>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>开启排行榜页面</span>
-              <select id="leaderboardEnabled">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>显示实时在线状态</span>
-              <select id="leaderboardShowOnlineStatus">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>默认排行维度</span>
-              <select id="leaderboardDefaultMetric">
-                <option value="GAME_COIN">GameCoin</option>
-                <option value="SHOP_COIN">ShopCoin</option>
-                <option value="ONLINE_TIME">在线时长</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>默认排序方向</span>
-              <select id="leaderboardDefaultOrder">
-                <option value="DESC">高到低</option>
-                <option value="ASC">低到高</option>
-              </select>
-            </label>
-          </div>
-          <div class="actions">
-            <button id="leaderboardSaveBtn" type="button">保存排行榜配置</button>
-          </div>
-          <p class="meta" id="leaderboardStatusView">等待操作</p>
-        </article>
-
-        <article class="md-card section-card">
-          <h2>站点运行参数</h2>
-          <p class="card-desc">控制会话、时区、发货与退款策略，适合多服统一下发。</p>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>默认语言</span>
-              <select id="runtimeDefaultLocale">
-                <option value="zh-CN">zh-CN</option>
-                <option value="en-US">en-US</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>业务时区</span>
-              <input id="runtimeTimeZone" placeholder="例如 Asia/Shanghai" />
-            </label>
-            <label class="field">
-              <span>会话有效期（小时）</span>
-              <input id="runtimeSessionExpireHours" type="number" min="1" step="1" value="72" />
-            </label>
-            <label class="field">
-              <span>绑定请求有效期（分钟）</span>
-              <input id="runtimeBindRequestExpireMinutes" type="number" min="1" step="1" value="15" />
-            </label>
-            <label class="field">
-              <span>访问令牌长度</span>
-              <input id="runtimeAccessTokenLength" type="number" min="16" step="1" value="48" />
-            </label>
-            <label class="field">
-              <span>单轮发货批次</span>
-              <input id="runtimeDeliveryBatchSize" type="number" min="1" step="1" value="20" />
-            </label>
-            <label class="field">
-              <span>发货重试间隔（秒）</span>
-              <input id="runtimeDeliveryRetrySeconds" type="number" min="5" step="1" value="30" />
-            </label>
-            <label class="field">
-              <span>订单冷却（秒）</span>
-              <input id="runtimeOrderCooldownSeconds" type="number" min="0" step="1" value="15" />
-            </label>
-            <label class="field">
-              <span>允许代领命令</span>
-              <select id="runtimeAllowSharedClaimCommand">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>允许未发放退款</span>
-              <select id="runtimeRefundUndeliveredEnabled">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-          </div>
-          <div class="actions">
-            <button id="runtimeWebshopSaveBtn" type="button">保存运行参数</button>
-          </div>
-          <p class="meta" id="runtimeWebshopStatusView">等待操作</p>
-        </article>
-
-        <article class="md-card section-card">
-          <h2>市场运行参数</h2>
-          <p class="card-desc">控制市场上架上限与供货自动补货策略。</p>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>默认最大上架数</span>
-              <input id="runtimeMarketMaxActiveListings" type="number" min="1" step="1" value="10" />
-            </label>
-            <label class="field">
-              <span>自动补货阈值</span>
-              <input id="runtimeMarketAutoRefreshThreshold" type="number" min="0" step="1" value="8" />
-            </label>
-            <label class="field">
-              <span>默认单次提取量</span>
-              <input id="runtimeMarketDefaultTransferBatchSize" type="number" min="1" step="1" value="64" />
-            </label>
-            <label class="field">
-              <span>最大单次提取量</span>
-              <input id="runtimeMarketMaxTransferBatchSize" type="number" min="1" step="1" value="256" />
-            </label>
-            <label class="field">
-              <span>默认中转库存</span>
-              <input id="runtimeMarketDefaultTransitStock" type="number" min="1" step="1" value="256" />
-            </label>
-            <label class="field">
-              <span>最大中转库存</span>
-              <input id="runtimeMarketMaxTransitStock" type="number" min="1" step="1" value="1024" />
-            </label>
-          </div>
-          <div class="actions">
-            <button id="runtimeMarketSaveBtn" type="button">保存市场参数</button>
-          </div>
-          <p class="meta" id="runtimeMarketStatusView">等待操作</p>
-        </article>
-
-        <article class="md-card section-card">
-          <h2>维护任务</h2>
-          <p class="card-desc">控制清理频率与绑定、兑换码等数据保留时间。</p>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>清理间隔（分钟）</span>
-              <input id="runtimeCleanupIntervalMinutes" type="number" min="0" step="1" value="30" />
-            </label>
-            <label class="field">
-              <span>待绑定保留（小时）</span>
-              <input id="runtimePendingBindRetentionHours" type="number" min="1" step="1" value="6" />
-            </label>
-            <label class="field">
-              <span>待密码设置保留（小时）</span>
-              <input id="runtimePendingPasswordRetentionHours" type="number" min="1" step="1" value="6" />
-            </label>
-            <label class="field">
-              <span>绑定请求保留（小时）</span>
-              <input id="runtimeBindRequestRetentionHours" type="number" min="1" step="1" value="24" />
-            </label>
-            <label class="field">
-              <span>兑换码保留（天）</span>
-              <input id="runtimeRedeemCodeRetentionDays" type="number" min="1" step="1" value="7" />
-            </label>
-          </div>
-          <div class="actions">
-            <button id="runtimeMaintenanceSaveBtn" type="button">保存维护参数</button>
-          </div>
-          <p class="meta" id="runtimeMaintenanceStatusView">等待操作</p>
-        </article>
-                
-        <article class="md-card section-card">
-          <div class="section-head">
-            <div>
-              <h2>标签管理</h2>
-            </div>
-            <button id="marketTagRefreshBtn" type="button">刷新标签</button>
-          </div>
-          <p class="meta" id="marketTagMetaStatusView">等待加载标签</p>
-          <h4>标签规则</h4>
-          <div class="field-grid three-col">
-            <label class="field">
-              <span>标签版本</span>
-              <input id="marketTagVersionInput" type="number" min="1" step="1" value="1" />
-            </label>
-            <label class="field">
-              <span>兜底默认标签</span>
-              <select id="marketTagDefaultTagSelect"></select>
-            </label>
-            <label class="field">
-              <button id="marketTagAddRowBtn" class="btn-tonal" type="button">新增标签</button>
-            </label>
-          </div>
-          <div class="admin-list market-policy-scroll-list" id="marketTagConfigList"></div>
-          <div class="actions">
-            <button id="marketTagConfigSaveBtn" type="button">保存标签规则</button>
-          </div>
-          <p class="meta" id="marketTagConfigStatusView">等待加载标签规则</p>
-
-          <details class="dialog-advanced-details">
-            <summary>直接编辑 JSON (高级)</summary>
-            <p class="card-desc">可在此直接编辑 JSON，点“应用”即可同步到上面的表单。</p>
-            <div class="field-grid">
-              <label class="field">
-                <span>标签规则 JSON（market_tags）</span>
-                <textarea
-                  id="marketTagConfigEditor"
-                  rows="10"
-                  placeholder='{"tagVersion":1,"defaultTag":"default","tags":[]}'></textarea>
-              </label>
-            </div>
-            <div class="actions">
-              <button id="marketTagJsonApplyBtn" class="btn-tonal" type="button">应用</button>
-            </div>
-          </details>
-        </article>
-
-        <article class="md-card section-card">
-          <div class="section-head">
-            <div>
-              <h2>上架限制</h2>
-            </div>
-            <button id="marketLimitationRefreshBtn" type="button">刷新上架限制</button>
-          </div>
-          <p class="meta" id="marketLimitationSummaryView">等待加载限制摘要</p>
-
-          <h4>上架限制</h4>
-          <div class="md-tip md-tip-info">
-            <strong>配置说明</strong>
-            <p>带*的字段表示可使用逗号分隔填入多个值。如若对某个参数不理解请查阅相关文档。</p>
-          </div>
-          <div class="field-grid three-col">
-            <label class="field">
-              <span>默认拒绝方向*</span>
-              <input id="marketLimitationDefaultDenySidesInput" placeholder="例如 BUY" />
-            </label>
-            <label class="field">
-              <span>默认拒绝币种*</span>
-              <input id="marketLimitationDefaultDenyCurrenciesInput" placeholder="例如 SHOP_COIN" />
-            </label>
-            <label class="field">
-              <span>默认允许方向*</span>
-              <input id="marketLimitationDefaultAllowSidesInput" placeholder="例如 SELL,BUY" />
-            </label>
-            <label class="field">
-              <span>默认允许交易模式*</span>
-              <input id="marketLimitationDefaultAllowTradeModesInput" placeholder="例如 DIRECT,AUCTION" />
-            </label>
-            <label class="field">
-              <span>默认允许币种*</span>
-              <input id="marketLimitationDefaultAllowCurrenciesInput" placeholder="留空=不限" />
-            </label>
-            <label class="field">
-              <span>默认允许标签*</span>
-              <input id="marketLimitationDefaultAllowTagsInput" placeholder="留空=不限" />
-            </label>
-            <label class="field">
-              <span>默认创建成本</span>
-              <select id="marketLimitationDefaultCreateCostEnabled">
-                <option value="false">关闭</option>
-                <option value="true">开启</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>创建成本币种</span>
-              <input id="marketLimitationDefaultCreateCostCurrency" placeholder="INHERIT / GAME_COIN / SHOP_COIN" />
-            </label>
-            <label class="field">
-              <span>创建成本金额</span>
-              <input id="marketLimitationDefaultCreateCostAmount" type="number" min="0" step="1" value="0" />
-            </label>
-          </div>
-          <div class="actions">
-            <button id="marketLimitationAddRuleBtn" class="btn-tonal" type="button">新增限制规则</button>
-          </div>
-          <div class="admin-list market-policy-scroll-list" id="marketLimitationRuleList"></div>
-          <div class="actions">
-            <button id="marketLimitationConfigSaveBtn" type="button">保存上架限制</button>
-          </div>
-          <p class="meta" id="marketLimitationConfigStatusView">等待加载上架限制</p>
-
-          <details class="dialog-advanced-details">
-            <summary>直接编辑 JSON (高级)</summary>
-            <p class="card-desc">可在此直接编辑 JSON，点“应用到可视化”即可同步到上面的表单。</p>
-            <div class="field-grid">
-              <label class="field">
-                <span>上架限制 JSON（market_limitation）</span>
-                <textarea
-                  id="marketLimitationConfigEditor"
-                  rows="10"
-                  placeholder='{"default":{"allow":{"marketSides":["SELL","BUY"]}},"rules":[]}'></textarea>
-              </label>
-            </div>
-            <div class="actions">
-              <button id="marketLimitationJsonApplyBtn" class="btn-tonal" type="button">应用限制 JSON 到可视化</button>
-            </div>
-          </details>
-        </article>
-
-        <article class="md-card section-card">
-          <h2>日志设置</h2>
-          <p class="card-desc">统一控制多服文件日志输出级别与保留策略。</p>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>启用文件日志</span>
-              <select id="runtimeLoggingEnabled">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>日志级别</span>
-              <select id="runtimeLoggingLevel">
-                <option value="ERROR">ERROR</option>
-                <option value="WARN">WARN</option>
-                <option value="INFO">INFO</option>
-                <option value="DEBUG">DEBUG</option>
-                <option value="TRACE">TRACE</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>日志目录</span>
-              <input id="runtimeLoggingDirectory" placeholder="例如 logs" />
-            </label>
-            <label class="field">
-              <span>单文件大小（MB）</span>
-              <input id="runtimeLoggingMaxFileSizeMb" type="number" min="1" step="1" value="8" />
-            </label>
-            <label class="field">
-              <span>滚动文件数</span>
-              <input id="runtimeLoggingMaxFiles" type="number" min="1" step="1" value="8" />
-            </label>
-            <label class="field">
-              <span>保留天数（0=不清理）</span>
-              <input id="runtimeLoggingRetentionDays" type="number" min="0" step="1" value="14" />
-            </label>
-          </div>
-          <div class="actions">
-            <button id="runtimeLoggingSaveBtn" type="button">保存日志设置</button>
-          </div>
-          <p class="meta" id="runtimeLoggingStatusView">等待操作</p>
-        </article>
-
-        <article class="md-card section-card">
-          <h2>广播模板</h2>
-          <p class="card-desc">统一控制市场广播开关与跨服消息模板。</p>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>启用广播</span>
-              <select id="runtimeBroadcastEnabled">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-            <label class="field product-remark-field">
-              <span>上架广播模板</span>
-              <textarea id="runtimeBroadcastListingCreatedTemplate" rows="2"></textarea>
-            </label>
-            <label class="field product-remark-field">
-              <span>成交广播模板</span>
-              <textarea id="runtimeBroadcastTradeSuccessTemplate" rows="2"></textarea>
-            </label>
-            <label class="field product-remark-field">
-              <span>竞拍广播模板</span>
-              <textarea id="runtimeBroadcastAuctionBidTemplate" rows="2"></textarea>
-            </label>
-            <label class="field product-remark-field">
-              <span>密封竞拍广播模板</span>
-              <textarea id="runtimeBroadcastAuctionSealedBidTemplate" rows="2"></textarea>
-            </label>
-          </div>
-          <div class="actions">
-            <button id="runtimeBroadcastSaveBtn" type="button">保存广播设置</button>
-          </div>
-          <p class="meta" id="runtimeBroadcastStatusView">等待操作</p>
-        </article>
-
-        <article class="md-card section-card">
-          <h2>消息管理</h2>
-          <p class="card-desc">可视化编辑公告消息、业务通知开关与通知模板。</p>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>市场业务事件通知</span>
-              <select id="runtimeNotificationMarketEnabled">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>发货/信箱事件通知</span>
-              <select id="runtimeNotificationDeliveryEnabled">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>公告标题</span>
-              <input id="runtimeAnnouncementTitle" placeholder="例如 服务器维护通知" />
-            </label>
-            <label class="field product-remark-field">
-              <span>公告内容</span>
-              <textarea id="runtimeAnnouncementContent" rows="3" placeholder="输入要推送给所有用户的公告内容"></textarea>
-            </label>
-          </div>
-          <div class="actions">
-            <button id="runtimeNotificationTemplateEditBtn" class="btn-tonal" type="button">编辑消息模板</button>
-            <button id="runtimeNotificationSaveBtn" type="button">保存消息设置</button>
-            <button id="runtimeAnnouncementSendBtn" class="btn-tonal" type="button">发送公告</button>
-          </div>
-          <p class="meta" id="runtimeNotificationStatusView">等待操作</p>
-          <p class="meta" id="runtimeAnnouncementStatusView">等待发送公告</p>
-        </article>
-
-        <article class="md-card section-card">
-          <h2>商品自定义管理</h2>
-          <p class="card-desc">控制全局商品图标、标题自定义的权限。</p>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>启用全局自定义图标</span>
-              <select id="visualGlobalCustomIconEnabled">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>图标策略</span>
-              <select id="visualIconPolicyMode">
-                <option value="SOFT">SOFT（玩家/商品级优先）</option>
-                <option value="HARD">HARD（全局优先）</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>启用全局自定义名称</span>
-              <select id="visualGlobalCustomNameEnabled">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>名称策略</span>
-              <select id="visualNamePolicyMode">
-                <option value="SOFT">SOFT（玩家/商品级优先）</option>
-                <option value="HARD">HARD（全局优先）</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>官方商品允许自定义图标</span>
-              <select id="visualOfficialProductCustomIconEnabled">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>官方商品允许自定义名称</span>
-              <select id="visualOfficialProductCustomNameEnabled">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>官方商品允许上传图片</span>
-              <select id="visualOfficialProductUploadImageEnabled">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>玩家市场允许自定义图标</span>
-              <select id="visualMarketListingCustomIconEnabled">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>玩家市场允许自定义名称</span>
-              <select id="visualMarketListingCustomNameEnabled">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>玩家市场允许上传图片</span>
-              <select id="visualMarketListingUploadImageEnabled">
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </label>
-          </div>
-          <div class="actions">
-            <button id="visualSettingsSaveBtn" type="button">保存设置</button>
-          </div>
-          <p class="meta" id="visualSettingsStatusView">等待操作</p>
-        </article>
-
-        <article class="md-card section-card">
-          <div class="section-head">
-            <div>
-              <h2>图标与名称对照表</h2>
-              <p class="card-desc">优先级：自定义 -> 对照表 -> 原版材质 -> 默认占位图。</p>
-            </div>
-            <button id="materialOverrideRefreshBtn" type="button">刷新对照表</button>
-          </div>
-
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>检索关键字</span>
-              <input id="materialOverrideKeyword" placeholder="材质Key / 显示名称" />
-            </label>
-            <label class="field">
-              <span>材质 Key</span>
-              <input id="materialOverrideMaterial" list="materialSuggestList" placeholder="例如 DIAMOND / 钻石" />
-            </label>
-            <label class="field">
-              <span>显示名称覆盖（可空）</span>
-              <input id="materialOverrideDisplayName" placeholder="留空表示跟随默认翻译" />
-            </label>
-            <label class="field">
-              <span>图标文件（png/webp/jpg/gif）</span>
-              <input id="materialOverrideIconFile" type="file" accept=".png,.webp,.jpg,.jpeg,.gif,image/*" />
-            </label>
-          </div>
-
-          <div class="material-override-preview">
-            <img id="materialOverridePreviewImage" src="" alt="材质图标预览" />
-            <div>
-              <p class="meta">当前预览</p>
-              <strong id="materialOverridePreviewLabel">未选择材质</strong>
-            </div>
-          </div>
-
-          <div class="actions">
-            <button id="materialOverrideUploadBtn" class="btn-tonal" type="button">上传图标</button>
-            <button id="materialOverrideSaveBtn" type="button">保存映射</button>
-            <button id="materialOverrideDeleteBtn" class="btn-tonal" type="button" disabled>删除映射</button>
-            <button id="materialOverrideClearBtn" class="btn-tonal" type="button">清空编辑器</button>
-          </div>
-          <p class="meta" id="materialOverrideStatusView">等待加载材质映射</p>
-          <div class="admin-list" id="materialOverrideList"></div>
-        </article>
-      </div>
-    </section>
-
-    <section class="tab-panel" data-tab-panel="market">
-      <article class="md-card section-card">
-        <div class="section-head">
-          <div>
-            <h2>玩家市场管理</h2>
-          </div>
-          <button id="marketRefreshBtn" type="button">刷新列表</button>
-        </div>
-        <div class="field-grid three-col">
-          <label class="field">
-            <span>状态筛选</span>
-            <select id="marketStatus">
-              <option value="">全部</option>
-              <option value="ACTIVE">在售</option>
-              <option value="SOLD">已售</option>
-              <option value="UNLISTED">已下架</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>卖家</span>
-            <input id="marketSeller" placeholder="卖家昵称（模糊）" />
-          </label>
-          <label class="field">
-            <span>买家</span>
-            <input id="marketBuyer" placeholder="买家昵称（模糊）" />
-          </label>
-          <label class="field">
-            <span>材质</span>
-            <input id="marketMaterial" list="materialSuggestList" placeholder="材质英文或中文名" />
-          </label>
-          <label class="field">
-            <span>币种</span>
-            <select id="marketCurrency">
-              <option value="">全部</option>
-              <option value="SHOP_COIN">网页币</option>
-              <option value="GAME_COIN">游戏币</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>综合关键词</span>
-            <input id="marketKeyword" placeholder="ID / 材质 / 备注 / 用户名" />
-          </label>
-        </div>
-        <p class="meta" id="marketStatusView">等待加载</p>
-        <div class="admin-list" id="adminMarketList"></div>
-      </article>
-    </section>
-
-    <section class="tab-panel" data-tab-panel="users">
-      <div class="grid two-col">
-        <article class="md-card section-card">
-          <h2>账号查询</h2>
-          <p class="card-desc">输入昵称或 UUID 查询账号。</p>
-          <div class="field-grid">
-            <label class="field">
-              <span>用户名 / UUID</span>
-              <input id="userIdentifier" placeholder="例如 玩家名或 UUID" />
-            </label>
-          </div>
-          <div class="actions">
-            <button id="userSearchBtn" type="button">查询账号</button>
-          </div>
-          <p class="meta" id="userLookupStatus">等待查询</p>
-          <div class="admin-list" id="userInfoBox"></div>
-        </article>
-
-        <article class="md-card section-card">
-          <h2>账号支持操作</h2>
-          <p class="card-desc">对已查询的账号执行支持操作。</p>
-          <div class="field-grid">
-            <label class="field">
-              <span>新密码</span>
-              <input id="userNewPassword" type="password" placeholder="8-64 位" />
-            </label>
-          </div>
-          <div class="actions">
-            <button id="userResetPasswordBtn" type="button">重置密码</button>
-            <button id="userUnbindBtn" class="btn-tonal" type="button">解绑</button>
-            <button id="userForceLogoutBtn" class="btn-tonal" type="button">强制下线</button>
-          </div>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>调整币种</span>
-              <select id="walletCurrency">
-                <option value="SHOP_COIN">网页币</option>
-                <option value="GAME_COIN">游戏币</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>调整数量（可负数）</span>
-              <input id="walletDelta" type="number" step="1" value="0" />
-            </label>
-            <label class="field">
-              <span>原因</span>
-              <input id="walletReason" placeholder="例如 补偿/退款" />
-            </label>
-          </div>
-          <div class="actions">
-            <button id="walletAdjustBtn" type="button">调整余额</button>
-          </div>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>自定义图标权限</span>
-              <select id="userVisualIconPermission">
-                <option value="INHERIT">继承全局</option>
-                <option value="ALLOW">允许（可绕过全局）</option>
-                <option value="DENY">禁止</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>自定义名称权限</span>
-              <select id="userVisualNamePermission">
-                <option value="INHERIT">继承全局</option>
-                <option value="ALLOW">允许（可绕过全局）</option>
-                <option value="DENY">禁止</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>上传图片权限</span>
-              <select id="userVisualUploadPermission">
-                <option value="INHERIT">继承全局</option>
-                <option value="ALLOW">允许（可绕过全局）</option>
-                <option value="DENY">禁止</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>上架数量覆盖</span>
-              <input id="userListingLimitOverride" type="number" min="1" step="1" placeholder="留空 = 跟随权限/全局" />
-            </label>
-          </div>
-          <div class="actions">
-            <button id="userVisualPermissionSaveBtn" type="button">保存自定义权限</button>
-            <p class="meta" id="userVisualPermissionStatus">等待操作</p>
-          </div>
-          <p class="meta" id="userListingLimitStatus">等待读取上架数量限制</p>
-          <p class="meta" id="userActionStatus">等待操作</p>
-        </article>
-      </div>
-      &nbsp;
-      <article class="md-card section-card">
-        <div class="section-head">
-          <div>
-            <h2>已注册用户列表</h2>
-            <p class="card-desc">支持按关键词筛选，并可直接载入到操作区进行编辑。</p>
-          </div>
-          <button id="userListRefreshBtn" type="button">刷新列表</button>
-        </div>
-        <div class="field-grid two-col">
-          <label class="field">
-            <span>关键词</span>
-            <input id="userListKeyword" placeholder="用户名 / UUID / 用户ID" />
-          </label>
-          <label class="market-toggle">
-            <input id="userListHideInactiveToggle" type="checkbox" checked />
-            <span>隐藏已停用、未绑定或无用卡片</span>
-          </label>
-        </div>
-        <p class="meta" id="userListStatus">等待加载列表</p>
-        <div class="admin-list" id="userList"></div>
-      </article>
-    </section>
-
-    <section class="tab-panel" data-tab-panel="admins">
-      <div class="grid two-col">
-        <article class="md-card section-card">
-          <div class="section-head">
-            <div>
-              <h2>管理员编辑</h2>
-              <p class="card-desc">超级管理员可创建子级管理员，并精确分配权限。</p>
-            </div>
-            <button id="adminManagerClearBtn" class="btn-tonal" type="button">清空表单</button>
-          </div>
-          <div class="field-grid two-col">
-            <label class="field">
-              <span>用户标识</span>
-              <input id="adminManagerIdentifier" placeholder="用户名 / UUID / 用户ID" />
-            </label>
-            <label class="field">
-              <span>模板</span>
-              <select id="adminManagerTemplate">
-                <option value="">自定义</option>
-              </select>
-            </label>
-          </div>
-          <div class="md-tip md-tip-info">
-            <strong>快速模板</strong>
-            <p id="adminManagerTemplateHint">先选择一个模板，再按需要微调权限。</p>
-          </div>
-          <label class="field admin-manager-super">
-            <span>管理员类型</span>
-            <select id="adminManagerType">
-              <option value="custom">子级管理员</option>
-              <option value="super">超级管理员</option>
-            </select>
-          </label>
-          <div id="adminPermissionGroups" class="admin-permission-groups"></div>
-          <div class="actions">
-            <button id="adminManagerSaveBtn" type="button">保存管理员</button>
-            <p class="meta" id="adminManagerStatus">等待操作</p>
-          </div>
-        </article>
-
-        <article class="md-card section-card">
-          <div class="section-head">
-            <div>
-              <h2>管理员列表</h2>
-              <p class="card-desc">支持载入编辑、启用和禁用管理员。</p>
-            </div>
-            <button id="adminManagerRefreshBtn" type="button">刷新列表</button>
-          </div>
-          <p class="meta" id="adminManagerListStatus">等待加载管理员列表</p>
-          <div class="admin-list" id="adminManagerList"></div>
-        </article>
-      </div>
-    </section>
-
-    <section class="tab-panel" data-tab-panel="audit">
-      <article class="md-card section-card">
-        <div class="section-head">
-          <div>
-            <h2>审计日志</h2>
-            <p class="card-desc">记录所有管理员操作。</p>
-          </div>
-          <button id="auditRefreshBtn" type="button">刷新日志</button>
-        </div>
-        <div class="admin-list" id="auditList"></div>
-      </article>
-    </section>
-  </main>
-
-  <div id="snackbarHost" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
-  <datalist id="materialSuggestList"></datalist>
-  <datalist id="potionEffectSuggestList"></datalist>
-
-  <div id="notificationTemplateDialog" class="dialog-backdrop" aria-hidden="true">
-    <article class="md-card dialog-card market-policy-dialog-card">
-      <h3>编辑消息模板</h3>
-      <p>修改后先点击“保存模板”，再点击“保存消息设置”写入数据库。</p>
-      <div class="dialog-details market-policy-dialog-scroll">
-        <div class="field-grid">
-          <label class="field product-remark-field">
-            <span>上架提醒模板</span>
-            <textarea id="runtimeNotificationTemplateMarketListed" rows="2"></textarea>
-          </label>
-          <label class="field product-remark-field">
-            <span>市场成交模板</span>
-            <textarea id="runtimeNotificationTemplateMarketTrade" rows="2"></textarea>
-          </label>
-          <label class="field product-remark-field">
-            <span>竞拍成功（出价者）模板</span>
-            <textarea id="runtimeNotificationTemplateAuctionBidSelf" rows="2"></textarea>
-          </label>
-          <label class="field product-remark-field">
-            <span>竞拍更新（卖家）模板</span>
-            <textarea id="runtimeNotificationTemplateAuctionBidSeller" rows="2"></textarea>
-          </label>
-          <label class="field product-remark-field">
-            <span>竞拍超价模板</span>
-            <textarea id="runtimeNotificationTemplateAuctionOutbid" rows="2"></textarea>
-          </label>
-          <label class="field product-remark-field">
-            <span>拍卖结算模板</span>
-            <textarea id="runtimeNotificationTemplateAuctionSettlement" rows="2"></textarea>
-          </label>
-          <label class="field product-remark-field">
-            <span>收购托管退款模板</span>
-            <textarea id="runtimeNotificationTemplateMarketBuyEscrowRefund" rows="2"></textarea>
-          </label>
-          <label class="field product-remark-field">
-            <span>订单待领取模板</span>
-            <textarea id="runtimeNotificationTemplateDeliveryWaitClaimOrder" rows="2"></textarea>
-          </label>
-          <label class="field product-remark-field">
-            <span>市场待领取模板</span>
-            <textarea id="runtimeNotificationTemplateDeliveryWaitClaimMarket" rows="2"></textarea>
-          </label>
-          <label class="field product-remark-field">
-            <span>信箱待领取模板</span>
-            <textarea id="runtimeNotificationTemplateMailboxPending" rows="2"></textarea>
-          </label>
-        </div>
-      </div>
-      <div class="actions">
-        <button id="notificationTemplateCancelBtn" class="btn-tonal" type="button">取消</button>
-        <button id="notificationTemplateSaveBtn" type="button">保存模板</button>
-      </div>
-    </article>
-  </div>
-
-  <div id="marketTagEditDialog" class="dialog-backdrop" aria-hidden="true">
-    <article class="md-card dialog-card market-policy-dialog-card">
-      <h3>编辑标签</h3>
-      <p>修改后点击“保存”应用到列表；最终需点击“保存标签规则”才会写入数据库。</p>
-      <div class="dialog-details market-policy-dialog-scroll">
-        <div class="field-grid two-col">
-          <label class="field">
-            <span>标签 code</span>
-            <input id="marketTagEditCodeInput" placeholder="例如 weapon" />
-          </label>
-          <label class="field">
-            <span>展示名称</span>
-            <input id="marketTagEditDisplayNameInput" placeholder="例如 武器" />
-          </label>
-          <label class="field">
-            <span>启用状态</span>
-            <select id="marketTagEditEnabledSelect">
-              <option value="true">启用</option>
-              <option value="false">停用</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>优先级</span>
-            <input id="marketTagEditPriorityInput" type="number" min="0" step="1" value="100" />
-          </label>
-          <label class="field">
-            <span>材质白名单（逗号分隔）</span>
-            <input id="marketTagEditMaterialInInput" placeholder="例如 DIAMOND_SWORD,BOW" />
-          </label>
-          <label class="field">
-            <span>NBT 关键词（逗号分隔）</span>
-            <input id="marketTagEditNbtHasAnyInput" placeholder="例如 MYTHIC_TYPE" />
-          </label>
-        </div>
-      </div>
-      <div class="actions">
-        <button id="marketTagEditCancelBtn" class="btn-tonal" type="button">取消</button>
-        <button id="marketTagEditSaveBtn" type="button">保存标签</button>
-      </div>
-    </article>
-  </div>
-
-  <div id="marketLimitationRuleEditDialog" class="dialog-backdrop" aria-hidden="true">
-    <article class="md-card dialog-card market-policy-dialog-card">
-      <h3>编辑限制规则</h3>
-      <p>必填：规则 ID、动作类型。其它字段均为可选。</p>
-      <p>修改后点击“保存”应用到列表；最终需点击“保存上架限制”才会写入数据库。</p>
-      <div class="dialog-details market-policy-dialog-scroll">
-        <div class="field-grid two-col">
-          <label class="field">
-            <span>规则 ID</span>
-            <input id="marketRuleEditIdInput" placeholder="例如 buy_only_gamecoin" />
-          </label>
-          <label class="field">
-            <span>优先级</span>
-            <input id="marketRuleEditPriorityInput" type="number" min="0" step="1" value="100" />
-          </label>
-          <label class="field">
-            <span>动作类型</span>
-            <select id="marketRuleEditActionDenySelect">
-              <option value="false">白名单限制</option>
-              <option value="true">直接拒绝</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>拒绝错误码</span>
-            <input id="marketRuleEditActionCodeInput" placeholder="例如 limitation_item_forbidden" />
-          </label>
-          <label class="field">
-            <span>触发方向</span>
-            <input id="marketRuleEditWhenSideInInput" placeholder="例如 SELL,BUY" />
-          </label>
-          <label class="field">
-            <span>触发材质(物品)</span>
-            <input id="marketRuleEditWhenMaterialInInput" placeholder="例如 DIAMOND_SWORD" />
-          </label>
-          <label class="field">
-            <span>触发 NBT</span>
-            <input id="marketRuleEditWhenNbtHasAnyInput" placeholder="例如 MYTHIC_TYPE" />
-          </label>
-          <label class="field">
-            <span>缺少权限</span>
-            <input id="marketRuleEditWhenLacksPermissionInput" placeholder="例如 webshop.market.auction" />
-          </label>
-          <label class="field">
-            <span>方向白名单</span>
-            <input id="marketRuleEditActionSideWhitelistInput" placeholder="例如 SELL,BUY" />
-          </label>
-          <label class="field">
-            <span>交易模式白名单</span>
-            <input id="marketRuleEditActionTradeModeWhitelistInput" placeholder="例如 DIRECT,AUCTION" />
-          </label>
-          <label class="field">
-            <span>币种白名单</span>
-            <input id="marketRuleEditActionCurrencyWhitelistInput" placeholder="例如 GAME_COIN" />
-          </label>
-          <label class="field">
-            <span>标签白名单</span>
-            <input id="marketRuleEditActionTagWhitelistInput" placeholder="例如 weapon,tools" />
-          </label>
-          <label class="field">
-            <span>强制标签</span>
-            <input id="marketRuleEditActionForcedTagInput" placeholder="例如 weapon" />
-          </label>
-          <label class="field">
-            <span>创建成本开关</span>
-            <select id="marketRuleEditCreateCostEnabledSelect">
-              <option value="false">关闭</option>
-              <option value="true">开启</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>创建成本币种</span>
-            <input id="marketRuleEditCreateCostCurrencyInput" placeholder="INHERIT / GAME_COIN / SHOP_COIN" />
-          </label>
-          <label class="field">
-            <span>创建成本金额</span>
-            <input id="marketRuleEditCreateCostAmountInput" type="number" min="0" step="1" value="0" />
-          </label>
-        </div>
-      </div>
-      <div class="actions">
-        <button id="marketRuleEditCancelBtn" class="btn-tonal" type="button">取消</button>
-        <button id="marketRuleEditSaveBtn" type="button">保存</button>
-      </div>
-    </article>
-  </div>
-
-  <div id="materialCropDialog" class="dialog-backdrop" aria-hidden="true">
-    <article class="md-card dialog-card material-crop-dialog-card">
-      <h3>裁剪材质图标</h3>
-      <p>拖动画面移动位置，滚轮/滑杆缩放；移动端可双指缩放。完成后点击“应用并上传”。</p>
-      <div class="material-crop-stage-wrap">
-        <canvas id="materialCropCanvas" width="360" height="360" aria-label="材质图标裁剪画布"></canvas>
-      </div>
-      <div class="material-crop-controls">
-        <label class="field dialog-select-field">
-          <span>缩放</span>
-          <input id="materialCropZoom" type="range" min="100" max="800" step="1" value="100" />
-        </label>
-        <p class="meta" id="materialCropZoomValue">100%</p>
-      </div>
-      <div class="actions">
-        <button id="materialCropResetBtn" class="btn-tonal" type="button">重置</button>
-        <button id="materialCropCancelBtn" class="btn-tonal" type="button">取消</button>
-        <button id="materialCropApplyBtn" type="button">应用并上传</button>
-      </div>
-    </article>
-  </div>
-
-  <div id="adminUpdateDialog" class="dialog-backdrop" aria-hidden="true">
-    <article class="md-card dialog-card market-policy-dialog-card">
-      <h3>更新详情</h3>
-      <p id="adminUpdateDialogSummary">正在加载版本详情…</p>
-      <div class="dialog-details market-policy-dialog-scroll">
-        <div class="field-grid two-col">
-          <label class="field">
-            <span>当前版本</span>
-            <p class="meta" id="adminUpdateDialogCurrentVersion">-</p>
-          </label>
-          <label class="field">
-            <span>最新版本</span>
-            <p class="meta" id="adminUpdateDialogLatestVersion">-</p>
-          </label>
-          <label class="field">
-            <span>发布时间</span>
-            <p class="meta" id="adminUpdateDialogPublishedAt">-</p>
-          </label>
-          <label class="field">
-            <span>下载文件</span>
-            <p class="meta" id="adminUpdateDialogFileName">-</p>
-          </label>
-        </div>
-        <label class="field product-remark-field">
-          <span>更新内容</span>
-          <div id="adminUpdateDialogChangelog" class="field-hint" style="white-space: pre-wrap;">暂无更新内容。</div>
-        </label>
-      </div>
-      <div class="actions">
-        <button id="adminUpdateDialogCloseBtn" class="btn-tonal" type="button">关闭</button>
-        <button id="adminUpdateDialogModrinthBtn" class="btn-tonal" type="button">转到Modrinth</button>
-        <button id="adminUpdateDialogDownloadBtn" type="button">下载 JAR</button>
-      </div>
-    </article>
-  </div>
-
-  <script src="/config.js"></script>
-  <script src="/js/i18n.js"></script>
-  <script src="/js/admin.js"></script>
+<div class="section-head">
+<div>
+<h2 data-i18n="uiText.autoHtml.k0461">已注册用户列表</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0462">支持按关键词筛选，并可直接载入到操作区进行编辑。</p>
+</div>
+<button data-i18n="uiText.autoHtml.k0463" id="userListRefreshBtn" type="button">刷新列表</button>
+</div>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0464">关键词</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0465" id="userListKeyword" placeholder="用户名 / UUID / 用户ID"/>
+</label>
+<label class="market-toggle">
+<input checked="" id="userListHideInactiveToggle" type="checkbox"/>
+<span data-i18n="uiText.autoHtml.k0466">隐藏已停用、未绑定或无用卡片</span>
+</label>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0467" id="userListStatus">等待加载列表</p>
+<div class="admin-list" id="userList"></div>
+</article>
+</section>
+<section class="tab-panel" data-tab-panel="admins">
+<div class="grid two-col">
+<article class="md-card section-card">
+<div class="section-head">
+<div>
+<h2 data-i18n="uiText.autoHtml.k0468">管理员编辑</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0469">超级管理员可创建子级管理员，并精确分配权限。</p>
+</div>
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0470" id="adminManagerClearBtn" type="button">清空表单</button>
+</div>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0471">用户标识</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0472" id="adminManagerIdentifier" placeholder="用户名 / UUID / 用户ID"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0473">模板</span>
+<select id="adminManagerTemplate">
+<option data-i18n="uiText.autoHtml.k0474" value="">自定义</option>
+</select>
+</label>
+</div>
+<div class="md-tip md-tip-info">
+<strong data-i18n="uiText.autoHtml.k0475">快速模板</strong>
+<p data-i18n="uiText.autoHtml.k0476" id="adminManagerTemplateHint">先选择一个模板，再按需要微调权限。</p>
+</div>
+<label class="field admin-manager-super">
+<span data-i18n="uiText.autoHtml.k0477">管理员类型</span>
+<select id="adminManagerType">
+<option data-i18n="uiText.autoHtml.k0478" value="custom">子级管理员</option>
+<option data-i18n="uiText.autoHtml.k0479" value="super">超级管理员</option>
+</select>
+</label>
+<div class="admin-permission-groups" id="adminPermissionGroups"></div>
+<div class="actions">
+<button data-i18n="uiText.autoHtml.k0480" id="adminManagerSaveBtn" type="button">保存管理员</button>
+<p class="meta" data-i18n="uiText.autoHtml.k0481" id="adminManagerStatus">等待操作</p>
+</div>
+</article>
+<article class="md-card section-card">
+<div class="section-head">
+<div>
+<h2 data-i18n="uiText.autoHtml.k0482">管理员列表</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0483">支持载入编辑、启用和禁用管理员。</p>
+</div>
+<button data-i18n="uiText.autoHtml.k0484" id="adminManagerRefreshBtn" type="button">刷新列表</button>
+</div>
+<p class="meta" data-i18n="uiText.autoHtml.k0485" id="adminManagerListStatus">等待加载管理员列表</p>
+<div class="admin-list" id="adminManagerList"></div>
+</article>
+</div>
+</section>
+<section class="tab-panel" data-tab-panel="audit">
+<article class="md-card section-card">
+<div class="section-head">
+<div>
+<h2 data-i18n="uiText.autoHtml.k0486">审计日志</h2>
+<p class="card-desc" data-i18n="uiText.autoHtml.k0487">记录所有管理员操作。</p>
+</div>
+<button data-i18n="uiText.autoHtml.k0488" id="auditRefreshBtn" type="button">刷新日志</button>
+</div>
+<div class="admin-list" id="auditList"></div>
+</article>
+</section>
+</main>
+<div aria-atomic="true" aria-live="polite" class="snackbar-host" id="snackbarHost"></div>
+<datalist id="materialSuggestList"></datalist>
+<datalist id="potionEffectSuggestList"></datalist>
+<div aria-hidden="true" class="dialog-backdrop" id="notificationTemplateDialog">
+<article class="md-card dialog-card market-policy-dialog-card">
+<h3 data-i18n="uiText.autoHtml.k0489">编辑消息模板</h3>
+<p data-i18n="uiText.autoHtml.k0490">修改后先点击“保存模板”，再点击“保存消息设置”写入数据库。</p>
+<div class="dialog-details market-policy-dialog-scroll">
+<div class="field-grid">
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0491">上架提醒模板</span>
+<textarea id="runtimeNotificationTemplateMarketListed" rows="2"></textarea>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0492">市场成交模板</span>
+<textarea id="runtimeNotificationTemplateMarketTrade" rows="2"></textarea>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0493">竞拍成功（出价者）模板</span>
+<textarea id="runtimeNotificationTemplateAuctionBidSelf" rows="2"></textarea>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0494">竞拍更新（卖家）模板</span>
+<textarea id="runtimeNotificationTemplateAuctionBidSeller" rows="2"></textarea>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0495">竞拍超价模板</span>
+<textarea id="runtimeNotificationTemplateAuctionOutbid" rows="2"></textarea>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0496">拍卖结算模板</span>
+<textarea id="runtimeNotificationTemplateAuctionSettlement" rows="2"></textarea>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0497">收购托管退款模板</span>
+<textarea id="runtimeNotificationTemplateMarketBuyEscrowRefund" rows="2"></textarea>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0498">订单待领取模板</span>
+<textarea id="runtimeNotificationTemplateDeliveryWaitClaimOrder" rows="2"></textarea>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0499">市场待领取模板</span>
+<textarea id="runtimeNotificationTemplateDeliveryWaitClaimMarket" rows="2"></textarea>
+</label>
+<label class="field product-remark-field">
+<span data-i18n="uiText.autoHtml.k0500">信箱待领取模板</span>
+<textarea id="runtimeNotificationTemplateMailboxPending" rows="2"></textarea>
+</label>
+</div>
+</div>
+<div class="actions">
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0501" id="notificationTemplateCancelBtn" type="button">取消</button>
+<button data-i18n="uiText.autoHtml.k0502" id="notificationTemplateSaveBtn" type="button">保存模板</button>
+</div>
+</article>
+</div>
+<div aria-hidden="true" class="dialog-backdrop" id="marketTagEditDialog">
+<article class="md-card dialog-card market-policy-dialog-card">
+<h3 data-i18n="uiText.autoHtml.k0503">编辑标签</h3>
+<p data-i18n="uiText.autoHtml.k0504">修改后点击“保存”应用到列表；最终需点击“保存标签规则”才会写入数据库。</p>
+<div class="dialog-details market-policy-dialog-scroll">
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0505">标签 code</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0506" id="marketTagEditCodeInput" placeholder="例如 weapon"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0507">展示名称</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0508" id="marketTagEditDisplayNameInput" placeholder="例如 武器"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0509">启用状态</span>
+<select id="marketTagEditEnabledSelect">
+<option data-i18n="uiText.autoHtml.k0510" value="true">启用</option>
+<option data-i18n="uiText.autoHtml.k0511" value="false">停用</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0512">优先级</span>
+<input id="marketTagEditPriorityInput" min="0" step="1" type="number" value="100"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0513">材质白名单（逗号分隔）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0514" id="marketTagEditMaterialInInput" placeholder="例如 DIAMOND_SWORD,BOW"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0515">NBT 关键词（逗号分隔）</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0516" id="marketTagEditNbtHasAnyInput" placeholder="例如 MYTHIC_TYPE"/>
+</label>
+</div>
+</div>
+<div class="actions">
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0517" id="marketTagEditCancelBtn" type="button">取消</button>
+<button data-i18n="uiText.autoHtml.k0518" id="marketTagEditSaveBtn" type="button">保存标签</button>
+</div>
+</article>
+</div>
+<div aria-hidden="true" class="dialog-backdrop" id="marketLimitationRuleEditDialog">
+<article class="md-card dialog-card market-policy-dialog-card">
+<h3 data-i18n="uiText.autoHtml.k0519">编辑限制规则</h3>
+<p data-i18n="uiText.autoHtml.k0520">必填：规则 ID、动作类型。其它字段均为可选。</p>
+<p data-i18n="uiText.autoHtml.k0521">修改后点击“保存”应用到列表；最终需点击“保存上架限制”才会写入数据库。</p>
+<div class="dialog-details market-policy-dialog-scroll">
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0522">规则 ID</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0523" id="marketRuleEditIdInput" placeholder="例如 buy_only_gamecoin"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0524">优先级</span>
+<input id="marketRuleEditPriorityInput" min="0" step="1" type="number" value="100"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0525">动作类型</span>
+<select id="marketRuleEditActionDenySelect">
+<option data-i18n="uiText.autoHtml.k0526" value="false">白名单限制</option>
+<option data-i18n="uiText.autoHtml.k0527" value="true">直接拒绝</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0528">拒绝错误码</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0529" id="marketRuleEditActionCodeInput" placeholder="例如 limitation_item_forbidden"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0530">触发方向</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0531" id="marketRuleEditWhenSideInInput" placeholder="例如 SELL,BUY"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0532">触发材质(物品)</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0533" id="marketRuleEditWhenMaterialInInput" placeholder="例如 DIAMOND_SWORD"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0534">触发 NBT</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0535" id="marketRuleEditWhenNbtHasAnyInput" placeholder="例如 MYTHIC_TYPE"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0536">缺少权限</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0537" id="marketRuleEditWhenLacksPermissionInput" placeholder="例如 webshop.market.auction"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0538">方向白名单</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0539" id="marketRuleEditActionSideWhitelistInput" placeholder="例如 SELL,BUY"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0540">交易模式白名单</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0541" id="marketRuleEditActionTradeModeWhitelistInput" placeholder="例如 DIRECT,AUCTION"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0542">币种白名单</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0543" id="marketRuleEditActionCurrencyWhitelistInput" placeholder="例如 GAME_COIN"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0544">标签白名单</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0545" id="marketRuleEditActionTagWhitelistInput" placeholder="例如 weapon,tools"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0546">强制标签</span>
+<input data-i18n-placeholder="uiText.autoHtml.k0547" id="marketRuleEditActionForcedTagInput" placeholder="例如 weapon"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0548">创建成本开关</span>
+<select id="marketRuleEditCreateCostEnabledSelect">
+<option data-i18n="uiText.autoHtml.k0549" value="false">关闭</option>
+<option data-i18n="uiText.autoHtml.k0550" value="true">开启</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0551">创建成本币种</span>
+<input id="marketRuleEditCreateCostCurrencyInput" placeholder="INHERIT / GAME_COIN / SHOP_COIN"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0552">创建成本金额</span>
+<input id="marketRuleEditCreateCostAmountInput" min="0" step="1" type="number" value="0"/>
+</label>
+</div>
+</div>
+<div class="actions">
+<button class="btn-tonal" data-i18n="uiText.autoHtml.k0553" id="marketRuleEditCancelBtn" type="button">取消</button>
+<button data-i18n="uiText.autoHtml.k0554" id="marketRuleEditSaveBtn" type="button">保存</button>
+</div>
+</article>
+</div>
+<div aria-hidden="true" class="dialog-backdrop" id="materialCropDialog">
+<article class="md-card dialog-card material-crop-dialog-card">
+<h3 data-i18n="uiText.page.materialCropTitle">Crop Material Icon</h3>
+<p data-i18n="uiText.page.materialCropDesc">Drag to move, use wheel/slider to zoom, and pinch on mobile. Then click Apply and Upload.</p>
+<div class="material-crop-stage-wrap">
+<canvas aria-label="Material icon crop canvas" data-i18n-aria-label="uiText.page.materialCropCanvasAria" height="360" id="materialCropCanvas" width="360"></canvas>
+</div>
+<div class="material-crop-controls">
+<label class="field dialog-select-field">
+<span data-i18n="uiText.page.materialCropZoomLabel">Zoom</span>
+<input id="materialCropZoom" max="800" min="100" step="1" type="range" value="100"/>
+</label>
+<p class="meta" id="materialCropZoomValue">100%</p>
+</div>
+<div class="actions">
+<button class="btn-tonal" data-i18n="uiText.page.materialCropResetBtn" id="materialCropResetBtn" type="button">Reset</button>
+<button class="btn-tonal" data-i18n="uiText.page.materialCropCancelBtn" id="materialCropCancelBtn" type="button">Cancel</button>
+<button data-i18n="uiText.page.materialCropApplyBtn" id="materialCropApplyBtn" type="button">Apply and Upload</button>
+</div>
+</article>
+</div>
+<div aria-hidden="true" class="dialog-backdrop" id="adminUpdateDialog">
+<article class="md-card dialog-card market-policy-dialog-card">
+<h3 data-i18n="uiText.page.updateDialogTitle">Update Details</h3>
+<p data-i18n="uiText.page.updateDialogSummaryLoading" id="adminUpdateDialogSummary">Loading release details...</p>
+<div class="dialog-details market-policy-dialog-scroll">
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.page.updateDialogCurrentVersionLabel">Current Version</span>
+<p class="meta" id="adminUpdateDialogCurrentVersion">-</p>
+</label>
+<label class="field">
+<span data-i18n="uiText.page.updateDialogLatestVersionLabel">Latest Version</span>
+<p class="meta" id="adminUpdateDialogLatestVersion">-</p>
+</label>
+<label class="field">
+<span data-i18n="uiText.page.updateDialogPublishedAtLabel">Published At</span>
+<p class="meta" id="adminUpdateDialogPublishedAt">-</p>
+</label>
+<label class="field">
+<span data-i18n="uiText.page.updateDialogFileNameLabel">Download File</span>
+<p class="meta" id="adminUpdateDialogFileName">-</p>
+</label>
+</div>
+<label class="field product-remark-field">
+<span data-i18n="uiText.page.updateDialogChangelogLabel">Changelog</span>
+<div class="field-hint" data-i18n="uiText.page.updateDialogChangelogEmpty" id="adminUpdateDialogChangelog" style="white-space: pre-wrap;">No changelog available.</div>
+</label>
+</div>
+<div class="actions">
+<button class="btn-tonal" data-i18n="uiText.page.updateDialogCloseBtn" id="adminUpdateDialogCloseBtn" type="button">Close</button>
+<button class="btn-tonal" data-i18n="uiText.page.updateDialogModrinthBtn" id="adminUpdateDialogModrinthBtn" type="button">Open Modrinth</button>
+<button data-i18n="uiText.page.updateDialogDownloadBtn" id="adminUpdateDialogDownloadBtn" type="button">Download JAR</button>
+</div>
+</article>
+</div>
+<script src="/config.js"></script>
+<script src="/js/i18n.js"></script>
+<script src="/js/admin.js"></script>
 </body>
 </html>

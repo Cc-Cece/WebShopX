@@ -2,6 +2,52 @@
   "use strict";
 
   const runtimeConfig = window.WEBSHOPX_CONFIG || {};
+  const I18N = window.WebShopXI18n || null;
+  if (I18N) {
+    I18N.preparePage("help");
+  }
+  const HELP_LOCALE_BUNDLE = I18N && typeof I18N.loadBundleSync === "function"
+    ? I18N.loadBundleSync("help")
+    : {};
+
+  const FALLBACK_HELP_RUNTIME = Object.freeze({
+    themeToggleLight: "Light mode",
+    themeToggleDark: "Dark mode",
+    modeToggleSingle: "Full Page",
+    modeToggleFull: "Single Page",
+    fallbackManualTitle: "WebShopX Manual",
+    fallbackHelpZhTitle: "WebShopX Help (zh-CN)",
+    fallbackHelpEnTitle: "WebShopX Help (en-US)",
+    rootDocTitle: "Document",
+    unnamedSection: "Untitled section",
+    noNavigableHeadings: "No navigable headings found.",
+    searchSection: "Section",
+    searchHeading: "Heading",
+    noSearchMatch: "No matching content",
+    docFetchFailed: "Cannot load {file}",
+    docNotFound: "No available documents found.",
+    docLoading: "Loading document...",
+    docLoadFailed: "Document load failed: {message}"
+  });
+
+  function getHelpRuntimeText(key, fallback) {
+    const value = HELP_LOCALE_BUNDLE?.uiText?.runtime?.[key];
+    if (typeof value === "string" && value.length > 0) {
+      return value;
+    }
+    if (Object.prototype.hasOwnProperty.call(FALLBACK_HELP_RUNTIME, key)) {
+      return FALLBACK_HELP_RUNTIME[key];
+    }
+    return fallback;
+  }
+
+  function formatHelpRuntimeText(key, params = {}, fallback = "") {
+    const template = String(getHelpRuntimeText(key, fallback) || "");
+    return template.replace(/\{(\w+)\}/g, (_, token) => {
+      const value = params[token];
+      return value == null ? "" : String(value);
+    });
+  }
   const query = new URLSearchParams(window.location.search);
 
   const requestedCategory = String(query.get("category") || "").trim().toLowerCase();
@@ -98,11 +144,15 @@
 
   function setThemeButtonText() {
     const isDark = document.documentElement.classList.contains("dark");
-    elements.themeBtn.textContent = isDark ? "切换亮色" : "切换暗色";
+    elements.themeBtn.textContent = isDark
+      ? getHelpRuntimeText("themeToggleLight", "Light mode")
+      : getHelpRuntimeText("themeToggleDark", "Dark mode");
   }
 
   function setModeButtonText() {
-    elements.modeBtn.textContent = state.mode === "single" ? "查看全文" : "单页模式";
+    elements.modeBtn.textContent = state.mode === "single"
+      ? getHelpRuntimeText("modeToggleSingle", "Full Page")
+      : getHelpRuntimeText("modeToggleFull", "Single Page");
   }
 
   function toggleTheme() {
@@ -201,9 +251,9 @@
 
   async function loadDocsManifest() {
     const fallback = [
-      { file: "manual.zh-CN.md", title: "WebShopX 使用文档" },
-      { file: "help.zh-CN.md", title: "WebShopX 使用文档 (zh-CN)" },
-      { file: "help.en-US.md", title: "WebShopX Help (en-US)" },
+      { file: "manual.zh-CN.md", title: getHelpRuntimeText("fallbackManualTitle", "WebShopX Manual") },
+      { file: "help.zh-CN.md", title: getHelpRuntimeText("fallbackHelpZhTitle", "WebShopX Help (zh-CN)") },
+      { file: "help.en-US.md", title: getHelpRuntimeText("fallbackHelpEnTitle", "WebShopX Help (en-US)") },
     ].map(normalizeDocEntry);
 
     const manifestPath = String(runtimeConfig.docsManifest || "docs/index.json").trim() || "docs/index.json";
@@ -486,7 +536,7 @@
   function splitSectionsByHeading2() {
     const nodes = Array.from(elements.content.childNodes);
     const h1 = elements.content.querySelector("h1");
-    const rootTitle = h1 ? String(h1.textContent || "").trim() : "文档";
+    const rootTitle = h1 ? String(h1.textContent || "").trim() : getHelpRuntimeText("rootDocTitle", "Document");
     const rootId = h1 && h1.id ? h1.id : "top";
 
     const sections = [];
@@ -501,7 +551,7 @@
         if (current.nodes.length > 0) {
           sections.push(current);
         }
-        const title = String(node.textContent || "").trim() || "未命名章节";
+        const title = String(node.textContent || "").trim() || getHelpRuntimeText("unnamedSection", "Untitled section");
         const id = node.id || createHeadingId(title, new Set(), "");
         current = {
           id,
@@ -557,7 +607,7 @@
     if (headings.length === 0) {
       const empty = document.createElement("p");
       empty.className = "help-empty";
-      empty.textContent = "未识别到可导航标题。";
+      empty.textContent = getHelpRuntimeText("noNavigableHeadings", "No navigable headings found.");
       elements.toc.appendChild(empty);
       return;
     }
@@ -788,7 +838,7 @@
         id: section.id,
         type: "section",
         title: section.title,
-        subtitle: "章节",
+        subtitle: getHelpRuntimeText("searchSection", "Section"),
         sectionId: section.id,
         haystack: `${section.title} ${text}`.toLowerCase(),
       });
@@ -853,7 +903,7 @@
     if (limited.length === 0) {
       const empty = document.createElement("div");
       empty.className = "help-search-empty";
-      empty.textContent = "未找到匹配内容";
+      empty.textContent = getHelpRuntimeText("noSearchMatch", "No matching content");
       elements.searchResults.appendChild(empty);
       return;
     }
@@ -870,7 +920,11 @@
 
       const sub = document.createElement("span");
       sub.className = "search-result-sub";
-      sub.textContent = result.item.subtitle || (result.item.type === "section" ? "章节" : "标题");
+      sub.textContent = result.item.subtitle || (
+        result.item.type === "section"
+          ? getHelpRuntimeText("searchSection", "Section")
+          : getHelpRuntimeText("searchHeading", "Heading")
+      );
       button.appendChild(sub);
 
       button.addEventListener("click", () => {
@@ -979,18 +1033,18 @@
   async function fetchDocumentText(doc) {
     const response = await fetch(doc.path, { cache: "no-cache" });
     if (!response.ok) {
-      throw new Error(`无法加载 ${doc.file}`);
+      throw new Error(formatHelpRuntimeText("docFetchFailed", { file: doc.file }, `Cannot load ${doc.file}`));
     }
     return response.text();
   }
 
   async function loadCurrentDocument() {
     if (!state.doc) {
-      elements.content.innerHTML = "<p class='help-empty'>未找到可用文档。</p>";
+      elements.content.innerHTML = `<p class='help-empty'>${getHelpRuntimeText("docNotFound", "No available documents found.")}</p>`;
       return;
     }
 
-    elements.content.innerHTML = "<p class='help-empty'>正在加载文档...</p>";
+    elements.content.innerHTML = `<p class='help-empty'>${getHelpRuntimeText("docLoading", "Loading document...")}</p>`;
     elements.toc.innerHTML = "";
     elements.searchResults.innerHTML = "";
     resetDocumentModel();
@@ -1011,7 +1065,7 @@
       elements.content.innerHTML = "";
       const fail = document.createElement("p");
       fail.className = "help-empty";
-      fail.textContent = `文档加载失败：${error.message}`;
+      fail.textContent = formatHelpRuntimeText("docLoadFailed", { message: error.message }, `Document load failed: ${error.message}`);
       elements.content.appendChild(fail);
     }
   }
@@ -1130,7 +1184,7 @@
     state.docs = await loadDocsManifest();
     const initialDoc = resolveInitialDoc();
     if (!initialDoc) {
-      elements.content.innerHTML = "<p class='help-empty'>未找到可用文档。</p>";
+      elements.content.innerHTML = `<p class='help-empty'>${getHelpRuntimeText("docNotFound", "No available documents found.")}</p>`;
       return;
     }
 

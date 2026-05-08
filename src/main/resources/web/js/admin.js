@@ -348,6 +348,8 @@ const FALLBACK_DEFAULT_NOTIFICATION_TEMPLATES = Object.freeze({
 
 const ADMIN_UI_TEXT = Object.freeze(mergeLocaleValue(FALLBACK_ADMIN_UI_TEXT, ADMIN_LOCALE_BUNDLE.uiText));
 const ADMIN_TEXT_TEMPLATES = Object.freeze(ADMIN_UI_TEXT.templates || {});
+const ADMIN_PAGE_TEXT = Object.freeze(ADMIN_UI_TEXT.page || {});
+const ADMIN_PHRASE_MAP = Object.freeze(ADMIN_UI_TEXT.autoPhrase || {});
 
 function formatAdminTemplate(key, params = {}) {
   const template = ADMIN_TEXT_TEMPLATES[key];
@@ -358,6 +360,54 @@ function formatAdminTemplate(key, params = {}) {
     const value = params[token];
     return value == null ? "" : String(value);
   });
+}
+
+function getAdminUiText(path, fallback = "") {
+  const parts = String(path || "").split(".").filter(Boolean);
+  let current = ADMIN_UI_TEXT;
+  for (const part of parts) {
+    if (!current || typeof current !== "object" || !(part in current)) {
+      return fallback;
+    }
+    current = current[part];
+  }
+  return typeof current === "string" ? current : fallback;
+}
+
+function getAdminPageText(key, fallback = "") {
+  const value = ADMIN_PAGE_TEXT[key];
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
+  return fallback;
+}
+
+function formatAdminPageText(key, params = {}, fallback = "") {
+  const template = String(getAdminPageText(key, fallback) || "");
+  return template.replace(/\{(\w+)\}/g, (_, token) => {
+    const value = params[token];
+    return value == null ? "" : String(value);
+  });
+}
+
+function applyAdminPhraseMap(text) {
+  if (!text || !ADMIN_PHRASE_MAP || typeof ADMIN_PHRASE_MAP !== "object") {
+    return text;
+  }
+  const entries = Object.entries(ADMIN_PHRASE_MAP)
+    .filter(([from, to]) => typeof from === "string" && from.length > 0 && typeof to === "string")
+    .sort((left, right) => right[0].length - left[0].length);
+  if (entries.length === 0) {
+    return text;
+  }
+  let result = String(text);
+  entries.forEach(([from, to]) => {
+    if (!from || from === to) {
+      return;
+    }
+    result = result.split(from).join(to);
+  });
+  return result;
 }
 const POTION_EFFECT_LABELS = mergeLocaleValue(FALLBACK_POTION_EFFECT_LABELS, ADMIN_LOCALE_BUNDLE.potionEffectLabels);
 const DEFAULT_NOTIFICATION_TEMPLATES = Object.freeze(
@@ -719,7 +769,11 @@ const tabs = Array.from(document.querySelectorAll(".top-tab"));
 const panels = Array.from(document.querySelectorAll(".tab-panel"));
 
 function localizeDisplayText(text) {
-  return I18N ? I18N.localizeText(text) : text;
+  const localized = I18N ? I18N.localizeText(text) : text;
+  if (!I18N || I18N.isChineseLocale()) {
+    return localized;
+  }
+  return applyAdminPhraseMap(localized);
 }
 
 function setNodeText(node, text) {
@@ -778,7 +832,7 @@ function toggleTheme() {
 async function copyTextToClipboard(text) {
   const value = String(text || "").trim();
   if (!value) {
-    throw new Error(localizeDisplayText("没有可复制的内容。"));
+    throw new Error(localizeDisplayText(getAdminUiText("autoJs.k0115")));
   }
   if (navigator.clipboard && navigator.clipboard.writeText) {
     await navigator.clipboard.writeText(value);
@@ -818,13 +872,14 @@ function normalizeVersionText(versionText) {
 
 function formatModrinthPublishedAt(publishedAt) {
   if (!publishedAt) {
-    return "未知";
+    return getAdminPageText("unknownLabel", "Unknown");
   }
   const date = new Date(publishedAt);
   if (Number.isNaN(date.getTime())) {
     return String(publishedAt);
   }
-  return new Intl.DateTimeFormat("zh-CN", {
+  const locale = I18N && typeof I18N.getCurrentLocale === "function" ? I18N.getCurrentLocale() : "en-US";
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
@@ -851,13 +906,23 @@ function openUpdateDialog() {
   if (!elements.adminUpdateDialog || !state.updateInfo.available) {
     return;
   }
-  setNodeText(elements.adminUpdateDialogSummary, `当前版本 ${CURRENT_WEBSHOPX_VERSION}，Modrinth 已发布新版本 ${state.updateInfo.latestVersion}。`);
+  setNodeText(
+    elements.adminUpdateDialogSummary,
+    formatAdminPageText(
+      "updateDialogSummary",
+      { currentVersion: CURRENT_WEBSHOPX_VERSION, latestVersion: state.updateInfo.latestVersion || "-" },
+      `Current version ${CURRENT_WEBSHOPX_VERSION}, Modrinth latest ${state.updateInfo.latestVersion || "-"}.`
+    )
+  );
   setNodeText(elements.adminUpdateDialogCurrentVersion, CURRENT_WEBSHOPX_VERSION);
-  setNodeText(elements.adminUpdateDialogLatestVersion, state.updateInfo.latestName || state.updateInfo.latestVersion || "未知");
+  setNodeText(
+    elements.adminUpdateDialogLatestVersion,
+    state.updateInfo.latestName || state.updateInfo.latestVersion || getAdminPageText("unknownLabel", "Unknown")
+  );
   setNodeText(elements.adminUpdateDialogPublishedAt, formatModrinthPublishedAt(state.updateInfo.publishedAt));
-  setNodeText(elements.adminUpdateDialogFileName, state.updateInfo.fileName || "未知文件");
+  setNodeText(elements.adminUpdateDialogFileName, state.updateInfo.fileName || getAdminPageText("unknownFileLabel", "Unknown file"));
   if (elements.adminUpdateDialogChangelog) {
-    elements.adminUpdateDialogChangelog.textContent = state.updateInfo.changelog || "暂无更新内容。";
+    elements.adminUpdateDialogChangelog.textContent = state.updateInfo.changelog || getAdminPageText("updateDialogChangelogEmpty", "No changelog available.");
   }
   if (elements.adminUpdateDialogDownloadBtn) {
     elements.adminUpdateDialogDownloadBtn.disabled = !state.updateInfo.downloadUrl;
@@ -868,7 +933,7 @@ function openUpdateDialog() {
 
 function downloadUpdateJar() {
   if (!state.updateInfo.downloadUrl) {
-    notify("没有可用的下载地址。", "warn");
+    notify(getAdminPageText("updateNoDownloadUrl", "No download URL available."), "warn");
     return;
   }
   window.open(state.updateInfo.downloadUrl, "_blank", "noopener,noreferrer");
@@ -887,11 +952,28 @@ function renderUpdateNoticeCard() {
   if (!available) {
     return;
   }
-  const versionLabel = state.updateInfo.latestName || state.updateInfo.latestVersion || "未知版本";
+  const versionLabel = state.updateInfo.latestName || state.updateInfo.latestVersion || getAdminPageText("unknownVersionLabel", "Unknown version");
   const currentLabel = state.updateInfo.currentVersion || CURRENT_WEBSHOPX_VERSION;
-  const downloadLabel = state.updateInfo.fileName || "未知文件";
-  setNodeText(elements.adminUpdateCardDesc, `检测到新版本 ${versionLabel}，可查看更新详情或直接下载 JAR。`);
-  setNodeText(elements.adminUpdateCardMeta, `当前 ${currentLabel} · 最新 ${versionLabel} · ${formatModrinthPublishedAt(state.updateInfo.publishedAt)}`);
+  setNodeText(
+    elements.adminUpdateCardDesc,
+    formatAdminPageText(
+      "updateCardDesc",
+      { latestVersion: versionLabel },
+      `New version ${versionLabel} is available.`
+    )
+  );
+  setNodeText(
+    elements.adminUpdateCardMeta,
+    formatAdminPageText(
+      "updateCardMeta",
+      {
+        currentVersion: currentLabel,
+        latestVersion: versionLabel,
+        publishedAt: formatModrinthPublishedAt(state.updateInfo.publishedAt),
+      },
+      `Current ${currentLabel} · Latest ${versionLabel} · ${formatModrinthPublishedAt(state.updateInfo.publishedAt)}`
+    )
+  );
   if (elements.adminUpdateDownloadBtn) {
     elements.adminUpdateDownloadBtn.disabled = !state.updateInfo.downloadUrl;
   }
@@ -996,15 +1078,15 @@ const TAB_MAJOR_MAP = Object.entries(MAJOR_TAB_CHILDREN).reduce((acc, [major, ch
 
 function tabDisplayName(tabName) {
   const labels = {
-    login: "状态",
-    audit: "审计",
-    products: "官方商品",
-    redeem: "兑换码",
-    orders: "订单",
-    market: "上架管理",
-    users: "账号管理",
-    admins: "管理员",
-    economy: "经济与配置",
+    login: getAdminPageText("tabLabelLogin", "Status"),
+    audit: getAdminPageText("tabLabelAudit", "Audit"),
+    products: getAdminPageText("tabLabelProducts", "Products"),
+    redeem: getAdminPageText("tabLabelRedeem", "Redeem"),
+    orders: getAdminPageText("tabLabelOrders", "Orders"),
+    market: getAdminPageText("tabLabelMarket", "Market"),
+    users: getAdminPageText("tabLabelUsers", "Users"),
+    admins: getAdminPageText("tabLabelAdmins", "Admins"),
+    economy: getAdminPageText("tabLabelEconomy", "Economy & Config"),
   };
   return labels[tabName] || tabName;
 }
@@ -1280,7 +1362,7 @@ async function cropImageFileToSquarePngAuto(file, size = 128) {
   const width = Number(image.width || 0);
   const height = Number(image.height || 0);
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    throw new Error("图片尺寸无效");
+    throw new Error(getAdminUiText("autoJs.k0086"));
   }
   const side = Math.min(width, height);
   const sx = Math.floor((width - side) / 2);
@@ -1290,7 +1372,7 @@ async function cropImageFileToSquarePngAuto(file, size = 128) {
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   if (!ctx) {
-    throw new Error("无法创建图片画布");
+    throw new Error(getAdminUiText("autoJs.k0087"));
   }
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
@@ -1299,7 +1381,7 @@ async function cropImageFileToSquarePngAuto(file, size = 128) {
     canvas.toBlob(resolve, "image/png", 1.0);
   });
   if (!blob) {
-    throw new Error("图片裁剪失败");
+    throw new Error(getAdminUiText("autoJs.k0088"));
   }
   return new File([blob], fileNameWithExtension(input.name, "png"), { type: "image/png" });
 }
@@ -1457,7 +1539,7 @@ function resetMaterialCropViewport() {
   const imageWidth = Number(materialCropState.image.width || 0);
   const imageHeight = Number(materialCropState.image.height || 0);
   if (!Number.isFinite(imageWidth) || !Number.isFinite(imageHeight) || imageWidth <= 0 || imageHeight <= 0) {
-    throw new Error("图片尺寸无效");
+    throw new Error(getAdminUiText("autoJs.k0086"));
   }
   const minScale = Math.max(frame.size / imageWidth, frame.size / imageHeight);
   materialCropState.minScale = minScale;
@@ -1491,7 +1573,7 @@ function closeMaterialCropDialog(resultFile = null) {
 async function exportMaterialCropAsPngFile() {
   const metrics = getMaterialCropCanvasContext();
   if (!metrics || !materialCropState.image) {
-    throw new Error("裁剪器未准备好");
+    throw new Error(getAdminUiText("autoJs.k0089"));
   }
   const frame = getMaterialCropFrameRect(metrics);
   const outputSize = Math.max(32, Math.min(1024, Number(materialCropState.exportSize || 128)));
@@ -1509,7 +1591,7 @@ async function exportMaterialCropAsPngFile() {
   outputCanvas.height = outputSize;
   const outputCtx = outputCanvas.getContext("2d");
   if (!outputCtx) {
-    throw new Error("无法创建输出画布");
+    throw new Error(getAdminUiText("autoJs.k0090"));
   }
   outputCtx.imageSmoothingEnabled = true;
   outputCtx.imageSmoothingQuality = "high";
@@ -1528,7 +1610,7 @@ async function exportMaterialCropAsPngFile() {
     outputCanvas.toBlob(resolve, "image/png", 1.0);
   });
   if (!blob) {
-    throw new Error("图片裁剪失败");
+    throw new Error(getAdminUiText("autoJs.k0088"));
   }
   return new File([blob], fileNameWithExtension(materialCropState.sourceFileName, "png"), { type: "image/png" });
 }
@@ -1831,7 +1913,7 @@ function applyCurrencyMetaToUi() {
 
 function ensureAdmin() {
   if (!state.token) {
-    throw new Error("请先登录管理员账号。");
+    throw new Error(getAdminUiText("autoJs.k0091"));
   }
 }
 
@@ -1977,20 +2059,41 @@ function updateProductScheduleHint() {
   if (!elements.productScheduleHint) {
     return;
   }
-  setNodeText(elements.productScheduleHint, `商品上下架时间按时区 ${state.timeZone} 解释与显示。`);
+  setNodeText(
+    elements.productScheduleHint,
+    formatAdminPageText(
+      "productScheduleHint",
+      { timeZone: state.timeZone },
+      `Publish/unpublish times are interpreted in timezone ${state.timeZone}.`
+    )
+  );
 }
 
 function renderAdminProfile() {
   if (!state.admin) {
-    setNodeText(elements.adminProfileView, "未登录");
+    setNodeText(elements.adminProfileView, getAdminPageText("currentAdminStatusOffline", "Not signed in"));
     return;
   }
   const roleLabel = state.admin.isSuperAdmin ? "SUPER_ADMIN" : (state.admin.role || "CUSTOM");
   const permissionCount = Array.isArray(state.admin.permissions) ? state.admin.permissions.length : 0;
   const suffix = state.admin.isSuperAdmin
-    ? "拥有全部权限"
-    : `权限数：${permissionCount}${state.admin.canManageAdmins ? " | 可管理管理员" : ""}`;
-  setNodeText(elements.adminProfileView, `账号：${state.admin.username} | 身份：${roleLabel} | ${suffix}`);
+    ? getAdminPageText("profileAllPermissions", "All permissions")
+    : formatAdminPageText(
+      "profilePermissionCount",
+      {
+        permissionCount,
+        manageAdmins: state.admin.canManageAdmins ? ` | ${getAdminPageText("profileCanManageAdmins", "Can manage admins")}` : "",
+      },
+      `Permissions: ${permissionCount}${state.admin.canManageAdmins ? " | Can manage admins" : ""}`
+    );
+  setNodeText(
+    elements.adminProfileView,
+    formatAdminPageText(
+      "profileSummary",
+      { username: state.admin.username, role: roleLabel, suffix },
+      `Account: ${state.admin.username} | Role: ${roleLabel} | ${suffix}`
+    )
+  );
 }
 
 function setLoggedOut() {
@@ -2003,16 +2106,16 @@ function setLoggedOut() {
   state.realtime.marketDigest = {};
   sessionStorage.removeItem("webshop_admin_token");
   stopAdminAutoSync();
-  setStatus("未登录", "offline");
+  setStatus(getAdminPageText("headerStatusOffline", "Not signed in"), "offline");
   renderAdminProfile();
-  setMetaText(elements.adminLoginStatus, "已退出登录", "info");
+  setMetaText(elements.adminLoginStatus, getAdminPageText("loginStatusSignedOut", "Signed out"), "info");
 }
 
 async function loginAdmin() {
   const identifier = elements.adminIdentifier.value.trim();
   const password = elements.adminPassword.value.trim();
   if (!identifier || !password) {
-    throw new Error("请输入管理员账号和密码。");
+    throw new Error(getAdminPageText("loginMissingCredentials", "Please enter admin account and password."));
   }
   const payload = await apiAdmin("/api/admin/auth/login", {
     method: "POST",
@@ -2021,9 +2124,9 @@ async function loginAdmin() {
   state.token = payload.sessionToken;
   state.admin = payload.admin;
   sessionStorage.setItem("webshop_admin_token", state.token);
-  setStatus(`已登录：${state.admin.username}`, "online");
+  setStatus(formatAdminPageText("headerStatusOnline", { username: state.admin.username }, `Signed in: ${state.admin.username}`), "online");
   renderAdminProfile();
-  setMetaText(elements.adminLoginStatus, "登录成功", "success");
+  setMetaText(elements.adminLoginStatus, getAdminPageText("loginStatusSuccess", "Sign-in successful"), "success");
   if (state.activeTab === "admins") {
     await loadAdminManagerData();
   }
@@ -2037,7 +2140,7 @@ async function loadAdminProfile() {
   try {
     const payload = await apiAdmin("/api/admin/auth/me", { method: "GET" });
     state.admin = payload;
-    setStatus(`已登录：${state.admin.username}`, "online");
+    setStatus(formatAdminPageText("headerStatusOnline", { username: state.admin.username }, `Signed in: ${state.admin.username}`), "online");
     renderAdminProfile();
     if (state.activeTab === "admins") {
       await loadAdminManagerData();
@@ -2053,7 +2156,7 @@ function renderList(container, rows) {
   if (!rows || rows.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    setNodeText(empty, "暂无数据");
+    setNodeText(empty, getAdminPageText("emptyState", "No data"));
     container.appendChild(empty);
     return;
   }
@@ -2390,14 +2493,14 @@ function renderMarketTagConfigList() {
     const editBtn = document.createElement("button");
     editBtn.type = "button";
     editBtn.className = "btn-tonal";
-    setNodeText(editBtn, "编辑");
+    setNodeText(editBtn, getAdminUiText("autoJs.k0046"));
     editBtn.addEventListener("click", () => {
       openMarketTagEditDialog(index);
     });
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
     deleteBtn.className = "btn-tonal";
-    setNodeText(deleteBtn, "删除");
+    setNodeText(deleteBtn, getAdminUiText("autoJs.k0047"));
     deleteBtn.addEventListener("click", () => {
       state.marketTagConfig.tags = state.marketTagConfig.tags.filter((_, rowIndex) => rowIndex !== index);
       if (state.marketTagConfig.tags.length === 0) {
@@ -2462,14 +2565,14 @@ function renderMarketLimitationRuleList() {
     const editBtn = document.createElement("button");
     editBtn.type = "button";
     editBtn.className = "btn-tonal";
-    setNodeText(editBtn, "编辑");
+    setNodeText(editBtn, getAdminUiText("autoJs.k0046"));
     editBtn.addEventListener("click", () => {
       openMarketLimitationRuleEditDialog(index);
     });
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
     deleteBtn.className = "btn-tonal";
-    setNodeText(deleteBtn, "删除");
+    setNodeText(deleteBtn, getAdminUiText("autoJs.k0047"));
     deleteBtn.addEventListener("click", () => {
       state.marketLimitationConfig.rules = state.marketLimitationConfig.rules.filter((_, rowIndex) => rowIndex !== index);
       renderMarketLimitationRuleList();
@@ -2553,7 +2656,7 @@ function isMarketTagEditDialogOpen() {
 function saveMarketTagEditDialog() {
   const index = state.marketTagEditingIndex;
   if (!Array.isArray(state.marketTagConfig?.tags) || !Number.isInteger(index) || index < 0 || index >= state.marketTagConfig.tags.length) {
-    throw new Error("当前没有可保存的标签。");
+    throw new Error(getAdminUiText("autoJs.k0092"));
   }
   const source = state.marketTagConfig.tags[index];
   const updated = {
@@ -2566,7 +2669,7 @@ function saveMarketTagEditDialog() {
     nbtHasAny: parseTokenInput(elements.marketTagEditNbtHasAnyInput?.value || ""),
   };
   if (!updated.code) {
-    throw new Error("标签 code 不能为空。");
+    throw new Error(getAdminUiText("autoJs.k0093"));
   }
   if (!updated.displayName) {
     updated.displayName = updated.code;
@@ -2661,7 +2764,7 @@ function isMarketLimitationRuleEditDialogOpen() {
 function saveMarketLimitationRuleEditDialog() {
   const index = state.marketLimitationRuleEditingIndex;
   if (!Array.isArray(state.marketLimitationConfig?.rules) || !Number.isInteger(index) || index < 0 || index >= state.marketLimitationConfig.rules.length) {
-    throw new Error("当前没有可保存的规则。");
+    throw new Error(getAdminUiText("autoJs.k0094"));
   }
   const updated = {
     ...state.marketLimitationConfig.rules[index],
@@ -2685,7 +2788,7 @@ function saveMarketLimitationRuleEditDialog() {
     actionCreateCostAmount: Math.max(0, Number(elements.marketRuleEditCreateCostAmountInput?.value || 0)),
   };
   if (!updated.id) {
-    throw new Error("规则 ID 不能为空。");
+    throw new Error(getAdminUiText("autoJs.k0095"));
   }
   const duplicated = state.marketLimitationConfig.rules.some((rule, rowIndex) => rowIndex !== index && String(rule.id || "").trim() === updated.id);
   if (duplicated) {
@@ -2839,7 +2942,7 @@ function collectMarketTagConfigFromVisual() {
   const seen = new Set();
   payload.tags.forEach((tag) => {
     if (!tag.code) {
-      throw new Error("标签 code 不能为空。");
+      throw new Error(getAdminUiText("autoJs.k0093"));
     }
     if (seen.has(tag.code)) {
       throw new Error(`标签 code 重复：${tag.code}`);
@@ -2959,7 +3062,7 @@ function applyMarketTagJsonToVisual() {
   state.marketTagConfig = normalizeMarketTagConfig(config);
   renderMarketTagConfigList();
   syncMarketPolicyJsonEditors();
-  setMetaText(elements.marketTagConfigStatusView, "已应用标签 JSON 到可视化表单", "success");
+  setMetaText(elements.marketTagConfigStatusView, getAdminUiText("autoJs.k0060"), "success");
 }
 
 function applyMarketLimitationJsonToVisual() {
@@ -2973,7 +3076,7 @@ function applyMarketLimitationJsonToVisual() {
     buildMarketLimitationSummary(buildMarketLimitationConfigPayloadFromState()),
     "info"
   );
-  setMetaText(elements.marketLimitationConfigStatusView, "已应用限制 JSON 到可视化表单", "success");
+  setMetaText(elements.marketLimitationConfigStatusView, getAdminUiText("autoJs.k0061"), "success");
 }
 
 function buildMarketLimitationSummary(config) {
@@ -3028,8 +3131,8 @@ async function saveMarketTagConfig() {
     method: "POST",
     body: JSON.stringify({ config }),
   });
-  setMetaText(elements.marketTagConfigStatusView, "标签规则已保存", "success");
-  notify("标签规则已保存", "success");
+  setMetaText(elements.marketTagConfigStatusView, getAdminUiText("autoJs.k0001"), "success");
+  notify(getAdminUiText("autoJs.k0001"), "success");
   await Promise.all([loadMarketPolicyConfigs(), loadMarketTagMeta()]);
 }
 
@@ -3042,8 +3145,8 @@ async function saveMarketLimitationConfig() {
     method: "POST",
     body: JSON.stringify({ config }),
   });
-  setMetaText(elements.marketLimitationConfigStatusView, "上架限制已保存", "success");
-  notify("上架限制已保存", "success");
+  setMetaText(elements.marketLimitationConfigStatusView, getAdminUiText("autoJs.k0002"), "success");
+  notify(getAdminUiText("autoJs.k0002"), "success");
   setMetaText(elements.marketLimitationSummaryView, buildMarketLimitationSummary(config), "info");
   await loadMarketPolicyConfigs();
 }
@@ -3481,7 +3584,7 @@ function syncProductAmountSlider(source = "input") {
   const input = elements.productItemAmount;
   if (input) {
     input.disabled = isUnlimited;
-    input.placeholder = isUnlimited ? "无限库存" : "";
+    input.placeholder = isUnlimited ? localizeDisplayText(getAdminUiText("autoJs.k0099", "无限库存")) : "";
   }
   if (slider) {
     slider.disabled = isUnlimited;
@@ -3492,10 +3595,10 @@ function syncProductAmountSlider(source = "input") {
       input.value = "";
     }
     if (elements.productAmountPreview) {
-      setNodeText(elements.productAmountPreview, "无限");
+      setNodeText(elements.productAmountPreview, getAdminUiText("autoJs.k0048"));
     }
     if (elements.productTotalPreview) {
-      setNodeText(elements.productTotalPreview, "不限");
+      setNodeText(elements.productTotalPreview, getAdminUiText("autoJs.k0049"));
     }
     return;
   }
@@ -3875,7 +3978,7 @@ function getLocalizedMaterialName(material, options = {}) {
   const key = normalizeMaterialKey(material);
   const aliasKey = aliasMaterialKey(key);
   if (!key) {
-    return localizeDisplayText("未知物品");
+    return localizeDisplayText(getAdminUiText("autoJs.k0116"));
   }
   const includeGlobalOverride = options.includeGlobalOverride !== false
     && normalizeVisualPolicy(state.visualPolicy || {}).globalCustomNameEnabled !== false;
@@ -4262,10 +4365,10 @@ function parseAlgorithmParamsJsonStrict(raw) {
   try {
     parsed = JSON.parse(text);
   } catch (error) {
-    throw new Error("算法参数 JSON 格式无效，请输入对象格式。");
+    throw new Error(getAdminUiText("autoJs.k0096"));
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("算法参数 JSON 必须是对象格式，例如 {\"k\": 1.2}。");
+    throw new Error(localizeDisplayText("算法参数 JSON 必须是对象格式，例如 {\"k\": 1.2}。"));
   }
   return parsed;
 }
@@ -4423,7 +4526,7 @@ function buildProductDynamicParamsJson() {
   const entries = productDynamicBasicParamEntries.concat(productDynamicAdvancedParamEntries);
   const paramPayload = collectAlgorithmParamValues(entries);
   if (paramPayload === undefined) {
-    throw new Error("动态算法参数无效，请检查必填项与数值范围。");
+    throw new Error(getAdminUiText("autoJs.k0097"));
   }
   const merged = stripKnownDynamicParamKeys(basePayload);
   Object.entries(paramPayload).forEach(([key, value]) => {
@@ -4738,15 +4841,15 @@ async function saveProduct() {
 async function uploadProductIcon() {
   ensureAdmin();
   if (!state.selectedProductId) {
-    throw new Error("请先保存商品，再上传独立图标。");
+    throw new Error(getAdminUiText("autoJs.k0098"));
   }
   const file = elements.productIconFile?.files?.[0];
   if (!file) {
-    throw new Error("请先选择图标文件。");
+    throw new Error(getAdminUiText("autoJs.k0099"));
   }
   const croppedFile = await cropImageFileToSquarePng(file, 128);
   if (!croppedFile) {
-    setMetaText(elements.productIconStatus, "已取消裁剪与上传", "info");
+    setMetaText(elements.productIconStatus, getAdminUiText("autoJs.k0062"), "info");
     return;
   }
   const query = new URLSearchParams({
@@ -4760,7 +4863,7 @@ async function uploadProductIcon() {
   }
   updateProductIconPreview();
   setMetaText(elements.productIconStatus, `商品 #${state.selectedProductId} 图标上传成功`, "success");
-  notify("商品图标上传成功", "success");
+  notify(getAdminUiText("autoJs.k0003"), "success");
   await loadProducts();
 }
 
@@ -4771,10 +4874,10 @@ async function clearProductIcon() {
       elements.productDisplayIconPath.value = "";
     }
     updateProductIconPreview();
-    setMetaText(elements.productIconStatus, "当前商品尚未保存，已清空本地预览。", "info");
+    setMetaText(elements.productIconStatus, getAdminUiText("autoJs.k0063"), "info");
     return;
   }
-  if (!window.confirm(`确认清除商品 #${state.selectedProductId} 的自定义图标吗？`)) {
+  if (!window.confirm(localizeDisplayText(`确认清除商品 #${state.selectedProductId} 的自定义图标吗？`))) {
     return;
   }
   if (elements.productDisplayIconPath) {
@@ -4787,9 +4890,9 @@ async function clearProductIcon() {
 async function resetProductLimit(product) {
   ensureAdmin();
   if (!product || !product.id) {
-    throw new Error("商品信息无效，无法重置限购。");
+    throw new Error(getAdminUiText("autoJs.k0100"));
   }
-  const confirmed = window.confirm(`确认清空商品 ${product.sku} 的所有玩家限购记录吗？`);
+  const confirmed = window.confirm(localizeDisplayText(`确认清空商品 ${product.sku} 的所有玩家限购记录吗？`));
   if (!confirmed) {
     return;
   }
@@ -4806,7 +4909,7 @@ async function consumeGroupBuyVoucher() {
   ensureAdmin();
   const code = elements.groupBuyConsumeCode ? elements.groupBuyConsumeCode.value.trim() : "";
   if (!code) {
-    throw new Error("请输入要核销的团购兑换码。");
+    throw new Error(getAdminUiText("autoJs.k0101"));
   }
   const payload = await apiAdmin("/api/admin/group-buy/consume", {
     method: "POST",
@@ -4876,7 +4979,7 @@ function renderProducts() {
   const rows = filtered.map((product) => {
     const editBtn = document.createElement("button");
     editBtn.className = "btn-tonal";
-    setNodeText(editBtn, "加载编辑");
+    setNodeText(editBtn, getAdminUiText("autoJs.k0050"));
     editBtn.addEventListener("click", () => {
       state.selectedProductId = Number(product.id || 0) || null;
       elements.productSku.value = product.sku;
@@ -4967,7 +5070,7 @@ function renderProducts() {
     if (product.perUserLimit != null) {
       const resetLimitBtn = document.createElement("button");
       resetLimitBtn.className = "btn-tonal";
-      setNodeText(resetLimitBtn, "重置限购");
+      setNodeText(resetLimitBtn, getAdminUiText("autoJs.k0051"));
       resetLimitBtn.addEventListener("click", async () => {
         try {
           await resetProductLimit(product);
@@ -5108,7 +5211,7 @@ async function loadEconomySettings() {
     } else if (vault.vaultPluginPresent) {
       setMetaText(
         elements.vaultStatusView,
-        "检测到 Vault 插件，但未找到可用经济提供者。",
+        getAdminUiText("autoJs.k0064"),
         "warn"
       );
     } else {
@@ -5248,7 +5351,7 @@ async function loadEconomySettings() {
 
   applyNotificationSettingsToForm(payload.notification || {});
   if (elements.runtimeAnnouncementTitle && !elements.runtimeAnnouncementTitle.value) {
-    elements.runtimeAnnouncementTitle.value = "系统公告";
+    elements.runtimeAnnouncementTitle.value = localizeDisplayText("系统公告");
   }
 
   const visual = normalizeVisualPolicy(payload.visual || {});
@@ -5304,17 +5407,17 @@ async function loadEconomySettings() {
     setMetaText(elements.marketLimitationConfigStatusView, formatAdminTemplate("limitationLoadFailed", { message: error.message }), "error");
   }
 
-  setMetaText(elements.exchangeStatusView, "已加载兑换配置", "info");
-  setMetaText(elements.marketEconomyStatusView, "已加载经济策略配置", "info");
-  setMetaText(elements.leaderboardStatusView, "已加载排行榜配置", "info");
-  setMetaText(elements.currencyStatusView, "已加载币种展示配置", "info");
-  setMetaText(elements.runtimeWebshopStatusView, "已加载站点运行参数", "info");
-  setMetaText(elements.runtimeMarketStatusView, "已加载市场运行参数", "info");
-  setMetaText(elements.runtimeMaintenanceStatusView, "已加载维护参数", "info");
-  setMetaText(elements.runtimeLoggingStatusView, "已加载日志设置", "info");
-  setMetaText(elements.runtimeBroadcastStatusView, "已加载广播设置", "info");
-  setMetaText(elements.runtimeNotificationStatusView, "已加载消息设置", "info");
-  setMetaText(elements.visualSettingsStatusView, "已加载自定义策略", "info");
+  setMetaText(elements.exchangeStatusView, getAdminUiText("autoJs.k0065"), "info");
+  setMetaText(elements.marketEconomyStatusView, getAdminUiText("autoJs.k0066"), "info");
+  setMetaText(elements.leaderboardStatusView, getAdminUiText("autoJs.k0067"), "info");
+  setMetaText(elements.currencyStatusView, getAdminUiText("autoJs.k0068"), "info");
+  setMetaText(elements.runtimeWebshopStatusView, getAdminUiText("autoJs.k0069"), "info");
+  setMetaText(elements.runtimeMarketStatusView, getAdminUiText("autoJs.k0070"), "info");
+  setMetaText(elements.runtimeMaintenanceStatusView, getAdminUiText("autoJs.k0071"), "info");
+  setMetaText(elements.runtimeLoggingStatusView, getAdminUiText("autoJs.k0072"), "info");
+  setMetaText(elements.runtimeBroadcastStatusView, getAdminUiText("autoJs.k0073"), "info");
+  setMetaText(elements.runtimeNotificationStatusView, getAdminUiText("autoJs.k0074"), "info");
+  setMetaText(elements.visualSettingsStatusView, getAdminUiText("autoJs.k0075"), "info");
 }
 
 function normalizeMaterialOverrideRow(raw) {
@@ -5356,7 +5459,7 @@ function setMaterialOverridePreview(materialKey, displayNameOverride, iconPath) 
     return;
   }
   const key = normalizeMaterialKey(materialKey);
-  const fallbackLabel = key ? getLocalizedMaterialName(key) : localizeDisplayText("未选择材质");
+  const fallbackLabel = key ? getLocalizedMaterialName(key) : localizeDisplayText(getAdminUiText("autoJs.k0117"));
   const labelText = String(displayNameOverride || "").trim() || fallbackLabel;
   setNodeText(elements.materialOverridePreviewLabel, `${labelText}${key ? ` (${key})` : ""}`);
 
@@ -5435,13 +5538,13 @@ function renderMaterialOverrideCard(row) {
   actionWrap.className = "admin-actions";
   const editBtn = document.createElement("button");
   editBtn.className = "btn-tonal";
-  setNodeText(editBtn, "编辑");
+  setNodeText(editBtn, getAdminUiText("autoJs.k0046"));
   editBtn.addEventListener("click", () => {
     populateMaterialOverrideForm(normalized);
   });
   const removeBtn = document.createElement("button");
   removeBtn.className = "btn-tonal";
-  setNodeText(removeBtn, "删除");
+  setNodeText(removeBtn, getAdminUiText("autoJs.k0047"));
   removeBtn.addEventListener("click", async () => {
     try {
       await deleteMaterialOverride(normalized.materialKey);
@@ -5515,7 +5618,7 @@ async function saveMaterialOverride() {
   ensureAdmin();
   const materialKey = resolveMaterialInputLoose(elements.materialOverrideMaterial?.value || "");
   if (!materialKey) {
-    throw new Error("请先输入材质名称。");
+    throw new Error(getAdminUiText("autoJs.k0102"));
   }
   const displayNameOverride = String(elements.materialOverrideDisplayName?.value || "").trim() || null;
   let iconPath = null;
@@ -5531,7 +5634,7 @@ async function saveMaterialOverride() {
     }
   }
   if (!displayNameOverride && !iconPath) {
-    throw new Error("显示名称和图标不能同时为空。");
+    throw new Error(getAdminUiText("autoJs.k0103"));
   }
   const payload = await apiAdmin("/api/admin/material-overrides/upsert", {
     method: "POST",
@@ -5544,8 +5647,8 @@ async function saveMaterialOverride() {
   const row = upsertMaterialVisualInState(payload);
   state.materialVisualMapReady = true;
   state.selectedMaterialOverrideKey = row?.materialKey || materialKey;
-  setMetaText(elements.materialOverrideStatusView, "材质映射已保存", "success");
-  notify("材质映射已保存", "success");
+  setMetaText(elements.materialOverrideStatusView, getAdminUiText("autoJs.k0004"), "success");
+  notify(getAdminUiText("autoJs.k0004"), "success");
   await loadMaterialOverrideList();
 }
 
@@ -5553,15 +5656,15 @@ async function uploadMaterialOverrideIcon() {
   ensureAdmin();
   const materialKey = resolveMaterialInputLoose(elements.materialOverrideMaterial?.value || "");
   if (!materialKey) {
-    throw new Error("请先输入材质名称。");
+    throw new Error(getAdminUiText("autoJs.k0102"));
   }
   const file = elements.materialOverrideIconFile?.files?.[0];
   if (!file) {
-    throw new Error("请先选择图标文件。");
+    throw new Error(getAdminUiText("autoJs.k0099"));
   }
   const croppedFile = await cropImageFileToSquarePng(file, 128);
   if (!croppedFile) {
-    setMetaText(elements.materialOverrideStatusView, "已取消裁剪与上传", "info");
+    setMetaText(elements.materialOverrideStatusView, getAdminUiText("autoJs.k0062"), "info");
     return;
   }
   const query = new URLSearchParams({
@@ -5572,8 +5675,8 @@ async function uploadMaterialOverrideIcon() {
   const row = upsertMaterialVisualInState(payload);
   state.materialVisualMapReady = true;
   state.selectedMaterialOverrideKey = row?.materialKey || materialKey;
-  setMetaText(elements.materialOverrideStatusView, "材质图标上传成功", "success");
-  notify("材质图标上传成功", "success");
+  setMetaText(elements.materialOverrideStatusView, getAdminUiText("autoJs.k0005"), "success");
+  notify(getAdminUiText("autoJs.k0005"), "success");
   await loadMaterialOverrideList();
   const latest = state.materialOverrideRows.find((item) => item.materialKey === materialKey) || row || null;
   populateMaterialOverrideForm(latest);
@@ -5583,7 +5686,7 @@ async function deleteMaterialOverride(materialKeyFromAction = "") {
   ensureAdmin();
   const materialKey = normalizeMaterialKey(materialKeyFromAction || elements.materialOverrideMaterial?.value || "");
   if (!materialKey) {
-    throw new Error("请先选择要删除的材质映射。");
+    throw new Error(getAdminUiText("autoJs.k0104"));
   }
   await apiAdmin("/api/admin/material-overrides/delete", {
     method: "POST",
@@ -5613,8 +5716,8 @@ async function saveExchangeSettings() {
       gameToShopRatio: gameRatio,
     }),
   });
-  setMetaText(elements.exchangeStatusView, "兑换配置已保存", "success");
-  notify("兑换配置已保存", "success");
+  setMetaText(elements.exchangeStatusView, getAdminUiText("autoJs.k0006"), "success");
+  notify(getAdminUiText("autoJs.k0006"), "success");
 }
 
 async function saveMarketEconomySettings() {
@@ -5624,7 +5727,7 @@ async function saveMarketEconomySettings() {
   const inflationMode = String(elements.inflationMode?.value || "BURN").toUpperCase();
   const inflationTreasuryUserId = Number(elements.inflationTreasuryUserId?.value || 0);
   if (inflationMode === "TREASURY" && inflationTreasuryUserId <= 0) {
-    throw new Error("TREASURY 模式下必须填写大于 0 的国库用户 ID。");
+    throw new Error(getAdminUiText("autoJs.k0105"));
   }
   await apiAdmin("/api/admin/economy/market", {
     method: "POST",
@@ -5635,8 +5738,8 @@ async function saveMarketEconomySettings() {
       inflationTreasuryUserId,
     }),
   });
-  setMetaText(elements.marketEconomyStatusView, "经济策略已保存", "success");
-  notify("经济策略已保存", "success");
+  setMetaText(elements.marketEconomyStatusView, getAdminUiText("autoJs.k0007"), "success");
+  notify(getAdminUiText("autoJs.k0007"), "success");
 }
 
 function syncInflationFieldState() {
@@ -5684,7 +5787,7 @@ function applyDeploymentScopeToUi(deployment) {
     if (deployment.sqliteSingleServerOnly) {
       setMetaText(
         elements.deploymentScopeStatusView,
-        "当前为 SQLite：仅支持单服 standalone，跨服配置同步不可用。",
+        getAdminUiText("autoJs.k0076"),
         "warn"
       );
       return;
@@ -5692,12 +5795,12 @@ function applyDeploymentScopeToUi(deployment) {
     if (!deployment.clusterSyncEnabled) {
       setMetaText(
         elements.deploymentScopeStatusView,
-        "当前处于单服或未启用 Redis 集群总线，跨服配置同步未启用。",
+        getAdminUiText("autoJs.k0077"),
         "warn"
       );
       return;
     }
-    setMetaText(elements.deploymentScopeStatusView, "当前已启用跨服配置同步（MySQL/MariaDB + 集群模式 + Redis）。", "success");
+    setMetaText(elements.deploymentScopeStatusView, getAdminUiText("autoJs.k0078"), "success");
   }
 }
 
@@ -5716,8 +5819,8 @@ async function saveLeaderboardSettings() {
       defaultOrder,
     }),
   });
-  setMetaText(elements.leaderboardStatusView, "排行榜配置已保存", "success");
-  notify("排行榜配置已保存", "success");
+  setMetaText(elements.leaderboardStatusView, getAdminUiText("autoJs.k0008"), "success");
+  notify(getAdminUiText("autoJs.k0008"), "success");
 }
 
 async function saveCurrencyDisplaySettings() {
@@ -5727,7 +5830,7 @@ async function saveCurrencyDisplaySettings() {
   const gameCoinName = String(elements.currencyGameCoinName?.value || "").trim();
   const gameCoinShort = String(elements.currencyGameCoinShort?.value || "").trim();
   if (!shopCoinName || !shopCoinShort || !gameCoinName || !gameCoinShort) {
-    throw new Error("币种名称与简称不能为空。");
+    throw new Error(getAdminUiText("autoJs.k0106"));
   }
   await apiAdmin("/api/admin/economy/currency", {
     method: "POST",
@@ -5741,8 +5844,8 @@ async function saveCurrencyDisplaySettings() {
   state.currencyMeta.SHOP_COIN = { name: shopCoinName, short: shopCoinShort };
   state.currencyMeta.GAME_COIN = { name: gameCoinName, short: gameCoinShort };
   applyCurrencyMetaToUi();
-  setMetaText(elements.currencyStatusView, "币种展示配置已保存", "success");
-  notify("币种展示配置已保存", "success");
+  setMetaText(elements.currencyStatusView, getAdminUiText("autoJs.k0009"), "success");
+  notify(getAdminUiText("autoJs.k0009"), "success");
 }
 
 async function saveWebshopRuntimeSettings() {
@@ -5762,8 +5865,8 @@ async function saveWebshopRuntimeSettings() {
       refundUndeliveredEnabled: elements.runtimeRefundUndeliveredEnabled?.value === "true",
     }),
   });
-  setMetaText(elements.runtimeWebshopStatusView, "站点运行参数已保存", "success");
-  notify("站点运行参数已保存", "success");
+  setMetaText(elements.runtimeWebshopStatusView, getAdminUiText("autoJs.k0010"), "success");
+  notify(getAdminUiText("autoJs.k0010"), "success");
 }
 
 async function saveMarketRuntimeSettings() {
@@ -5779,8 +5882,8 @@ async function saveMarketRuntimeSettings() {
       maxTransitStock: Number(elements.runtimeMarketMaxTransitStock?.value || 1024),
     }),
   });
-  setMetaText(elements.runtimeMarketStatusView, "市场运行参数已保存", "success");
-  notify("市场运行参数已保存", "success");
+  setMetaText(elements.runtimeMarketStatusView, getAdminUiText("autoJs.k0011"), "success");
+  notify(getAdminUiText("autoJs.k0011"), "success");
 }
 
 async function saveMaintenanceSettings() {
@@ -5795,8 +5898,8 @@ async function saveMaintenanceSettings() {
       redeemCodeRetentionDays: Number(elements.runtimeRedeemCodeRetentionDays?.value || 7),
     }),
   });
-  setMetaText(elements.runtimeMaintenanceStatusView, "维护参数已保存", "success");
-  notify("维护参数已保存", "success");
+  setMetaText(elements.runtimeMaintenanceStatusView, getAdminUiText("autoJs.k0012"), "success");
+  notify(getAdminUiText("autoJs.k0012"), "success");
 }
 
 async function saveLoggingSettings() {
@@ -5812,8 +5915,8 @@ async function saveLoggingSettings() {
       retentionDays: Number(elements.runtimeLoggingRetentionDays?.value || 14),
     }),
   });
-  setMetaText(elements.runtimeLoggingStatusView, "日志设置已保存", "success");
-  notify("日志设置已保存", "success");
+  setMetaText(elements.runtimeLoggingStatusView, getAdminUiText("autoJs.k0013"), "success");
+  notify(getAdminUiText("autoJs.k0013"), "success");
 }
 
 function normalizeNotificationSettings(raw) {
@@ -5921,8 +6024,8 @@ function saveNotificationTemplateDialog() {
   }
   state.notificationSettings.templates = collectNotificationTemplatesFromDialog();
   closeNotificationTemplateDialog();
-  setMetaText(elements.runtimeNotificationStatusView, "模板已更新，点击“保存消息设置”即可生效", "info");
-  notify("消息模板已更新，请点击“保存消息设置”提交。", "success");
+  setMetaText(elements.runtimeNotificationStatusView, getAdminUiText("autoJs.k0079"), "info");
+  notify(getAdminUiText("autoJs.k0014"), "success");
 }
 
 async function saveNotificationSettings() {
@@ -5943,8 +6046,8 @@ async function saveNotificationSettings() {
     }),
   });
   state.notificationSettings = normalized;
-  setMetaText(elements.runtimeNotificationStatusView, "消息设置已保存", "success");
-  notify("消息设置已保存", "success");
+  setMetaText(elements.runtimeNotificationStatusView, getAdminUiText("autoJs.k0015"), "success");
+  notify(getAdminUiText("autoJs.k0015"), "success");
 }
 
 async function sendAdminAnnouncement() {
@@ -5952,7 +6055,7 @@ async function sendAdminAnnouncement() {
   const title = String(elements.runtimeAnnouncementTitle?.value || "").trim();
   const content = String(elements.runtimeAnnouncementContent?.value || "").trim();
   if (!title || !content) {
-    throw new Error("公告标题和内容不能为空。");
+    throw new Error(getAdminUiText("autoJs.k0107"));
   }
   const payload = await apiAdmin("/api/admin/notifications/announce", {
     method: "POST",
@@ -5975,8 +6078,8 @@ async function saveBroadcastSettings() {
       auctionSealedBidTemplate: String(elements.runtimeBroadcastAuctionSealedBidTemplate?.value || ""),
     }),
   });
-  setMetaText(elements.runtimeBroadcastStatusView, "广播设置已保存", "success");
-  notify("广播设置已保存", "success");
+  setMetaText(elements.runtimeBroadcastStatusView, getAdminUiText("autoJs.k0016"), "success");
+  notify(getAdminUiText("autoJs.k0016"), "success");
 }
 
 async function saveVisualSettings() {
@@ -5997,8 +6100,8 @@ async function saveVisualSettings() {
     }),
   });
   state.visualPolicy = normalizeVisualPolicy(payload.visual || {});
-  setMetaText(elements.visualSettingsStatusView, "自定义策略已保存", "success");
-  notify("自定义策略已保存", "success");
+  setMetaText(elements.visualSettingsStatusView, getAdminUiText("autoJs.k0017"), "success");
+  notify(getAdminUiText("autoJs.k0017"), "success");
 }
 
 async function loadMarket() {
@@ -6040,7 +6143,7 @@ async function loadMarket() {
     if (listing.status === "ACTIVE") {
       const unlistBtn = document.createElement("button");
       unlistBtn.className = "btn-tonal";
-      setNodeText(unlistBtn, "强制下架");
+      setNodeText(unlistBtn, getAdminUiText("autoJs.k0052"));
       unlistBtn.addEventListener("click", async () => {
         await apiAdmin("/api/admin/market/unlist", {
           method: "POST",
@@ -6109,8 +6212,8 @@ async function loadSelectedUserVisualPermission() {
     if (elements.userListingLimitOverride) {
       elements.userListingLimitOverride.value = "";
     }
-    setMetaText(elements.userVisualPermissionStatus, "请先选择用户", "info");
-    setMetaText(elements.userListingLimitStatus, "请先选择用户", "info");
+    setMetaText(elements.userVisualPermissionStatus, getAdminUiText("autoJs.k0080"), "info");
+    setMetaText(elements.userListingLimitStatus, getAdminUiText("autoJs.k0080"), "info");
     return;
   }
   const payload = await apiAdmin(`/api/admin/users/visual-permission?userId=${encodeURIComponent(state.selectedUser.id)}`, {
@@ -6173,14 +6276,14 @@ async function saveSelectedUserVisualPermission() {
     `当前生效上限 ${payload.listingLimitEffective || "-"}，来源：${formatListingLimitSource(payload.listingLimitSource)}`,
     "success"
   );
-  notify("用户自定义权限已保存", "success");
+  notify(getAdminUiText("autoJs.k0018"), "success");
 }
 
 async function lookupUser() {
   ensureAdmin();
   const identifier = elements.userIdentifier.value.trim();
   if (!identifier) {
-    throw new Error("请输入要查询的用户名或 UUID。");
+    throw new Error(getAdminUiText("autoJs.k0108"));
   }
   const payload = await apiAdmin(`/api/admin/users/lookup?identifier=${encodeURIComponent(identifier)}`, {
     method: "GET",
@@ -6213,7 +6316,7 @@ async function loadUserList(options = {}) {
   const rows = visibleUsers.map((user) => {
     const loadBtn = document.createElement("button");
     loadBtn.className = "btn-tonal";
-    setNodeText(loadBtn, "载入编辑");
+    setNodeText(loadBtn, getAdminUiText("autoJs.k0053"));
     loadBtn.addEventListener("click", () => {
       if (elements.userIdentifier) {
         elements.userIdentifier.value = user.username;
@@ -6222,7 +6325,7 @@ async function loadUserList(options = {}) {
     });
 
     const logoutBtn = document.createElement("button");
-    setNodeText(logoutBtn, "强制下线");
+    setNodeText(logoutBtn, getAdminUiText("autoJs.k0054"));
     logoutBtn.addEventListener("click", async () => {
       await apiAdmin("/api/admin/users/logout", {
         method: "POST",
@@ -6238,7 +6341,7 @@ async function loadUserList(options = {}) {
 
     const unbindBtn = document.createElement("button");
     unbindBtn.className = "btn-tonal";
-    setNodeText(unbindBtn, "解绑");
+    setNodeText(unbindBtn, getAdminUiText("autoJs.k0055"));
     unbindBtn.disabled = !user.boundUuid;
     unbindBtn.addEventListener("click", async () => {
       await apiAdmin("/api/admin/users/unbind", {
@@ -6280,7 +6383,7 @@ async function lookupUserByIdentifier(identifier) {
 
 function requireSelectedUser() {
   if (!state.selectedUser) {
-    throw new Error("请先查询账号。");
+    throw new Error(getAdminUiText("autoJs.k0109"));
   }
   return state.selectedUser.id;
 }
@@ -6290,14 +6393,14 @@ async function resetPassword() {
   const userId = requireSelectedUser();
   const newPassword = elements.userNewPassword.value.trim();
   if (!newPassword) {
-    throw new Error("请输入新密码。");
+    throw new Error(getAdminUiText("autoJs.k0110"));
   }
   await apiAdmin("/api/admin/users/reset-password", {
     method: "POST",
     body: JSON.stringify({ userId, newPassword }),
   });
-  setMetaText(elements.userActionStatus, "密码已重置并强制下线", "success");
-  notify("密码重置成功", "success");
+  setMetaText(elements.userActionStatus, getAdminUiText("autoJs.k0081"), "success");
+  notify(getAdminUiText("autoJs.k0019"), "success");
 }
 
 async function unbindUser() {
@@ -6307,8 +6410,8 @@ async function unbindUser() {
     method: "POST",
     body: JSON.stringify({ userId }),
   });
-  setMetaText(elements.userActionStatus, "已解绑玩家 UUID", "success");
-  notify("解绑成功", "success");
+  setMetaText(elements.userActionStatus, getAdminUiText("autoJs.k0082"), "success");
+  notify(getAdminUiText("autoJs.k0020"), "success");
   await lookupUser();
 }
 
@@ -6319,8 +6422,8 @@ async function forceLogoutUser() {
     method: "POST",
     body: JSON.stringify({ userId }),
   });
-  setMetaText(elements.userActionStatus, "已强制下线", "success");
-  notify("已强制下线", "success");
+  setMetaText(elements.userActionStatus, getAdminUiText("autoJs.k0021"), "success");
+  notify(getAdminUiText("autoJs.k0021"), "success");
 }
 
 async function adjustWallet() {
@@ -6330,7 +6433,7 @@ async function adjustWallet() {
   const delta = Number(elements.walletDelta.value || 0);
   const reason = elements.walletReason.value.trim();
   if (!delta) {
-    throw new Error("调整数量不能为 0。");
+    throw new Error(getAdminUiText("autoJs.k0111"));
   }
   const payload = await apiAdmin("/api/admin/users/wallet-adjust", {
     method: "POST",
@@ -6341,7 +6444,7 @@ async function adjustWallet() {
     `余额已更新：${formatCurrency(payload.shopCoin, "SHOP_COIN")} | ${formatCurrency(payload.gameCoin, "GAME_COIN")}`,
     "success"
   );
-  notify("余额调整成功", "success");
+  notify(getAdminUiText("autoJs.k0022"), "success");
   await lookupUser();
 }
 
@@ -6388,7 +6491,7 @@ function renderAdminPermissionGroups() {
     const title = document.createElement("h3");
     setNodeText(title, group.label);
     const desc = document.createElement("p");
-    setNodeText(desc, "按分类勾选权限，可使用模板后再微调。");
+    setNodeText(desc, getAdminUiText("autoJs.k0056"));
     titleWrap.appendChild(title);
     titleWrap.appendChild(desc);
 
@@ -6397,7 +6500,7 @@ function renderAdminPermissionGroups() {
     const selectAllBtn = document.createElement("button");
     selectAllBtn.className = "btn-tonal";
     selectAllBtn.type = "button";
-    setNodeText(selectAllBtn, "全选");
+    setNodeText(selectAllBtn, getAdminUiText("autoJs.k0057"));
     selectAllBtn.addEventListener("click", () => {
       card.querySelectorAll('input[type="checkbox"][data-permission-code]').forEach((node) => {
         node.checked = true;
@@ -6406,7 +6509,7 @@ function renderAdminPermissionGroups() {
     const clearBtn = document.createElement("button");
     clearBtn.className = "btn-tonal";
     clearBtn.type = "button";
-    setNodeText(clearBtn, "清空");
+    setNodeText(clearBtn, getAdminUiText("autoJs.k0058"));
     clearBtn.addEventListener("click", () => {
       card.querySelectorAll('input[type="checkbox"][data-permission-code]').forEach((node) => {
         node.checked = false;
@@ -6451,7 +6554,7 @@ function populateAdminTemplates() {
   elements.adminManagerTemplate.innerHTML = "";
   const empty = document.createElement("option");
   empty.value = "";
-  setNodeText(empty, "自定义");
+  setNodeText(empty, getAdminUiText("autoJs.k0059"));
   elements.adminManagerTemplate.appendChild(empty);
   (state.adminMeta?.templates || []).forEach((template) => {
     const option = document.createElement("option");
@@ -6516,7 +6619,7 @@ function renderAdminManagerList() {
   const rows = (state.adminManagers || []).map((admin) => {
     const editBtn = document.createElement("button");
     editBtn.className = "btn-tonal";
-    setNodeText(editBtn, "载入编辑");
+    setNodeText(editBtn, getAdminUiText("autoJs.k0053"));
     editBtn.addEventListener("click", () => populateAdminForm(admin));
 
     const toggleBtn = document.createElement("button");
@@ -6561,7 +6664,7 @@ async function loadAdminManagerMeta() {
 async function loadAdminManagerList() {
   ensureAdmin();
   if (!state.admin?.canManageAdmins) {
-    setMetaText(elements.adminManagerListStatus, "当前账号没有管理员管理权限", "warn");
+    setMetaText(elements.adminManagerListStatus, getAdminUiText("autoJs.k0083"), "warn");
     renderList(elements.adminManagerList, []);
     return;
   }
@@ -6574,8 +6677,8 @@ async function loadAdminManagerList() {
 async function loadAdminManagerData() {
   ensureAdmin();
   if (!state.admin?.canManageAdmins) {
-    setMetaText(elements.adminManagerStatus, "当前账号不是超级管理员，无法管理管理员。", "warn");
-    setMetaText(elements.adminManagerListStatus, "当前账号没有管理员管理权限", "warn");
+    setMetaText(elements.adminManagerStatus, getAdminUiText("autoJs.k0084"), "warn");
+    setMetaText(elements.adminManagerListStatus, getAdminUiText("autoJs.k0083"), "warn");
     renderList(elements.adminManagerList, []);
     return;
   }
@@ -6588,16 +6691,16 @@ async function loadAdminManagerData() {
 async function saveAdminManager() {
   ensureAdmin();
   if (!state.admin?.canManageAdmins) {
-    throw new Error("当前账号不是超级管理员。");
+    throw new Error(getAdminUiText("autoJs.k0112"));
   }
   const identifier = String(elements.adminManagerIdentifier?.value || "").trim();
   if (!identifier) {
-    throw new Error("请输入要授权的用户标识。");
+    throw new Error(getAdminUiText("autoJs.k0113"));
   }
   const isSuperAdmin = elements.adminManagerType?.value === "super";
   const permissions = isSuperAdmin ? [] : selectedAdminPermissions();
   if (!isSuperAdmin && permissions.length === 0) {
-    throw new Error("请至少勾选一个权限。");
+    throw new Error(getAdminUiText("autoJs.k0114"));
   }
   const payload = await apiAdmin("/api/admin/admin-users/upsert", {
     method: "POST",
@@ -6634,7 +6737,7 @@ async function loadAuditLogs() {
 elements.adminLoginBtn.addEventListener("click", async () => {
   try {
     await loginAdmin();
-    notify("登录成功", "success");
+    notify(getAdminUiText("autoJs.k0023"), "success");
   } catch (error) {
     setMetaText(elements.adminLoginStatus, `登录失败：${error.message}`, "error");
     notify(`登录失败：${error.message}`, "error");
@@ -6646,7 +6749,7 @@ elements.adminLogoutBtn.addEventListener("click", async () => {
     ensureAdmin();
     await apiAdmin("/api/admin/auth/logout", { method: "POST", body: JSON.stringify({}) });
     setLoggedOut();
-    notify("已退出登录", "success");
+    notify(getAdminUiText("autoJs.k0024"), "success");
   } catch (error) {
     notify(`退出失败：${error.message}`, "error");
   }
@@ -6665,7 +6768,7 @@ if (elements.redeemCopyBtn) {
   elements.redeemCopyBtn.addEventListener("click", async () => {
     try {
       await copyTextToClipboard(state.latestRedeemCode || "");
-      notify("兑换码已复制到剪贴板。", "success");
+      notify(getAdminUiText("autoJs.k0025"), "success");
     } catch (error) {
       notify(error.message || "复制失败，请手动复制。", "error");
     }
@@ -6675,7 +6778,7 @@ if (elements.redeemCopyBtn) {
 elements.redeemRefreshBtn.addEventListener("click", async () => {
   try {
     await loadRedeemList();
-    notify("兑换码列表已刷新", "success");
+    notify(getAdminUiText("autoJs.k0026"), "success");
   } catch (error) {
     notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
   }
@@ -6750,7 +6853,7 @@ if (elements.groupBuyConsumeBtn) {
 elements.productRefreshBtn.addEventListener("click", async () => {
   try {
     await loadProducts();
-    notify("商品列表已刷新", "success");
+    notify(getAdminUiText("autoJs.k0027"), "success");
   } catch (error) {
     notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
   }
@@ -6760,7 +6863,7 @@ if (elements.orderRefreshBtn) {
   elements.orderRefreshBtn.addEventListener("click", async () => {
     try {
       await loadAdminOrders();
-      notify("订单列表已刷新", "success");
+      notify(getAdminUiText("autoJs.k0028"), "success");
     } catch (error) {
       setMetaText(elements.orderStatusView, formatAdminTemplate("loadFailed", { message: error.message }), "error");
       notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
@@ -6855,7 +6958,7 @@ if (elements.marketLimitationRefreshBtn) {
   elements.marketLimitationRefreshBtn.addEventListener("click", async () => {
     try {
       await loadMarketPolicyConfigs({ marketTagsConfig: state.marketTagConfig || {} });
-      notify("上架限制已刷新。", "success");
+      notify(getAdminUiText("autoJs.k0029"), "success");
     } catch (error) {
       setMetaText(elements.marketLimitationConfigStatusView, formatAdminTemplate("limitationLoadFailed", { message: error.message }), "error");
       notify(formatAdminTemplate("limitationLoadFailed", { message: error.message }), "error");
@@ -6885,7 +6988,7 @@ if (elements.marketTagEditSaveBtn) {
   elements.marketTagEditSaveBtn.addEventListener("click", () => {
     try {
       saveMarketTagEditDialog();
-      notify("标签已更新，请记得点击“保存标签规则”提交到数据库。", "success");
+      notify(getAdminUiText("autoJs.k0030"), "success");
     } catch (error) {
       notify(formatAdminTemplate("tagSaveFailed", { message: error.message }), "error");
     }
@@ -6910,7 +7013,7 @@ if (elements.marketRuleEditSaveBtn) {
   elements.marketRuleEditSaveBtn.addEventListener("click", () => {
     try {
       saveMarketLimitationRuleEditDialog();
-      notify("限制规则已更新，请记得点击“保存上架限制”提交到数据库。", "success");
+      notify(getAdminUiText("autoJs.k0031"), "success");
     } catch (error) {
       notify(formatAdminTemplate("ruleSaveFailed", { message: error.message }), "error");
     }
@@ -6972,7 +7075,7 @@ if (elements.marketTagJsonApplyBtn) {
   elements.marketTagJsonApplyBtn.addEventListener("click", () => {
     try {
       applyMarketTagJsonToVisual();
-      notify("标签 JSON 已应用到可视化表单", "success");
+      notify(getAdminUiText("autoJs.k0032"), "success");
     } catch (error) {
       setMetaText(elements.marketTagConfigStatusView, formatAdminTemplate("applyFailed", { message: error.message }), "error");
       notify(formatAdminTemplate("applyFailed", { message: error.message }), "error");
@@ -6984,7 +7087,7 @@ if (elements.marketLimitationJsonApplyBtn) {
   elements.marketLimitationJsonApplyBtn.addEventListener("click", () => {
     try {
       applyMarketLimitationJsonToVisual();
-      notify("上架限制 JSON 已应用到可视化表单", "success");
+      notify(getAdminUiText("autoJs.k0033"), "success");
     } catch (error) {
       setMetaText(elements.marketLimitationConfigStatusView, formatAdminTemplate("applyFailed", { message: error.message }), "error");
       notify(formatAdminTemplate("applyFailed", { message: error.message }), "error");
@@ -7110,7 +7213,7 @@ if (elements.materialOverrideRefreshBtn) {
   elements.materialOverrideRefreshBtn.addEventListener("click", async () => {
     try {
       await loadMaterialOverrideList();
-      notify("材质映射列表已刷新", "success");
+      notify(getAdminUiText("autoJs.k0034"), "success");
     } catch (error) {
       setMetaText(elements.materialOverrideStatusView, formatAdminTemplate("loadFailed", { message: error.message }), "error");
       notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
@@ -7154,7 +7257,7 @@ if (elements.materialOverrideDeleteBtn) {
 if (elements.materialOverrideClearBtn) {
   elements.materialOverrideClearBtn.addEventListener("click", () => {
     populateMaterialOverrideForm(null);
-    setMetaText(elements.materialOverrideStatusView, "已清空编辑器", "info");
+    setMetaText(elements.materialOverrideStatusView, getAdminUiText("autoJs.k0085"), "info");
   });
 }
 
@@ -7170,7 +7273,7 @@ if (elements.materialOverrideKeyword) {
 elements.marketRefreshBtn.addEventListener("click", async () => {
   try {
     await loadMarket();
-    notify("市场列表已刷新", "success");
+    notify(getAdminUiText("autoJs.k0035"), "success");
   } catch (error) {
     notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
   }
@@ -7246,7 +7349,7 @@ if (elements.userListRefreshBtn) {
   elements.userListRefreshBtn.addEventListener("click", async () => {
     try {
       await loadUserList();
-      notify("用户列表已刷新", "success");
+      notify(getAdminUiText("autoJs.k0036"), "success");
     } catch (error) {
       setMetaText(elements.userListStatus, formatAdminTemplate("loadFailed", { message: error.message }), "error");
       notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
@@ -7331,7 +7434,7 @@ if (elements.adminManagerSaveBtn) {
 if (elements.adminManagerClearBtn) {
   elements.adminManagerClearBtn.addEventListener("click", () => {
     populateAdminForm(null);
-    notify("管理员表单已清空", "success");
+    notify(getAdminUiText("autoJs.k0037"), "success");
   });
 }
 
@@ -7339,7 +7442,7 @@ if (elements.adminManagerRefreshBtn) {
   elements.adminManagerRefreshBtn.addEventListener("click", async () => {
     try {
       await loadAdminManagerData();
-      notify("管理员列表已刷新", "success");
+      notify(getAdminUiText("autoJs.k0038"), "success");
     } catch (error) {
       setMetaText(elements.adminManagerListStatus, formatAdminTemplate("loadFailed", { message: error.message }), "error");
       notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
@@ -7371,7 +7474,7 @@ if (elements.userVisualPermissionSaveBtn) {
 elements.auditRefreshBtn.addEventListener("click", async () => {
   try {
     await loadAuditLogs();
-    notify("审计日志已刷新", "success");
+    notify(getAdminUiText("autoJs.k0039"), "success");
   } catch (error) {
     notify(formatAdminTemplate("loadFailed", { message: error.message }), "error");
   }
@@ -7465,7 +7568,7 @@ if (elements.productItemMaterial) {
     if (resolved) {
       elements.productItemMaterial.value = resolved;
     } else if (String(elements.productItemMaterial.value || "").trim()) {
-      notify("材质无效，请从建议列表选择或输入正确英文材质名。", "warn");
+      notify(getAdminUiText("autoJs.k0040"), "warn");
     }
     updateProductIconPreview();
   });
@@ -7480,10 +7583,10 @@ if (elements.productDisplayMaterial) {
     if (resolved) {
       elements.productDisplayMaterial.value = resolved;
       if (!resolveMaterialInput(raw)) {
-        notify("展示材质未在基础材质表中识别，已按输入规范化后保留。", "warn");
+        notify(getAdminUiText("autoJs.k0041"), "warn");
       }
     } else {
-      notify("展示材质格式无效，请检查输入。", "warn");
+      notify(getAdminUiText("autoJs.k0042"), "warn");
     }
     updateProductIconPreview();
   });
@@ -7503,7 +7606,7 @@ if (elements.marketMaterial) {
     if (resolved) {
       elements.marketMaterial.value = resolved;
     } else if (String(elements.marketMaterial.value || "").trim()) {
-      notify("材质筛选无效，请输入可识别的物品材质。", "warn");
+      notify(getAdminUiText("autoJs.k0043"), "warn");
     }
   });
 }
@@ -7523,10 +7626,10 @@ if (elements.materialOverrideMaterial) {
         setMaterialOverridePreview(resolved, elements.materialOverrideDisplayName?.value || "", "");
       }
       if (!resolveMaterialInput(raw)) {
-        notify("材质未在基础材质表中识别，仍可保存（适用于模组/混合服）。", "warn");
+        notify(getAdminUiText("autoJs.k0044"), "warn");
       }
     } else {
-      notify("材质格式无效，请检查输入。", "warn");
+      notify(getAdminUiText("autoJs.k0045"), "warn");
     }
   });
 }

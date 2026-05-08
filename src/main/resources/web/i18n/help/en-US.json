@@ -1,0 +1,40 @@
+{
+  "uiText": {
+    "page": {
+      "title": "WebShopX Help",
+      "headerTitle": "WebShopX Help Center",
+      "menuAria": "Open menu",
+      "menuBtn": "Menu",
+      "onlineDocsBtn": "Online Docs",
+      "homeBtn": "Back Home",
+      "docSelectTitle": "Switch document",
+      "modeToggleFull": "Single Page",
+      "modeToggleSingle": "Full Page",
+      "themeToggleDark": "Dark mode",
+      "themeToggleLight": "Light mode",
+      "reloadBtn": "Reload",
+      "tocTitle": "Contents",
+      "searchPlaceholder": "Search headings/content (local)",
+      "tocAria": "Help contents"
+    },
+    "runtime": {
+      "themeToggleLight": "Light mode",
+      "themeToggleDark": "Dark mode",
+      "modeToggleSingle": "Full Page",
+      "modeToggleFull": "Single Page",
+      "fallbackManualTitle": "WebShopX Manual",
+      "fallbackHelpZhTitle": "WebShopX Help (zh-CN)",
+      "fallbackHelpEnTitle": "WebShopX Help (en-US)",
+      "rootDocTitle": "Document",
+      "unnamedSection": "Untitled section",
+      "noNavigableHeadings": "No navigable headings found.",
+      "searchSection": "Section",
+      "searchHeading": "Heading",
+      "noSearchMatch": "No matching content",
+      "docFetchFailed": "Cannot load {file}",
+      "docNotFound": "No available documents found.",
+      "docLoading": "Loading document...",
+      "docLoadFailed": "Document load failed: {message}"
+    }
+  }
+}

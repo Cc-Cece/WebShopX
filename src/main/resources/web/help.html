@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WebShopX 帮助文档</title>
+  <title data-i18n="uiText.page.title">WebShopX Help</title>
   <script>
     (function () {
       try {
@@ -499,44 +499,48 @@
   <main class="help-shell">
     <header class="md-card help-header">
       <div>
-        <h1>WebShopX 帮助中心</h1>
+        <h1 data-i18n="uiText.page.headerTitle">WebShopX Help Center</h1>
       </div>
       <button
         id="helpMenuBtn"
         class="btn-tonal help-menu-btn"
         type="button"
-        aria-label="展开菜单"
+        aria-label="Open menu"
+        data-i18n-aria-label="uiText.page.menuAria"
         aria-expanded="false"
         aria-controls="helpHeaderActions"
-      >菜单</button>
+        data-i18n="uiText.page.menuBtn"
+      >Menu</button>
       <div id="helpHeaderActions" class="help-header-actions">
         <button
           class="btn-tonal"
           type="button"
           onclick="window.open('https://docs.akihito.dpdns.org/', '_blank', 'noopener,noreferrer')"
-        >在线文档</button>
-        <button id="helpHomeBtn" class="btn-tonal btn-return" type="button">返回首页</button>
-        <select id="helpDocSelect" class="help-doc-select" title="文档切换"></select>
-        <button id="helpModeToggleBtn" class="btn-tonal" type="button">单页模式</button>
-        <button id="helpThemeToggleBtn" class="btn-tonal" type="button">切换主题</button>
-        <button id="helpReloadBtn" class="btn-tonal" type="button">重新加载</button>
+          data-i18n="uiText.page.onlineDocsBtn"
+        >Online Docs</button>
+        <button id="helpHomeBtn" class="btn-tonal btn-return" type="button" data-i18n="uiText.page.homeBtn">Back Home</button>
+        <select id="helpDocSelect" class="help-doc-select" title="Document picker" data-i18n-title="uiText.page.docSelectTitle"></select>
+        <button id="helpModeToggleBtn" class="btn-tonal" type="button" data-i18n="uiText.page.modeToggleFull">Single Page</button>
+        <button id="helpThemeToggleBtn" class="btn-tonal" type="button" data-i18n="uiText.page.themeToggleDark">Dark mode</button>
+        <button id="helpReloadBtn" class="btn-tonal" type="button" data-i18n="uiText.page.reloadBtn">Reload</button>
       </div>
     </header>
 
     <div class="help-layout">
       <aside class="md-card help-nav">
-        <h2>目录</h2>
+        <h2 data-i18n="uiText.page.tocTitle">Contents</h2>
         <div class="help-nav-tools">
           <input
             id="helpSearchInput"
             class="help-search-input"
             type="search"
-            placeholder="搜索标题/内容（本地）"
+            placeholder="Search headings/content (local)"
+            data-i18n-placeholder="uiText.page.searchPlaceholder"
             autocomplete="off"
           />
           <div id="helpSearchResults" class="help-search-results" aria-live="polite"></div>
         </div>
-        <nav id="helpToc" class="toc" aria-label="帮助目录"></nav>
+        <nav id="helpToc" class="toc" aria-label="Help contents" data-i18n-aria-label="uiText.page.tocAria"></nav>
       </aside>
 
       <article class="md-card help-doc">
@@ -550,6 +554,7 @@
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/katex.min.js"></script>
   <script src="vendor/auto-render.min.js"></script>
+  <script src="js/i18n.js"></script>
   <script src="js/help.js"></script>
 </body>
 </html>

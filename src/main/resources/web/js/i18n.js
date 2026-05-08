@@ -701,6 +701,87 @@
     return {};
   }
 
+  function getBundleValue(bundle, path) {
+    const text = String(path || "").trim();
+    if (!text || !bundle || typeof bundle !== "object") {
+      return undefined;
+    }
+    const parts = text.split(".").filter(Boolean);
+    let current = bundle;
+    for (const part of parts) {
+      if (!current || typeof current !== "object" || !(part in current)) {
+        return undefined;
+      }
+      current = current[part];
+    }
+    return current;
+  }
+
+  function applyKeyedTranslations(bundle) {
+    if (!bundle || typeof bundle !== "object") {
+      return;
+    }
+    const nodes = document.querySelectorAll("[data-i18n], [data-i18n-html], [data-i18n-placeholder], [data-i18n-title], [data-i18n-aria-label], [data-i18n-alt]");
+    nodes.forEach((node) => {
+      const textKey = node.getAttribute("data-i18n");
+      if (textKey) {
+        const value = getBundleValue(bundle, textKey);
+        if (typeof value === "string") {
+          node.textContent = value;
+        }
+      }
+
+      const htmlKey = node.getAttribute("data-i18n-html");
+      if (htmlKey) {
+        const value = getBundleValue(bundle, htmlKey);
+        if (typeof value === "string") {
+          node.innerHTML = value;
+        }
+      }
+
+      const placeholderKey = node.getAttribute("data-i18n-placeholder");
+      if (placeholderKey) {
+        const value = getBundleValue(bundle, placeholderKey);
+        if (typeof value === "string") {
+          node.setAttribute("placeholder", value);
+        }
+      }
+
+      const titleKey = node.getAttribute("data-i18n-title");
+      if (titleKey) {
+        const value = getBundleValue(bundle, titleKey);
+        if (typeof value === "string") {
+          node.setAttribute("title", value);
+        }
+      }
+
+      const ariaLabelKey = node.getAttribute("data-i18n-aria-label");
+      if (ariaLabelKey) {
+        const value = getBundleValue(bundle, ariaLabelKey);
+        if (typeof value === "string") {
+          node.setAttribute("aria-label", value);
+        }
+      }
+
+      const altKey = node.getAttribute("data-i18n-alt");
+      if (altKey) {
+        const value = getBundleValue(bundle, altKey);
+        if (typeof value === "string") {
+          node.setAttribute("alt", value);
+        }
+      }
+    });
+
+    const titleNode = document.querySelector("title[data-i18n]");
+    if (titleNode) {
+      const key = titleNode.getAttribute("data-i18n");
+      const value = getBundleValue(bundle, key);
+      if (typeof value === "string") {
+        document.title = value;
+      }
+    }
+  }
+
   function shouldLoadMaterialMap(locale = currentLocale) {
     return isChineseLocale(locale);
   }
@@ -859,6 +940,9 @@
   }
 
   function preparePage(pageName, options = {}) {
+    const bundleNamespace = String(options.namespace || pageName || "").trim();
+    const bundle = bundleNamespace ? loadBundleSync(bundleNamespace) : {};
+    applyKeyedTranslations(bundle);
     setDocumentLanguage();
     translateDocumentText();
     translateAttributes();

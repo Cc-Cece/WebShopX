@@ -220,6 +220,19 @@ const FALLBACK_APP_UI_TEXT = Object.freeze({
     marketActionFailed: "Market operation failed: {message}",
     iconProcessFailed: "Icon processing failed: {message}",
     leaderboardLoadFailed: "Leaderboard load failed: {message}",
+    marketMaterialAllowLoadFailed: "Market material allow-list load failed: {message}",
+    marketTagsLoadFailed: "Market tags load failed: {message}",
+    notificationUnreadRefreshFailed: "Notification unread refresh failed: {message}",
+    postOrderWalletRefreshFailed: "Wallet refresh failed after order creation: {message}",
+    postOrderOrdersLoadFailed: "Order reload failed after order creation: {message}",
+    postOrderProductsRefreshFailed: "Product refresh failed after order creation: {message}",
+    postBuyOrderWalletRefreshFailed: "Wallet refresh failed after buy-order publish: {message}",
+    postMarketBuyWalletRefreshFailed: "Wallet refresh failed after purchase: {message}",
+    postSellToBuyWalletRefreshFailed: "Wallet refresh failed after delivery: {message}",
+    postBidWalletRefreshFailed: "Wallet refresh failed after bidding: {message}",
+    postLoginProductsRefreshFailed: "Product refresh failed after login: {message}",
+    postLogoutProductsRefreshFailed: "Product refresh failed after logout: {message}",
+    marketActionInvalidListingId: "Market operation failed: invalid listing ID.",
   }),
 });
 
@@ -567,6 +580,7 @@ const FALLBACK_ENCHANTMENT_LABELS = {
 const CURRENCY_META = mergeLocaleValue(FALLBACK_CURRENCY_META, APP_LOCALE_BUNDLE.currencyMeta);
 const APP_UI_TEXT = Object.freeze(mergeLocaleValue(FALLBACK_APP_UI_TEXT, APP_LOCALE_BUNDLE.uiText));
 const APP_TEXT_TEMPLATES = Object.freeze(APP_UI_TEXT.templates || {});
+const APP_PHRASE_MAP = Object.freeze(APP_UI_TEXT.autoPhrase || {});
 const ERROR_TIPS_COMMON = mergeLocaleValue(FALLBACK_ERROR_TIPS_COMMON, APP_LOCALE_BUNDLE.errorTipsCommon);
 const ERROR_TIPS_BY_SCENE = mergeLocaleValue(FALLBACK_ERROR_TIPS_BY_SCENE, APP_LOCALE_BUNDLE.errorTipsByScene);
 const REDEEM_STATUS_TIPS = mergeLocaleValue(FALLBACK_REDEEM_STATUS_TIPS, APP_LOCALE_BUNDLE.redeemStatusTips);
@@ -825,8 +839,32 @@ function updateMarketSectionContext() {
   }
 }
 
+function applyAppPhraseMap(text) {
+  if (!text || !APP_PHRASE_MAP || typeof APP_PHRASE_MAP !== "object") {
+    return text;
+  }
+  const entries = Object.entries(APP_PHRASE_MAP)
+    .filter(([from, to]) => typeof from === "string" && from.length > 0 && typeof to === "string")
+    .sort((left, right) => right[0].length - left[0].length);
+  if (entries.length === 0) {
+    return text;
+  }
+  let result = String(text);
+  entries.forEach(([from, to]) => {
+    if (!from || from === to) {
+      return;
+    }
+    result = result.split(from).join(to);
+  });
+  return result;
+}
+
 function localizeDisplayText(text) {
-  return I18N ? I18N.localizeText(text) : text;
+  const localized = I18N ? I18N.localizeText(text) : text;
+  if (!I18N || (typeof I18N.isChineseLocale === "function" && I18N.isChineseLocale())) {
+    return localized;
+  }
+  return applyAppPhraseMap(localized);
 }
 
 function setNodeText(node, text) {
@@ -3518,7 +3556,7 @@ async function ensureMarketMaterialAllowList() {
     .catch((error) => {
       state.marketMaterialAllowSet = new Set();
       state.marketMaterialAllowReady = true;
-      log(`市场材质白名单加载失败：${error.message}`, "WARN");
+      log(formatAppTemplate("marketMaterialAllowLoadFailed", { message: error.message }), "WARN");
     });
   await state.marketMaterialAllowPromise;
 }
@@ -3625,7 +3663,7 @@ async function ensureMarketTagsMeta() {
       state.marketTags = [];
       state.marketTagsReady = true;
       populateMarketTagSelect(elements.marketTag, true);
-      log(`市场标签加载失败：${error.message}`, "WARN");
+      log(formatAppTemplate("marketTagsLoadFailed", { message: error.message }), "WARN");
     });
 
   await state.marketTagsPromise;
@@ -6441,7 +6479,7 @@ async function refreshNotificationUnreadCount(options = {}) {
   } catch (error) {
     if (!silent) {
       const message = resolveErrorMessage(error, "notifications_load");
-      log(`刷新通知未读数失败：${message}`, "WARN");
+      log(formatAppTemplate("notificationUnreadRefreshFailed", { message }), "WARN");
     }
   }
 }
@@ -6823,19 +6861,19 @@ async function createOrder(productId, quantity, deliveryMode, productTitle, prod
     await refreshWallet();
   } catch (refreshError) {
     const refreshMessage = resolveErrorMessage(refreshError, "wallet_refresh");
-    log(`订单创建后刷新钱包失败：${refreshMessage}`, "WARN");
+    log(formatAppTemplate("postOrderWalletRefreshFailed", { message: refreshMessage }), "WARN");
   }
   try {
     await loadOrders();
   } catch (orderError) {
     const orderMessage = resolveErrorMessage(orderError, "orders_load");
-    log(`订单创建后加载订单失败：${orderMessage}`, "WARN");
+    log(formatAppTemplate("postOrderOrdersLoadFailed", { message: orderMessage }), "WARN");
   }
   try {
     await loadProducts();
   } catch (productError) {
     const productMessage = resolveErrorMessage(productError, "products_load");
-    log(`订单创建后刷新商品失败：${productMessage}`, "WARN");
+    log(formatAppTemplate("postOrderProductsRefreshFailed", { message: productMessage }), "WARN");
   }
   return payload;
 }
@@ -7024,7 +7062,7 @@ async function createBuyListing(params) {
     await refreshWallet();
   } catch (refreshError) {
     const refreshMessage = resolveErrorMessage(refreshError, "wallet_refresh");
-    log(`发布收购单后刷新钱包失败：${refreshMessage}`, "WARN");
+    log(formatAppTemplate("postBuyOrderWalletRefreshFailed", { message: refreshMessage }), "WARN");
   }
   await loadMarket(state.marketMode || "public");
   return payload;
@@ -7084,7 +7122,7 @@ async function buyListing(listingId, buyQuantity, deliveryMode) {
     await refreshWallet();
   } catch (refreshError) {
     const refreshMessage = resolveErrorMessage(refreshError, "wallet_refresh");
-    log(`购买后刷新钱包失败：${refreshMessage}`, "WARN");
+    log(formatAppTemplate("postMarketBuyWalletRefreshFailed", { message: refreshMessage }), "WARN");
   }
   await loadMarket(state.marketMode);
   if (state.token) {
@@ -7130,7 +7168,7 @@ async function sellToBuyListing(listingId, sellQuantity, deliveryMode) {
     await refreshWallet();
   } catch (refreshError) {
     const refreshMessage = resolveErrorMessage(refreshError, "wallet_refresh");
-    log(`交货后刷新钱包失败：${refreshMessage}`, "WARN");
+    log(formatAppTemplate("postSellToBuyWalletRefreshFailed", { message: refreshMessage }), "WARN");
   }
   await loadMarket(state.marketMode);
   if (state.token) {
@@ -7180,7 +7218,7 @@ async function bidListing(listingId, bidAmount) {
     await refreshWallet();
   } catch (refreshError) {
     const refreshMessage = resolveErrorMessage(refreshError, "wallet_refresh");
-    log(`出价后刷新钱包失败：${refreshMessage}`, "WARN");
+    log(formatAppTemplate("postBidWalletRefreshFailed", { message: refreshMessage }), "WARN");
   }
   await loadMarket(state.marketMode);
 }
@@ -7351,7 +7389,7 @@ if (elements.loginBtn) {
       await loadProducts();
     } catch (productError) {
       const productMessage = resolveErrorMessage(productError, "products_load");
-      log(`登录后刷新商品失败：${productMessage}`, "WARN");
+      log(formatAppTemplate("postLoginProductsRefreshFailed", { message: productMessage }), "WARN");
     }
     log("登录成功。", "SUCCESS");
     notify("登录成功。", "success");
@@ -7375,7 +7413,7 @@ elements.logoutBtn.addEventListener("click", async () => {
       await loadProducts();
     } catch (productError) {
       const productMessage = resolveErrorMessage(productError, "products_load");
-      log(`退出登录后刷新商品失败：${productMessage}`, "WARN");
+      log(formatAppTemplate("postLogoutProductsRefreshFailed", { message: productMessage }), "WARN");
     }
     switchTab("auth");
     log("已退出登录。", "SUCCESS");
@@ -7886,8 +7924,8 @@ elements.marketList.addEventListener("click", async (event) => {
 
   const listingId = Number(button.dataset.listingId);
   if (!Number.isFinite(listingId) || listingId <= 0) {
-    log("市场操作失败：上架 ID 无效。", "ERROR");
-    notify("市场操作失败：上架 ID 无效。", "error");
+    log(formatAppTemplate("marketActionInvalidListingId"), "ERROR");
+    notify(formatAppTemplate("marketActionInvalidListingId"), "error");
     return;
   }
 
