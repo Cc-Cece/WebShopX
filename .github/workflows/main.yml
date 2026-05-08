@@ -483,7 +483,7 @@ jobs:
                 }'
             )
 
-            echo "Uploading ${file} as ${version_number} (${version_type}) ..."
+            echo "Uploading ${file} as ${version_number} (${VERSION_TYPE}) ..."
             curl -sSf -X POST "https://api.modrinth.com/v2/version" \
               -H "Authorization: ${MODRINTH_TOKEN}" \
               -H "User-Agent: ${GITHUB_REPOSITORY}/actions" \
