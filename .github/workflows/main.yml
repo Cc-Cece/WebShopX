@@ -373,3 +373,124 @@ jobs:
                 --notes-file release-notes-mirror.md
             fi
           fi
+
+  publish-modrinth:
+    name: Publish Slim Artifacts to Modrinth
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    needs: [build, release]
+    env:
+      MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+      MODRINTH_PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: compiled-jars
+          path: dist
+
+      - name: Publish three slim variants to Modrinth
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          if [[ -z "${MODRINTH_TOKEN:-}" ]]; then
+            echo "::warning::Missing secret MODRINTH_TOKEN, skipping Modrinth publish."
+            exit 0
+          fi
+          if [[ -z "${MODRINTH_PROJECT_ID:-}" ]]; then
+            echo "::warning::Missing repository variable MODRINTH_PROJECT_ID, skipping Modrinth publish."
+            exit 0
+          fi
+
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          if [[ "${TAG_NAME}" == v* ]]; then
+            BASE_VERSION="${TAG_NAME#v}"
+            VERSION_TYPE="release"
+          else
+            BASE_VERSION="${TAG_NAME}"
+            VERSION_TYPE="beta"
+          fi
+
+          paper_legacy=(dist/*-slim-1.18.2+.jar)
+          paper_modern=(dist/*-slim-1.20.6+.jar)
+          folia=(dist/*-slim-folia-1.19.4+.jar)
+
+          if (( ${#paper_legacy[@]} == 0 || ${#paper_modern[@]} == 0 || ${#folia[@]} == 0 )); then
+            echo "::error::Missing one or more slim artifacts required for Modrinth publish."
+            exit 1
+          fi
+
+          publish_modrinth() {
+            local file="$1"
+            local flavor="$2"
+            local loaders_json="$3"
+            local min_game_version="$4"
+            local version_number="${BASE_VERSION}-${flavor}"
+            local version_title="WebShopX ${TAG_NAME} (${flavor})"
+            local changelog
+            changelog=$(
+              cat <<EOF
+          Automatic upload from GitHub tag \`${TAG_NAME}\`.
+
+          Full artifact matrix is available on GitHub Release:
+          https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG_NAME}
+          EOF
+            )
+
+            local game_versions_json
+            game_versions_json=$(
+              curl -sSf "https://api.modrinth.com/v2/tag/game_version" \
+                | jq -c --arg minv "${min_game_version}" '
+                    def semver: split(".") | map(tonumber);
+                    def ge($a; $b):
+                      ($a[0] > $b[0]) or
+                      ($a[0] == $b[0] and $a[1] > $b[1]) or
+                      ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) >= ($b[2] // 0));
+                    [ .[]
+                      | select(.version_type == "release")
+                      | .version
+                      | select(test("^\\d+\\.\\d+(\\.\\d+)?$"))
+                      | select(ge((semver + [0,0])[0:3]; (($minv | semver) + [0,0])[0:3]))
+                    ]
+                    | unique
+                    | sort_by(split(".") | map(tonumber))
+                  '
+            )
+
+            local payload
+            payload=$(
+              jq -cn \
+                --arg project_id "${MODRINTH_PROJECT_ID}" \
+                --arg version_number "${version_number}" \
+                --arg version_title "${version_title}" \
+                --arg changelog "${changelog}" \
+                --arg version_type "${VERSION_TYPE}" \
+                --argjson loaders "${loaders_json}" \
+                --argjson game_versions "${game_versions_json}" \
+                '{
+                  project_id: $project_id,
+                  version_number: $version_number,
+                  name: $version_title,
+                  changelog: $changelog,
+                  version_type: $version_type,
+                  loaders: $loaders,
+                  game_versions: $game_versions,
+                  featured: false,
+                  status: "listed",
+                  file_parts: ["file"]
+                }'
+            )
+
+            echo "Uploading ${file} as ${version_number} (${version_type}) ..."
+            curl -sSf -X POST "https://api.modrinth.com/v2/version" \
+              -H "Authorization: ${MODRINTH_TOKEN}" \
+              -H "User-Agent: ${GITHUB_REPOSITORY}/actions" \
+              -F "data=${payload}" \
+              -F "file=@${file};type=application/java-archive"
+          }
+
+          publish_modrinth "${paper_legacy[0]}" "paper-1.18.2-slim" '["paper","purpur","spigot","bukkit"]' "1.18.2"
+          publish_modrinth "${paper_modern[0]}" "paper-1.20.6-slim" '["paper","purpur","spigot","bukkit"]' "1.20.6"
+          publish_modrinth "${folia[0]}" "folia-1.19.4-slim" '["folia"]' "1.19.4"
