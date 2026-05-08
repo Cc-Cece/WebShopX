@@ -1122,7 +1122,7 @@ function openUpdateDialog() {
   setNodeText(elements.adminUpdateDialogCurrentVersion, CURRENT_WEBSHOPX_VERSION);
   setNodeText(
     elements.adminUpdateDialogLatestVersion,
-    state.updateInfo.latestName || state.updateInfo.latestVersion || getAdminPageText("unknownLabel", "Unknown")
+    state.updateInfo.latestVersion || state.updateInfo.latestName || getAdminPageText("unknownLabel", "Unknown")
   );
   setNodeText(elements.adminUpdateDialogPublishedAt, formatModrinthPublishedAt(state.updateInfo.publishedAt));
   setNodeText(elements.adminUpdateDialogFileName, state.updateInfo.fileName || getAdminPageText("unknownFileLabel", "Unknown file"));

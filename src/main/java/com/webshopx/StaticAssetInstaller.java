@@ -10,6 +10,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -27,29 +28,14 @@ class StaticAssetInstaller {
   private static final String BUILTIN_MANUAL_MD5 = "386cd67d1cc355b0a98b1271088ce9d8";
   private static final Pattern DOC_FILE_PATTERN =
       Pattern.compile("^(?<key>.+?)(?:\\.(?<locale>[A-Za-z]{2}(?:-[A-Za-z]{2})?))?$");
+  private static final List<String> WEB_I18N_NAMESPACES =
+      List.of("app", "admin", "help", "materials", "market-algorithms");
+  private static final List<String> WEB_I18N_LOCALES = List.of("zh-CN", "en-US");
 
   private static final Map<String, Set<String>> LEGACY_EMBEDDED_HASHES = Map.of(
       "web/docs/manual.zh-CN.md", Set.of(BUILTIN_MANUAL_MD5));
 
-  private static final List<String> ASSETS = List.of(
-      "web/index.html",
-      "web/admin.html",
-      "web/css/light.css",
-      "web/css/dark.css",
-      "web/css/styles.css",
-      "web/js/i18n.js",
-      "web/js/app.js",
-      "web/js/admin.js",
-      "web/js/help.js",
-      "web/i18n/materials/zh-CN.json",
-      "web/i18n/materials/en-US.json",
-      "web/i18n/market-algorithms/zh-CN.json",
-      "web/i18n/market-algorithms/en-US.json",
-      "web/vendor/marked.min.js",
-      "web/vendor/purify.min.js",
-      "web/vendor/katex.min.js",
-      "web/vendor/auto-render.min.js",
-      "web/vendor/katex.min.css");
+  private static final List<String> ASSETS = buildManagedAssets();
 
   private static final List<String> CUSTOMIZABLE_ASSETS = List.of(
       "web/help.html",
@@ -344,6 +330,30 @@ class StaticAssetInstaller {
         + "});"
         + System.lineSeparator();
     Files.writeString(outputFile, script, StandardCharsets.UTF_8);
+  }
+
+  private static List<String> buildManagedAssets() {
+    List<String> assets = new ArrayList<>(List.of(
+        "web/index.html",
+        "web/admin.html",
+        "web/css/light.css",
+        "web/css/dark.css",
+        "web/css/styles.css",
+        "web/js/i18n.js",
+        "web/js/app.js",
+        "web/js/admin.js",
+        "web/js/help.js",
+        "web/vendor/marked.min.js",
+        "web/vendor/purify.min.js",
+        "web/vendor/katex.min.js",
+        "web/vendor/auto-render.min.js",
+        "web/vendor/katex.min.css"));
+    for (String namespace : WEB_I18N_NAMESPACES) {
+      for (String locale : WEB_I18N_LOCALES) {
+        assets.add("web/i18n/" + namespace + "/" + locale + ".json");
+      }
+    }
+    return List.copyOf(assets);
   }
 
   private String detectPlatformRuntime() {
