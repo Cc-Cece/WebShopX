@@ -413,6 +413,24 @@ jobs:
           fi
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve CurseForge artifact paths
+        id: cf-files
+        if: steps.cf-meta.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          legacy=(dist/*-slim-1.18.2+.jar)
+          folia=(dist/*-slim-folia-1.19.4+.jar)
+          modern=(dist/*-slim-1.20.6+.jar)
+          if (( ${#legacy[@]} == 0 || ${#folia[@]} == 0 || ${#modern[@]} == 0 )); then
+            echo "::error::Missing one or more slim artifacts for CurseForge upload."
+            exit 1
+          fi
+          echo "legacy_file=${legacy[0]}" >> "$GITHUB_OUTPUT"
+          echo "folia_file=${folia[0]}" >> "$GITHUB_OUTPUT"
+          echo "modern_file=${modern[0]}" >> "$GITHUB_OUTPUT"
+
       - name: Upload slim 1.18.2+ (Paper)
         if: steps.cf-meta.outputs.enabled == 'true'
         uses: itsmeow/curseforge-upload@v3.1.2
@@ -420,7 +438,7 @@ jobs:
           token: ${{ env.CURSEFORGE_TOKEN }}
           project_id: ${{ env.CURSEFORGE_PROJECT_ID }}
           game_endpoint: ${{ steps.cf-meta.outputs.game_endpoint }}
-          file_path: dist/*-slim-1.18.2+.jar
+          file_path: ${{ steps.cf-files.outputs.legacy_file }}
           release_type: ${{ steps.cf-meta.outputs.release_type }}
           changelog_type: markdown
           changelog: |
@@ -436,7 +454,7 @@ jobs:
           token: ${{ env.CURSEFORGE_TOKEN }}
           project_id: ${{ env.CURSEFORGE_PROJECT_ID }}
           game_endpoint: ${{ steps.cf-meta.outputs.game_endpoint }}
-          file_path: dist/*-slim-folia-1.19.4+.jar
+          file_path: ${{ steps.cf-files.outputs.folia_file }}
           release_type: ${{ steps.cf-meta.outputs.release_type }}
           changelog_type: markdown
           changelog: |
@@ -452,7 +470,7 @@ jobs:
           token: ${{ env.CURSEFORGE_TOKEN }}
           project_id: ${{ env.CURSEFORGE_PROJECT_ID }}
           game_endpoint: ${{ steps.cf-meta.outputs.game_endpoint }}
-          file_path: dist/*-slim-1.20.6+.jar
+          file_path: ${{ steps.cf-files.outputs.modern_file }}
           release_type: ${{ steps.cf-meta.outputs.release_type }}
           changelog_type: markdown
           changelog: |
