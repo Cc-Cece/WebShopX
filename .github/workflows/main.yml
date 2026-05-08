@@ -282,28 +282,32 @@ jobs:
             echo "::error::No JAR artifacts found under dist/."
             exit 1
           fi
-          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+          if gh release view "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             echo "Release ${TAG_NAME} already exists in ${GITHUB_REPOSITORY}, updating assets..."
-            gh release upload "${TAG_NAME}" "${files[@]}" --clobber
+            gh release upload "${TAG_NAME}" "${files[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
             if [[ "${IS_PRERELEASE}" == "true" ]]; then
               gh release edit "${TAG_NAME}" \
+                --repo "${GITHUB_REPOSITORY}" \
                 --title "Main Snapshot (${TAG_NAME})" \
                 --notes-file release-notes-current.md \
                 --prerelease
             else
               gh release edit "${TAG_NAME}" \
+                --repo "${GITHUB_REPOSITORY}" \
                 --title "Release ${TAG_NAME}" \
                 --notes-file release-notes-current.md
             fi
           else
             if [[ "${IS_PRERELEASE}" == "true" ]]; then
               gh release create "${TAG_NAME}" "${files[@]}" \
+                --repo "${GITHUB_REPOSITORY}" \
                 --target "${GITHUB_SHA}" \
                 --title "Main Snapshot (${TAG_NAME})" \
                 --notes-file release-notes-current.md \
                 --prerelease
             else
               gh release create "${TAG_NAME}" "${files[@]}" \
+                --repo "${GITHUB_REPOSITORY}" \
                 --title "Release ${TAG_NAME}" \
                 --notes-file release-notes-current.md
             fi
@@ -354,4 +358,3 @@ jobs:
                 --notes-file release-notes-mirror.md
             fi
           fi
-
