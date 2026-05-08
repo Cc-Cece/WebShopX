@@ -199,7 +199,7 @@ jobs:
     env:
       TAG_NAME: ${{ needs.build.outputs.tag_name }}
       IS_PRERELEASE: ${{ needs.build.outputs.is_prerelease }}
-      MIRROR_REPO: Cc-Cece/WebShopX_Issues
+      MIRROR_REPO: Cc-Cece/WebShopX-Issues
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -316,10 +316,10 @@ jobs:
       - name: Publish release to mirror repository
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.REPO_WebShopX_Issues_TOKEN }}
+          GH_TOKEN: ${{ secrets.REPO_WEBSHOPX_ISSUES_TOKEN }}
         run: |
           if [[ -z "${GH_TOKEN}" ]]; then
-            echo "::warning::Missing secret REPO_WebShopX_Issues_TOKEN, skipping mirror release publish."
+            echo "::warning::Missing secret REPO_WEBSHOPX_ISSUES_TOKEN, skipping mirror release publish."
             exit 0
           fi
           shopt -s nullglob
