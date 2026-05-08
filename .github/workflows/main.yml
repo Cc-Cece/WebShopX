@@ -374,159 +374,159 @@ jobs:
             fi
           fi
 
-  publish-curseforge:
-    name: Publish Slim Artifacts to CurseForge
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    needs: [build, release]
-    env:
-      CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
-      CURSEFORGE_PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
-      CURSEFORGE_GAME_ENDPOINT: ${{ vars.CURSEFORGE_GAME_ENDPOINT }}
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: compiled-jars
-          path: dist
-
-      - name: Resolve CurseForge metadata
-        id: cf-meta
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${CURSEFORGE_TOKEN:-}" || -z "${CURSEFORGE_PROJECT_ID:-}" ]]; then
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Missing CURSEFORGE_TOKEN or CURSEFORGE_PROJECT_ID, skipping CurseForge publish."
-            exit 0
-          fi
-          TAG_NAME="${GITHUB_REF#refs/tags/}"
-          if [[ "${TAG_NAME}" == v* ]]; then
-            echo "release_type=release" >> "$GITHUB_OUTPUT"
-          else
-            echo "release_type=beta" >> "$GITHUB_OUTPUT"
-          fi
-          if [[ -z "${CURSEFORGE_GAME_ENDPOINT:-}" ]]; then
-            echo "game_endpoint=bukkit" >> "$GITHUB_OUTPUT"
-          else
-            echo "game_endpoint=${CURSEFORGE_GAME_ENDPOINT}" >> "$GITHUB_OUTPUT"
-          fi
-          echo "enabled=true" >> "$GITHUB_OUTPUT"
-
-      - name: Resolve CurseForge artifact paths
-        id: cf-files
-        if: steps.cf-meta.outputs.enabled == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          legacy=(dist/*-slim-1.18.2+.jar)
-          folia=(dist/*-slim-folia-1.19.4+.jar)
-          modern=(dist/*-slim-1.20.6+.jar)
-          if (( ${#legacy[@]} == 0 || ${#folia[@]} == 0 || ${#modern[@]} == 0 )); then
-            echo "::error::Missing one or more slim artifacts for CurseForge upload."
-            exit 1
-          fi
-          echo "legacy_file=${legacy[0]}" >> "$GITHUB_OUTPUT"
-          echo "folia_file=${folia[0]}" >> "$GITHUB_OUTPUT"
-          echo "modern_file=${modern[0]}" >> "$GITHUB_OUTPUT"
-
-      - name: Resolve CurseForge game version IDs
-        id: cf-versions
-        if: steps.cf-meta.outputs.enabled == 'true'
-        shell: bash
-        env:
-          CF_ENDPOINT: ${{ steps.cf-meta.outputs.game_endpoint }}
-        run: |
-          set -euo pipefail
-
-          versions_json="$(mktemp)"
-          curl -sSf "https://${CF_ENDPOINT}.curseforge.com/api/game/versions?token=${CURSEFORGE_TOKEN}" -o "${versions_json}"
-          ids_for_range() {
-            local minv="$1"
-            local maxv="${2:-}"
-            jq -r --arg minv "${minv}" --arg maxv "${maxv}" '
-              def semver: split(".") | map(tonumber);
-              def ge($a; $b):
-                ($a[0] > $b[0]) or ($a[0] == $b[0] and $a[1] > $b[1]) or ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) >= ($b[2] // 0));
-              def le($a; $b):
-                ($a[0] < $b[0]) or ($a[0] == $b[0] and $a[1] < $b[1]) or ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) <= ($b[2] // 0));
-              [ .[]
-                | { id, n: (.name // .slug // "") }
-                | select(.n | test("^\\d+\\.\\d+(\\.\\d+)?$"))
-                | select(ge(((.n|semver)+[0,0])[0:3]; (($minv|semver)+[0,0])[0:3]))
-                | select(($maxv == "") or le(((.n|semver)+[0,0])[0:3]; (($maxv|semver)+[0,0])[0:3]))
-              ]
-              | sort_by(.n | split(".") | map(tonumber))
-              | map(.id | tostring)
-              | unique
-              | join(",")
-            ' "${versions_json}"
-          }
-
-          legacy_ids="$(ids_for_range "1.18.2" "1.20.5")"
-          folia_ids="$(ids_for_range "1.19.4" "")"
-          modern_ids="$(ids_for_range "1.20.6" "")"
-
-          if [[ -z "${legacy_ids}" || -z "${modern_ids}" || -z "${folia_ids}" ]]; then
-            echo "::error::Failed to resolve Minecraft version IDs for CurseForge."
-            exit 1
-          fi
-
-          echo "legacy_ids=${legacy_ids}" >> "$GITHUB_OUTPUT"
-          echo "modern_ids=${modern_ids}" >> "$GITHUB_OUTPUT"
-          echo "folia_ids=${folia_ids}" >> "$GITHUB_OUTPUT"
-
-          rm -f "${versions_json}"
-
-      - name: Upload slim 1.18.2+ (Paper)
-        if: steps.cf-meta.outputs.enabled == 'true'
-        uses: itsmeow/curseforge-upload@v3.1.2
-        with:
-          token: ${{ env.CURSEFORGE_TOKEN }}
-          project_id: ${{ env.CURSEFORGE_PROJECT_ID }}
-          game_endpoint: ${{ steps.cf-meta.outputs.game_endpoint }}
-          file_path: ${{ steps.cf-files.outputs.legacy_file }}
-          release_type: ${{ steps.cf-meta.outputs.release_type }}
-          changelog_type: markdown
-          changelog: |
-            由 GitHub 标签 `${{ github.ref_name }}` 自动发布。
-            完整更新信息请查看 GitHub Release 页面：
-            https://github.com/Cc-Cece/WebShopX-Issues/releases/tag/${{ github.ref_name }}
-          game_versions: ${{ steps.cf-versions.outputs.legacy_ids }}
-
-      - name: Upload slim 1.19.4+ (Folia)
-        if: steps.cf-meta.outputs.enabled == 'true'
-        uses: itsmeow/curseforge-upload@v3.1.2
-        with:
-          token: ${{ env.CURSEFORGE_TOKEN }}
-          project_id: ${{ env.CURSEFORGE_PROJECT_ID }}
-          game_endpoint: ${{ steps.cf-meta.outputs.game_endpoint }}
-          file_path: ${{ steps.cf-files.outputs.folia_file }}
-          release_type: ${{ steps.cf-meta.outputs.release_type }}
-          changelog_type: markdown
-          changelog: |
-            由 GitHub 标签 `${{ github.ref_name }}` 自动发布。
-            完整更新信息请查看 GitHub Release 页面：
-            https://github.com/Cc-Cece/WebShopX-Issues/releases/tag/${{ github.ref_name }}
-          game_versions: ${{ steps.cf-versions.outputs.folia_ids }}
-
-      - name: Upload slim 1.20.6+ (Paper)
-        if: steps.cf-meta.outputs.enabled == 'true'
-        uses: itsmeow/curseforge-upload@v3.1.2
-        with:
-          token: ${{ env.CURSEFORGE_TOKEN }}
-          project_id: ${{ env.CURSEFORGE_PROJECT_ID }}
-          game_endpoint: ${{ steps.cf-meta.outputs.game_endpoint }}
-          file_path: ${{ steps.cf-files.outputs.modern_file }}
-          release_type: ${{ steps.cf-meta.outputs.release_type }}
-          changelog_type: markdown
-          changelog: |
-            由 GitHub 标签 `${{ github.ref_name }}` 自动发布。
-            完整更新信息请查看 GitHub Release 页面：
-            https://github.com/Cc-Cece/WebShopX-Issues/releases/tag/${{ github.ref_name }}
-          game_versions: ${{ steps.cf-versions.outputs.modern_ids }}
-
+#   publish-curseforge:
+#     name: Publish Slim Artifacts to CurseForge
+#     if: startsWith(github.ref, 'refs/tags/')
+#     runs-on: ubuntu-latest
+#     needs: [build, release]
+#     env:
+#       CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
+#       CURSEFORGE_PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
+#       CURSEFORGE_GAME_ENDPOINT: ${{ vars.CURSEFORGE_GAME_ENDPOINT }}
+#     steps:
+#       - name: Download build artifacts
+#         uses: actions/download-artifact@v4
+#         with:
+#           name: compiled-jars
+#           path: dist
+# 
+#       - name: Resolve CurseForge metadata
+#         id: cf-meta
+#         shell: bash
+#         run: |
+#           set -euo pipefail
+#           if [[ -z "${CURSEFORGE_TOKEN:-}" || -z "${CURSEFORGE_PROJECT_ID:-}" ]]; then
+#             echo "enabled=false" >> "$GITHUB_OUTPUT"
+#             echo "::warning::Missing CURSEFORGE_TOKEN or CURSEFORGE_PROJECT_ID, skipping CurseForge publish."
+#             exit 0
+#           fi
+#           TAG_NAME="${GITHUB_REF#refs/tags/}"
+#           if [[ "${TAG_NAME}" == v* ]]; then
+#             echo "release_type=release" >> "$GITHUB_OUTPUT"
+#           else
+#             echo "release_type=beta" >> "$GITHUB_OUTPUT"
+#           fi
+#           if [[ -z "${CURSEFORGE_GAME_ENDPOINT:-}" ]]; then
+#             echo "game_endpoint=bukkit" >> "$GITHUB_OUTPUT"
+#           else
+#             echo "game_endpoint=${CURSEFORGE_GAME_ENDPOINT}" >> "$GITHUB_OUTPUT"
+#           fi
+#           echo "enabled=true" >> "$GITHUB_OUTPUT"
+# 
+#       - name: Resolve CurseForge artifact paths
+#         id: cf-files
+#         if: steps.cf-meta.outputs.enabled == 'true'
+#         shell: bash
+#         run: |
+#           set -euo pipefail
+#           shopt -s nullglob
+#           legacy=(dist/*-slim-1.18.2+.jar)
+#           folia=(dist/*-slim-folia-1.19.4+.jar)
+#           modern=(dist/*-slim-1.20.6+.jar)
+#           if (( ${#legacy[@]} == 0 || ${#folia[@]} == 0 || ${#modern[@]} == 0 )); then
+#             echo "::error::Missing one or more slim artifacts for CurseForge upload."
+#             exit 1
+#           fi
+#           echo "legacy_file=${legacy[0]}" >> "$GITHUB_OUTPUT"
+#           echo "folia_file=${folia[0]}" >> "$GITHUB_OUTPUT"
+#           echo "modern_file=${modern[0]}" >> "$GITHUB_OUTPUT"
+# 
+#       - name: Resolve CurseForge game version IDs
+#         id: cf-versions
+#         if: steps.cf-meta.outputs.enabled == 'true'
+#         shell: bash
+#         env:
+#           CF_ENDPOINT: ${{ steps.cf-meta.outputs.game_endpoint }}
+#         run: |
+#           set -euo pipefail
+# 
+#           versions_json="$(mktemp)"
+#           curl -sSf "https://${CF_ENDPOINT}.curseforge.com/api/game/versions?token=${CURSEFORGE_TOKEN}" -o "${versions_json}"
+#           ids_for_range() {
+#             local minv="$1"
+#             local maxv="${2:-}"
+#             jq -r --arg minv "${minv}" --arg maxv "${maxv}" '
+#               def semver: split(".") | map(tonumber);
+#               def ge($a; $b):
+#                 ($a[0] > $b[0]) or ($a[0] == $b[0] and $a[1] > $b[1]) or ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) >= ($b[2] // 0));
+#               def le($a; $b):
+#                 ($a[0] < $b[0]) or ($a[0] == $b[0] and $a[1] < $b[1]) or ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) <= ($b[2] // 0));
+#               [ .[]
+#                 | { id, n: (.name // .slug // "") }
+#                 | select(.n | test("^\\d+\\.\\d+(\\.\\d+)?$"))
+#                 | select(ge(((.n|semver)+[0,0])[0:3]; (($minv|semver)+[0,0])[0:3]))
+#                 | select(($maxv == "") or le(((.n|semver)+[0,0])[0:3]; (($maxv|semver)+[0,0])[0:3]))
+#               ]
+#               | sort_by(.n | split(".") | map(tonumber))
+#               | map(.id | tostring)
+#               | unique
+#               | join(",")
+#             ' "${versions_json}"
+#           }
+# 
+#           legacy_ids="$(ids_for_range "1.18.2" "1.20.5")"
+#           folia_ids="$(ids_for_range "1.19.4" "")"
+#           modern_ids="$(ids_for_range "1.20.6" "")"
+# 
+#           if [[ -z "${legacy_ids}" || -z "${modern_ids}" || -z "${folia_ids}" ]]; then
+#             echo "::error::Failed to resolve Minecraft version IDs for CurseForge."
+#             exit 1
+#           fi
+# 
+#           echo "legacy_ids=${legacy_ids}" >> "$GITHUB_OUTPUT"
+#           echo "modern_ids=${modern_ids}" >> "$GITHUB_OUTPUT"
+#           echo "folia_ids=${folia_ids}" >> "$GITHUB_OUTPUT"
+# 
+#           rm -f "${versions_json}"
+# 
+#       - name: Upload slim 1.18.2+ (Paper)
+#         if: steps.cf-meta.outputs.enabled == 'true'
+#         uses: itsmeow/curseforge-upload@v3.1.2
+#         with:
+#           token: ${{ env.CURSEFORGE_TOKEN }}
+#           project_id: ${{ env.CURSEFORGE_PROJECT_ID }}
+#           game_endpoint: ${{ steps.cf-meta.outputs.game_endpoint }}
+#           file_path: ${{ steps.cf-files.outputs.legacy_file }}
+#           release_type: ${{ steps.cf-meta.outputs.release_type }}
+#           changelog_type: markdown
+#           changelog: |
+#             由 GitHub 标签 `${{ github.ref_name }}` 自动发布。
+#             完整更新信息请查看 GitHub Release 页面：
+#             https://github.com/Cc-Cece/WebShopX-Issues/releases/tag/${{ github.ref_name }}
+#           game_versions: ${{ steps.cf-versions.outputs.legacy_ids }}
+# 
+#       - name: Upload slim 1.19.4+ (Folia)
+#         if: steps.cf-meta.outputs.enabled == 'true'
+#         uses: itsmeow/curseforge-upload@v3.1.2
+#         with:
+#           token: ${{ env.CURSEFORGE_TOKEN }}
+#           project_id: ${{ env.CURSEFORGE_PROJECT_ID }}
+#           game_endpoint: ${{ steps.cf-meta.outputs.game_endpoint }}
+#           file_path: ${{ steps.cf-files.outputs.folia_file }}
+#           release_type: ${{ steps.cf-meta.outputs.release_type }}
+#           changelog_type: markdown
+#           changelog: |
+#             由 GitHub 标签 `${{ github.ref_name }}` 自动发布。
+#             完整更新信息请查看 GitHub Release 页面：
+#             https://github.com/Cc-Cece/WebShopX-Issues/releases/tag/${{ github.ref_name }}
+#           game_versions: ${{ steps.cf-versions.outputs.folia_ids }}
+# 
+#       - name: Upload slim 1.20.6+ (Paper)
+#         if: steps.cf-meta.outputs.enabled == 'true'
+#         uses: itsmeow/curseforge-upload@v3.1.2
+#         with:
+#           token: ${{ env.CURSEFORGE_TOKEN }}
+#           project_id: ${{ env.CURSEFORGE_PROJECT_ID }}
+#           game_endpoint: ${{ steps.cf-meta.outputs.game_endpoint }}
+#           file_path: ${{ steps.cf-files.outputs.modern_file }}
+#           release_type: ${{ steps.cf-meta.outputs.release_type }}
+#           changelog_type: markdown
+#           changelog: |
+#             由 GitHub 标签 `${{ github.ref_name }}` 自动发布。
+#             完整更新信息请查看 GitHub Release 页面：
+#             https://github.com/Cc-Cece/WebShopX-Issues/releases/tag/${{ github.ref_name }}
+#           game_versions: ${{ steps.cf-versions.outputs.modern_ids }}
+# 
   publish-modrinth:
     name: Publish Slim Artifacts to Modrinth
     if: startsWith(github.ref, 'refs/tags/')
