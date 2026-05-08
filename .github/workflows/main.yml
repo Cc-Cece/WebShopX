@@ -452,6 +452,8 @@ jobs:
               | select(
                   ((.slug // "" | ascii_downcase) == ($key | ascii_downcase))
                   or ((.name // "" | ascii_downcase) == ($key | ascii_downcase))
+                  or ((.slug // "" | ascii_downcase) | contains($key | ascii_downcase))
+                  or ((.name // "" | ascii_downcase) | contains($key | ascii_downcase))
                 )
               | .id
               ' "${types_json}" | head -n1
@@ -504,17 +506,51 @@ jobs:
           purpur_type="$(type_id "purpur")"
           folia_type="$(type_id "folia")"
 
-          if [[ -z "${mc_type}" || -z "${java_type}" ]]; then
-            echo "::error::Failed to resolve required CurseForge version type IDs."
-            exit 1
+          # Some CurseForge endpoints may not expose stable type slugs for Bukkit projects.
+          # Fallback: infer Minecraft versions by numeric version-name pattern when mc_type is absent.
+          if [[ -n "${mc_type}" ]]; then
+            legacy_mc_ids="$(version_ids_for_minecraft_range "1.18.2" "1.20.5" "${mc_type}")"
+            modern_mc_ids="$(version_ids_for_minecraft_range "1.20.6" "" "${mc_type}")"
+            folia_mc_ids="$(version_ids_for_minecraft_range "1.19.4" "" "${mc_type}")"
+          else
+            echo "::warning::Could not resolve Minecraft version type id; falling back to name-based matching."
+            legacy_mc_ids="$(jq -r '
+              def semver: split(".") | map(tonumber);
+              def ge($a; $b):
+                ($a[0] > $b[0]) or ($a[0] == $b[0] and $a[1] > $b[1]) or ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) >= ($b[2] // 0));
+              def le($a; $b):
+                ($a[0] < $b[0]) or ($a[0] == $b[0] and $a[1] < $b[1]) or ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) <= ($b[2] // 0));
+              [ .[]
+                | { id, n: (.name // .slug // "") }
+                | select(.n | test("^\\d+\\.\\d+(\\.\\d+)?$"))
+                | select(ge(((.n|semver)+[0,0])[0:3]; ([1,18,2])))
+                | select(le(((.n|semver)+[0,0])[0:3]; ([1,20,5])))
+              ] | sort_by(.n|split(".")|map(tonumber)) | map(.id|tostring) | unique | join(",")
+            ' "${versions_json}")"
+            modern_mc_ids="$(jq -r '
+              def semver: split(".") | map(tonumber);
+              def ge($a; $b):
+                ($a[0] > $b[0]) or ($a[0] == $b[0] and $a[1] > $b[1]) or ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) >= ($b[2] // 0));
+              [ .[]
+                | { id, n: (.name // .slug // "") }
+                | select(.n | test("^\\d+\\.\\d+(\\.\\d+)?$"))
+                | select(ge(((.n|semver)+[0,0])[0:3]; ([1,20,6])))
+              ] | sort_by(.n|split(".")|map(tonumber)) | map(.id|tostring) | unique | join(",")
+            ' "${versions_json}")"
+            folia_mc_ids="$(jq -r '
+              def semver: split(".") | map(tonumber);
+              def ge($a; $b):
+                ($a[0] > $b[0]) or ($a[0] == $b[0] and $a[1] > $b[1]) or ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) >= ($b[2] // 0));
+              [ .[]
+                | { id, n: (.name // .slug // "") }
+                | select(.n | test("^\\d+\\.\\d+(\\.\\d+)?$"))
+                | select(ge(((.n|semver)+[0,0])[0:3]; ([1,19,4])))
+              ] | sort_by(.n|split(".")|map(tonumber)) | map(.id|tostring) | unique | join(",")
+            ' "${versions_json}")"
           fi
 
-          legacy_mc_ids="$(version_ids_for_minecraft_range "1.18.2" "1.20.5" "${mc_type}")"
-          modern_mc_ids="$(version_ids_for_minecraft_range "1.20.6" "" "${mc_type}")"
-          folia_mc_ids="$(version_ids_for_minecraft_range "1.19.4" "" "${mc_type}")"
-
-          java17_id="$(one_version_id "${java_type}" "Java 17")"
-          java21_id="$(one_version_id "${java_type}" "Java 21")"
+          java17_id="$( [[ -n "${java_type}" ]] && one_version_id "${java_type}" "Java 17" || true )"
+          java21_id="$( [[ -n "${java_type}" ]] && one_version_id "${java_type}" "Java 21" || true )"
           bukkit_id="$( [[ -n "${bukkit_type}" ]] && one_version_id "${bukkit_type}" "Bukkit" || true )"
           spigot_id="$( [[ -n "${spigot_type}" ]] && one_version_id "${spigot_type}" "Spigot" || true )"
           paper_id="$( [[ -n "${paper_type}" ]] && one_version_id "${paper_type}" "Paper" || true )"
@@ -537,8 +573,8 @@ jobs:
           modern_ids="$(append_ids "${modern_mc_ids}" "${java21_id}" "${bukkit_id}" "${spigot_id}" "${paper_id}" "${purpur_id}")"
           folia_ids="$(append_ids "${folia_mc_ids}" "${java21_id}" "${folia_id}")"
 
-          if [[ -z "${legacy_ids}" || -z "${modern_ids}" || -z "${folia_ids}" ]]; then
-            echo "::error::Failed to build CurseForge game_versions ID list."
+          if [[ -z "${legacy_mc_ids}" || -z "${modern_mc_ids}" || -z "${folia_mc_ids}" ]]; then
+            echo "::error::Failed to resolve Minecraft version IDs for CurseForge."
             exit 1
           fi
 
