@@ -316,11 +316,11 @@ jobs:
       - name: Publish release to mirror repository
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.REPO_WebShopX-Issues_TOKEN }}
+          GH_TOKEN: ${{ secrets.REPO_WebShopX_Issues_TOKEN }}
         run: |
           if [[ -z "${GH_TOKEN}" ]]; then
-            echo "::error::Missing secret REPO_WebShopX-Issues_TOKEN."
-            exit 1
+            echo "::warning::Missing secret REPO_WebShopX_Issues_TOKEN, skipping mirror release publish."
+            exit 0
           fi
           shopt -s nullglob
           files=(dist/*.jar)
