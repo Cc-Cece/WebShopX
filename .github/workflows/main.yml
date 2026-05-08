@@ -441,80 +441,11 @@ jobs:
           set -euo pipefail
 
           versions_json="$(mktemp)"
-          types_json="$(mktemp)"
           curl -sSf "https://${CF_ENDPOINT}.curseforge.com/api/game/versions?token=${CURSEFORGE_TOKEN}" -o "${versions_json}"
-          curl -sSf "https://${CF_ENDPOINT}.curseforge.com/api/game/version-types?token=${CURSEFORGE_TOKEN}" -o "${types_json}"
-
-          type_id() {
-            local key="$1"
-            jq -r --arg key "${key}" '
-              .[]
-              | select(
-                  ((.slug // "" | ascii_downcase) == ($key | ascii_downcase))
-                  or ((.name // "" | ascii_downcase) == ($key | ascii_downcase))
-                  or ((.slug // "" | ascii_downcase) | contains($key | ascii_downcase))
-                  or ((.name // "" | ascii_downcase) | contains($key | ascii_downcase))
-                )
-              | .id
-              ' "${types_json}" | head -n1
-          }
-
-          version_ids_for_minecraft_range() {
+          ids_for_range() {
             local minv="$1"
             local maxv="${2:-}"
-            local mc_type_id="$3"
-            jq -r --arg minv "${minv}" --arg maxv "${maxv}" --argjson type_id "${mc_type_id}" '
-              def semver: split(".") | map(tonumber);
-              def ge($a; $b):
-                ($a[0] > $b[0]) or
-                ($a[0] == $b[0] and $a[1] > $b[1]) or
-                ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) >= ($b[2] // 0));
-              def le($a; $b):
-                ($a[0] < $b[0]) or
-                ($a[0] == $b[0] and $a[1] < $b[1]) or
-                ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) <= ($b[2] // 0));
-              [ .[]
-                | select(((.gameVersionTypeID // .gameVersionTypeId // .gameVersionType // -1) | tonumber) == $type_id)
-                | { id, name: (.name // .slug // "") }
-                | select(.name | test("^\\d+\\.\\d+(\\.\\d+)?$"))
-                | select(ge(((.name | semver) + [0,0])[0:3]; (($minv | semver) + [0,0])[0:3]))
-                | select(($maxv == "") or le(((.name | semver) + [0,0])[0:3]; (($maxv | semver) + [0,0])[0:3]))
-              ]
-              | sort_by(.name | split(".") | map(tonumber))
-              | map(.id | tostring)
-              | unique
-              | join(",")
-            ' "${versions_json}"
-          }
-
-          one_version_id() {
-            local typeid="$1"
-            local value="$2"
-            jq -r --argjson type_id "${typeid}" --arg value "${value}" '
-              .[]
-              | select(((.gameVersionTypeID // .gameVersionTypeId // .gameVersionType // -1) | tonumber) == $type_id)
-              | select((.name // .slug // "") == $value)
-              | .id
-            ' "${versions_json}" | head -n1
-          }
-
-          mc_type="$(type_id "minecraft")"
-          java_type="$(type_id "java")"
-          bukkit_type="$(type_id "bukkit")"
-          spigot_type="$(type_id "spigot")"
-          paper_type="$(type_id "paper")"
-          purpur_type="$(type_id "purpur")"
-          folia_type="$(type_id "folia")"
-
-          # Some CurseForge endpoints may not expose stable type slugs for Bukkit projects.
-          # Fallback: infer Minecraft versions by numeric version-name pattern when mc_type is absent.
-          if [[ -n "${mc_type}" ]]; then
-            legacy_mc_ids="$(version_ids_for_minecraft_range "1.18.2" "1.20.5" "${mc_type}")"
-            modern_mc_ids="$(version_ids_for_minecraft_range "1.20.6" "" "${mc_type}")"
-            folia_mc_ids="$(version_ids_for_minecraft_range "1.19.4" "" "${mc_type}")"
-          else
-            echo "::warning::Could not resolve Minecraft version type id; falling back to name-based matching."
-            legacy_mc_ids="$(jq -r '
+            jq -r --arg minv "${minv}" --arg maxv "${maxv}" '
               def semver: split(".") | map(tonumber);
               def ge($a; $b):
                 ($a[0] > $b[0]) or ($a[0] == $b[0] and $a[1] > $b[1]) or ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) >= ($b[2] // 0));
@@ -523,57 +454,21 @@ jobs:
               [ .[]
                 | { id, n: (.name // .slug // "") }
                 | select(.n | test("^\\d+\\.\\d+(\\.\\d+)?$"))
-                | select(ge(((.n|semver)+[0,0])[0:3]; ([1,18,2])))
-                | select(le(((.n|semver)+[0,0])[0:3]; ([1,20,5])))
-              ] | sort_by(.n|split(".")|map(tonumber)) | map(.id|tostring) | unique | join(",")
-            ' "${versions_json}")"
-            modern_mc_ids="$(jq -r '
-              def semver: split(".") | map(tonumber);
-              def ge($a; $b):
-                ($a[0] > $b[0]) or ($a[0] == $b[0] and $a[1] > $b[1]) or ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) >= ($b[2] // 0));
-              [ .[]
-                | { id, n: (.name // .slug // "") }
-                | select(.n | test("^\\d+\\.\\d+(\\.\\d+)?$"))
-                | select(ge(((.n|semver)+[0,0])[0:3]; ([1,20,6])))
-              ] | sort_by(.n|split(".")|map(tonumber)) | map(.id|tostring) | unique | join(",")
-            ' "${versions_json}")"
-            folia_mc_ids="$(jq -r '
-              def semver: split(".") | map(tonumber);
-              def ge($a; $b):
-                ($a[0] > $b[0]) or ($a[0] == $b[0] and $a[1] > $b[1]) or ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) >= ($b[2] // 0));
-              [ .[]
-                | { id, n: (.name // .slug // "") }
-                | select(.n | test("^\\d+\\.\\d+(\\.\\d+)?$"))
-                | select(ge(((.n|semver)+[0,0])[0:3]; ([1,19,4])))
-              ] | sort_by(.n|split(".")|map(tonumber)) | map(.id|tostring) | unique | join(",")
-            ' "${versions_json}")"
-          fi
-
-          java17_id="$( [[ -n "${java_type}" ]] && one_version_id "${java_type}" "Java 17" || true )"
-          java21_id="$( [[ -n "${java_type}" ]] && one_version_id "${java_type}" "Java 21" || true )"
-          bukkit_id="$( [[ -n "${bukkit_type}" ]] && one_version_id "${bukkit_type}" "Bukkit" || true )"
-          spigot_id="$( [[ -n "${spigot_type}" ]] && one_version_id "${spigot_type}" "Spigot" || true )"
-          paper_id="$( [[ -n "${paper_type}" ]] && one_version_id "${paper_type}" "Paper" || true )"
-          purpur_id="$( [[ -n "${purpur_type}" ]] && one_version_id "${purpur_type}" "Purpur" || true )"
-          folia_id="$( [[ -n "${folia_type}" ]] && one_version_id "${folia_type}" "Folia" || true )"
-
-          append_ids() {
-            local base="$1"
-            shift
-            local out="${base}"
-            for id in "$@"; do
-              if [[ -n "${id}" ]]; then
-                if [[ -n "${out}" ]]; then out="${out},${id}"; else out="${id}"; fi
-              fi
-            done
-            printf '%s' "${out}"
+                | select(ge(((.n|semver)+[0,0])[0:3]; (($minv|semver)+[0,0])[0:3]))
+                | select(($maxv == "") or le(((.n|semver)+[0,0])[0:3]; (($maxv|semver)+[0,0])[0:3]))
+              ]
+              | sort_by(.n | split(".") | map(tonumber))
+              | map(.id | tostring)
+              | unique
+              | join(",")
+            ' "${versions_json}"
           }
 
-          legacy_ids="$(append_ids "${legacy_mc_ids}" "${java17_id}" "${bukkit_id}" "${spigot_id}" "${paper_id}" "${purpur_id}")"
-          modern_ids="$(append_ids "${modern_mc_ids}" "${java21_id}" "${bukkit_id}" "${spigot_id}" "${paper_id}" "${purpur_id}")"
-          folia_ids="$(append_ids "${folia_mc_ids}" "${java21_id}" "${folia_id}")"
+          legacy_ids="$(ids_for_range "1.18.2" "1.20.5")"
+          folia_ids="$(ids_for_range "1.19.4" "")"
+          modern_ids="$(ids_for_range "1.20.6" "")"
 
-          if [[ -z "${legacy_mc_ids}" || -z "${modern_mc_ids}" || -z "${folia_mc_ids}" ]]; then
+          if [[ -z "${legacy_ids}" || -z "${modern_ids}" || -z "${folia_ids}" ]]; then
             echo "::error::Failed to resolve Minecraft version IDs for CurseForge."
             exit 1
           fi
@@ -582,7 +477,7 @@ jobs:
           echo "modern_ids=${modern_ids}" >> "$GITHUB_OUTPUT"
           echo "folia_ids=${folia_ids}" >> "$GITHUB_OUTPUT"
 
-          rm -f "${versions_json}" "${types_json}"
+          rm -f "${versions_json}"
 
       - name: Upload slim 1.18.2+ (Paper)
         if: steps.cf-meta.outputs.enabled == 'true'
