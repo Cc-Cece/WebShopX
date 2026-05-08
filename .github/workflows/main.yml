@@ -382,6 +382,7 @@ jobs:
     env:
       MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
       MODRINTH_PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
+      MIRROR_REPO: Cc-Cece/WebShopX-Issues
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -422,37 +423,77 @@ jobs:
             exit 1
           fi
 
+          find_asset() {
+            local variant="$1"
+            local runtime="$2"
+            local matches=(dist/*-"${variant}"-"${runtime}".jar)
+            if (( ${#matches[@]} > 0 )); then
+              basename "${matches[0]}"
+            fi
+          }
+
+          link_cell() {
+            local variant="$1"
+            local runtime="$2"
+            local file_name
+            file_name="$(find_asset "${variant}" "${runtime}")"
+            if [[ -n "${file_name:-}" ]]; then
+              local url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/${file_name}"
+              printf '[%s](%s)' "$file_name" "$url"
+            else
+              printf '（无）'
+            fi
+          }
+
+          generate_modrinth_changelog() {
+            cat <<EOF
+          由 GitHub 标签 \`${TAG_NAME}\` 自动发布。
+
+          完整更新信息请查看 GitHub Release 页面：
+          https://github.com/${MIRROR_REPO}/releases/tag/${TAG_NAME}
+
+          | 变体 | paper1.18.2+ | paper1.20.6+ | Folia1.19.4+ |
+          | ---- | ---- | ---- | ---- |
+          | full | $(link_cell "full" "1.18.2+") | $(link_cell "full" "1.20.6+") | $(link_cell "full-folia" "1.19.4+") |
+          | slim | $(link_cell "slim" "1.18.2+") | $(link_cell "slim" "1.20.6+") | $(link_cell "slim-folia" "1.19.4+") |
+          | full-win | $(link_cell "full-win" "1.18.2+") | $(link_cell "full-win" "1.20.6+") | $(link_cell "full-win-folia" "1.19.4+") |
+          | full-linux | $(link_cell "full-linux" "1.18.2+") | $(link_cell "full-linux" "1.20.6+") | $(link_cell "full-linux-folia" "1.19.4+") |
+          EOF
+          }
+
           publish_modrinth() {
             local file="$1"
             local flavor="$2"
             local loaders_json="$3"
             local min_game_version="$4"
+            local max_game_version="${5:-}"
             local version_number="${BASE_VERSION}-${flavor}"
             local version_title="WebShopX ${TAG_NAME} (${flavor})"
             local changelog
-            changelog=$(
-              cat <<EOF
-          Automatic upload from GitHub tag \`${TAG_NAME}\`.
-
-          Full artifact matrix is available on GitHub Release:
-          https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG_NAME}
-          EOF
-            )
+            changelog="$(generate_modrinth_changelog)"
 
             local game_versions_json
             game_versions_json=$(
               curl -sSf "https://api.modrinth.com/v2/tag/game_version" \
-                | jq -c --arg minv "${min_game_version}" '
+                | jq -c --arg minv "${min_game_version}" --arg maxv "${max_game_version}" '
                     def semver: split(".") | map(tonumber);
                     def ge($a; $b):
                       ($a[0] > $b[0]) or
                       ($a[0] == $b[0] and $a[1] > $b[1]) or
                       ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) >= ($b[2] // 0));
+                    def le($a; $b):
+                      ($a[0] < $b[0]) or
+                      ($a[0] == $b[0] and $a[1] < $b[1]) or
+                      ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) <= ($b[2] // 0));
                     [ .[]
                       | select(.version_type == "release")
                       | .version
                       | select(test("^\\d+\\.\\d+(\\.\\d+)?$"))
                       | select(ge((semver + [0,0])[0:3]; (($minv | semver) + [0,0])[0:3]))
+                      | select(
+                          ($maxv == "") or
+                          le((semver + [0,0])[0:3]; (($maxv | semver) + [0,0])[0:3])
+                        )
                     ]
                     | unique
                     | sort_by(split(".") | map(tonumber))
@@ -504,6 +545,7 @@ jobs:
             rm -f "${response_file}"
           }
 
-          publish_modrinth "${paper_legacy[0]}" "paper-1.18.2-slim" '["paper","purpur","spigot","bukkit"]' "1.18.2"
-          publish_modrinth "${paper_modern[0]}" "paper-1.20.6-slim" '["paper","purpur","spigot","bukkit"]' "1.20.6"
+          # Upload order matters for display/primary file preference.
           publish_modrinth "${folia[0]}" "folia-1.19.4-slim" '["folia"]' "1.19.4"
+          publish_modrinth "${paper_legacy[0]}" "paper-1.18.2-slim" '["paper","purpur","spigot","bukkit"]' "1.18.2" "1.20.5"
+          publish_modrinth "${paper_modern[0]}" "paper-1.20.6-slim" '["paper","purpur","spigot","bukkit"]' "1.20.6"
