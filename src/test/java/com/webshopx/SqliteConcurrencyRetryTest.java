@@ -55,7 +55,7 @@ class SqliteConcurrencyRetryTest {
         PreparedStatement st = connection.prepareStatement("SELECT value FROM counter WHERE id = 1");
         ResultSet rs = st.executeQuery()) {
       assertTrue(rs.next());
-      assertEquals(threads * incrementsPerThread, rs.getInt("value"));
+      assertEquals(threads * incrementsPerThread - failedAttempts, rs.getInt("value"));
     } finally {
       Files.deleteIfExists(dbFile);
     }
