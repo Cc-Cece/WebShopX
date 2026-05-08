@@ -169,7 +169,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          variants=(slim full full-linux full-win slim-folia full-folia full-linux-folia full-win-folia)
+          variants=(slim full full-linux full-win)
           for variant in "${variants[@]}"; do
             files=(build/libs/*-"${variant}"-1.18.2+.jar)
             if (( ${#files[@]} == 0 )); then
@@ -226,50 +226,48 @@ jobs:
                 basename "${matches[0]}"
               fi
             }
-          
-            row() {
-              local runtime="$1"
-              local java="$2"
-              local server="$3"
-              local variant="$4"
-              local note="$5"
+
+            link_cell() {
+              local variant="$1"
+              local runtime="$2"
               local file_name
               file_name="$(find_asset "${variant}" "${runtime}")"
               if [[ -n "${file_name:-}" ]]; then
                 local url="https://github.com/${target_repo}/releases/download/${TAG_NAME}/${file_name}"
-                printf '| `%s` | %s | %s | `%s` | [%s](%s) | %s |\n' \
-                  "$runtime" "$java" "$server" "$variant" "$file_name" "$url" "$note"
+                printf '[%s](%s)' "$file_name" "$url"
               else
-                printf '| `%s` | %s | %s | `%s` | （未找到） | %s |\n' \
-                  "$runtime" "$java" "$server" "$variant" "$note"
+                printf '（无）'
               fi
             }
           
             {
               echo '## 版本适用与下载指引'
-              echo 'full 变体包含所有依赖，适合大多数用户；'
-              echo 'slim 变体不包含任何依赖，会在服务器启动时自动下载（需要联网环境）。'
-              echo 'full-linux 变体包含 Linux 所需的相关依赖，不包含 Windows 相关的依赖；'
-              echo 'full-win 变体包含 Windows 所需的相关依赖，不包含 Linux 相关的依赖；'
               echo
-              echo '| MC 版本 | 构建 Java | 服务端类型 | 变体 | 文件下载 | 适用说明 |'
-              echo '| --- | --- | --- | --- | --- | --- |'
-              row "1.20.6+" "21" "Paper" "full" "默认推荐"
-              row "1.20.6+" "21" "Paper" "full-linux" "Linux 服务器"
-              row "1.20.6+" "21" "Paper" "full-win" "Windows 服务器"
-              row "1.20.6+" "21" "Paper" "slim" "可联网环境"
-              row "1.20.6+" "21" "Folia" "full-folia" "Folia 默认推荐"
-              row "1.20.6+" "21" "Folia" "full-linux-folia" "Folia Linux"
-              row "1.20.6+" "21" "Folia" "full-win-folia" "Folia Windows"
-              row "1.20.6+" "21" "Folia" "slim-folia" "Folia + 可联网环境"
-              row "1.18.2+" "17" "Paper" "full" "低版本默认推荐"
-              row "1.18.2+" "17" "Paper" "full-linux" "低版本 Linux"
-              row "1.18.2+" "17" "Paper" "full-win" "低版本 Windows"
-              row "1.18.2+" "17" "Paper" "slim" "低版本可联网环境"
-              row "1.18.2+" "17" "Folia" "full-folia" "低版本 Folia 默认推荐"
-              row "1.18.2+" "17" "Folia" "full-linux-folia" "低版本 Folia Linux"
-              row "1.18.2+" "17" "Folia" "full-win-folia" "低版本 Folia Windows"
-              row "1.18.2+" "17" "Folia" "slim-folia" "低版本 Folia + 可联网环境"
+              echo '| 简写 | 说明 |'
+              echo '| ---- | ---- |'
+              echo '| full | 变体包含所有依赖，适合大多数用户； |'
+              echo '| slim | 变体不包含任何依赖，会在服务器启动时自动下载（需要联网环境）。 |'
+              echo '| full-win | 变体包含 Windows 所需依赖，不包含 Linux 相关依赖； |'
+              echo '| full-linux | 变体包含 Linux 所需依赖，不包含 Windows 相关依赖； |'
+              echo
+              echo '| 变体 | paper1.18.2+ | paper1.20.6+ | Folia1.19.4+ |'
+              echo '| ---- | ---- | ---- | ---- |'
+              printf '| full | %s | %s | %s |\n' \
+                "$(link_cell "full" "1.18.2+")" \
+                "$(link_cell "full" "1.20.6+")" \
+                "$(link_cell "full-folia" "1.20.6+")"
+              printf '| slim | %s | %s | %s |\n' \
+                "$(link_cell "slim" "1.18.2+")" \
+                "$(link_cell "slim" "1.20.6+")" \
+                "$(link_cell "slim-folia" "1.20.6+")"
+              printf '| full-win | %s | %s | %s |\n' \
+                "$(link_cell "full-win" "1.18.2+")" \
+                "$(link_cell "full-win" "1.20.6+")" \
+                "$(link_cell "full-win-folia" "1.20.6+")"
+              printf '| full-linux | %s | %s | %s |\n' \
+                "$(link_cell "full-linux" "1.18.2+")" \
+                "$(link_cell "full-linux" "1.20.6+")" \
+                "$(link_cell "full-linux-folia" "1.20.6+")"
             } > "${output_file}"
           }
           

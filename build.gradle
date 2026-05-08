@@ -19,6 +19,7 @@ if (!(targetRuntime in ['1.20.6+', '1.18.2+'])) {
     throw new GradleException("Unsupported targetRuntime: ${targetRuntime}. Allowed values: 1.20.6+, 1.18.2+")
 }
 boolean legacy18Runtime = targetRuntime == '1.18.2+'
+boolean includeFoliaVariants = !legacy18Runtime
 JavaVersion runtimeJavaVersion = legacy18Runtime ? JavaVersion.VERSION_17 : JavaVersion.VERSION_21
 int runtimeJavaLanguageVersion = legacy18Runtime ? 17 : 21
 String runtimePaperApiVersion = legacy18Runtime ? '1.18.2-R0.1-SNAPSHOT' : '1.20.6-R0.1-SNAPSHOT'
@@ -280,15 +281,19 @@ tasks.register('fullFoliaWinJar', ShadowJar) {
 
 tasks.register('packagePluginVariants') {
     group = 'build'
-    description = "Builds slim/full/full-linux/full-win and Folia slim/full/full-linux/full-win plugin variants for ${targetRuntime}."
+    description = includeFoliaVariants
+            ? "Builds slim/full/full-linux/full-win and Folia slim/full/full-linux/full-win plugin variants for ${targetRuntime}."
+            : "Builds slim/full/full-linux/full-win plugin variants for ${targetRuntime}."
     dependsOn tasks.named('slimJar')
     dependsOn tasks.named('shadowJar')
     dependsOn tasks.named('fullLinuxJar')
     dependsOn tasks.named('fullWinJar')
-    dependsOn tasks.named('foliaSlimJar')
-    dependsOn tasks.named('fullFoliaJar')
-    dependsOn tasks.named('fullFoliaLinuxJar')
-    dependsOn tasks.named('fullFoliaWinJar')
+    if (includeFoliaVariants) {
+        dependsOn tasks.named('foliaSlimJar')
+        dependsOn tasks.named('fullFoliaJar')
+        dependsOn tasks.named('fullFoliaLinuxJar')
+        dependsOn tasks.named('fullFoliaWinJar')
+    }
 }
 
 tasks.register('plainPluginJar', Jar) {
