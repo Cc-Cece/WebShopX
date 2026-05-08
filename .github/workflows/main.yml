@@ -247,25 +247,29 @@ jobs:
           
             {
               echo '## 版本适用与下载指引'
+              echo 'full 变体包含所有依赖，适合大多数用户；'
+              echo 'slim 变体不包含任何依赖，会在服务器启动时自动下载（需要联网环境）。'
+              echo 'full-linux 变体包含 Linux 所需的相关依赖，不包含 Windows 相关的依赖；'
+              echo 'full-win 变体包含 Windows 所需的相关依赖，不包含 Linux 相关的依赖；'
               echo
-              echo '| 运行时目标 | Java | 服务端类型 | 变体 | 文件下载（本次 Release） | 适用说明 |'
+              echo '| MC 版本 | 构建 Java | 服务端类型 | 变体 | 文件下载 | 适用说明 |'
               echo '| --- | --- | --- | --- | --- | --- |'
               row "1.20.6+" "21" "Paper" "full" "默认推荐"
-              row "1.20.6+" "21" "Paper" "full-linux" "Linux 服务器（SQLite Native 精简）"
-              row "1.20.6+" "21" "Paper" "full-win" "Windows 服务器（SQLite Native 精简）"
-              row "1.20.6+" "21" "Paper" "slim" "仅在外部已提供依赖时使用"
+              row "1.20.6+" "21" "Paper" "full-linux" "Linux 服务器"
+              row "1.20.6+" "21" "Paper" "full-win" "Windows 服务器"
+              row "1.20.6+" "21" "Paper" "slim" "可联网环境"
               row "1.20.6+" "21" "Folia" "full-folia" "Folia 默认推荐"
               row "1.20.6+" "21" "Folia" "full-linux-folia" "Folia Linux"
               row "1.20.6+" "21" "Folia" "full-win-folia" "Folia Windows"
-              row "1.20.6+" "21" "Folia" "slim-folia" "Folia + 外部依赖场景"
+              row "1.20.6+" "21" "Folia" "slim-folia" "Folia + 可联网环境"
               row "1.18.2+" "17" "Paper" "full" "低版本默认推荐"
               row "1.18.2+" "17" "Paper" "full-linux" "低版本 Linux"
               row "1.18.2+" "17" "Paper" "full-win" "低版本 Windows"
-              row "1.18.2+" "17" "Paper" "slim" "低版本外部依赖场景"
+              row "1.18.2+" "17" "Paper" "slim" "低版本可联网环境"
               row "1.18.2+" "17" "Folia" "full-folia" "低版本 Folia 默认推荐"
               row "1.18.2+" "17" "Folia" "full-linux-folia" "低版本 Folia Linux"
               row "1.18.2+" "17" "Folia" "full-win-folia" "低版本 Folia Windows"
-              row "1.18.2+" "17" "Folia" "slim-folia" "低版本 Folia + 外部依赖场景"
+              row "1.18.2+" "17" "Folia" "slim-folia" "低版本 Folia + 可联网环境"
             } > "${output_file}"
           }
           
