@@ -313,6 +313,8 @@ class StaticAssetInstaller {
 
   private void writeRuntimeConfig(Path outputRoot, PluginSettings settings) throws IOException {
     Path outputFile = outputRoot.resolve("config.js");
+    String platformRuntime = detectPlatformRuntime();
+    String minecraftVersion = resolveMinecraftVersion();
     String script = "window.WEBSHOPX_CONFIG = Object.assign({}, window.WEBSHOPX_CONFIG || {}, {"
         + System.lineSeparator()
         + "  apiBaseUrl: \"" + escapeJs(settings.apiBaseUrl()) + "\","
@@ -320,6 +322,10 @@ class StaticAssetInstaller {
         + "  serverMode: \"" + settings.serverMode().name() + "\","
         + System.lineSeparator()
         + "  defaultLocale: \"" + escapeJs(settings.defaultLocale()) + "\","
+        + System.lineSeparator()
+        + "  platformRuntime: \"" + escapeJs(platformRuntime) + "\","
+        + System.lineSeparator()
+        + "  minecraftVersion: \"" + escapeJs(minecraftVersion) + "\","
         + System.lineSeparator()
         + "  leaderboardEnabled: " + settings.leaderboardSettings().enabled() + ","
         + System.lineSeparator()
@@ -338,6 +344,31 @@ class StaticAssetInstaller {
         + "});"
         + System.lineSeparator();
     Files.writeString(outputFile, script, StandardCharsets.UTF_8);
+  }
+
+  private String detectPlatformRuntime() {
+    try {
+      Class.forName("io.papermc.paper.threadedregions.scheduler.GlobalRegionScheduler");
+      return "folia";
+    } catch (Throwable ignored) {
+      return "paper";
+    }
+  }
+
+  private String resolveMinecraftVersion() {
+    String version = plugin.getServer().getMinecraftVersion();
+    if (version != null && !version.isBlank()) {
+      return version.trim();
+    }
+    String bukkitVersion = plugin.getServer().getBukkitVersion();
+    if (bukkitVersion == null || bukkitVersion.isBlank()) {
+      return "";
+    }
+    int separator = bukkitVersion.indexOf('-');
+    if (separator <= 0) {
+      return bukkitVersion.trim();
+    }
+    return bukkitVersion.substring(0, separator).trim();
   }
 
   private String escapeJs(String value) {

@@ -79,6 +79,8 @@
     releaseType: "",
     gameVersions: [],
     loaders: [],
+    selectedBy: "",
+    fallbackToModrinth: false,
   },
   deployment: {
     databaseType: "UNKNOWN",
@@ -870,6 +872,171 @@ function normalizeVersionText(versionText) {
     .replace(/-SNAPSHOT$/i, "");
 }
 
+function parseComparableVersion(versionText) {
+  const normalized = normalizeVersionText(versionText);
+  const match = normalized.match(/(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?/);
+  if (!match) {
+    return null;
+  }
+  return [
+    Number(match[1] || 0),
+    Number(match[2] || 0),
+    Number(match[3] || 0),
+    Number(match[4] || 0),
+  ];
+}
+
+function compareComparableVersion(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right)) {
+    return 0;
+  }
+  const maxLen = Math.max(left.length, right.length);
+  for (let i = 0; i < maxLen; i += 1) {
+    const leftPart = Number(left[i] || 0);
+    const rightPart = Number(right[i] || 0);
+    if (leftPart > rightPart) {
+      return 1;
+    }
+    if (leftPart < rightPart) {
+      return -1;
+    }
+  }
+  return 0;
+}
+
+function extractReleaseVersionText(versionLikeText) {
+  const normalized = normalizeVersionText(versionLikeText);
+  const match = normalized.match(/(\d+(?:\.\d+){1,3})/);
+  return match ? match[1] : normalized;
+}
+
+function compareReleaseVersionText(leftText, rightText) {
+  const left = parseComparableVersion(leftText);
+  const right = parseComparableVersion(rightText);
+  if (left && right) {
+    return compareComparableVersion(left, right);
+  }
+  const leftNormalized = extractReleaseVersionText(leftText);
+  const rightNormalized = extractReleaseVersionText(rightText);
+  if (leftNormalized === rightNormalized) {
+    return 0;
+  }
+  return leftNormalized > rightNormalized ? 1 : -1;
+}
+
+function normalizeMinecraftVersion(versionText) {
+  const normalized = String(versionText || "").trim();
+  const match = normalized.match(/(\d+\.\d+(?:\.\d+)?)/);
+  return match ? match[1] : "";
+}
+
+function modrinthVersionReleaseKey(version) {
+  return extractReleaseVersionText(
+    version?.version_number
+    || version?.versionNumber
+    || version?.name
+    || ""
+  );
+}
+
+function modrinthVersionPublishedTime(version) {
+  const raw = String(version?.date_published || version?.publishedAt || "").trim();
+  const value = raw ? Date.parse(raw) : NaN;
+  return Number.isFinite(value) ? value : 0;
+}
+
+function inferUpdateRuntimeContext() {
+  const runtimeText = String(
+    RUNTIME_CONFIG.platformRuntime
+    || RUNTIME_CONFIG.schedulerRuntime
+    || RUNTIME_CONFIG.runtime
+    || ""
+  ).trim().toLowerCase();
+  const loader = runtimeText.includes("folia")
+    ? "folia"
+    : (runtimeText.includes("paper") ? "paper" : "");
+  const minecraftVersion = normalizeMinecraftVersion(
+    RUNTIME_CONFIG.minecraftVersion
+    || RUNTIME_CONFIG.serverMinecraftVersion
+    || ""
+  );
+  return {
+    loader,
+    minecraftVersion,
+    certain: Boolean(loader && minecraftVersion),
+  };
+}
+
+function isLoaderCompatibleForRuntime(runtimeLoader, loaders) {
+  const normalized = Array.isArray(loaders)
+    ? loaders.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  if (!runtimeLoader) {
+    return false;
+  }
+  if (normalized.includes(runtimeLoader)) {
+    return true;
+  }
+  if (runtimeLoader === "paper") {
+    return normalized.some((item) => item === "paper" || item === "purpur" || item === "spigot" || item === "bukkit");
+  }
+  return false;
+}
+
+function isGameVersionCompatibleForRuntime(runtimeVersion, gameVersions) {
+  const normalizedRuntime = normalizeMinecraftVersion(runtimeVersion);
+  if (!normalizedRuntime) {
+    return false;
+  }
+  const normalizedSupported = Array.isArray(gameVersions)
+    ? gameVersions.map((item) => normalizeMinecraftVersion(item)).filter(Boolean)
+    : [];
+  return normalizedSupported.includes(normalizedRuntime);
+}
+
+function selectLatestUpgradableReleaseVersions(versions) {
+  const sorted = versions
+    .slice()
+    .sort((left, right) => modrinthVersionPublishedTime(right) - modrinthVersionPublishedTime(left));
+  const currentRelease = extractReleaseVersionText(CURRENT_WEBSHOPX_VERSION);
+  let releaseKey = "";
+  for (const version of sorted) {
+    const key = modrinthVersionReleaseKey(version);
+    if (!key) {
+      continue;
+    }
+    if (compareReleaseVersionText(key, currentRelease) > 0) {
+      releaseKey = key;
+      break;
+    }
+  }
+  if (!releaseKey) {
+    return [];
+  }
+  return sorted.filter((version) => modrinthVersionReleaseKey(version) === releaseKey);
+}
+
+function pickBestModrinthVersionForRuntime(versions, runtimeContext) {
+  const compatible = versions.filter((version) => {
+    const loaders = Array.isArray(version?.loaders) ? version.loaders : [];
+    const gameVersions = Array.isArray(version?.game_versions) ? version.game_versions : [];
+    return isLoaderCompatibleForRuntime(runtimeContext.loader, loaders)
+      && isGameVersionCompatibleForRuntime(runtimeContext.minecraftVersion, gameVersions);
+  });
+  if (compatible.length === 0) {
+    return null;
+  }
+  compatible.sort((left, right) => {
+    const leftRelease = String(left?.version_type || "").toLowerCase() === "release";
+    const rightRelease = String(right?.version_type || "").toLowerCase() === "release";
+    if (leftRelease !== rightRelease) {
+      return rightRelease ? 1 : -1;
+    }
+    return modrinthVersionPublishedTime(right) - modrinthVersionPublishedTime(left);
+  });
+  return compatible[0] || null;
+}
+
 function formatModrinthPublishedAt(publishedAt) {
   if (!publishedAt) {
     return getAdminPageText("unknownLabel", "Unknown");
@@ -890,8 +1057,46 @@ function pickModrinthDownloadFile(version) {
   return files.find((file) => file?.primary && file?.url) || files.find((file) => file?.url) || null;
 }
 
-function updateNoticeAvailable(versionText) {
-  return normalizeVersionText(versionText) !== normalizeVersionText(CURRENT_WEBSHOPX_VERSION);
+function renderUpdateChangelog(markdownText) {
+  if (!elements.adminUpdateDialogChangelog) {
+    return;
+  }
+  const normalized = String(markdownText || "").trim();
+  const fallbackText = getAdminPageText("updateDialogChangelogEmpty", "No changelog available.");
+  if (!normalized) {
+    elements.adminUpdateDialogChangelog.textContent = fallbackText;
+    return;
+  }
+
+  if (typeof window.marked === "undefined" || typeof window.DOMPurify === "undefined") {
+    elements.adminUpdateDialogChangelog.textContent = normalized;
+    return;
+  }
+
+  try {
+    const rawHtml = window.marked.parse(normalized, {
+      gfm: true,
+      breaks: false,
+    });
+    const safeHtml = window.DOMPurify.sanitize(rawHtml, {
+      USE_PROFILES: { html: true },
+    });
+    elements.adminUpdateDialogChangelog.innerHTML = safeHtml;
+    const links = elements.adminUpdateDialogChangelog.querySelectorAll("a[href]");
+    for (const link of links) {
+      const href = String(link.getAttribute("href") || "").trim();
+      if (/^\s*javascript:/i.test(href)) {
+        link.removeAttribute("href");
+        continue;
+      }
+      if (/^(?:https?:)?\/\//i.test(href)) {
+        link.setAttribute("target", "_blank");
+        link.setAttribute("rel", "noopener noreferrer");
+      }
+    }
+  } catch (error) {
+    elements.adminUpdateDialogChangelog.textContent = normalized;
+  }
 }
 
 function closeUpdateDialog() {
@@ -921,9 +1126,7 @@ function openUpdateDialog() {
   );
   setNodeText(elements.adminUpdateDialogPublishedAt, formatModrinthPublishedAt(state.updateInfo.publishedAt));
   setNodeText(elements.adminUpdateDialogFileName, state.updateInfo.fileName || getAdminPageText("unknownFileLabel", "Unknown file"));
-  if (elements.adminUpdateDialogChangelog) {
-    elements.adminUpdateDialogChangelog.textContent = state.updateInfo.changelog || getAdminPageText("updateDialogChangelogEmpty", "No changelog available.");
-  }
+  renderUpdateChangelog(state.updateInfo.changelog);
   if (elements.adminUpdateDialogDownloadBtn) {
     elements.adminUpdateDialogDownloadBtn.disabled = !state.updateInfo.downloadUrl;
   }
@@ -935,6 +1138,9 @@ function downloadUpdateJar() {
   if (!state.updateInfo.downloadUrl) {
     notify(getAdminPageText("updateNoDownloadUrl", "No download URL available."), "warn");
     return;
+  }
+  if (state.updateInfo.fallbackToModrinth) {
+    notify(localizeDisplayText("Compatibility auto-detect failed. Opening Modrinth page."), "warn");
   }
   window.open(state.updateInfo.downloadUrl, "_blank", "noopener,noreferrer");
 }
@@ -998,32 +1204,48 @@ async function loadModrinthUpdateNotice() {
       renderUpdateNoticeCard();
       return;
     }
-    const latest = versions[0] || {};
-    const latestVersion = normalizeVersionText(latest.version_number || latest.versionNumber || latest.name || "");
-    if (!latestVersion || !updateNoticeAvailable(latestVersion)) {
+
+    const newerReleaseVersions = selectLatestUpgradableReleaseVersions(versions);
+    if (newerReleaseVersions.length === 0) {
       state.updateInfo = {
         ...state.updateInfo,
         available: false,
         currentVersion: CURRENT_WEBSHOPX_VERSION,
-        latestVersion,
       };
       renderUpdateNoticeCard();
       return;
     }
-    const downloadFile = pickModrinthDownloadFile(latest);
-    const downloadUrl = String(downloadFile?.url || "").trim();
+
+    const runtimeContext = inferUpdateRuntimeContext();
+    const fallbackVersion = newerReleaseVersions[0] || {};
+    const selected = runtimeContext.certain
+      ? pickBestModrinthVersionForRuntime(newerReleaseVersions, runtimeContext)
+      : null;
+    const chosen = selected || fallbackVersion;
+    const downloadFile = selected ? pickModrinthDownloadFile(selected) : null;
+    const useModrinthFallback = !selected;
+    const downloadUrl = useModrinthFallback
+      ? MODRINTH_CHANGELOG_URL
+      : String(downloadFile?.url || "").trim();
+    const latestVersion = modrinthVersionReleaseKey(chosen);
+    const fallbackFileName = useModrinthFallback
+      ? localizeDisplayText("Open Modrinth to choose a compatible build.")
+      : getAdminPageText("unknownFileLabel", "Unknown file");
+
     state.updateInfo = {
       available: true,
       currentVersion: CURRENT_WEBSHOPX_VERSION,
       latestVersion,
-      latestName: String(latest.name || latestVersion || "").trim(),
-      changelog: String(latest.changelog || latest.body || latest.description || "").trim(),
-      publishedAt: String(latest.date_published || latest.publishedAt || "").trim(),
+      latestName: String(chosen.name || latestVersion || "").trim(),
+      changelog: String(chosen.changelog || chosen.body || chosen.description || "").trim(),
+      publishedAt: String(chosen.date_published || chosen.publishedAt || "").trim(),
       downloadUrl,
-      fileName: String(downloadFile?.filename || downloadFile?.name || "").trim(),
-      releaseType: String(latest.version_type || latest.releaseType || "").trim(),
-      gameVersions: Array.isArray(latest.game_versions) ? latest.game_versions.slice() : [],
-      loaders: Array.isArray(latest.loaders) ? latest.loaders.slice() : [],
+      fileName: String(downloadFile?.filename || downloadFile?.name || fallbackFileName).trim(),
+      releaseType: String(chosen.version_type || chosen.releaseType || "").trim(),
+      gameVersions: Array.isArray(chosen.game_versions) ? chosen.game_versions.slice() : [],
+      loaders: Array.isArray(chosen.loaders) ? chosen.loaders.slice() : [],
+      selectedBy: selected ? "runtime-match" : "modrinth-fallback",
+      fallbackToModrinth: useModrinthFallback,
     };
     renderUpdateNoticeCard();
   } catch (error) {
