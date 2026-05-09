@@ -46,19 +46,33 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Validate Crowdin secrets (when enabled)
+        if: ${{ inputs.pull_from_crowdin }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${{ secrets.CROWDIN_PROJECT_ID }}" ]]; then
+            echo "::error::Missing secret CROWDIN_PROJECT_ID."
+            exit 1
+          fi
+          if [[ -z "${{ secrets.CROWDIN_PERSONAL_TOKEN }}" ]]; then
+            echo "::error::Missing secret CROWDIN_PERSONAL_TOKEN."
+            exit 1
+          fi
+
       - name: Pull translations from Crowdin (optional)
         if: ${{ inputs.pull_from_crowdin }}
         uses: crowdin/github-action@v2
         with:
+          config: crowdin.yml
+          project_id: ${{ secrets.CROWDIN_PROJECT_ID }}
+          token: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
           upload_sources: false
           upload_translations: false
           download_translations: true
           create_pull_request: false
           crowdin_branch_name: ${{ inputs.crowdin_branch }}
           export_only_approved: ${{ inputs.crowdin_export_only_approved }}
-        env:
-          CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
-          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
 
       - name: Resolve release tag
         id: tag
