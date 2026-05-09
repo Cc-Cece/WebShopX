@@ -51,8 +51,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${{ secrets.CROWDIN_PROJECT_ID }}" ]]; then
-            echo "::error::Missing secret CROWDIN_PROJECT_ID."
+          if [[ -z "${{ secrets.CROWDIN_PROJECT_ID || vars.CROWDIN_PROJECT_ID }}" ]]; then
+            echo "::error::Missing Crowdin project id. Configure either secret CROWDIN_PROJECT_ID or variable CROWDIN_PROJECT_ID."
             exit 1
           fi
           if [[ -z "${{ secrets.CROWDIN_PERSONAL_TOKEN }}" ]]; then
@@ -65,7 +65,7 @@ jobs:
         uses: crowdin/github-action@v2
         with:
           config: crowdin.yml
-          project_id: ${{ secrets.CROWDIN_PROJECT_ID }}
+          project_id: ${{ secrets.CROWDIN_PROJECT_ID || vars.CROWDIN_PROJECT_ID }}
           token: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
           upload_sources: false
           upload_translations: false
