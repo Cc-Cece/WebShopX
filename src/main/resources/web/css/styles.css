@@ -3437,6 +3437,54 @@ pre {
   padding-bottom: 0;
 }
 
+/* Locale dialogs: use consistent top labels (no floating badges inside controls). */
+#localeManagerDialog .field:has(> input),
+#localeManagerDialog .field:has(> select),
+#localeManagerDialog .field:has(> textarea),
+#localeManifestDialog .field:has(> input),
+#localeManifestDialog .field:has(> select),
+#localeManifestDialog .field:has(> textarea) {
+  min-height: 0;
+  gap: 6px;
+}
+
+#localeManagerDialog .field:has(> input) > span:first-child,
+#localeManagerDialog .field:has(> select) > span:first-child,
+#localeManagerDialog .field:has(> textarea) > span:first-child,
+#localeManifestDialog .field:has(> input) > span:first-child,
+#localeManifestDialog .field:has(> select) > span:first-child,
+#localeManifestDialog .field:has(> textarea) > span:first-child {
+  position: static !important;
+  top: auto !important;
+  transform: none !important;
+  max-width: 100%;
+  white-space: normal;
+  padding: 0;
+  border-radius: 0;
+  background: transparent !important;
+  z-index: auto;
+  margin: 0 0 6px;
+}
+
+#localeManagerDialog .field:has(> select) > select,
+#localeManifestDialog .field:has(> select) > select {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* Keep normal button height, but avoid full-width stretch in locale dialogs. */
+#localeManagerSaveDefaultBtn,
+#localeManagerUploadBtn,
+#localeManifestFetchBtn {
+  min-height: var(--control-height);
+  height: var(--control-height);
+  font-size: 14px;
+  border-radius: var(--radius-small);
+  padding: 0 14px;
+  width: auto;
+  justify-self: start;
+}
+
 .checkout-summary {
   margin-top: 8px;
   border: 1px solid var(--md-sys-color-outline-variant);

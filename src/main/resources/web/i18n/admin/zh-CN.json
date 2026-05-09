@@ -159,6 +159,8 @@
       "localeManifestFetchListLabel": "获取语言列表",
       "localeManifestFetchBtn": "获取",
       "localeManifestStatusWaiting": "等待获取",
+      "localeManifestSelectAllBtn": "全选",
+      "localeManifestClearAllBtn": "取消全选",
       "localeManifestDownloadBtn": "下载所选",
       "localeManifestCancelBtn": "关闭",
       "localeSourceGithub": "GitHub",

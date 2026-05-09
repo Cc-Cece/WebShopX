@@ -159,6 +159,8 @@
       "localeManifestFetchListLabel": "Fetch Locale List",
       "localeManifestFetchBtn": "Fetch",
       "localeManifestStatusWaiting": "Waiting to fetch",
+      "localeManifestSelectAllBtn": "Select All",
+      "localeManifestClearAllBtn": "Clear All",
       "localeManifestDownloadBtn": "Download Selected",
       "localeManifestCancelBtn": "Close",
       "localeSourceGithub": "GitHub",

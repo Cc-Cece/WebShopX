@@ -3,6 +3,7 @@
   const LOCALE_STORAGE_KEY = "webshopx_locale";
   const BASE_SUPPORTED_LOCALES = Object.freeze(["zh-CN", "en-US"]);
   const LOCALE_META_API_PATH = "/api/meta/locales";
+  const DEFAULT_BUNDLE_FALLBACK_LOCALE = "en-US";
   const BASE_LOCALE_ENTRIES = Object.freeze([
     { locale: "zh-CN", name: "Simplified Chinese", nativeName: "简体中文", source: "built-in" },
     { locale: "en-US", name: "English", nativeName: "English", source: "built-in" },
@@ -829,19 +830,52 @@
 
   function buildBundleCandidates(namespace, locale, fallbackLocale) {
     const normalizedLocale = normalizeLocale(locale);
-    const normalizedFallback = normalizeLocale(fallbackLocale || "zh-CN");
-    const rawCandidates = [
-      `/i18n/${namespace}/${normalizedLocale}.json`,
-      `/i18n/${namespace}/${normalizedFallback}.json`,
-      `/i18n/${namespace}/en-US.json`,
-      `i18n/${namespace}/${normalizedLocale}.json`,
-      `./i18n/${namespace}/${normalizedLocale}.json`,
-      `i18n/${namespace}/${normalizedFallback}.json`,
-      `./i18n/${namespace}/${normalizedFallback}.json`,
-      `i18n/${namespace}/en-US.json`,
-      `./i18n/${namespace}/en-US.json`,
+    const normalizedFallback = normalizeLocale(fallbackLocale || DEFAULT_BUNDLE_FALLBACK_LOCALE);
+    const orderedLocales = [];
+    const pushLocale = (value) => {
+      const normalized = normalizeLocale(value);
+      if (!normalized || orderedLocales.includes(normalized)) {
+        return;
+      }
+      orderedLocales.push(normalized);
+    };
+    // Merge order: english base -> optional fallback -> requested locale override.
+    pushLocale(DEFAULT_BUNDLE_FALLBACK_LOCALE);
+    pushLocale(normalizedFallback);
+    pushLocale(normalizedLocale);
+
+    const rawCandidates = [];
+    const basePaths = [
+      `/i18n/${namespace}`,
+      `i18n/${namespace}`,
+      `./i18n/${namespace}`,
     ];
-    return Array.from(new Set(rawCandidates));
+    basePaths.forEach((base) => {
+      orderedLocales.forEach((tag) => {
+        rawCandidates.push(`${base}/${tag}.json`);
+      });
+    });
+    return rawCandidates;
+  }
+
+  function mergeBundleObject(baseValue, nextValue) {
+    if (Array.isArray(baseValue) || Array.isArray(nextValue)) {
+      return Array.isArray(nextValue) ? nextValue.slice() : nextValue;
+    }
+    const baseIsObject = baseValue && typeof baseValue === "object";
+    const nextIsObject = nextValue && typeof nextValue === "object";
+    if (!baseIsObject || !nextIsObject) {
+      return nextValue;
+    }
+    const merged = { ...baseValue };
+    Object.keys(nextValue).forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(baseValue, key)) {
+        merged[key] = mergeBundleObject(baseValue[key], nextValue[key]);
+      } else {
+        merged[key] = nextValue[key];
+      }
+    });
+    return merged;
   }
 
   function loadBundleSync(namespace, options = {}) {
@@ -850,7 +884,7 @@
       return {};
     }
     const requestedLocale = normalizeLocale(options.locale || currentLocale);
-    const fallbackLocale = normalizeLocale(options.fallbackLocale || "zh-CN");
+    const fallbackLocale = normalizeLocale(options.fallbackLocale || DEFAULT_BUNDLE_FALLBACK_LOCALE);
     const candidates = Array.isArray(options.candidates) && options.candidates.length > 0
       ? options.candidates
       : buildBundleCandidates(normalizedNamespace, requestedLocale, fallbackLocale);
@@ -858,15 +892,17 @@
     if (BUNDLE_CACHE.has(cacheKey)) {
       return cloneJsonValue(BUNDLE_CACHE.get(cacheKey));
     }
+    let merged = {};
+    let loadedAny = false;
     for (const path of candidates) {
       const parsed = readJsonSync(path);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        BUNDLE_CACHE.set(cacheKey, parsed);
-        return cloneJsonValue(parsed);
+        merged = mergeBundleObject(merged, parsed) || merged;
+        loadedAny = true;
       }
     }
-    BUNDLE_CACHE.set(cacheKey, {});
-    return {};
+    BUNDLE_CACHE.set(cacheKey, loadedAny ? merged : {});
+    return cloneJsonValue(BUNDLE_CACHE.get(cacheKey));
   }
 
   function getBundleValue(bundle, path) {

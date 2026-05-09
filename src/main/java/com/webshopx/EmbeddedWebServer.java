@@ -4808,6 +4808,7 @@ class EmbeddedWebServer {
     int totalAttempts = Math.max(REMOTE_FETCH_MAX_ATTEMPTS, candidates.size());
     for (int attempt = 1; attempt <= totalAttempts; attempt++) {
       URI attemptUri = candidates.get((attempt - 1) % candidates.size());
+      int attemptStatus = 0;
       HttpRequest request = HttpRequest.newBuilder(attemptUri)
           .timeout(timeout)
           .header("Accept", accept)
@@ -4820,6 +4821,7 @@ class EmbeddedWebServer {
           validateManifestUri(response.uri());
         }
         int status = response.statusCode();
+        attemptStatus = status;
         lastStatus = status;
         if (status < 200 || status >= 300) {
           if (attempt < totalAttempts && isRetriableHttpStatus(status)) {
@@ -4844,7 +4846,8 @@ class EmbeddedWebServer {
         return body;
       } catch (ServiceException exception) {
         lastFailure = exception;
-        if (attempt >= totalAttempts) {
+        boolean retryable = isRetriableServiceException(exception, attemptStatus);
+        if (attempt >= totalAttempts || !retryable) {
           throw exception;
         }
         logRemoteRetry(label, attemptUri, attempt, totalAttempts, exception.getMessage());
@@ -4868,6 +4871,19 @@ class EmbeddedWebServer {
       throw new ServiceException("bad_gateway", label + " upstream HTTP " + lastStatus);
     }
     throw new ServiceException("bad_gateway", "Failed to fetch " + label);
+  }
+
+  private boolean isRetriableServiceException(ServiceException exception, int attemptStatus) {
+    if (exception == null) {
+      return false;
+    }
+    if ("bad_request".equals(exception.code())) {
+      return false;
+    }
+    if (attemptStatus > 0 && !isRetriableHttpStatus(attemptStatus)) {
+      return false;
+    }
+    return true;
   }
 
   private boolean isRetriableHttpStatus(int status) {

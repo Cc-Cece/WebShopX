@@ -99,6 +99,8 @@
   },
   localeManifest: {
     entries: [],
+    fetching: false,
+    downloading: false,
   },
 };
 
@@ -823,6 +825,8 @@ const elements = {
   localeManifestDialog: document.getElementById("localeManifestDialog"),
   localeManifestUrl: document.getElementById("localeManifestUrl"),
   localeManifestStatus: document.getElementById("localeManifestStatus"),
+  localeManifestSelectAllBtn: document.getElementById("localeManifestSelectAllBtn"),
+  localeManifestClearAllBtn: document.getElementById("localeManifestClearAllBtn"),
   localeManifestResultList: document.getElementById("localeManifestResultList"),
   localeManifestFetchBtn: document.getElementById("localeManifestFetchBtn"),
   localeManifestDownloadBtn: document.getElementById("localeManifestDownloadBtn"),
@@ -1393,7 +1397,7 @@ function parseManifestLocales(payload) {
         name,
         nativeName,
         version: version || "manifest",
-        checked: true,
+        checked: false,
       };
     })
     .filter(Boolean)
@@ -1447,7 +1451,27 @@ function getSelectedManifestLocales() {
     .map((item) => item.locale);
 }
 
+function setLocaleManifestSelection(checked) {
+  if (!Array.isArray(state.localeManifest.entries) || state.localeManifest.entries.length <= 0) {
+    if (elements.localeManifestStatus) {
+      setMetaText(
+        elements.localeManifestStatus,
+        getAdminPageText("localeManifestEmptyList", "No selectable locale yet. Click Fetch first."),
+        "warn"
+      );
+    }
+    return;
+  }
+  state.localeManifest.entries.forEach((item) => {
+    item.checked = checked;
+  });
+  renderLocaleManifestSelectableList();
+}
+
 async function fetchLocaleManifestList() {
+  if (state.localeManifest.fetching) {
+    return;
+  }
   const manifestUrl = String(elements.localeManifestUrl?.value || "").trim();
   if (!manifestUrl) {
     if (elements.localeManifestStatus) {
@@ -1471,6 +1495,10 @@ async function fetchLocaleManifestList() {
     }
     return;
   }
+  state.localeManifest.fetching = true;
+  if (elements.localeManifestFetchBtn) {
+    elements.localeManifestFetchBtn.disabled = true;
+  }
 
   let payload;
   try {
@@ -1484,6 +1512,11 @@ async function fetchLocaleManifestList() {
       );
     }
     return;
+  } finally {
+    state.localeManifest.fetching = false;
+    if (elements.localeManifestFetchBtn) {
+      elements.localeManifestFetchBtn.disabled = false;
+    }
   }
 
   state.localeManifest.entries = parseManifestLocales(payload);
@@ -1502,6 +1535,9 @@ async function fetchLocaleManifestList() {
 }
 
 async function runLocaleCenterManifestSync() {
+  if (state.localeManifest.downloading) {
+    return;
+  }
   const manifestUrl = String(elements.localeManifestUrl?.value || "").trim();
   if (!manifestUrl) {
     if (elements.localeManifestStatus) {
@@ -1529,6 +1565,10 @@ async function runLocaleCenterManifestSync() {
       "info"
     );
   }
+  state.localeManifest.downloading = true;
+  if (elements.localeManifestDownloadBtn) {
+    elements.localeManifestDownloadBtn.disabled = true;
+  }
   let payload;
   try {
     payload = await apiAdmin("/api/admin/locales/sync-manifest", {
@@ -1547,6 +1587,11 @@ async function runLocaleCenterManifestSync() {
       );
     }
     return;
+  } finally {
+    state.localeManifest.downloading = false;
+    if (elements.localeManifestDownloadBtn) {
+      elements.localeManifestDownloadBtn.disabled = false;
+    }
   }
   applyLocaleCenterState(payload?.state || state.localeCenter, { baseline: true, dirty: false });
   const failed = Number(payload?.failed || 0);
@@ -8571,6 +8616,16 @@ if (elements.localeManifestFetchBtn) {
         );
       }
     });
+  });
+}
+if (elements.localeManifestSelectAllBtn) {
+  elements.localeManifestSelectAllBtn.addEventListener("click", () => {
+    setLocaleManifestSelection(true);
+  });
+}
+if (elements.localeManifestClearAllBtn) {
+  elements.localeManifestClearAllBtn.addEventListener("click", () => {
+    setLocaleManifestSelection(false);
   });
 }
 if (elements.localeManifestDownloadBtn) {

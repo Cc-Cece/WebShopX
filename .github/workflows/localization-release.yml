@@ -32,6 +32,8 @@ on:
         required: false
         default: true
         type: boolean
+  schedule:
+    - cron: "0 3 * * *"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -39,15 +41,16 @@ concurrency:
 
 jobs:
   publish-l10n:
+    if: ${{ github.event_name != 'schedule' || vars.LOCALIZATION_RELEASE_SCHEDULE_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     env:
-      TARGET_REPO: ${{ inputs.target_repo }}
+      TARGET_REPO: ${{ inputs.target_repo || 'Cc-Cece/WebShopX-Issues' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Validate Crowdin secrets (when enabled)
-        if: ${{ inputs.pull_from_crowdin }}
+        if: ${{ github.event_name == 'schedule' || inputs.pull_from_crowdin }}
         shell: bash
         run: |
           set -euo pipefail
@@ -61,13 +64,13 @@ jobs:
           fi
 
       - name: Pull translations from Crowdin API (optional)
-        if: ${{ inputs.pull_from_crowdin }}
+        if: ${{ github.event_name == 'schedule' || inputs.pull_from_crowdin }}
         shell: bash
         env:
           CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID || vars.CROWDIN_PROJECT_ID }}
           CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
-          CROWDIN_BRANCH: ${{ inputs.crowdin_branch }}
-          CROWDIN_EXPORT_ONLY_APPROVED: ${{ inputs.crowdin_export_only_approved }}
+          CROWDIN_BRANCH: ${{ inputs.crowdin_branch || '' }}
+          CROWDIN_EXPORT_ONLY_APPROVED: ${{ github.event_name == 'schedule' && 'true' || inputs.crowdin_export_only_approved }}
         run: |
           set -euo pipefail
 
@@ -162,7 +165,7 @@ jobs:
           echo "Crowdin archive extracted to crowdin-download/"
 
       - name: Normalize downloaded Crowdin files (optional)
-        if: ${{ inputs.pull_from_crowdin }}
+        if: ${{ github.event_name == 'schedule' || inputs.pull_from_crowdin }}
         shell: bash
         run: |
           set -euo pipefail

@@ -6,8 +6,10 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -17,6 +19,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 class MessageService {
+  private static final String ENGLISH_FALLBACK_LOCALE = "en-US";
   private final JavaPlugin plugin;
   private final Supplier<PluginSettings> settingsSupplier;
   private final Map<String, YamlConfiguration> bundles = new HashMap<>();
@@ -74,46 +77,37 @@ class MessageService {
   }
 
   List<String> getList(String locale, String key, Map<String, ?> params) {
-    String normalizedLocale = normalizeLocale(locale);
-    YamlConfiguration bundle = loadBundle(normalizedLocale);
-    List<String> values = bundle.getStringList(key);
-    if (!values.isEmpty()) {
-      return values.stream()
-          .map(value -> applyParams(value, params))
-          .toList();
-    }
-    if (bundle.isString(key)) {
-      return List.of(applyParams(bundle.getString(key, key), params));
-    }
-    String fallbackLocale = normalizeLocale(settingsSupplier.get().defaultLocale());
-    if (!fallbackLocale.equals(normalizedLocale)) {
-      YamlConfiguration fallback = loadBundle(fallbackLocale);
-      List<String> fallbackValues = fallback.getStringList(key);
-      if (!fallbackValues.isEmpty()) {
-        return fallbackValues.stream()
+    for (String candidateLocale : resolveLookupLocales(locale)) {
+      YamlConfiguration bundle = loadBundle(candidateLocale);
+      List<String> values = bundle.getStringList(key);
+      if (!values.isEmpty()) {
+        return values.stream()
             .map(value -> applyParams(value, params))
             .toList();
       }
-      if (fallback.isString(key)) {
-        return List.of(applyParams(fallback.getString(key, key), params));
+      if (bundle.isString(key)) {
+        return List.of(applyParams(bundle.getString(key, key), params));
       }
     }
     return List.of();
   }
 
   private String resolveValue(String locale, String key) {
-    YamlConfiguration bundle = loadBundle(locale);
-    if (bundle.isString(key)) {
-      return bundle.getString(key, key);
-    }
-    String fallbackLocale = normalizeLocale(settingsSupplier.get().defaultLocale());
-    if (!fallbackLocale.equals(locale)) {
-      YamlConfiguration fallback = loadBundle(fallbackLocale);
-      if (fallback.isString(key)) {
-        return fallback.getString(key, key);
+    for (String candidateLocale : resolveLookupLocales(locale)) {
+      YamlConfiguration bundle = loadBundle(candidateLocale);
+      if (bundle.isString(key)) {
+        return bundle.getString(key, key);
       }
     }
     return key;
+  }
+
+  private List<String> resolveLookupLocales(String requestedLocale) {
+    LinkedHashSet<String> ordered = new LinkedHashSet<>();
+    ordered.add(normalizeLocale(requestedLocale));
+    ordered.add(ENGLISH_FALLBACK_LOCALE);
+    ordered.add(normalizeLocale(settingsSupplier.get().defaultLocale()));
+    return new ArrayList<>(ordered);
   }
 
   private String applyParams(String template, Map<String, ?> params) {
