@@ -692,8 +692,10 @@
 <article class="md-card section-card">
 <div class="section-head">
 <div>
-<h2>语言与翻译</h2>
-<p class="card-desc">管理 Web 和游戏内可用语言。支持本地上传与 GitHub Manifest 同步。</p>
+<h2>语言管理</h2>
+<p class="card-desc locale-help-desc">管理已安装语言，支持上传与在线获取。只有已安装的语言才能被使用。<br />
+上传模板请前往 <a class="locale-help-link" href="https://docs.akihito.dpdns.org/" target="_blank" rel="noopener noreferrer">Wiki</a> 获取。<br />
+如果在线获取的语言没有你需要的，请到 <a class="locale-help-link" href="https://crowdin.com/project/webshopx/" target="_blank" rel="noopener noreferrer">Crowdin</a> 申请适配。</p>
 </div>
 <button id="localeCenterOpenBtn" type="button">管理语言</button>
 </div>
@@ -703,7 +705,7 @@
 <p class="meta" id="localeCenterDefaultLocaleView">-</p>
 </label>
 <label class="field">
-<span>已发布语言</span>
+<span>Web 启用语言</span>
 <p class="meta" id="localeCenterPublishedCountView">0</p>
 </label>
 <label class="field">
@@ -1559,8 +1561,8 @@
 </div>
 <div aria-hidden="true" class="dialog-backdrop" id="localeManagerDialog">
 <article class="md-card dialog-card market-policy-dialog-card">
-<h3>语言中心</h3>
-<p id="localeManagerSummary">管理已安装语言，支持上传与 GitHub Manifest 同步。</p>
+<h3>语言管理</h3>
+<p id="localeManagerSummary"></p>
 <div class="dialog-details market-policy-dialog-scroll">
 <div class="field-grid two-col">
 <label class="field">
@@ -1569,45 +1571,53 @@
 </label>
 <label class="field dialog-select-field">
 <span>默认语言操作</span>
-<button class="btn-tonal" id="localeManagerSaveDefaultBtn" type="button">保存默认语言</button>
+<button class="btn-tonal btn-small" id="localeManagerSaveDefaultBtn" type="button">保存默认语言</button>
 </label>
 </div>
 <h4>已安装语言</h4>
 <div class="admin-list" id="localeManagerLocaleList"></div>
+<label class="field dialog-select-field">
+<span>在线获取或手动安装</span>
+<button class="btn-tonal" id="localeManagerManifestBtn" type="button">在线获取</button>
+</label>
+<div class="field-grid two-col">
 <label class="field">
-<span>上传语言包（示例）</span>
+<span>上传语言包(zip)</span>
 <input accept=".zip,.json,.yml,.yaml" id="localeManagerUploadFile" type="file"/>
 </label>
+<label class="field dialog-select-field">
+<span>上传操作</span>
+<button class="btn-tonal btn-small" id="localeManagerUploadBtn" type="button">本地上传</button>
+</label>
+</div>
 <p class="meta" id="localeManagerActionStatus">等待操作</p>
 </div>
 <div class="actions">
-<button class="btn-tonal" id="localeManagerUploadBtn" type="button">本地上传</button>
-<button class="btn-tonal" id="localeManagerManifestBtn" type="button">GitHub 清单同步</button>
-<button id="localeManagerValidatePublishBtn" type="button">校验并发布</button>
+<button id="localeManagerValidatePublishBtn" type="button">应用</button>
 <button class="btn-tonal" id="localeManagerCloseBtn" type="button">关闭</button>
 </div>
 </article>
 </div>
 <div aria-hidden="true" class="dialog-backdrop" id="localeManifestDialog">
 <article class="md-card dialog-card market-policy-dialog-card">
-<h3>GitHub Manifest 同步</h3>
-<p>填写 manifest.json 地址后拉取语言列表和版本信息。</p>
+<h3>在线获取语言包</h3>
+<p>先获取语言列表，再勾选要下载的语言包。</p>
 <div class="dialog-details market-policy-dialog-scroll">
 <div class="field-grid two-col">
 <label class="field">
 <span>Manifest URL</span>
-<input id="localeManifestUrl" placeholder="例如 https://.../releases/latest/download/manifest.json"/>
+<input id="localeManifestUrl" placeholder="例如 https://.../releases/latest/download/manifest.json" value="https://github.com/Cc-Cece/WebShopX-Issues/releases/download/l10n-cdn/manifest.json"/>
 </label>
 <label class="field">
-<span>目标语言（可空=全部）</span>
-<input id="localeManifestLanguages" placeholder="例如 fr,de,ja"/>
+<span>获取语言列表</span>
+<button class="btn-tonal btn-small" id="localeManifestFetchBtn" type="button">获取</button>
 </label>
 </div>
-<p class="meta" id="localeManifestStatus">等待同步</p>
+<p class="meta" id="localeManifestStatus">等待获取</p>
 <div class="admin-list" id="localeManifestResultList"></div>
 </div>
 <div class="actions">
-<button id="localeManifestSyncBtn" type="button">开始同步</button>
+<button class="btn-tonal" id="localeManifestDownloadBtn" type="button">下载所选</button>
 <button class="btn-tonal" id="localeManifestCancelBtn" type="button">关闭</button>
 </div>
 </article>

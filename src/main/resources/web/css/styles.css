@@ -297,6 +297,44 @@ body {
   font-size: 14px;
 }
 
+.locale-help-desc {
+  line-height: 1.72;
+}
+
+.locale-help-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 2px;
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 38%, transparent);
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--md-sys-color-primary) 86%, var(--md-sys-color-on-surface));
+  background: color-mix(in srgb, var(--md-sys-color-primary-container) 24%, transparent);
+  font-weight: 600;
+  text-decoration: none;
+  text-underline-offset: 2px;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.locale-help-link::after {
+  content: "↗";
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.locale-help-link:hover,
+.locale-help-link:focus-visible {
+  border-color: color-mix(in srgb, var(--md-sys-color-primary) 62%, transparent);
+  background: color-mix(in srgb, var(--md-sys-color-primary-container) 42%, transparent);
+  transform: translateY(-1px);
+}
+
+.locale-help-link:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--md-sys-color-primary) 50%, white);
+  outline-offset: 1px;
+}
+
 .section-head {
   display: flex;
   gap: 12px;
@@ -569,6 +607,13 @@ button:disabled {
 
 .btn-tonal:hover {
   background: var(--app-tonal-hover);
+}
+
+.btn-small {
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+  border-radius: 10px;
 }
 
 .btn-return {

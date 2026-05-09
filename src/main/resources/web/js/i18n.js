@@ -2,7 +2,7 @@
   const RUNTIME_CONFIG = window.WEBSHOPX_CONFIG || {};
   const LOCALE_STORAGE_KEY = "webshopx_locale";
   const BASE_SUPPORTED_LOCALES = Object.freeze(["zh-CN", "en-US"]);
-  const LOCALE_CENTER_STORAGE_KEY = "webshopx_admin_locale_center_demo";
+  const LOCALE_META_API_PATH = "/api/meta/locales";
   const BASE_LOCALE_ENTRIES = Object.freeze([
     { locale: "zh-CN", name: "Simplified Chinese", nativeName: "简体中文", source: "built-in" },
     { locale: "en-US", name: "English", nativeName: "English", source: "built-in" },
@@ -10,6 +10,8 @@
   const ATTRIBUTE_NAMES = ["placeholder", "title", "aria-label", "alt"];
   const SKIP_PARENTS = new Set(["CODE", "SCRIPT", "STYLE", "TEXTAREA"]);
   const BUNDLE_CACHE = new Map();
+  let SERVER_LOCALE_META = null;
+  let SERVER_LOCALE_ENTRIES = null;
 
   const EN_EXACT = Object.freeze({
     "WebShopX - MC网页商店系统": "WebShopX - Minecraft Web Shop",
@@ -624,23 +626,29 @@
     return Array.from(map.values());
   }
 
-  function readLocaleCenterPublishedLocaleEntries() {
-    try {
-      const raw = window.localStorage.getItem(LOCALE_CENTER_STORAGE_KEY);
-      if (!raw) {
-        return [];
-      }
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.locales)) {
-        return [];
-      }
-      return parsed.locales
-        .filter((item) => item && item.status === "published" && item.webEnabled !== false)
-        .map((item) => toLocaleEntry(item, "locale-center"))
-        .filter(Boolean);
-    } catch (error) {
-      return [];
+  function readServerLocaleMetaSync() {
+    if (SERVER_LOCALE_META !== null) {
+      return SERVER_LOCALE_META;
     }
+    const payload = readJsonSync(LOCALE_META_API_PATH);
+    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+      SERVER_LOCALE_META = payload;
+      return SERVER_LOCALE_META;
+    }
+    SERVER_LOCALE_META = {};
+    return SERVER_LOCALE_META;
+  }
+
+  function readServerPublishedLocaleEntries() {
+    if (Array.isArray(SERVER_LOCALE_ENTRIES)) {
+      return SERVER_LOCALE_ENTRIES.slice();
+    }
+    const payload = readServerLocaleMetaSync();
+    const locales = Array.isArray(payload?.locales) ? payload.locales : [];
+    SERVER_LOCALE_ENTRIES = locales
+      .map((item) => toLocaleEntry(item, "server"))
+      .filter(Boolean);
+    return SERVER_LOCALE_ENTRIES.slice();
   }
 
   function getSupportedLocaleEntries() {
@@ -648,8 +656,8 @@
     const runtimeEntries = runtimeLocalesRaw
       .map((item) => toLocaleEntry(item, "runtime"))
       .filter(Boolean);
-    const fromLocaleCenter = readLocaleCenterPublishedLocaleEntries();
-    const merged = mergeLocaleEntries([...BASE_LOCALE_ENTRIES, ...runtimeEntries, ...fromLocaleCenter]);
+    const fromServer = readServerPublishedLocaleEntries();
+    const merged = mergeLocaleEntries([...BASE_LOCALE_ENTRIES, ...runtimeEntries, ...fromServer]);
     if (merged.length === 0) {
       return mergeLocaleEntries(BASE_LOCALE_ENTRIES.slice());
     }
@@ -674,11 +682,11 @@
       return supported.includes(fallback) ? fallback : supported[0];
     }
 
-    if (normalized === "zh" || normalized.startsWith("zh-")) {
+    if (normalized === "zh") {
       const zhLocale = supported.find((item) => item === "zh-CN") || supported.find((item) => item.startsWith("zh"));
       return zhLocale || (supported.includes(fallback) ? fallback : supported[0]);
     }
-    if (normalized === "en" || normalized.startsWith("en-")) {
+    if (normalized === "en") {
       const enLocale = supported.find((item) => item === "en-US") || supported.find((item) => item.startsWith("en"));
       return enLocale || (supported.includes(fallback) ? fallback : supported[0]);
     }
@@ -722,7 +730,9 @@
         return normalized;
       }
     }
-    return normalizeLocale(RUNTIME_CONFIG.defaultLocale || "zh-CN", { supportedLocales: supported });
+    const serverDefault = canonicalizeLocaleTag(readServerLocaleMetaSync()?.defaultLocale || "");
+    const preferredDefault = serverDefault || RUNTIME_CONFIG.defaultLocale || "zh-CN";
+    return normalizeLocale(preferredDefault, { supportedLocales: supported });
   }
 
   function isChineseLocale(locale = currentLocale) {
@@ -820,11 +830,18 @@
   function buildBundleCandidates(namespace, locale, fallbackLocale) {
     const normalizedLocale = normalizeLocale(locale);
     const normalizedFallback = normalizeLocale(fallbackLocale || "zh-CN");
-    return [
+    const rawCandidates = [
+      `/i18n/${namespace}/${normalizedLocale}.json`,
+      `/i18n/${namespace}/${normalizedFallback}.json`,
+      `/i18n/${namespace}/en-US.json`,
       `i18n/${namespace}/${normalizedLocale}.json`,
+      `./i18n/${namespace}/${normalizedLocale}.json`,
       `i18n/${namespace}/${normalizedFallback}.json`,
+      `./i18n/${namespace}/${normalizedFallback}.json`,
       `i18n/${namespace}/en-US.json`,
+      `./i18n/${namespace}/en-US.json`,
     ];
+    return Array.from(new Set(rawCandidates));
   }
 
   function loadBundleSync(namespace, options = {}) {
@@ -1109,6 +1126,8 @@
   }
 
   function refreshLocaleSelect(selectId) {
+    SERVER_LOCALE_META = null;
+    SERVER_LOCALE_ENTRIES = null;
     populateLocaleSelect(selectId || "localeSelect");
   }
 

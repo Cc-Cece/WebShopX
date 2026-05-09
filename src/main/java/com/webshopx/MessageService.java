@@ -4,6 +4,8 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -133,6 +135,19 @@ class MessageService {
   }
 
   private YamlConfiguration readBundle(String locale) {
+    Path messageDir = plugin.getDataFolder().toPath().resolve("messages");
+    Path externalYml = messageDir.resolve("messages." + locale + ".yml");
+    Path externalYaml = messageDir.resolve("messages." + locale + ".yaml");
+    Path externalPath = Files.exists(externalYml) ? externalYml : externalYaml;
+    if (Files.exists(externalPath)) {
+      try (InputStreamReader reader =
+          new InputStreamReader(Files.newInputStream(externalPath), StandardCharsets.UTF_8)) {
+        return YamlConfiguration.loadConfiguration(reader);
+      } catch (Exception exception) {
+        plugin.getLogger().warning("Failed to load external message bundle: " + externalPath);
+      }
+    }
+
     String resourcePath = "messages/messages." + locale + ".yml";
     try (InputStream inputStream = plugin.getResource(resourcePath)) {
       if (inputStream == null) {
@@ -177,10 +192,10 @@ class MessageService {
       return "zh-CN";
     }
     String lower = locale.toLowerCase();
-    if (lower.equals("zh") || lower.startsWith("zh-")) {
+    if (lower.equals("zh")) {
       return "zh-CN";
     }
-    if (lower.equals("en") || lower.startsWith("en-")) {
+    if (lower.equals("en")) {
       return "en-US";
     }
     String[] segments = locale.split("-");

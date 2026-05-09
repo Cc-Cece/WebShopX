@@ -3475,7 +3475,7 @@ async function ensureMaterialNameMap() {
     return;
   }
   state.materialNameMapPromise = Promise.all([
-    fetch(`i18n/materials/${I18N.getLocale()}.json`)
+    fetch(`/i18n/materials/${I18N.getLocale()}.json`)
       .then((response) => {
         if (!response.ok) {
           throw new Error(`material glossary load failed: ${response.status}`);
@@ -3743,9 +3743,9 @@ async function ensureMarketAlgorithmGlossary() {
 
   const locale = I18N ? I18N.getLocale() : "zh-CN";
   const candidates = [
-    `i18n/market-algorithms/${locale}.json`,
-    "i18n/market-algorithms/zh-CN.json",
-    "i18n/market-algorithms/en-US.json",
+    `/i18n/market-algorithms/${locale}.json`,
+    "/i18n/market-algorithms/zh-CN.json",
+    "/i18n/market-algorithms/en-US.json",
   ];
 
   state.marketAlgorithmGlossaryPromise = (async () => {

@@ -15,10 +15,15 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Arrays;
@@ -61,8 +66,30 @@ class EmbeddedWebServer {
   private final ClusterEventBusService clusterEventBusService;
   private final Gson gson;
   private static final int MATERIAL_ICON_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
+  private static final int REMOTE_LOCALE_PACKAGE_MAX_BYTES = 20 * 1024 * 1024;
+  private static final int REMOTE_FETCH_MAX_ATTEMPTS = 4;
+  private static final long REMOTE_FETCH_RETRY_BASE_DELAY_MS = 1200L;
+  private static final List<String> GITHUB_PROXY_PREFIXES = List.of(
+      "https://edgeone.gh-proxy.com/",
+      "https://hk.gh-proxy.com/",
+      "https://gh-proxy.com/",
+      "https://gh.llkk.cc/");
   private static final Set<String> MATERIAL_ICON_ALLOWED_EXTENSIONS =
       Set.of("png", "webp", "jpg", "jpeg", "gif");
+  private static final int REMOTE_MANIFEST_MAX_BYTES = 1024 * 1024;
+  private static final Set<String> MANIFEST_HOST_ALLOWLIST = Set.of(
+      "github.com",
+      "githubusercontent.com",
+      "objects.githubusercontent.com",
+      "release-assets.githubusercontent.com",
+      "edgeone.gh-proxy.com",
+      "hk.gh-proxy.com",
+      "gh-proxy.com",
+      "gh.llkk.cc",
+      "cdn.jsdelivr.net");
+
+  private final HttpClient httpClient;
+  private final LocaleCenterService localeCenterService;
 
   private HttpServer server;
   private ExecutorService executorService;
@@ -106,6 +133,11 @@ class EmbeddedWebServer {
     this.runtimeConfigService = runtimeConfigService;
     this.clusterEventBusService = clusterEventBusService;
     this.gson = new GsonBuilder().disableHtmlEscaping().create();
+    this.httpClient = HttpClient.newBuilder()
+      .followRedirects(HttpClient.Redirect.NORMAL)
+      .connectTimeout(Duration.ofSeconds(10))
+      .build();
+    this.localeCenterService = new LocaleCenterService(plugin, () -> this.staticRoot);
   }
 
   void start(Path staticRoot) throws IOException {
@@ -139,6 +171,7 @@ class EmbeddedWebServer {
     server.createContext("/api/meta/materials", this::handleMaterialMeta);
     server.createContext("/api/meta/material-overrides", this::handleMaterialOverrideMeta);
     server.createContext("/api/meta/market-tags", this::handleMarketTagsMeta);
+    server.createContext("/api/meta/locales", this::handleMetaLocales);
     server.createContext("/api/leaderboard/config", this::handleLeaderboardConfig);
     server.createContext("/api/leaderboard/list", this::handleLeaderboardList);
     server.createContext("/api/market/listings", this::handleMarketListings);
@@ -157,6 +190,12 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/auth/login", this::handleAdminLogin);
     server.createContext("/api/admin/auth/me", this::handleAdminMe);
     server.createContext("/api/admin/auth/logout", this::handleAdminLogout);
+    server.createContext("/api/admin/l10n/manifest", this::handleAdminL10nManifest);
+    server.createContext("/api/admin/locales", this::handleAdminLocalesList);
+    server.createContext("/api/admin/locales/default", this::handleAdminLocalesDefault);
+    server.createContext("/api/admin/locales/action", this::handleAdminLocalesAction);
+    server.createContext("/api/admin/locales/upload", this::handleAdminLocalesUpload);
+    server.createContext("/api/admin/locales/sync-manifest", this::handleAdminLocalesSyncManifest);
     server.createContext("/api/admin/redeem/create", this::handleAdminRedeemCreate);
     server.createContext("/api/admin/redeem/list", this::handleAdminRedeemList);
     server.createContext("/api/admin/products/list", this::handleAdminProductsList);
@@ -1996,6 +2035,213 @@ class EmbeddedWebServer {
       sendJson(exchange, 200, response);
 
       adminAuditService.log(admin, "ADMIN_LOGOUT", "admin", user.username(), null, clientIp(exchange));
+    });
+  }
+
+  private void handleAdminL10nManifest(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      requireAdmin(exchange, null, AdminPermission.ECONOMY_MANAGE);
+      Map<String, String> query = parseQuery(exchange);
+      String rawUrl = query.get("url");
+      if (rawUrl == null || rawUrl.isBlank()) {
+        throw new ServiceException("bad_request", "Missing field: url");
+      }
+      URI manifestUri = parseManifestUri(rawUrl);
+      boolean enableGithubMirrorFallback = isGithubMirrorFallbackEnabledForManifest(manifestUri);
+      JsonObject manifest = fetchRemoteManifest(manifestUri, enableGithubMirrorFallback);
+      sendJson(exchange, 200, manifest);
+    });
+  }
+
+  private void handleMetaLocales(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject state = localeCenterService.listState();
+      JsonObject response = new JsonObject();
+      response.addProperty("defaultLocale", getOptionalString(state, "defaultLocale").orElse("zh-CN"));
+      response.add("locales", localeCenterService.listPublicWebLocales());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminLocalesList(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      requireAdmin(exchange, null, AdminPermission.ECONOMY_MANAGE);
+      sendJson(exchange, 200, localeCenterService.listState());
+    });
+  }
+
+  private void handleAdminLocalesDefault(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      String defaultLocale = getOptionalString(payload, "defaultLocale")
+          .orElseThrow(() -> new ServiceException("bad_request", "Missing field: defaultLocale"));
+      JsonObject state = localeCenterService.updateDefaultLocale(defaultLocale);
+      JsonObject response = new JsonObject();
+      response.add("state", state);
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminLocalesAction(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      String locale = getOptionalString(payload, "locale")
+          .orElseThrow(() -> new ServiceException("bad_request", "Missing field: locale"));
+      String action = getOptionalString(payload, "action")
+          .orElseThrow(() -> new ServiceException("bad_request", "Missing field: action"));
+      JsonObject state = localeCenterService.applyLocaleAction(locale, action);
+      JsonObject response = new JsonObject();
+      response.add("state", state);
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminLocalesUpload(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      String fileName = getOptionalString(payload, "fileName").orElse("locale-pack.zip");
+      String contentBase64 = getString(payload, "contentBase64");
+      LocaleCenterService.InstallOutcome outcome = localeCenterService.installBase64Package(
+          fileName,
+          contentBase64,
+          LocaleCenterService.installOptionsFromJson(payload));
+
+      JsonArray changed = new JsonArray();
+      for (JsonObject row : outcome.changed()) {
+        changed.add(row);
+      }
+
+      JsonObject response = new JsonObject();
+      response.add("state", outcome.state());
+      response.add("changed", changed);
+      response.addProperty("fileCount", outcome.fileCount());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminLocalesSyncManifest(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+
+      String rawUrl = getOptionalString(payload, "url")
+          .orElseThrow(() -> new ServiceException("bad_request", "Missing field: url"));
+      URI manifestUri = parseManifestUri(rawUrl);
+      boolean enableGithubMirrorFallback = isGithubMirrorFallbackEnabledForManifest(manifestUri);
+      JsonObject manifest = fetchRemoteManifest(manifestUri, enableGithubMirrorFallback);
+      List<ManifestLocalePackage> entries = parseManifestLocalePackages(manifest);
+      if (entries.isEmpty()) {
+        throw new ServiceException("bad_request", "Manifest contains no locale package entries");
+      }
+
+      Set<String> requestedLocales = new java.util.LinkedHashSet<>();
+      for (String rawLocale : getStringArray(payload, "locales")) {
+        String locale = canonicalizeLocaleTag(rawLocale);
+        if (!locale.isBlank()) {
+          requestedLocales.add(locale);
+        }
+      }
+
+      JsonArray results = new JsonArray();
+      int succeeded = 0;
+      int failed = 0;
+      String manifestVersion = getOptionalString(manifest, "version").orElse("");
+
+      for (ManifestLocalePackage entry : entries) {
+        if (!requestedLocales.isEmpty() && !requestedLocales.contains(entry.locale())) {
+          continue;
+        }
+
+        JsonObject row = new JsonObject();
+        row.addProperty("locale", entry.locale());
+        row.addProperty("version", entry.version());
+        row.addProperty("packageUrl", entry.packageUrl());
+        try {
+          URI packageUri = parseManifestUri(entry.packageUrl());
+          byte[] packageBytes = fetchRemoteBinary(
+              packageUri,
+              "locale package",
+              REMOTE_LOCALE_PACKAGE_MAX_BYTES,
+              enableGithubMirrorFallback);
+          LocaleCenterService.InstallOutcome outcome = localeCenterService.installZipPackage(
+              packageBytes,
+              new LocaleCenterService.InstallOptions("github", entry.version(), entry.name(), entry.nativeName()));
+          JsonArray changed = new JsonArray();
+          for (JsonObject changedRow : outcome.changed()) {
+            String changedLocale = getOptionalString(changedRow, "locale").orElse("");
+            if (!changedLocale.isBlank()) {
+              changed.add(changedLocale);
+            }
+          }
+          row.addProperty("result", "ok");
+          row.add("changedLocales", changed);
+          row.addProperty("fileCount", outcome.fileCount());
+          succeeded += 1;
+        } catch (Exception exception) {
+          row.addProperty("result", "failed");
+          row.addProperty("message", exception.getMessage() == null ? "unknown error" : exception.getMessage());
+          failed += 1;
+        }
+        results.add(row);
+      }
+
+      if (results.size() <= 0) {
+        throw new ServiceException("bad_request", "No locale matched the requested filter");
+      }
+
+      JsonObject response = new JsonObject();
+      response.addProperty("manifestVersion", manifestVersion);
+      response.addProperty("total", results.size());
+      response.addProperty("succeeded", succeeded);
+      response.addProperty("failed", failed);
+      response.add("results", results);
+      response.add("state", localeCenterService.listState());
+      sendJson(exchange, 200, response);
     });
   }
 
@@ -4460,6 +4706,368 @@ class EmbeddedWebServer {
     }
     return normalized;
   }
+
+  private URI parseManifestUri(String rawUrl) {
+    String normalized = String.valueOf(rawUrl == null ? "" : rawUrl).trim();
+    if (normalized.isBlank()) {
+      throw new ServiceException("bad_request", "Missing field: url");
+    }
+    URI uri;
+    try {
+      uri = URI.create(normalized);
+    } catch (IllegalArgumentException exception) {
+      throw new ServiceException("bad_request", "Invalid manifest URL");
+    }
+    validateManifestUri(uri);
+    return uri;
+  }
+
+  private void validateManifestUri(URI uri) {
+    if (uri == null || uri.getScheme() == null || !uri.getScheme().equalsIgnoreCase("https")) {
+      throw new ServiceException("bad_request", "Manifest URL must use https");
+    }
+    String host = uri.getHost();
+    if (host == null || host.isBlank()) {
+      throw new ServiceException("bad_request", "Manifest URL host is invalid");
+    }
+    if (uri.getUserInfo() != null) {
+      throw new ServiceException("bad_request", "Manifest URL must not include credentials");
+    }
+    if (!isAllowedManifestHost(host)) {
+      throw new ServiceException("bad_request", "Manifest URL host is not allowed");
+    }
+  }
+
+  private boolean isAllowedManifestHost(String host) {
+    String normalized = host.toLowerCase(Locale.ROOT);
+    while (normalized.startsWith(".")) {
+      normalized = normalized.substring(1);
+    }
+    while (normalized.endsWith(".")) {
+      normalized = normalized.substring(0, normalized.length() - 1);
+    }
+    for (String allowed : MANIFEST_HOST_ALLOWLIST) {
+      if (normalized.equals(allowed) || normalized.endsWith("." + allowed)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private JsonObject fetchRemoteManifest(URI uri, boolean enableGithubMirrorFallback) {
+    byte[] body = fetchRemoteResourceWithRetry(
+        uri,
+        "manifest",
+        "application/json",
+        "WebShopX-Manifest-Proxy",
+        Duration.ofSeconds(20),
+        REMOTE_MANIFEST_MAX_BYTES,
+        enableGithubMirrorFallback);
+
+    String text = new String(body, StandardCharsets.UTF_8).trim();
+    if (text.isEmpty()) {
+      throw new ServiceException("bad_gateway", "Manifest response is empty");
+    }
+    JsonElement parsed;
+    try {
+      parsed = JsonParser.parseString(text);
+    } catch (Exception exception) {
+      throw new ServiceException("bad_gateway", "Manifest JSON is invalid");
+    }
+    if (!parsed.isJsonObject()) {
+      throw new ServiceException("bad_gateway", "Manifest JSON must be an object");
+    }
+    return parsed.getAsJsonObject();
+  }
+
+  private byte[] fetchRemoteBinary(URI uri, String label, int maxBytes, boolean enableGithubMirrorFallback) {
+    return fetchRemoteResourceWithRetry(
+        uri,
+        label,
+        "*/*",
+        "WebShopX-Locale-Sync",
+        Duration.ofSeconds(30),
+        maxBytes,
+        enableGithubMirrorFallback);
+  }
+
+  private byte[] fetchRemoteResourceWithRetry(
+      URI uri,
+      String label,
+      String accept,
+      String userAgent,
+      Duration timeout,
+      int maxBytes,
+      boolean enableGithubMirrorFallback) {
+    List<URI> candidates = buildRemoteFetchCandidates(uri, enableGithubMirrorFallback);
+    if (candidates.isEmpty()) {
+      throw new ServiceException("bad_request", "No valid URL candidate for " + label);
+    }
+    Exception lastFailure = null;
+    int lastStatus = 0;
+    int totalAttempts = Math.max(REMOTE_FETCH_MAX_ATTEMPTS, candidates.size());
+    for (int attempt = 1; attempt <= totalAttempts; attempt++) {
+      URI attemptUri = candidates.get((attempt - 1) % candidates.size());
+      HttpRequest request = HttpRequest.newBuilder(attemptUri)
+          .timeout(timeout)
+          .header("Accept", accept)
+          .header("User-Agent", userAgent)
+          .GET()
+          .build();
+      try {
+        HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        if (response.uri() != null) {
+          validateManifestUri(response.uri());
+        }
+        int status = response.statusCode();
+        lastStatus = status;
+        if (status < 200 || status >= 300) {
+          if (attempt < totalAttempts && isRetriableHttpStatus(status)) {
+            logRemoteRetry(label, attemptUri, attempt, totalAttempts, "HTTP " + status);
+            sleepBeforeRemoteRetry(attempt);
+            continue;
+          }
+          throw new ServiceException("bad_gateway", label + " upstream HTTP " + status);
+        }
+        byte[] body = response.body();
+        if (body == null || body.length == 0) {
+          if (attempt < totalAttempts) {
+            logRemoteRetry(label, attemptUri, attempt, totalAttempts, "empty response");
+            sleepBeforeRemoteRetry(attempt);
+            continue;
+          }
+          throw new ServiceException("bad_gateway", label + " response is empty");
+        }
+        if (body.length > maxBytes) {
+          throw new ServiceException("bad_request", label + " response is too large");
+        }
+        return body;
+      } catch (ServiceException exception) {
+        lastFailure = exception;
+        if (attempt >= totalAttempts) {
+          throw exception;
+        }
+        logRemoteRetry(label, attemptUri, attempt, totalAttempts, exception.getMessage());
+        sleepBeforeRemoteRetry(attempt);
+      } catch (InterruptedException exception) {
+        Thread.currentThread().interrupt();
+        throw new ServiceException("bad_gateway", label + " fetch interrupted");
+      } catch (IOException exception) {
+        lastFailure = exception;
+        if (attempt >= totalAttempts) {
+          throw new ServiceException("bad_gateway", "Failed to fetch " + label);
+        }
+        logRemoteRetry(label, attemptUri, attempt, totalAttempts, exception.getClass().getSimpleName());
+        sleepBeforeRemoteRetry(attempt);
+      }
+    }
+    if (lastFailure instanceof ServiceException serviceException) {
+      throw serviceException;
+    }
+    if (lastStatus > 0) {
+      throw new ServiceException("bad_gateway", label + " upstream HTTP " + lastStatus);
+    }
+    throw new ServiceException("bad_gateway", "Failed to fetch " + label);
+  }
+
+  private boolean isRetriableHttpStatus(int status) {
+    return status == 408 || status == 425 || status == 429 || status >= 500;
+  }
+
+  private void logRemoteRetry(String label, URI uri, int attempt, int totalAttempts, String reason) {
+    plugin.getLogger().warning(
+        "[l10n] Remote fetch retry " + attempt + "/" + totalAttempts
+            + " for " + label + " (" + uri + "), reason: " + reason);
+  }
+
+  private void sleepBeforeRemoteRetry(int attempt) {
+    long delay = REMOTE_FETCH_RETRY_BASE_DELAY_MS * Math.max(1, attempt);
+    try {
+      Thread.sleep(delay);
+    } catch (InterruptedException exception) {
+      Thread.currentThread().interrupt();
+      throw new ServiceException("bad_gateway", "Remote fetch retry interrupted");
+    }
+  }
+
+  private List<URI> buildRemoteFetchCandidates(URI sourceUri, boolean enableGithubMirrorFallback) {
+    java.util.LinkedHashMap<String, URI> map = new java.util.LinkedHashMap<>();
+    addFetchCandidate(map, sourceUri);
+    if (!enableGithubMirrorFallback) {
+      return List.copyOf(map.values());
+    }
+
+    String host = normalizeHost(sourceUri == null ? null : sourceUri.getHost());
+    if (host.isEmpty()) {
+      return List.copyOf(map.values());
+    }
+
+    if (isGitHubOriginHost(host)) {
+      String target = sourceUri.toString();
+      for (String prefix : GITHUB_PROXY_PREFIXES) {
+        addFetchCandidateFromText(map, prefix + target);
+      }
+      return List.copyOf(map.values());
+    }
+
+    if (isGitHubMirrorHost(host)) {
+      String wrappedTarget = extractWrappedTargetUrl(sourceUri);
+      if (!wrappedTarget.isBlank()) {
+        addFetchCandidateFromText(map, wrappedTarget);
+        for (String prefix : GITHUB_PROXY_PREFIXES) {
+          addFetchCandidateFromText(map, prefix + wrappedTarget);
+        }
+      }
+    }
+
+    return List.copyOf(map.values());
+  }
+
+  private boolean isGithubMirrorFallbackEnabledForManifest(URI manifestUri) {
+    String host = normalizeHost(manifestUri == null ? null : manifestUri.getHost());
+    return "github.com".equals(host);
+  }
+
+  private void addFetchCandidate(java.util.LinkedHashMap<String, URI> map, URI candidate) {
+    if (candidate == null) {
+      return;
+    }
+    try {
+      validateManifestUri(candidate);
+      map.putIfAbsent(candidate.toString(), candidate);
+    } catch (ServiceException exception) {
+      // ignore invalid candidate
+    }
+  }
+
+  private void addFetchCandidateFromText(java.util.LinkedHashMap<String, URI> map, String rawCandidate) {
+    if (rawCandidate == null || rawCandidate.isBlank()) {
+      return;
+    }
+    try {
+      addFetchCandidate(map, URI.create(rawCandidate));
+    } catch (IllegalArgumentException exception) {
+      // ignore invalid candidate
+    }
+  }
+
+  private String normalizeHost(String host) {
+    String normalized = String.valueOf(host == null ? "" : host).trim().toLowerCase(Locale.ROOT);
+    while (normalized.startsWith(".")) {
+      normalized = normalized.substring(1);
+    }
+    while (normalized.endsWith(".")) {
+      normalized = normalized.substring(0, normalized.length() - 1);
+    }
+    return normalized;
+  }
+
+  private boolean isGitHubOriginHost(String host) {
+    String normalized = normalizeHost(host);
+    return normalized.equals("github.com")
+        || normalized.equals("githubusercontent.com")
+        || normalized.equals("objects.githubusercontent.com")
+        || normalized.equals("release-assets.githubusercontent.com");
+  }
+
+  private boolean isGitHubMirrorHost(String host) {
+    String normalized = normalizeHost(host);
+    return normalized.equals("edgeone.gh-proxy.com")
+        || normalized.equals("hk.gh-proxy.com")
+        || normalized.equals("gh-proxy.com")
+        || normalized.equals("gh.llkk.cc");
+  }
+
+  private String extractWrappedTargetUrl(URI mirrorUri) {
+    if (mirrorUri == null) {
+      return "";
+    }
+    String raw = String.valueOf(mirrorUri.toString()).trim();
+    int marker = raw.indexOf("/https://");
+    if (marker >= 0) {
+      return raw.substring(marker + 1).trim();
+    }
+    if (raw.startsWith("https://")) {
+      return "";
+    }
+    return "";
+  }
+
+  private List<ManifestLocalePackage> parseManifestLocalePackages(JsonObject manifest) {
+    JsonElement localesElement = manifest.get("locales");
+    if (localesElement == null || !localesElement.isJsonArray()) {
+      return List.of();
+    }
+    String manifestVersion = getOptionalString(manifest, "version").orElse("manifest");
+    List<ManifestLocalePackage> list = new java.util.ArrayList<>();
+    for (JsonElement element : localesElement.getAsJsonArray()) {
+      if (element == null || !element.isJsonObject()) {
+        continue;
+      }
+      JsonObject row = element.getAsJsonObject();
+      String locale = canonicalizeLocaleTag(
+          getOptionalString(row, "locale")
+              .or(() -> getOptionalString(row, "code"))
+              .or(() -> getOptionalString(row, "tag"))
+              .orElse(""));
+      if (locale.isBlank()) {
+        continue;
+      }
+      String packageUrl = getOptionalString(row, "packageUrl")
+          .or(() -> getOptionalString(row, "url"))
+          .orElse("");
+      if (packageUrl.isBlank()) {
+        continue;
+      }
+      String version = getOptionalString(row, "version").orElse(manifestVersion);
+      String name = getOptionalString(row, "name").orElse(locale);
+      String nativeName = getOptionalString(row, "nativeName").orElse(name);
+      list.add(new ManifestLocalePackage(locale, name, nativeName, version, packageUrl));
+    }
+    return list;
+  }
+
+  private String canonicalizeLocaleTag(String raw) {
+    String text = String.valueOf(raw == null ? "" : raw).trim().replace('_', '-');
+    if (text.isBlank()) {
+      return "";
+    }
+    String[] segments = Arrays.stream(text.split("-"))
+        .map(String::trim)
+        .filter(part -> !part.isEmpty())
+        .toArray(String[]::new);
+    if (segments.length == 0) {
+      return "";
+    }
+    String language = segments[0].toLowerCase(Locale.ROOT);
+    if (segments.length == 1) {
+      if ("zh".equals(language)) {
+        return "zh-CN";
+      }
+      if ("en".equals(language)) {
+        return "en-US";
+      }
+      return language;
+    }
+    String region = segments[1].length() == 2
+        ? segments[1].toUpperCase(Locale.ROOT)
+        : segments[1].toLowerCase(Locale.ROOT);
+    if (segments.length == 2) {
+      return language + "-" + region;
+    }
+    StringBuilder builder = new StringBuilder(language).append('-').append(region);
+    for (int i = 2; i < segments.length; i++) {
+      builder.append('-').append(segments[i].toLowerCase(Locale.ROOT));
+    }
+    return builder.toString();
+  }
+
+  private record ManifestLocalePackage(
+      String locale,
+      String name,
+      String nativeName,
+      String version,
+      String packageUrl) {}
 
   private JsonArray materialOverrideListJson(List<MaterialVisualService.MaterialVisualEntry> entries) {
     JsonArray array = new JsonArray();

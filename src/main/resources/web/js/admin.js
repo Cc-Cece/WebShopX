@@ -97,6 +97,9 @@
     locales: [],
     publishedCount: 0,
   },
+  localeManifest: {
+    entries: [],
+  },
 };
 
 const I18N = window.WebShopXI18n || null;
@@ -236,8 +239,8 @@ const DEFAULT_TEXTURE_FALLBACK_MATERIAL = "BUNDLE";
 const CURRENT_WEBSHOPX_VERSION = normalizeVersionText(window.WEBSHOPX_UPDATE_VERSION || window.WEBSHOPX_VERSION || "1.1.5");
 const MODRINTH_VERSION_URL = "https://api.modrinth.com/v2/project/webshopx/version";
 const MODRINTH_CHANGELOG_URL = "https://modrinth.com/plugin/webshopx/changelog";
-const LOCALE_CENTER_STORAGE_KEY = "webshopx_admin_locale_center_demo";
 const LOCALE_MANIFEST_URL_STORAGE_KEY = "webshopx_admin_locale_manifest_url";
+const DEFAULT_LOCALE_MANIFEST_URL = "https://github.com/Cc-Cece/WebShopX-Issues/releases/download/l10n-cdn/manifest.json";
 const LOCALE_CENTER_DEFAULTS = Object.freeze({
   defaultLocale: "zh-CN",
   lastSyncAt: null,
@@ -265,18 +268,6 @@ const LOCALE_CENTER_DEFAULTS = Object.freeze({
       gameEnabled: true,
       builtIn: true,
       updatedAt: "2026-05-09T09:30:00+08:00",
-    },
-    {
-      locale: "ja",
-      name: "Japanese",
-      nativeName: "日本語",
-      source: "github",
-      version: "release-2026.05.09-01",
-      status: "draft",
-      webEnabled: false,
-      gameEnabled: false,
-      builtIn: false,
-      updatedAt: "2026-05-09T10:40:00+08:00",
     },
   ],
 });
@@ -831,10 +822,10 @@ const elements = {
   localeManagerCloseBtn: document.getElementById("localeManagerCloseBtn"),
   localeManifestDialog: document.getElementById("localeManifestDialog"),
   localeManifestUrl: document.getElementById("localeManifestUrl"),
-  localeManifestLanguages: document.getElementById("localeManifestLanguages"),
   localeManifestStatus: document.getElementById("localeManifestStatus"),
   localeManifestResultList: document.getElementById("localeManifestResultList"),
-  localeManifestSyncBtn: document.getElementById("localeManifestSyncBtn"),
+  localeManifestFetchBtn: document.getElementById("localeManifestFetchBtn"),
+  localeManifestDownloadBtn: document.getElementById("localeManifestDownloadBtn"),
   localeManifestCancelBtn: document.getElementById("localeManifestCancelBtn"),
 
   adminSubTabs: document.getElementById("adminSubTabs"),
@@ -842,6 +833,8 @@ const elements = {
 };
 const tabs = Array.from(document.querySelectorAll(".top-tab"));
 const panels = Array.from(document.querySelectorAll(".tab-panel"));
+let localeCenterBaselineState = null;
+let localeCenterDirty = false;
 
 function localizeDisplayText(text) {
   const localized = I18N ? I18N.localizeText(text) : text;
@@ -947,13 +940,25 @@ function normalizeLocaleCenterLocale(raw) {
   if (!locale) {
     return "";
   }
-  if (locale.toLowerCase() === "zh" || locale.toLowerCase().startsWith("zh-")) {
+  if (locale.toLowerCase() === "zh") {
     return "zh-CN";
   }
-  if (locale.toLowerCase() === "en" || locale.toLowerCase().startsWith("en-")) {
+  if (locale.toLowerCase() === "en") {
     return "en-US";
   }
-  return locale;
+  const segments = locale.split("-").filter(Boolean);
+  if (segments.length === 0) {
+    return "";
+  }
+  const language = segments[0].toLowerCase();
+  if (segments.length === 1) {
+    return language;
+  }
+  const region = segments[1].length === 2 ? segments[1].toUpperCase() : segments[1].toLowerCase();
+  if (segments.length === 2) {
+    return `${language}-${region}`;
+  }
+  return [language, region, ...segments.slice(2).map((item) => item.toLowerCase())].join("-");
 }
 
 function normalizeLocaleCenterRecord(raw) {
@@ -975,35 +980,53 @@ function normalizeLocaleCenterRecord(raw) {
   };
 }
 
-function persistLocaleCenterState() {
-  const payload = {
-    defaultLocale: state.localeCenter.defaultLocale,
-    lastSyncAt: state.localeCenter.lastSyncAt,
-    locales: state.localeCenter.locales,
-  };
-  window.localStorage.setItem(LOCALE_CENTER_STORAGE_KEY, JSON.stringify(payload));
+function loadLocaleCenterState() {
+  applyLocaleCenterState(cloneLocaleCenterDefaults(), { baseline: true, dirty: false });
 }
 
-function loadLocaleCenterState() {
+function cloneLocaleCenterSnapshot(rawState) {
+  return JSON.parse(
+    JSON.stringify({
+      defaultLocale: String(rawState?.defaultLocale || "zh-CN"),
+      locales: Array.isArray(rawState?.locales) ? rawState.locales : [],
+    })
+  );
+}
+
+function applyLocaleCenterState(rawState, options = {}) {
   const fallback = cloneLocaleCenterDefaults();
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(LOCALE_CENTER_STORAGE_KEY) || "null");
-    if (!parsed || typeof parsed !== "object") {
-      state.localeCenter = fallback;
-      return;
-    }
-    const locales = Array.isArray(parsed.locales)
-      ? parsed.locales.map((item) => normalizeLocaleCenterRecord(item)).filter(Boolean)
-      : fallback.locales;
-    state.localeCenter = {
-      defaultLocale: normalizeLocaleCenterLocale(parsed.defaultLocale) || fallback.defaultLocale,
-      lastSyncAt: parsed.lastSyncAt || fallback.lastSyncAt,
-      locales,
-      publishedCount: 0,
-    };
-  } catch (error) {
-    state.localeCenter = fallback;
+  const source = rawState && typeof rawState === "object" ? rawState : fallback;
+  const locales = Array.isArray(source.locales)
+    ? source.locales.map((item) => normalizeLocaleCenterRecord(item)).filter(Boolean)
+    : fallback.locales.map((item) => normalizeLocaleCenterRecord(item)).filter(Boolean);
+  state.localeCenter = {
+    defaultLocale: normalizeLocaleCenterLocale(source.defaultLocale) || fallback.defaultLocale,
+    lastSyncAt: source.lastSyncAt || null,
+    locales,
+    publishedCount: 0,
+  };
+  syncLocaleCenterPublishedCount();
+  if (options.baseline) {
+    localeCenterBaselineState = cloneLocaleCenterSnapshot(state.localeCenter);
   }
+  if (typeof options.dirty === "boolean") {
+    localeCenterDirty = options.dirty;
+  }
+}
+
+function markLocaleCenterDirty() {
+  localeCenterDirty = true;
+}
+
+async function loadLocaleCenterStateFromServer(options = {}) {
+  if (!state.token) {
+    loadLocaleCenterState();
+    updateLocaleCenterStateView(options.message || "", "info");
+    return;
+  }
+  const payload = await apiAdmin("/api/admin/locales", { method: "GET" });
+  applyLocaleCenterState(payload, { baseline: true, dirty: false });
+  updateLocaleCenterStateView(options.message || "", options.tone || "info");
 }
 
 function formatLocaleSource(source) {
@@ -1016,30 +1039,8 @@ function formatLocaleSource(source) {
   return "Upload";
 }
 
-function localeStatusLabel(status) {
-  return status === "published" ? "已发布" : "草稿";
-}
-
 function syncLocaleCenterPublishedCount() {
-  state.localeCenter.publishedCount = state.localeCenter.locales.filter((item) => item.status === "published").length;
-}
-
-function getLocaleCenterRecord(locale) {
-  const normalized = normalizeLocaleCenterLocale(locale);
-  return state.localeCenter.locales.find((item) => item.locale === normalized) || null;
-}
-
-function upsertLocaleCenterRecord(record) {
-  const normalized = normalizeLocaleCenterRecord(record);
-  if (!normalized) {
-    return;
-  }
-  const index = state.localeCenter.locales.findIndex((item) => item.locale === normalized.locale);
-  if (index >= 0) {
-    state.localeCenter.locales[index] = { ...state.localeCenter.locales[index], ...normalized, updatedAt: new Date().toISOString() };
-  } else {
-    state.localeCenter.locales.push({ ...normalized, updatedAt: new Date().toISOString() });
-  }
+  state.localeCenter.publishedCount = state.localeCenter.locales.filter((item) => item.webEnabled !== false).length;
 }
 
 function renderLocaleCenterOverview() {
@@ -1065,7 +1066,7 @@ function populateLocaleCenterDefaultSelect() {
   const select = elements.localeManagerDefaultLocaleSelect;
   select.innerHTML = "";
   const locales = state.localeCenter.locales
-    .filter((item) => item.status === "published")
+    .filter((item) => item.webEnabled !== false)
     .map((item) => item.locale);
   if (!locales.includes(state.localeCenter.defaultLocale)) {
     locales.unshift(state.localeCenter.defaultLocale);
@@ -1093,7 +1094,7 @@ function renderLocaleCenterRow(item) {
 
   const subtitle = document.createElement("p");
   subtitle.className = "admin-card-subtitle";
-  setNodeText(subtitle, `${formatLocaleSource(item.source)} | ${item.version} | ${localeStatusLabel(item.status)}`);
+  setNodeText(subtitle, `${formatLocaleSource(item.source)} | ${item.version}`);
   card.appendChild(subtitle);
 
   const tagRow = document.createElement("div");
@@ -1123,13 +1124,6 @@ function renderLocaleCenterRow(item) {
   toggleGameBtn.dataset.locale = item.locale;
   setNodeText(toggleGameBtn, item.gameEnabled ? "关闭游戏内" : "开启游戏内");
   actionRow.appendChild(toggleGameBtn);
-
-  const publishBtn = document.createElement("button");
-  publishBtn.type = "button";
-  publishBtn.dataset.action = "publish";
-  publishBtn.dataset.locale = item.locale;
-  setNodeText(publishBtn, item.status === "published" ? "回到草稿" : "发布");
-  actionRow.appendChild(publishBtn);
 
   if (!item.builtIn) {
     const removeBtn = document.createElement("button");
@@ -1163,16 +1157,23 @@ function renderLocaleCenterList() {
   }
 }
 
-function openLocaleManagerDialog() {
+async function openLocaleManagerDialog() {
   if (!elements.localeManagerDialog) {
     return;
+  }
+  if (state.token) {
+    try {
+      await loadLocaleCenterStateFromServer();
+    } catch (error) {
+      updateLocaleCenterStateView(`加载语言中心失败：${error.message || error}`, "error");
+    }
   }
   populateLocaleCenterDefaultSelect();
   renderLocaleCenterList();
   if (elements.localeManagerSummary) {
     setNodeText(
       elements.localeManagerSummary,
-      `已安装 ${state.localeCenter.locales.length} 个语言包，已发布 ${state.localeCenter.publishedCount} 个。`
+      `已安装 ${state.localeCenter.locales.length} 个语言包，Web 已启用 ${state.localeCenter.publishedCount} 个。`
     );
   }
   elements.localeManagerDialog.classList.add("show");
@@ -1192,16 +1193,15 @@ function openLocaleManifestDialog() {
     return;
   }
   if (elements.localeManifestStatus) {
-    setMetaText(elements.localeManifestStatus, "等待同步", "info");
+    setMetaText(elements.localeManifestStatus, "请先点击“获取”加载语言列表。", "info");
   }
+  state.localeManifest.entries = [];
   if (elements.localeManifestResultList) {
     elements.localeManifestResultList.innerHTML = "";
   }
   if (elements.localeManifestUrl) {
     const saved = window.localStorage.getItem(LOCALE_MANIFEST_URL_STORAGE_KEY) || "";
-    if (!elements.localeManifestUrl.value && saved) {
-      elements.localeManifestUrl.value = saved;
-    }
+    elements.localeManifestUrl.value = saved || DEFAULT_LOCALE_MANIFEST_URL;
   }
   elements.localeManifestDialog.classList.add("show");
   elements.localeManifestDialog.setAttribute("aria-hidden", "false");
@@ -1219,7 +1219,6 @@ function updateLocaleCenterStateView(message, tone = "info") {
   renderLocaleCenterOverview();
   populateLocaleCenterDefaultSelect();
   renderLocaleCenterList();
-  persistLocaleCenterState();
   if (I18N && typeof I18N.refreshLocaleSelect === "function") {
     I18N.refreshLocaleSelect("adminLocaleSelect");
   }
@@ -1231,127 +1230,179 @@ function updateLocaleCenterStateView(message, tone = "info") {
   }
 }
 
-function removeLocaleCenterRecord(locale) {
-  const normalized = normalizeLocaleCenterLocale(locale);
-  const record = getLocaleCenterRecord(normalized);
-  if (!record || record.builtIn) {
-    return false;
-  }
-  state.localeCenter.locales = state.localeCenter.locales.filter((item) => item.locale !== normalized);
-  if (state.localeCenter.defaultLocale === normalized) {
-    state.localeCenter.defaultLocale = "zh-CN";
-  }
-  return true;
-}
-
-function handleLocaleCenterRowAction(event) {
+async function handleLocaleCenterRowAction(event) {
   const button = event.target.closest("button[data-action][data-locale]");
   if (!button) {
     return;
   }
   const locale = button.dataset.locale;
   const action = button.dataset.action;
-  const record = getLocaleCenterRecord(locale);
-  if (!record) {
+  if (!locale || !action) {
+    return;
+  }
+  const normalized = normalizeLocaleCenterLocale(locale);
+  const target = state.localeCenter.locales.find((item) => item.locale === normalized);
+  if (!target) {
     return;
   }
   if (action === "toggleWeb") {
-    record.webEnabled = !record.webEnabled;
-    updateLocaleCenterStateView(`${record.locale} Web 状态已更新。`, "success");
+    target.webEnabled = !target.webEnabled;
+    target.updatedAt = new Date().toISOString();
+    markLocaleCenterDirty();
+    updateLocaleCenterStateView(`${normalized} Web 状态已暂存，点击“应用”生效。`, "info");
     return;
   }
   if (action === "toggleGame") {
-    record.gameEnabled = !record.gameEnabled;
-    updateLocaleCenterStateView(`${record.locale} 游戏内状态已更新。`, "success");
-    return;
-  }
-  if (action === "publish") {
-    record.status = record.status === "published" ? "draft" : "published";
-    updateLocaleCenterStateView(`${record.locale} 状态已切换为 ${localeStatusLabel(record.status)}。`, "success");
+    target.gameEnabled = !target.gameEnabled;
+    target.updatedAt = new Date().toISOString();
+    markLocaleCenterDirty();
+    updateLocaleCenterStateView(`${normalized} 游戏内状态已暂存，点击“应用”生效。`, "info");
     return;
   }
   if (action === "remove") {
-    const removed = removeLocaleCenterRecord(locale);
-    if (removed) {
-      updateLocaleCenterStateView(`${locale} 已删除。`, "success");
+    if (target.builtIn) {
+      updateLocaleCenterStateView("内置语言不能删除。", "warn");
+      return;
     }
+    state.localeCenter.locales = state.localeCenter.locales.filter((item) => item.locale !== normalized);
+    if (state.localeCenter.defaultLocale === normalized) {
+      state.localeCenter.defaultLocale = "zh-CN";
+    }
+    markLocaleCenterDirty();
+    updateLocaleCenterStateView(`${normalized} 删除已暂存，点击“应用”生效。`, "info");
   }
 }
 
-function saveLocaleCenterDefaultLocale() {
+async function saveLocaleCenterDefaultLocale() {
   const next = normalizeLocaleCenterLocale(elements.localeManagerDefaultLocaleSelect?.value || "");
   if (!next) {
     updateLocaleCenterStateView("请选择默认语言。", "warn");
     return;
   }
   state.localeCenter.defaultLocale = next;
-  updateLocaleCenterStateView(`默认语言已设置为 ${next}。`, "success");
+  markLocaleCenterDirty();
+  updateLocaleCenterStateView(`默认语言已暂存为 ${next}，点击“应用”生效。`, "info");
 }
 
-function uploadLocaleCenterDemoPack() {
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        reject(new Error("文件读取失败"));
+        return;
+      }
+      const commaIndex = reader.result.indexOf(",");
+      resolve(commaIndex >= 0 ? reader.result.slice(commaIndex + 1) : reader.result);
+    };
+    reader.onerror = () => reject(reader.error || new Error("文件读取失败"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadLocaleCenterPackage() {
   const file = elements.localeManagerUploadFile?.files?.[0];
   if (!file) {
     updateLocaleCenterStateView("请先选择语言包文件。", "warn");
     return;
   }
-  const rawName = String(file.name || "").replace(/\.(zip|json|ya?ml)$/i, "");
-  const locale = normalizeLocaleCenterLocale(rawName.split(".").pop() || rawName);
-  const finalLocale = locale || `custom-${Date.now()}`;
-  upsertLocaleCenterRecord({
-    locale: finalLocale,
-    name: finalLocale,
-    source: "upload",
-    version: `upload-${new Date().toISOString().slice(0, 10)}`,
-    status: "draft",
-    webEnabled: false,
-    gameEnabled: false,
-    builtIn: false,
-  });
-  updateLocaleCenterStateView(`已导入示例语言包：${file.name}`, "success");
-}
-
-function buildLocaleCenterManifestResultCard(item) {
-  const card = document.createElement("div");
-  card.className = "admin-card";
-  const title = document.createElement("strong");
-  setNodeText(title, `${item.locale} (${item.result})`);
-  card.appendChild(title);
-  const sub = document.createElement("p");
-  sub.className = "admin-card-subtitle";
-  setNodeText(sub, item.detail);
-  card.appendChild(sub);
-  return card;
+  if (!state.token) {
+    updateLocaleCenterStateView("请先登录管理员。", "warn");
+    return;
+  }
+  try {
+    const contentBase64 = await readFileAsBase64(file);
+    const payload = await apiAdmin("/api/admin/locales/upload", {
+      method: "POST",
+      body: JSON.stringify({
+        fileName: file.name,
+        contentBase64,
+        source: "upload",
+      }),
+    });
+    applyLocaleCenterState(payload?.state || payload, { baseline: true, dirty: false });
+    const changedCount = Array.isArray(payload?.changed) ? payload.changed.length : 0;
+    updateLocaleCenterStateView(`上传完成：${file.name}（${changedCount} 个语言）`, "success");
+  } catch (error) {
+    updateLocaleCenterStateView(`上传失败：${error.message || error}`, "error");
+  }
 }
 
 function parseManifestLocales(payload) {
   if (!payload || typeof payload !== "object") {
     return [];
   }
-  if (!Array.isArray(payload.locales)) {
-    return [];
-  }
-  return payload.locales
+  const fallbackVersion = String(payload?.version || payload?.generatedAt || "").trim();
+  const rows = Array.isArray(payload?.locales) ? payload.locales : [];
+  return rows
     .map((item) => {
       const locale = normalizeLocaleCenterLocale(item?.locale || item?.code || item?.tag || "");
       if (!locale) {
         return null;
       }
-      const name = String(item?.name || "").trim();
+      const name = String(item?.name || locale).trim() || locale;
       const nativeName = String(item?.nativeName || item?.native || "").trim();
-      const version = String(item?.version || payload.version || "").trim();
+      const version = String(item?.version || fallbackVersion || "").trim();
       return {
         locale,
-        name: name || locale,
+        name,
         nativeName,
-        version: version || `release-${new Date().toISOString().slice(0, 10)}`,
-        status: "draft",
-        source: "github",
+        version: version || "manifest",
+        checked: true,
       };
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort((left, right) => left.locale.localeCompare(right.locale));
 }
 
-async function runLocaleCenterManifestSync() {
+function renderLocaleManifestSelectableList() {
+  if (!elements.localeManifestResultList) {
+    return;
+  }
+  const list = elements.localeManifestResultList;
+  list.innerHTML = "";
+  if (!Array.isArray(state.localeManifest.entries) || state.localeManifest.entries.length <= 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    setNodeText(empty, "暂无可选语言，请先点击“获取”。");
+    list.appendChild(empty);
+    return;
+  }
+  state.localeManifest.entries.forEach((item, index) => {
+    const card = document.createElement("label");
+    card.className = "admin-card";
+    card.style.display = "block";
+
+    const topRow = document.createElement("div");
+    topRow.className = "actions";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.localeIndex = String(index);
+    checkbox.checked = item.checked !== false;
+    const title = document.createElement("strong");
+    const displayName = item.nativeName && item.nativeName !== item.name
+      ? `${item.nativeName} (${item.name})`
+      : item.name;
+    setNodeText(title, `${displayName} [${item.locale}]`);
+    topRow.appendChild(checkbox);
+    topRow.appendChild(title);
+    card.appendChild(topRow);
+
+    const sub = document.createElement("p");
+    sub.className = "admin-card-subtitle";
+    setNodeText(sub, `版本：${item.version}`);
+    card.appendChild(sub);
+    list.appendChild(card);
+  });
+}
+
+function getSelectedManifestLocales() {
+  return (state.localeManifest.entries || [])
+    .filter((item) => item.checked !== false)
+    .map((item) => item.locale);
+}
+
+async function fetchLocaleManifestList() {
   const manifestUrl = String(elements.localeManifestUrl?.value || "").trim();
   if (!manifestUrl) {
     if (elements.localeManifestStatus) {
@@ -1365,93 +1416,144 @@ async function runLocaleCenterManifestSync() {
     // ignore storage issues
   }
 
-  const languageInput = String(elements.localeManifestLanguages?.value || "").trim();
-  const requestedSet = new Set(
-    languageInput
-      ? languageInput.split(",").map((item) => normalizeLocaleCenterLocale(item)).filter(Boolean)
-      : []
-  );
-
   if (elements.localeManifestStatus) {
-    setMetaText(elements.localeManifestStatus, "同步中，请稍候...", "info");
+    setMetaText(elements.localeManifestStatus, "获取中，请稍候...", "info");
+  }
+
+  if (!state.token) {
+    if (elements.localeManifestStatus) {
+      setMetaText(elements.localeManifestStatus, "请先登录管理员。", "warn");
+    }
+    return;
   }
 
   let payload;
   try {
-    const response = await fetch(manifestUrl, { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    payload = await response.json();
+    payload = await apiAdmin(`/api/admin/l10n/manifest?url=${encodeURIComponent(manifestUrl)}`, { method: "GET" });
   } catch (error) {
     if (elements.localeManifestStatus) {
-      setMetaText(elements.localeManifestStatus, `读取 manifest 失败：${error.message || error}`, "error");
+      setMetaText(elements.localeManifestStatus, `获取失败：${error.message || error}`, "error");
     }
     return;
   }
 
-  const parsedLocales = parseManifestLocales(payload);
-  const selectedLocales = requestedSet.size > 0
-    ? parsedLocales.filter((item) => requestedSet.has(item.locale))
-    : parsedLocales;
-  if (selectedLocales.length === 0) {
-    if (elements.localeManifestStatus) {
-      setMetaText(elements.localeManifestStatus, "未找到可同步语言，请检查 manifest 或过滤条件。", "warn");
-    }
-    return;
-  }
-
-  const releaseVersion = String(payload?.version || payload?.generatedAt || "").trim()
-    || `release-${new Date().toISOString().slice(0, 10)}`;
-  const results = [];
-  selectedLocales.forEach((item) => {
-    const existing = getLocaleCenterRecord(item.locale);
-    const result = existing ? "updated" : "created";
-    upsertLocaleCenterRecord({
-      locale: item.locale,
-      name: item.name,
-      nativeName: item.nativeName,
-      source: "github",
-      version: item.version || releaseVersion,
-      status: existing?.status || "draft",
-      webEnabled: existing?.webEnabled === true,
-      gameEnabled: existing?.gameEnabled === true,
-      builtIn: existing?.builtIn === true,
-    });
-    results.push({
-      locale: item.locale,
-      result,
-      detail: `版本 ${item.version || releaseVersion}，来源 manifest。`,
-    });
-  });
-
-  state.localeCenter.lastSyncAt = new Date().toISOString();
-
-  if (elements.localeManifestResultList) {
-    elements.localeManifestResultList.innerHTML = "";
-    results.forEach((item) => {
-      elements.localeManifestResultList.appendChild(buildLocaleCenterManifestResultCard(item));
-    });
-  }
+  state.localeManifest.entries = parseManifestLocales(payload);
+  renderLocaleManifestSelectableList();
   if (elements.localeManifestStatus) {
-    setMetaText(elements.localeManifestStatus, `同步完成：${results.length} 个语言`, "success");
+    setMetaText(
+      elements.localeManifestStatus,
+      `获取完成：共 ${state.localeManifest.entries.length} 个语言，可多选后下载。`,
+      state.localeManifest.entries.length > 0 ? "success" : "warn"
+    );
   }
-  updateLocaleCenterStateView("GitHub Manifest 同步完成。", "success");
 }
 
-function publishLocaleCenterDraftsDemo() {
-  let changed = 0;
-  state.localeCenter.locales.forEach((item) => {
-    if (item.status !== "published") {
-      item.status = "published";
-      changed += 1;
+async function runLocaleCenterManifestSync() {
+  const manifestUrl = String(elements.localeManifestUrl?.value || "").trim();
+  if (!manifestUrl) {
+    if (elements.localeManifestStatus) {
+      setMetaText(elements.localeManifestStatus, "请填写 manifest URL。", "warn");
     }
-  });
-  if (changed <= 0) {
-    updateLocaleCenterStateView("没有可发布的草稿语言。", "info");
     return;
   }
-  updateLocaleCenterStateView(`已发布 ${changed} 个草稿语言。`, "success");
+  const selectedLocales = getSelectedManifestLocales();
+  if (selectedLocales.length <= 0) {
+    if (elements.localeManifestStatus) {
+      setMetaText(elements.localeManifestStatus, "请至少选择一个语言。", "warn");
+    }
+    return;
+  }
+  if (!state.token) {
+    if (elements.localeManifestStatus) {
+      setMetaText(elements.localeManifestStatus, "请先登录管理员。", "warn");
+    }
+    return;
+  }
+  if (elements.localeManifestStatus) {
+    setMetaText(elements.localeManifestStatus, `下载中：${selectedLocales.length} 个语言...`, "info");
+  }
+  let payload;
+  try {
+    payload = await apiAdmin("/api/admin/locales/sync-manifest", {
+      method: "POST",
+      body: JSON.stringify({
+        url: manifestUrl,
+        locales: selectedLocales,
+      }),
+    });
+  } catch (error) {
+    if (elements.localeManifestStatus) {
+      setMetaText(elements.localeManifestStatus, `下载失败：${error.message || error}`, "error");
+    }
+    return;
+  }
+  applyLocaleCenterState(payload?.state || state.localeCenter, { baseline: true, dirty: false });
+  const failed = Number(payload?.failed || 0);
+  updateLocaleCenterStateView(
+    `GitHub Manifest 下载完成：成功 ${Number(payload?.succeeded || 0)}，失败 ${failed}`,
+    failed > 0 ? "warn" : "success"
+  );
+  closeLocaleManifestDialog();
+}
+
+async function applyLocaleCenterPendingChanges() {
+  if (!localeCenterDirty) {
+    updateLocaleCenterStateView("没有待应用的更改。", "info");
+    return;
+  }
+  if (!state.token) {
+    updateLocaleCenterStateView("请先登录管理员。", "warn");
+    return;
+  }
+
+  const baseline = localeCenterBaselineState || cloneLocaleCenterSnapshot(state.localeCenter);
+  const current = cloneLocaleCenterSnapshot(state.localeCenter);
+  const baselineMap = new Map((baseline.locales || []).map((item) => [normalizeLocaleCenterLocale(item.locale), item]));
+  const currentMap = new Map((current.locales || []).map((item) => [normalizeLocaleCenterLocale(item.locale), item]));
+  let appliedOps = 0;
+
+  if (normalizeLocaleCenterLocale(baseline.defaultLocale) !== normalizeLocaleCenterLocale(current.defaultLocale)) {
+    await apiAdmin("/api/admin/locales/default", {
+      method: "POST",
+      body: JSON.stringify({ defaultLocale: current.defaultLocale }),
+    });
+    appliedOps += 1;
+  }
+
+  for (const [locale, before] of baselineMap.entries()) {
+    const after = currentMap.get(locale);
+    if (!after) {
+      if (before.builtIn) {
+        continue;
+      }
+      await apiAdmin("/api/admin/locales/action", {
+        method: "POST",
+        body: JSON.stringify({ locale, action: "remove" }),
+      });
+      appliedOps += 1;
+      continue;
+    }
+    if (!!before.webEnabled !== !!after.webEnabled) {
+      await apiAdmin("/api/admin/locales/action", {
+        method: "POST",
+        body: JSON.stringify({ locale, action: "toggleWeb" }),
+      });
+      appliedOps += 1;
+    }
+    if (!!before.gameEnabled !== !!after.gameEnabled) {
+      await apiAdmin("/api/admin/locales/action", {
+        method: "POST",
+        body: JSON.stringify({ locale, action: "toggleGame" }),
+      });
+      appliedOps += 1;
+    }
+  }
+
+  await loadLocaleCenterStateFromServer({
+    message: appliedOps > 0 ? `已应用 ${appliedOps} 项更改。` : "无需应用更改。",
+    tone: "success",
+  });
+  localeCenterDirty = false;
 }
 
 function normalizeVersionText(versionText) {
@@ -2920,6 +3022,8 @@ function setLoggedOut() {
   setStatus(getAdminPageText("headerStatusOffline", "Not signed in"), "offline");
   renderAdminProfile();
   setMetaText(elements.adminLoginStatus, getAdminPageText("loginStatusSignedOut", "Signed out"), "info");
+  loadLocaleCenterState();
+  updateLocaleCenterStateView("请先登录管理员。", "info");
 }
 
 async function loginAdmin() {
@@ -2942,6 +3046,7 @@ async function loginAdmin() {
     await loadAdminManagerData();
   }
   startAdminAutoSync();
+  await loadLocaleCenterStateFromServer({ message: "语言中心已同步。", tone: "success" });
 }
 
 async function loadAdminProfile() {
@@ -2957,6 +3062,7 @@ async function loadAdminProfile() {
       await loadAdminManagerData();
     }
     startAdminAutoSync();
+    await loadLocaleCenterStateFromServer();
   } catch (error) {
     setLoggedOut();
   }
@@ -4998,7 +5104,7 @@ async function ensureMaterialMap() {
         if (!I18N || !I18N.shouldLoadMaterialMap()) {
           return {};
         }
-        return fetch(`i18n/materials/${I18N.getLocale()}.json`).then((response) => {
+        return fetch(`/i18n/materials/${I18N.getLocale()}.json`).then((response) => {
           if (!response.ok) {
             throw new Error(`material map load failed: ${response.status}`);
           }
@@ -5098,9 +5204,9 @@ async function ensureMarketAlgorithmGlossary() {
 
   const locale = I18N ? I18N.getLocale() : "zh-CN";
   const candidates = [
-    `i18n/market-algorithms/${locale}.json`,
-    "i18n/market-algorithms/zh-CN.json",
-    "i18n/market-algorithms/en-US.json",
+    `/i18n/market-algorithms/${locale}.json`,
+    "/i18n/market-algorithms/zh-CN.json",
+    "/i18n/market-algorithms/en-US.json",
   ];
 
   state.marketAlgorithmGlossaryPromise = (async () => {
@@ -8319,7 +8425,11 @@ if (elements.adminUpdateDialog) {
 }
 
 if (elements.localeCenterOpenBtn) {
-  elements.localeCenterOpenBtn.addEventListener("click", openLocaleManagerDialog);
+  elements.localeCenterOpenBtn.addEventListener("click", () => {
+    openLocaleManagerDialog().catch((error) => {
+      updateLocaleCenterStateView(`打开语言中心失败：${error.message || error}`, "error");
+    });
+  });
 }
 if (elements.localeManagerCloseBtn) {
   elements.localeManagerCloseBtn.addEventListener("click", closeLocaleManagerDialog);
@@ -8332,25 +8442,69 @@ if (elements.localeManagerDialog) {
   });
 }
 if (elements.localeManagerSaveDefaultBtn) {
-  elements.localeManagerSaveDefaultBtn.addEventListener("click", saveLocaleCenterDefaultLocale);
+  elements.localeManagerSaveDefaultBtn.addEventListener("click", () => {
+    saveLocaleCenterDefaultLocale().catch((error) => {
+      updateLocaleCenterStateView(`保存默认语言失败：${error.message || error}`, "error");
+    });
+  });
 }
 if (elements.localeManagerUploadBtn) {
-  elements.localeManagerUploadBtn.addEventListener("click", uploadLocaleCenterDemoPack);
+  elements.localeManagerUploadBtn.addEventListener("click", () => {
+    uploadLocaleCenterPackage().catch((error) => {
+      updateLocaleCenterStateView(`上传失败：${error.message || error}`, "error");
+    });
+  });
 }
 if (elements.localeManagerManifestBtn) {
   elements.localeManagerManifestBtn.addEventListener("click", openLocaleManifestDialog);
 }
 if (elements.localeManagerValidatePublishBtn) {
-  elements.localeManagerValidatePublishBtn.addEventListener("click", publishLocaleCenterDraftsDemo);
+  elements.localeManagerValidatePublishBtn.addEventListener("click", () => {
+    applyLocaleCenterPendingChanges().catch((error) => {
+      updateLocaleCenterStateView(`应用失败：${error.message || error}`, "error");
+    });
+  });
 }
 if (elements.localeManagerLocaleList) {
-  elements.localeManagerLocaleList.addEventListener("click", handleLocaleCenterRowAction);
+  elements.localeManagerLocaleList.addEventListener("click", (event) => {
+    handleLocaleCenterRowAction(event).catch((error) => {
+      updateLocaleCenterStateView(`语言操作失败：${error.message || error}`, "error");
+    });
+  });
 }
 if (elements.localeManifestCancelBtn) {
   elements.localeManifestCancelBtn.addEventListener("click", closeLocaleManifestDialog);
 }
-if (elements.localeManifestSyncBtn) {
-  elements.localeManifestSyncBtn.addEventListener("click", runLocaleCenterManifestSync);
+if (elements.localeManifestFetchBtn) {
+  elements.localeManifestFetchBtn.addEventListener("click", () => {
+    fetchLocaleManifestList().catch((error) => {
+      if (elements.localeManifestStatus) {
+        setMetaText(elements.localeManifestStatus, `获取失败：${error.message || error}`, "error");
+      }
+    });
+  });
+}
+if (elements.localeManifestDownloadBtn) {
+  elements.localeManifestDownloadBtn.addEventListener("click", () => {
+    runLocaleCenterManifestSync().catch((error) => {
+      if (elements.localeManifestStatus) {
+        setMetaText(elements.localeManifestStatus, `下载失败：${error.message || error}`, "error");
+      }
+    });
+  });
+}
+if (elements.localeManifestResultList) {
+  elements.localeManifestResultList.addEventListener("change", (event) => {
+    const checkbox = event.target.closest("input[type='checkbox'][data-locale-index]");
+    if (!checkbox) {
+      return;
+    }
+    const index = Number(checkbox.dataset.localeIndex);
+    if (!Number.isInteger(index) || index < 0 || index >= state.localeManifest.entries.length) {
+      return;
+    }
+    state.localeManifest.entries[index].checked = checkbox.checked;
+  });
 }
 if (elements.localeManifestDialog) {
   elements.localeManifestDialog.addEventListener("click", (event) => {
@@ -8599,7 +8753,7 @@ renderLocaleCenterOverview();
 populateLocaleCenterDefaultSelect();
 renderLocaleCenterList();
 if (elements.localeCenterStatusView) {
-  setMetaText(elements.localeCenterStatusView, "GitHub Manifest 示例模式：可先确认结构，后续再接真实后端。", "info");
+  setMetaText(elements.localeCenterStatusView, "等待管理员登录后同步语言中心。", "info");
 }
 if (elements.localeManagerActionStatus) {
   setMetaText(elements.localeManagerActionStatus, "等待操作", "info");
