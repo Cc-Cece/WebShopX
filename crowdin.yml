@@ -1,0 +1,22 @@
+project_id_env: CROWDIN_PROJECT_ID
+api_token_env: CROWDIN_PERSONAL_TOKEN
+preserve_hierarchy: true
+
+files:
+  - source: /src/main/resources/messages/messages.en-US.yml
+    translation: /src/main/resources/messages/messages.%locale%.yml
+
+  - source: /src/main/resources/web/i18n/app/en-US.json
+    translation: /src/main/resources/web/i18n/app/%locale%.json
+
+  - source: /src/main/resources/web/i18n/admin/en-US.json
+    translation: /src/main/resources/web/i18n/admin/%locale%.json
+
+  - source: /src/main/resources/web/i18n/help/en-US.json
+    translation: /src/main/resources/web/i18n/help/%locale%.json
+
+  - source: /src/main/resources/web/i18n/market-algorithms/en-US.json
+    translation: /src/main/resources/web/i18n/market-algorithms/%locale%.json
+
+  - source: /src/main/resources/web/i18n/materials/en-US.json
+    translation: /src/main/resources/web/i18n/materials/%locale%.json

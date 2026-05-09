@@ -8,7 +8,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Supplier;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -16,8 +15,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 class MessageService {
-  private static final Set<String> SUPPORTED_LOCALES = Set.of("zh-CN", "en-US");
-
   private final JavaPlugin plugin;
   private final Supplier<PluginSettings> settingsSupplier;
   private final Map<String, YamlConfiguration> bundles = new HashMap<>();
@@ -75,14 +72,31 @@ class MessageService {
   }
 
   List<String> getList(String locale, String key, Map<String, ?> params) {
-    YamlConfiguration bundle = loadBundle(normalizeLocale(locale));
+    String normalizedLocale = normalizeLocale(locale);
+    YamlConfiguration bundle = loadBundle(normalizedLocale);
     List<String> values = bundle.getStringList(key);
-    if (values.isEmpty() && bundle.isString(key)) {
+    if (!values.isEmpty()) {
+      return values.stream()
+          .map(value -> applyParams(value, params))
+          .toList();
+    }
+    if (bundle.isString(key)) {
       return List.of(applyParams(bundle.getString(key, key), params));
     }
-    return values.stream()
-        .map(value -> applyParams(value, params))
-        .toList();
+    String fallbackLocale = normalizeLocale(settingsSupplier.get().defaultLocale());
+    if (!fallbackLocale.equals(normalizedLocale)) {
+      YamlConfiguration fallback = loadBundle(fallbackLocale);
+      List<String> fallbackValues = fallback.getStringList(key);
+      if (!fallbackValues.isEmpty()) {
+        return fallbackValues.stream()
+            .map(value -> applyParams(value, params))
+            .toList();
+      }
+      if (fallback.isString(key)) {
+        return List.of(applyParams(fallback.getString(key, key), params));
+      }
+    }
+    return List.of();
   }
 
   private String resolveValue(String locale, String key) {
@@ -122,7 +136,8 @@ class MessageService {
     String resourcePath = "messages/messages." + locale + ".yml";
     try (InputStream inputStream = plugin.getResource(resourcePath)) {
       if (inputStream == null) {
-        throw new IllegalStateException("Missing message bundle: " + resourcePath);
+        plugin.getLogger().fine(() -> "Message bundle not found, will fallback at runtime: " + resourcePath);
+        return new YamlConfiguration();
       }
       try (InputStreamReader reader = new InputStreamReader(inputStream, StandardCharsets.UTF_8)) {
         return YamlConfiguration.loadConfiguration(reader);
@@ -168,6 +183,27 @@ class MessageService {
     if (lower.equals("en") || lower.startsWith("en-")) {
       return "en-US";
     }
-    return SUPPORTED_LOCALES.contains(locale) ? locale : "zh-CN";
+    String[] segments = locale.split("-");
+    if (segments.length == 0 || segments[0].isBlank()) {
+      return "zh-CN";
+    }
+    String language = segments[0].toLowerCase();
+    if (segments.length == 1) {
+      return language;
+    }
+    String region = segments[1].length() == 2
+        ? segments[1].toUpperCase()
+        : segments[1].toLowerCase();
+    if (segments.length == 2) {
+      return language + "-" + region;
+    }
+    StringBuilder builder = new StringBuilder(language).append('-').append(region);
+    for (int i = 2; i < segments.length; i++) {
+      String part = segments[i].trim();
+      if (!part.isEmpty()) {
+        builder.append('-').append(part.toLowerCase());
+      }
+    }
+    return builder.toString();
   }
 }

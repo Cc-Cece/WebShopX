@@ -1,0 +1,133 @@
+name: Localization Release
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "GitHub release tag for localization assets (for example: l10n-cdn)"
+        required: false
+        default: "l10n-cdn"
+      target_repo:
+        description: "Target repository for localization CDN assets (owner/name)"
+        required: false
+        default: "Cc-Cece/WebShopX-Issues"
+      manifest_version:
+        description: "Optional manifest version (for example: l10n-2026.05.09-01)"
+        required: false
+        default: ""
+      pull_from_crowdin:
+        description: "Pull latest translations from Crowdin before packaging"
+        required: false
+        default: false
+        type: boolean
+      crowdin_branch:
+        description: "Crowdin branch to export"
+        required: false
+        default: "main"
+      crowdin_export_only_approved:
+        description: "Export only approved translations from Crowdin"
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-l10n:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_REPO: ${{ inputs.target_repo }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Pull translations from Crowdin (optional)
+        if: ${{ inputs.pull_from_crowdin }}
+        uses: crowdin/github-action@v2
+        with:
+          upload_sources: false
+          upload_translations: false
+          download_translations: true
+          create_pull_request: false
+          crowdin_branch_name: ${{ inputs.crowdin_branch }}
+          export_only_approved: ${{ inputs.crowdin_export_only_approved }}
+        env:
+          CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.release_tag }}"
+          TAG="$(echo "${TAG}" | xargs)"
+          if [[ -z "${TAG}" ]]; then
+            TAG="l10n-$(date -u +%Y%m%d-%H%M%S)"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Resolved l10n tag: ${TAG}"
+
+      - name: Build locale zips and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/build_l10n_release.py \
+            --repo "${TARGET_REPO}" \
+            --tag "${{ steps.tag.outputs.tag }}" \
+            --version "${{ inputs.manifest_version }}" \
+            --default-locale "zh-CN" \
+            --output-dir "dist/l10n"
+
+      - name: Publish localization release to mirror repo
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.REPO_WEBSHOPX_ISSUES_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::Missing secret REPO_WEBSHOPX_ISSUES_TOKEN."
+            exit 1
+          fi
+          shopt -s nullglob
+          TAG="${{ steps.tag.outputs.tag }}"
+          files=(dist/l10n/manifest.json dist/l10n/*.zip)
+          if (( ${#files[@]} == 0 )); then
+            echo "::error::No localization assets were generated."
+            exit 1
+          fi
+
+          NOTES_FILE="$(mktemp)"
+          {
+            echo "Localization assets for WebShopX."
+            echo
+            echo "Entry URL:"
+            echo "- https://github.com/${TARGET_REPO}/releases/download/${TAG}/manifest.json"
+            echo
+            echo "Included assets:"
+            for f in "${files[@]}"; do
+              echo "- $(basename "${f}")"
+            done
+          } > "${NOTES_FILE}"
+
+          if gh release view "${TAG}" --repo "${TARGET_REPO}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists in ${TARGET_REPO}, updating assets..."
+            gh release upload "${TAG}" "${files[@]}" --repo "${TARGET_REPO}" --clobber
+            gh release edit "${TAG}" \
+              --repo "${TARGET_REPO}" \
+              --title "Localization ${TAG}" \
+              --notes-file "${NOTES_FILE}" \
+              --prerelease
+          else
+            gh release create "${TAG}" "${files[@]}" \
+              --repo "${TARGET_REPO}" \
+              --title "Localization ${TAG}" \
+              --notes-file "${NOTES_FILE}" \
+              --prerelease \
+              --latest=false
+          fi

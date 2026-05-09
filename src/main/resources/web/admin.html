@@ -690,6 +690,30 @@
 <p class="meta" data-i18n="uiText.autoHtml.k0247" id="runtimeWebshopStatusView">等待操作</p>
 </article>
 <article class="md-card section-card">
+<div class="section-head">
+<div>
+<h2>语言与翻译</h2>
+<p class="card-desc">管理 Web 和游戏内可用语言。支持本地上传与 GitHub Manifest 同步。</p>
+</div>
+<button id="localeCenterOpenBtn" type="button">管理语言</button>
+</div>
+<div class="field-grid three-col">
+<label class="field">
+<span>默认语言</span>
+<p class="meta" id="localeCenterDefaultLocaleView">-</p>
+</label>
+<label class="field">
+<span>已发布语言</span>
+<p class="meta" id="localeCenterPublishedCountView">0</p>
+</label>
+<label class="field">
+<span>最近同步</span>
+<p class="meta" id="localeCenterLastSyncView">-</p>
+</label>
+</div>
+<p class="meta" id="localeCenterStatusView">等待操作</p>
+</article>
+<article class="md-card section-card">
 <h2 data-i18n="uiText.autoHtml.k0248">市场运行参数</h2>
 <p class="card-desc" data-i18n="uiText.autoHtml.k0249">控制市场上架上限与供货自动补货策略。</p>
 <div class="field-grid two-col">
@@ -1530,6 +1554,61 @@
 <button class="btn-tonal" data-i18n="uiText.page.materialCropResetBtn" id="materialCropResetBtn" type="button">Reset</button>
 <button class="btn-tonal" data-i18n="uiText.page.materialCropCancelBtn" id="materialCropCancelBtn" type="button">Cancel</button>
 <button data-i18n="uiText.page.materialCropApplyBtn" id="materialCropApplyBtn" type="button">Apply and Upload</button>
+</div>
+</article>
+</div>
+<div aria-hidden="true" class="dialog-backdrop" id="localeManagerDialog">
+<article class="md-card dialog-card market-policy-dialog-card">
+<h3>语言中心</h3>
+<p id="localeManagerSummary">管理已安装语言，支持上传与 GitHub Manifest 同步。</p>
+<div class="dialog-details market-policy-dialog-scroll">
+<div class="field-grid two-col">
+<label class="field">
+<span>默认语言</span>
+<select id="localeManagerDefaultLocaleSelect"></select>
+</label>
+<label class="field dialog-select-field">
+<span>默认语言操作</span>
+<button class="btn-tonal" id="localeManagerSaveDefaultBtn" type="button">保存默认语言</button>
+</label>
+</div>
+<h4>已安装语言</h4>
+<div class="admin-list" id="localeManagerLocaleList"></div>
+<label class="field">
+<span>上传语言包（示例）</span>
+<input accept=".zip,.json,.yml,.yaml" id="localeManagerUploadFile" type="file"/>
+</label>
+<p class="meta" id="localeManagerActionStatus">等待操作</p>
+</div>
+<div class="actions">
+<button class="btn-tonal" id="localeManagerUploadBtn" type="button">本地上传</button>
+<button class="btn-tonal" id="localeManagerManifestBtn" type="button">GitHub 清单同步</button>
+<button id="localeManagerValidatePublishBtn" type="button">校验并发布</button>
+<button class="btn-tonal" id="localeManagerCloseBtn" type="button">关闭</button>
+</div>
+</article>
+</div>
+<div aria-hidden="true" class="dialog-backdrop" id="localeManifestDialog">
+<article class="md-card dialog-card market-policy-dialog-card">
+<h3>GitHub Manifest 同步</h3>
+<p>填写 manifest.json 地址后拉取语言列表和版本信息。</p>
+<div class="dialog-details market-policy-dialog-scroll">
+<div class="field-grid two-col">
+<label class="field">
+<span>Manifest URL</span>
+<input id="localeManifestUrl" placeholder="例如 https://.../releases/latest/download/manifest.json"/>
+</label>
+<label class="field">
+<span>目标语言（可空=全部）</span>
+<input id="localeManifestLanguages" placeholder="例如 fr,de,ja"/>
+</label>
+</div>
+<p class="meta" id="localeManifestStatus">等待同步</p>
+<div class="admin-list" id="localeManifestResultList"></div>
+</div>
+<div class="actions">
+<button id="localeManifestSyncBtn" type="button">开始同步</button>
+<button class="btn-tonal" id="localeManifestCancelBtn" type="button">关闭</button>
 </div>
 </article>
 </div>

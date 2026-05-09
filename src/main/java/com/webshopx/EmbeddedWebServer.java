@@ -4409,13 +4409,37 @@ class EmbeddedWebServer {
 
   private String readLocaleField(String value, String fieldName) {
     String normalized = String.valueOf(value == null ? "" : value).trim().replace('_', '-');
+    if (normalized.isBlank()) {
+      throw new ServiceException("bad_request", "Missing field: " + fieldName);
+    }
     if (normalized.equalsIgnoreCase("zh") || normalized.regionMatches(true, 0, "zh-", 0, 3)) {
       return "zh-CN";
     }
     if (normalized.equalsIgnoreCase("en") || normalized.regionMatches(true, 0, "en-", 0, 3)) {
       return "en-US";
     }
-    throw new ServiceException("bad_request", "Unsupported locale: " + fieldName);
+    String[] segments = normalized.split("-");
+    if (segments.length == 0 || segments[0].isBlank()) {
+      throw new ServiceException("bad_request", "Invalid locale: " + fieldName);
+    }
+    String language = segments[0].toLowerCase();
+    if (segments.length == 1) {
+      return language;
+    }
+    String region = segments[1].length() == 2
+        ? segments[1].toUpperCase()
+        : segments[1].toLowerCase();
+    if (segments.length == 2) {
+      return language + "-" + region;
+    }
+    StringBuilder builder = new StringBuilder(language).append('-').append(region);
+    for (int i = 2; i < segments.length; i++) {
+      String part = segments[i].trim();
+      if (!part.isEmpty()) {
+        builder.append('-').append(part.toLowerCase());
+      }
+    }
+    return builder.toString();
   }
 
   private ZoneId readTimeZoneField(String value, String fieldName) {
