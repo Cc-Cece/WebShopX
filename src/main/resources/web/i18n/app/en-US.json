@@ -102,6 +102,7 @@
       "title": "WebShopX - Minecraft Web Shop",
       "headerTitle": "WebShopX Dashboard",
       "headerBackAccount": "Back to Account",
+      "headerThemeSelectLabel": "Theme",
       "headerThemeToggle": "Dark mode",
       "headerStatusOffline": "Not signed in",
       "navTabsAria": "Navigation tabs",

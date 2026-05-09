@@ -716,6 +716,30 @@
 <p class="meta" id="localeCenterStatusView">等待操作</p>
 </article>
 <article class="md-card section-card">
+<div class="section-head">
+<div>
+<h2 data-i18n="uiText.page.themeSectionTitle">主题管理</h2>
+<p class="card-desc" data-i18n-html="uiText.page.themeSectionDescHtml">管理已安装主题包，支持上传与在线获取。用户端可切换已启用的主题。</p>
+</div>
+<button data-i18n="uiText.page.themeSectionManageBtn" id="themeCenterOpenBtn" type="button">管理主题</button>
+</div>
+<div class="field-grid three-col">
+<label class="field">
+<span data-i18n="uiText.page.themeSectionDefaultLabel">默认主题</span>
+<p class="meta" id="themeCenterDefaultThemeView">-</p>
+</label>
+<label class="field">
+<span data-i18n="uiText.page.themeSectionWebEnabledLabel">Web 启用主题</span>
+<p class="meta" id="themeCenterPublishedCountView">0</p>
+</label>
+<label class="field">
+<span data-i18n="uiText.page.themeSectionLastSyncLabel">最近同步</span>
+<p class="meta" id="themeCenterLastSyncView">-</p>
+</label>
+</div>
+<p class="meta" id="themeCenterStatusView">等待操作</p>
+</article>
+<article class="md-card section-card">
 <h2 data-i18n="uiText.autoHtml.k0248">市场运行参数</h2>
 <p class="card-desc" data-i18n="uiText.autoHtml.k0249">控制市场上架上限与供货自动补货策略。</p>
 <div class="field-grid two-col">
@@ -1623,6 +1647,73 @@
 <div class="actions">
 <button class="btn-tonal btn-small" data-i18n="uiText.page.localeManifestDownloadBtn" id="localeManifestDownloadBtn" type="button">下载所选</button>
 <button class="btn-tonal btn-small" data-i18n="uiText.page.localeManifestCancelBtn" id="localeManifestCancelBtn" type="button">关闭</button>
+</div>
+</article>
+</div>
+<div aria-hidden="true" class="dialog-backdrop" id="themeManagerDialog">
+<article class="md-card dialog-card market-policy-dialog-card">
+<h3 data-i18n="uiText.page.themeManagerTitle">主题管理</h3>
+<p id="themeManagerSummary"></p>
+<div class="dialog-details market-policy-dialog-scroll">
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.page.themeManagerDefaultThemeLabel">默认主题</span>
+<select id="themeManagerDefaultThemeSelect"></select>
+</label>
+<label class="field dialog-select-field">
+<span data-i18n="uiText.page.themeManagerDefaultActionLabel">默认主题操作</span>
+<button class="btn-tonal" data-i18n="uiText.page.themeManagerSaveDefaultBtn" id="themeManagerSaveDefaultBtn" type="button">保存默认主题</button>
+</label>
+</div>
+<h4 data-i18n="uiText.page.themeManagerInstalledThemesTitle">已安装主题</h4>
+<div class="admin-list" id="themeManagerThemeList"></div>
+<label class="field dialog-select-field">
+<span data-i18n="uiText.page.themeManagerSourceInstallLabel">在线获取或手动安装</span>
+<button class="btn-tonal btn-small" data-i18n="uiText.page.themeManagerManifestBtn" id="themeManagerManifestBtn" type="button">在线获取</button>
+</label>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.page.themeManagerUploadPackageLabel">上传主题包(zip)</span>
+<input accept=".zip" id="themeManagerUploadFile" type="file"/>
+</label>
+<label class="field dialog-select-field">
+<span data-i18n="uiText.page.themeManagerUploadActionLabel">上传操作</span>
+<button class="btn-tonal" data-i18n="uiText.page.themeManagerUploadBtn" id="themeManagerUploadBtn" type="button">本地上传</button>
+</label>
+</div>
+<p class="meta" data-i18n="uiText.page.themeManagerActionStatusWaiting" id="themeManagerActionStatus">等待操作</p>
+</div>
+<div class="actions">
+<button data-i18n="uiText.page.themeManagerApplyBtn" id="themeManagerApplyBtn" type="button">应用</button>
+<button class="btn-tonal" data-i18n="uiText.page.themeManagerCloseBtn" id="themeManagerCloseBtn" type="button">关闭</button>
+</div>
+</article>
+</div>
+<div aria-hidden="true" class="dialog-backdrop" id="themeManifestDialog">
+<article class="md-card dialog-card market-policy-dialog-card">
+<h3 data-i18n="uiText.page.themeManifestTitle">在线获取主题包</h3>
+<p data-i18n="uiText.page.themeManifestDesc">先获取主题列表，再勾选要下载的主题包。</p>
+<div class="dialog-details market-policy-dialog-scroll">
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.page.themeManifestUrlLabel">Manifest URL</span>
+<input data-i18n-placeholder="uiText.page.themeManifestUrlPlaceholder" id="themeManifestUrl" placeholder="例如 https://.../releases/latest/download/manifest.json"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.page.themeManifestFetchListLabel">获取主题列表</span>
+<button class="btn-tonal" data-i18n="uiText.page.themeManifestFetchBtn" id="themeManifestFetchBtn" type="button">获取</button>
+</label>
+</div>
+<p class="meta" data-i18n="uiText.page.themeManifestStatusWaiting" id="themeManifestStatus">等待获取</p>
+<div class="actions compact-actions">
+<button class="btn-tonal btn-small" data-i18n="uiText.page.themeManifestSelectAllBtn" id="themeManifestSelectAllBtn" type="button">全选</button>
+<button class="btn-tonal btn-small" data-i18n="uiText.page.themeManifestClearAllBtn" id="themeManifestClearAllBtn" type="button">取消全选</button>
+</div>
+<div class="admin-list" id="themeManifestResultList"></div>
+</div>
+<div class="actions">
+<button class="btn-tonal btn-small" data-i18n="uiText.page.themeManifestDownloadBtn" id="themeManifestDownloadBtn" type="button">下载所选</button>
+<button class="btn-tonal btn-small" data-i18n="uiText.page.themeManifestCancelBtn" id="themeManifestCancelBtn" type="button">关闭</button>
 </div>
 </article>
 </div>

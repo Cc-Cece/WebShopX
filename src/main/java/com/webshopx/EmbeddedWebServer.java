@@ -67,6 +67,7 @@ class EmbeddedWebServer {
   private final Gson gson;
   private static final int MATERIAL_ICON_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
   private static final int REMOTE_LOCALE_PACKAGE_MAX_BYTES = 20 * 1024 * 1024;
+  private static final int REMOTE_THEME_PACKAGE_MAX_BYTES = 12 * 1024 * 1024;
   private static final int REMOTE_FETCH_MAX_ATTEMPTS = 4;
   private static final long REMOTE_FETCH_RETRY_BASE_DELAY_MS = 1200L;
   private static final List<String> GITHUB_PROXY_PREFIXES = List.of(
@@ -90,6 +91,7 @@ class EmbeddedWebServer {
 
   private final HttpClient httpClient;
   private final LocaleCenterService localeCenterService;
+  private final ThemeCenterService themeCenterService;
 
   private HttpServer server;
   private ExecutorService executorService;
@@ -138,6 +140,7 @@ class EmbeddedWebServer {
       .connectTimeout(Duration.ofSeconds(10))
       .build();
     this.localeCenterService = new LocaleCenterService(plugin, () -> this.staticRoot);
+    this.themeCenterService = new ThemeCenterService(plugin, () -> this.staticRoot);
   }
 
   void start(Path staticRoot) throws IOException {
@@ -172,6 +175,7 @@ class EmbeddedWebServer {
     server.createContext("/api/meta/material-overrides", this::handleMaterialOverrideMeta);
     server.createContext("/api/meta/market-tags", this::handleMarketTagsMeta);
     server.createContext("/api/meta/locales", this::handleMetaLocales);
+    server.createContext("/api/meta/themes", this::handleMetaThemes);
     server.createContext("/api/leaderboard/config", this::handleLeaderboardConfig);
     server.createContext("/api/leaderboard/list", this::handleLeaderboardList);
     server.createContext("/api/market/listings", this::handleMarketListings);
@@ -196,6 +200,11 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/locales/action", this::handleAdminLocalesAction);
     server.createContext("/api/admin/locales/upload", this::handleAdminLocalesUpload);
     server.createContext("/api/admin/locales/sync-manifest", this::handleAdminLocalesSyncManifest);
+    server.createContext("/api/admin/themes", this::handleAdminThemesList);
+    server.createContext("/api/admin/themes/default", this::handleAdminThemesDefault);
+    server.createContext("/api/admin/themes/action", this::handleAdminThemesAction);
+    server.createContext("/api/admin/themes/upload", this::handleAdminThemesUpload);
+    server.createContext("/api/admin/themes/sync-manifest", this::handleAdminThemesSyncManifest);
     server.createContext("/api/admin/redeem/create", this::handleAdminRedeemCreate);
     server.createContext("/api/admin/redeem/list", this::handleAdminRedeemList);
     server.createContext("/api/admin/products/list", this::handleAdminProductsList);
@@ -2075,6 +2084,22 @@ class EmbeddedWebServer {
     });
   }
 
+  private void handleMetaThemes(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject state = themeCenterService.listState();
+      JsonObject response = new JsonObject();
+      response.addProperty("defaultTheme", getOptionalString(state, "defaultTheme").orElse("default"));
+      response.add("themes", themeCenterService.listPublicWebThemes());
+      sendJson(exchange, 200, response);
+    });
+  }
+
   private void handleAdminLocalesList(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
       return;
@@ -2241,6 +2266,179 @@ class EmbeddedWebServer {
       response.addProperty("failed", failed);
       response.add("results", results);
       response.add("state", localeCenterService.listState());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminThemesList(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      requireAdmin(exchange, null, AdminPermission.ECONOMY_MANAGE);
+      sendJson(exchange, 200, themeCenterService.listState());
+    });
+  }
+
+  private void handleAdminThemesDefault(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      String defaultTheme = getOptionalString(payload, "defaultTheme")
+          .orElseThrow(() -> new ServiceException("bad_request", "Missing field: defaultTheme"));
+      JsonObject state = themeCenterService.updateDefaultTheme(defaultTheme);
+      JsonObject response = new JsonObject();
+      response.add("state", state);
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminThemesAction(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      String themeId = getOptionalString(payload, "themeId")
+          .orElseThrow(() -> new ServiceException("bad_request", "Missing field: themeId"));
+      String action = getOptionalString(payload, "action")
+          .orElseThrow(() -> new ServiceException("bad_request", "Missing field: action"));
+      JsonObject state = themeCenterService.applyThemeAction(themeId, action);
+      JsonObject response = new JsonObject();
+      response.add("state", state);
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminThemesUpload(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      String fileName = getOptionalString(payload, "fileName").orElse("theme-pack.zip");
+      String contentBase64 = getString(payload, "contentBase64");
+      ThemeCenterService.InstallOutcome outcome = themeCenterService.installBase64Package(
+          fileName,
+          contentBase64,
+          ThemeCenterService.installOptionsFromJson(payload));
+
+      JsonArray changed = new JsonArray();
+      for (JsonObject row : outcome.changed()) {
+        changed.add(row);
+      }
+
+      JsonObject response = new JsonObject();
+      response.add("state", outcome.state());
+      response.add("changed", changed);
+      response.addProperty("fileCount", outcome.fileCount());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminThemesSyncManifest(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+
+      String rawUrl = getOptionalString(payload, "url")
+          .orElseThrow(() -> new ServiceException("bad_request", "Missing field: url"));
+      URI manifestUri = parseManifestUri(rawUrl);
+      boolean enableGithubMirrorFallback = isGithubMirrorFallbackEnabledForManifest(manifestUri);
+      JsonObject manifest = fetchRemoteManifest(manifestUri, enableGithubMirrorFallback);
+      List<ManifestThemePackage> entries = parseManifestThemePackages(manifest);
+      if (entries.isEmpty()) {
+        throw new ServiceException("bad_request", "Manifest contains no theme package entries");
+      }
+
+      Set<String> requestedThemes = new java.util.LinkedHashSet<>();
+      for (String rawTheme : getStringArray(payload, "themes")) {
+        String themeId = normalizeThemeId(rawTheme);
+        if (!themeId.isBlank()) {
+          requestedThemes.add(themeId);
+        }
+      }
+
+      JsonArray results = new JsonArray();
+      int succeeded = 0;
+      int failed = 0;
+      String manifestVersion = getOptionalString(manifest, "version").orElse("");
+
+      for (ManifestThemePackage entry : entries) {
+        if (!requestedThemes.isEmpty() && !requestedThemes.contains(entry.themeId())) {
+          continue;
+        }
+
+        JsonObject row = new JsonObject();
+        row.addProperty("themeId", entry.themeId());
+        row.addProperty("version", entry.version());
+        row.addProperty("packageUrl", entry.packageUrl());
+        try {
+          URI packageUri = parseManifestUri(entry.packageUrl());
+          byte[] packageBytes = fetchRemoteResourceWithRetry(
+              packageUri,
+              "theme package",
+              "*/*",
+              "WebShopX-Theme-Sync",
+              Duration.ofSeconds(30),
+              REMOTE_THEME_PACKAGE_MAX_BYTES,
+              enableGithubMirrorFallback);
+          ThemeCenterService.InstallOutcome outcome = themeCenterService.installZipPackage(
+              packageBytes,
+              new ThemeCenterService.InstallOptions("github", entry.version(), entry.name(), entry.themeId()));
+          JsonArray changed = new JsonArray();
+          for (JsonObject changedRow : outcome.changed()) {
+            String changedTheme = getOptionalString(changedRow, "themeId").orElse("");
+            if (!changedTheme.isBlank()) {
+              changed.add(changedTheme);
+            }
+          }
+          row.addProperty("result", "ok");
+          row.add("changedThemes", changed);
+          row.addProperty("fileCount", outcome.fileCount());
+          succeeded += 1;
+        } catch (Exception exception) {
+          row.addProperty("result", "failed");
+          row.addProperty("message", exception.getMessage() == null ? "unknown error" : exception.getMessage());
+          failed += 1;
+        }
+        results.add(row);
+      }
+
+      if (results.size() <= 0) {
+        throw new ServiceException("bad_request", "No theme matched the requested filter");
+      }
+
+      JsonObject response = new JsonObject();
+      response.addProperty("manifestVersion", manifestVersion);
+      response.addProperty("total", results.size());
+      response.addProperty("succeeded", succeeded);
+      response.addProperty("failed", failed);
+      response.add("results", results);
+      response.add("state", themeCenterService.listState());
       sendJson(exchange, 200, response);
     });
   }
@@ -5043,6 +5241,41 @@ class EmbeddedWebServer {
     return list;
   }
 
+  private List<ManifestThemePackage> parseManifestThemePackages(JsonObject manifest) {
+    JsonElement themesElement = manifest.get("themes");
+    if (themesElement == null || !themesElement.isJsonArray()) {
+      return List.of();
+    }
+    String manifestVersion = getOptionalString(manifest, "version").orElse("manifest");
+    List<ManifestThemePackage> list = new java.util.ArrayList<>();
+    for (JsonElement element : themesElement.getAsJsonArray()) {
+      if (element == null || !element.isJsonObject()) {
+        continue;
+      }
+      JsonObject row = element.getAsJsonObject();
+      String themeId = normalizeThemeId(
+          getOptionalString(row, "themeId")
+              .or(() -> getOptionalString(row, "id"))
+              .or(() -> getOptionalString(row, "key"))
+              .or(() -> getOptionalString(row, "theme"))
+              .orElse(""));
+      if (themeId.isBlank()) {
+        continue;
+      }
+      String packageUrl = getOptionalString(row, "packageUrl")
+          .or(() -> getOptionalString(row, "url"))
+          .or(() -> getOptionalString(row, "package"))
+          .orElse("");
+      if (packageUrl.isBlank()) {
+        continue;
+      }
+      String version = getOptionalString(row, "version").orElse(manifestVersion);
+      String name = getOptionalString(row, "name").orElse(themeId);
+      list.add(new ManifestThemePackage(themeId, name, version, packageUrl));
+    }
+    return list;
+  }
+
   private String canonicalizeLocaleTag(String raw) {
     String text = String.valueOf(raw == null ? "" : raw).trim().replace('_', '-');
     if (text.isBlank()) {
@@ -5078,10 +5311,28 @@ class EmbeddedWebServer {
     return builder.toString();
   }
 
+  private String normalizeThemeId(String rawThemeId) {
+    String normalized = String.valueOf(rawThemeId == null ? "" : rawThemeId).trim().toLowerCase(Locale.ROOT);
+    if (normalized.isBlank()) {
+      return "";
+    }
+    normalized = normalized.replace(' ', '-');
+    if (!normalized.matches("^[a-z0-9][a-z0-9._-]{0,47}$")) {
+      return "";
+    }
+    return normalized;
+  }
+
   private record ManifestLocalePackage(
       String locale,
       String name,
       String nativeName,
+      String version,
+      String packageUrl) {}
+
+    private record ManifestThemePackage(
+      String themeId,
+      String name,
       String version,
       String packageUrl) {}
 

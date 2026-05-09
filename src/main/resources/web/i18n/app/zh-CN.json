@@ -102,6 +102,7 @@
       "title": "WebShopX - MC网页商店系统",
       "headerTitle": "WebShopX 仪表盘",
       "headerBackAccount": "返回账户",
+      "headerThemeSelectLabel": "主题",
       "headerThemeToggle": "切换暗色",
       "headerStatusOffline": "未登录",
       "navTabsAria": "功能标签",

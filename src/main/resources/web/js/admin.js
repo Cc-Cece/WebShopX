@@ -102,6 +102,17 @@
     fetching: false,
     downloading: false,
   },
+  themeCenter: {
+    defaultTheme: "default",
+    lastSyncAt: null,
+    themes: [],
+    publishedCount: 0,
+  },
+  themeManifest: {
+    entries: [],
+    fetching: false,
+    downloading: false,
+  },
 };
 
 const I18N = window.WebShopXI18n || null;
@@ -243,6 +254,8 @@ const MODRINTH_VERSION_URL = "https://api.modrinth.com/v2/project/webshopx/versi
 const MODRINTH_CHANGELOG_URL = "https://modrinth.com/plugin/webshopx/changelog";
 const LOCALE_MANIFEST_URL_STORAGE_KEY = "webshopx_admin_locale_manifest_url";
 const DEFAULT_LOCALE_MANIFEST_URL = "https://github.com/Cc-Cece/WebShopX-Issues/releases/download/l10n-cdn/manifest.json";
+const THEME_MANIFEST_URL_STORAGE_KEY = "webshopx_admin_theme_manifest_url";
+const DEFAULT_THEME_MANIFEST_URL = "";
 const LOCALE_CENTER_DEFAULTS = Object.freeze({
   defaultLocale: "zh-CN",
   lastSyncAt: null,
@@ -268,6 +281,22 @@ const LOCALE_CENTER_DEFAULTS = Object.freeze({
       status: "published",
       webEnabled: true,
       gameEnabled: true,
+      builtIn: true,
+      updatedAt: "2026-05-09T09:30:00+08:00",
+    },
+  ],
+});
+const THEME_CENTER_DEFAULTS = Object.freeze({
+  defaultTheme: "default",
+  lastSyncAt: null,
+  themes: [
+    {
+      themeId: "default",
+      name: "Default",
+      source: "built-in",
+      version: "builtin-1",
+      status: "published",
+      webEnabled: true,
       builtIn: true,
       updatedAt: "2026-05-09T09:30:00+08:00",
     },
@@ -832,6 +861,32 @@ const elements = {
   localeManifestDownloadBtn: document.getElementById("localeManifestDownloadBtn"),
   localeManifestCancelBtn: document.getElementById("localeManifestCancelBtn"),
 
+  themeCenterOpenBtn: document.getElementById("themeCenterOpenBtn"),
+  themeCenterDefaultThemeView: document.getElementById("themeCenterDefaultThemeView"),
+  themeCenterPublishedCountView: document.getElementById("themeCenterPublishedCountView"),
+  themeCenterLastSyncView: document.getElementById("themeCenterLastSyncView"),
+  themeCenterStatusView: document.getElementById("themeCenterStatusView"),
+  themeManagerDialog: document.getElementById("themeManagerDialog"),
+  themeManagerSummary: document.getElementById("themeManagerSummary"),
+  themeManagerDefaultThemeSelect: document.getElementById("themeManagerDefaultThemeSelect"),
+  themeManagerSaveDefaultBtn: document.getElementById("themeManagerSaveDefaultBtn"),
+  themeManagerThemeList: document.getElementById("themeManagerThemeList"),
+  themeManagerUploadFile: document.getElementById("themeManagerUploadFile"),
+  themeManagerUploadBtn: document.getElementById("themeManagerUploadBtn"),
+  themeManagerManifestBtn: document.getElementById("themeManagerManifestBtn"),
+  themeManagerApplyBtn: document.getElementById("themeManagerApplyBtn"),
+  themeManagerActionStatus: document.getElementById("themeManagerActionStatus"),
+  themeManagerCloseBtn: document.getElementById("themeManagerCloseBtn"),
+  themeManifestDialog: document.getElementById("themeManifestDialog"),
+  themeManifestUrl: document.getElementById("themeManifestUrl"),
+  themeManifestStatus: document.getElementById("themeManifestStatus"),
+  themeManifestSelectAllBtn: document.getElementById("themeManifestSelectAllBtn"),
+  themeManifestClearAllBtn: document.getElementById("themeManifestClearAllBtn"),
+  themeManifestResultList: document.getElementById("themeManifestResultList"),
+  themeManifestFetchBtn: document.getElementById("themeManifestFetchBtn"),
+  themeManifestDownloadBtn: document.getElementById("themeManifestDownloadBtn"),
+  themeManifestCancelBtn: document.getElementById("themeManifestCancelBtn"),
+
   adminSubTabs: document.getElementById("adminSubTabs"),
   snackbarHost: document.getElementById("snackbarHost"),
 };
@@ -839,6 +894,8 @@ const tabs = Array.from(document.querySelectorAll(".top-tab"));
 const panels = Array.from(document.querySelectorAll(".tab-panel"));
 let localeCenterBaselineState = null;
 let localeCenterDirty = false;
+let themeCenterBaselineState = null;
+let themeCenterDirty = false;
 
 function localizeDisplayText(text) {
   const localized = I18N ? I18N.localizeText(text) : text;
@@ -1666,6 +1723,660 @@ async function applyLocaleCenterPendingChanges() {
     tone: "success",
   });
   localeCenterDirty = false;
+}
+
+function cloneThemeCenterDefaults() {
+  return JSON.parse(JSON.stringify(THEME_CENTER_DEFAULTS));
+}
+
+function normalizeThemeCenterId(raw) {
+  const themeId = String(raw || "").trim().toLowerCase().replaceAll(" ", "-");
+  if (!themeId) {
+    return "";
+  }
+  if (!/^[a-z0-9][a-z0-9._-]{0,47}$/.test(themeId)) {
+    return "";
+  }
+  return themeId;
+}
+
+function normalizeThemeCenterRecord(raw) {
+  const themeId = normalizeThemeCenterId(raw?.themeId || raw?.id || raw?.key || raw?.theme);
+  if (!themeId) {
+    return null;
+  }
+  return {
+    themeId,
+    name: String(raw?.name || themeId).trim() || themeId,
+    source: String(raw?.source || "upload").trim().toLowerCase(),
+    version: String(raw?.version || `draft-${Date.now()}`).trim(),
+    status: String(raw?.status || "published").trim().toLowerCase(),
+    webEnabled: raw?.webEnabled !== false,
+    builtIn: raw?.builtIn === true || themeId === "default",
+    updatedAt: String(raw?.updatedAt || new Date().toISOString()),
+  };
+}
+
+function loadThemeCenterState() {
+  applyThemeCenterState(cloneThemeCenterDefaults(), { baseline: true, dirty: false });
+}
+
+function cloneThemeCenterSnapshot(rawState) {
+  return JSON.parse(
+    JSON.stringify({
+      defaultTheme: String(rawState?.defaultTheme || "default"),
+      themes: Array.isArray(rawState?.themes) ? rawState.themes : [],
+    })
+  );
+}
+
+function applyThemeCenterState(rawState, options = {}) {
+  const fallback = cloneThemeCenterDefaults();
+  const source = rawState && typeof rawState === "object" ? rawState : fallback;
+  const themes = Array.isArray(source.themes)
+    ? source.themes.map((item) => normalizeThemeCenterRecord(item)).filter(Boolean)
+    : fallback.themes.map((item) => normalizeThemeCenterRecord(item)).filter(Boolean);
+  state.themeCenter = {
+    defaultTheme: normalizeThemeCenterId(source.defaultTheme) || fallback.defaultTheme,
+    lastSyncAt: source.lastSyncAt || null,
+    themes,
+    publishedCount: 0,
+  };
+  syncThemeCenterPublishedCount();
+  if (options.baseline) {
+    themeCenterBaselineState = cloneThemeCenterSnapshot(state.themeCenter);
+  }
+  if (typeof options.dirty === "boolean") {
+    themeCenterDirty = options.dirty;
+  }
+}
+
+function markThemeCenterDirty() {
+  themeCenterDirty = true;
+}
+
+async function loadThemeCenterStateFromServer(options = {}) {
+  if (!state.token) {
+    loadThemeCenterState();
+    updateThemeCenterStateView(options.message || "", "info");
+    return;
+  }
+  const payload = await apiAdmin("/api/admin/themes", { method: "GET" });
+  applyThemeCenterState(payload, { baseline: true, dirty: false });
+  updateThemeCenterStateView(options.message || "", options.tone || "info");
+}
+
+function formatThemeSource(source) {
+  if (source === "github") {
+    return getAdminPageText("themeSourceGithub", "GitHub");
+  }
+  if (source === "built-in") {
+    return getAdminPageText("themeSourceBuiltIn", "Built-in");
+  }
+  return getAdminPageText("themeSourceUpload", "Upload");
+}
+
+function syncThemeCenterPublishedCount() {
+  state.themeCenter.publishedCount = state.themeCenter.themes.filter((item) => item.webEnabled !== false).length;
+}
+
+function renderThemeCenterOverview() {
+  syncThemeCenterPublishedCount();
+  if (elements.themeCenterDefaultThemeView) {
+    setNodeText(elements.themeCenterDefaultThemeView, state.themeCenter.defaultTheme || "-");
+  }
+  if (elements.themeCenterPublishedCountView) {
+    setNodeText(elements.themeCenterPublishedCountView, String(state.themeCenter.publishedCount || 0));
+  }
+  if (elements.themeCenterLastSyncView) {
+    setNodeText(
+      elements.themeCenterLastSyncView,
+      state.themeCenter.lastSyncAt ? formatDateTime(state.themeCenter.lastSyncAt) : getAdminPageText("themeLastSyncNever", "Never synced")
+    );
+  }
+}
+
+function populateThemeCenterDefaultSelect() {
+  if (!elements.themeManagerDefaultThemeSelect) {
+    return;
+  }
+  const select = elements.themeManagerDefaultThemeSelect;
+  select.innerHTML = "";
+  const themes = state.themeCenter.themes
+    .filter((item) => item.webEnabled !== false)
+    .map((item) => item.themeId);
+  if (!themes.includes(state.themeCenter.defaultTheme)) {
+    themes.unshift(state.themeCenter.defaultTheme);
+  }
+  Array.from(new Set(themes)).forEach((themeId) => {
+    const option = document.createElement("option");
+    option.value = themeId;
+    option.textContent = themeId;
+    select.appendChild(option);
+  });
+  select.value = state.themeCenter.defaultTheme || "default";
+}
+
+function renderThemeCenterRow(item) {
+  const card = document.createElement("div");
+  card.className = "admin-card";
+
+  const title = document.createElement("strong");
+  setNodeText(title, `${item.name} (${item.themeId})`);
+  card.appendChild(title);
+
+  const subtitle = document.createElement("p");
+  subtitle.className = "admin-card-subtitle";
+  setNodeText(subtitle, `${formatThemeSource(item.source)} | ${item.version}`);
+  card.appendChild(subtitle);
+
+  const tagRow = document.createElement("div");
+  tagRow.className = "admin-tag-row";
+  tagRow.appendChild(createTag(
+    item.webEnabled ? getAdminPageText("themeTagWebOn", "Web On") : getAdminPageText("themeTagWebOff", "Web Off"),
+    item.webEnabled ? "success" : "muted"
+  ));
+  if (item.builtIn) {
+    tagRow.appendChild(createTag(getAdminPageText("themeTagBuiltIn", "Built-in"), "accent"));
+  }
+  card.appendChild(tagRow);
+
+  const actionRow = document.createElement("div");
+  actionRow.className = "actions compact-actions";
+
+  const toggleWebBtn = document.createElement("button");
+  toggleWebBtn.type = "button";
+  toggleWebBtn.className = "btn-tonal";
+  toggleWebBtn.dataset.action = "toggleWeb";
+  toggleWebBtn.dataset.themeId = item.themeId;
+  setNodeText(
+    toggleWebBtn,
+    item.webEnabled
+      ? getAdminPageText("themeActionDisableWeb", "Disable Web")
+      : getAdminPageText("themeActionEnableWeb", "Enable Web")
+  );
+  actionRow.appendChild(toggleWebBtn);
+
+  if (!item.builtIn) {
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "btn-tonal";
+    removeBtn.dataset.action = "remove";
+    removeBtn.dataset.themeId = item.themeId;
+    setNodeText(removeBtn, getAdminPageText("themeActionRemove", "Remove"));
+    actionRow.appendChild(removeBtn);
+  }
+
+  card.appendChild(actionRow);
+  return card;
+}
+
+function renderThemeCenterList() {
+  if (!elements.themeManagerThemeList) {
+    return;
+  }
+  const container = elements.themeManagerThemeList;
+  container.innerHTML = "";
+  const sorted = [...state.themeCenter.themes].sort((left, right) => left.themeId.localeCompare(right.themeId));
+  sorted.forEach((item) => {
+    container.appendChild(renderThemeCenterRow(item));
+  });
+  if (sorted.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    setNodeText(empty, getAdminPageText("themeEmptyInstalled", "No installed themes"));
+    container.appendChild(empty);
+  }
+}
+
+async function openThemeManagerDialog() {
+  if (!elements.themeManagerDialog) {
+    return;
+  }
+  if (state.token) {
+    try {
+      await loadThemeCenterStateFromServer();
+    } catch (error) {
+      updateThemeCenterStateView(
+        formatAdminPageText("themeErrorLoadCenter", { message: error.message || error }, "Failed to load theme center: {message}"),
+        "error"
+      );
+    }
+  }
+  populateThemeCenterDefaultSelect();
+  renderThemeCenterList();
+  if (elements.themeManagerSummary) {
+    setNodeText(
+      elements.themeManagerSummary,
+      formatAdminPageText(
+        "themeSummaryInstalled",
+        { installed: state.themeCenter.themes.length, published: state.themeCenter.publishedCount },
+        "Installed {installed} theme package(s), Web enabled {published}."
+      )
+    );
+  }
+  elements.themeManagerDialog.classList.add("show");
+  elements.themeManagerDialog.setAttribute("aria-hidden", "false");
+}
+
+function closeThemeManagerDialog() {
+  if (!elements.themeManagerDialog) {
+    return;
+  }
+  elements.themeManagerDialog.classList.remove("show");
+  elements.themeManagerDialog.setAttribute("aria-hidden", "true");
+}
+
+function openThemeManifestDialog() {
+  if (!elements.themeManifestDialog) {
+    return;
+  }
+  if (elements.themeManifestStatus) {
+    setMetaText(
+      elements.themeManifestStatus,
+      getAdminPageText("themeManifestPromptFetchFirst", "Click Fetch first to load theme list."),
+      "info"
+    );
+  }
+  state.themeManifest.entries = [];
+  if (elements.themeManifestResultList) {
+    elements.themeManifestResultList.innerHTML = "";
+  }
+  if (elements.themeManifestUrl) {
+    const saved = window.localStorage.getItem(THEME_MANIFEST_URL_STORAGE_KEY) || "";
+    elements.themeManifestUrl.value = saved || DEFAULT_THEME_MANIFEST_URL;
+  }
+  elements.themeManifestDialog.classList.add("show");
+  elements.themeManifestDialog.setAttribute("aria-hidden", "false");
+}
+
+function closeThemeManifestDialog() {
+  if (!elements.themeManifestDialog) {
+    return;
+  }
+  elements.themeManifestDialog.classList.remove("show");
+  elements.themeManifestDialog.setAttribute("aria-hidden", "true");
+}
+
+function updateThemeCenterStateView(message, tone = "info") {
+  renderThemeCenterOverview();
+  populateThemeCenterDefaultSelect();
+  renderThemeCenterList();
+  if (elements.themeCenterStatusView && message) {
+    setMetaText(elements.themeCenterStatusView, message, tone);
+  }
+  if (elements.themeManagerActionStatus && message) {
+    setMetaText(elements.themeManagerActionStatus, message, tone);
+  }
+}
+
+async function handleThemeCenterRowAction(event) {
+  const button = event.target.closest("button[data-action][data-theme-id]");
+  if (!button) {
+    return;
+  }
+  const themeId = button.dataset.themeId;
+  const action = button.dataset.action;
+  if (!themeId || !action) {
+    return;
+  }
+  const normalized = normalizeThemeCenterId(themeId);
+  const target = state.themeCenter.themes.find((item) => item.themeId === normalized);
+  if (!target) {
+    return;
+  }
+  if (action === "toggleWeb") {
+    target.webEnabled = !target.webEnabled;
+    target.updatedAt = new Date().toISOString();
+    markThemeCenterDirty();
+    updateThemeCenterStateView(
+      formatAdminPageText("themeStateWebPending", { themeId: normalized }, "{themeId} Web state staged. Click Apply to save."),
+      "info"
+    );
+    return;
+  }
+  if (action === "remove") {
+    if (target.builtIn) {
+      updateThemeCenterStateView(getAdminPageText("themeStateBuiltInCannotRemove", "Built-in theme cannot be removed."), "warn");
+      return;
+    }
+    state.themeCenter.themes = state.themeCenter.themes.filter((item) => item.themeId !== normalized);
+    if (state.themeCenter.defaultTheme === normalized) {
+      state.themeCenter.defaultTheme = "default";
+    }
+    markThemeCenterDirty();
+    updateThemeCenterStateView(
+      formatAdminPageText("themeStateRemovePending", { themeId: normalized }, "{themeId} removal staged. Click Apply to save."),
+      "info"
+    );
+  }
+}
+
+async function saveThemeCenterDefaultTheme() {
+  const next = normalizeThemeCenterId(elements.themeManagerDefaultThemeSelect?.value || "");
+  if (!next) {
+    updateThemeCenterStateView(getAdminPageText("themeStatePickDefault", "Please select a default theme."), "warn");
+    return;
+  }
+  state.themeCenter.defaultTheme = next;
+  markThemeCenterDirty();
+  updateThemeCenterStateView(
+    formatAdminPageText("themeStateDefaultPending", { themeId: next }, "Default theme staged as {themeId}. Click Apply to save."),
+    "info"
+  );
+}
+
+async function uploadThemeCenterPackage() {
+  const file = elements.themeManagerUploadFile?.files?.[0];
+  if (!file) {
+    updateThemeCenterStateView(getAdminPageText("themeStatePickUploadFile", "Please choose a theme package file first."), "warn");
+    return;
+  }
+  if (!state.token) {
+    updateThemeCenterStateView(getAdminPageText("themeStateRequireLogin", "Please sign in as admin first."), "warn");
+    return;
+  }
+  try {
+    const contentBase64 = await readFileAsBase64(file);
+    const payload = await apiAdmin("/api/admin/themes/upload", {
+      method: "POST",
+      body: JSON.stringify({
+        fileName: file.name,
+        contentBase64,
+        source: "upload",
+      }),
+    });
+    applyThemeCenterState(payload?.state || payload, { baseline: true, dirty: false });
+    const changedCount = Array.isArray(payload?.changed) ? payload.changed.length : 0;
+    updateThemeCenterStateView(
+      formatAdminPageText("themeStateUploadDone", { fileName: file.name, changedCount }, "Upload completed: {fileName} ({changedCount} theme(s))"),
+      "success"
+    );
+  } catch (error) {
+    updateThemeCenterStateView(
+      formatAdminPageText("themeStateUploadFailed", { message: error.message || error }, "Upload failed: {message}"),
+      "error"
+    );
+  }
+}
+
+function parseManifestThemes(payload) {
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+  const fallbackVersion = String(payload?.version || payload?.generatedAt || "").trim();
+  const rows = Array.isArray(payload?.themes) ? payload.themes : [];
+  return rows
+    .map((item) => {
+      const themeId = normalizeThemeCenterId(item?.themeId || item?.id || item?.key || item?.theme || "");
+      if (!themeId) {
+        return null;
+      }
+      const name = String(item?.name || themeId).trim() || themeId;
+      const version = String(item?.version || fallbackVersion || "").trim();
+      return {
+        themeId,
+        name,
+        version: version || "manifest",
+        checked: false,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.themeId.localeCompare(right.themeId));
+}
+
+function renderThemeManifestSelectableList() {
+  if (!elements.themeManifestResultList) {
+    return;
+  }
+  const list = elements.themeManifestResultList;
+  list.innerHTML = "";
+  if (!Array.isArray(state.themeManifest.entries) || state.themeManifest.entries.length <= 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    setNodeText(empty, getAdminPageText("themeManifestEmptyList", "No selectable theme yet. Click Fetch first."));
+    list.appendChild(empty);
+    return;
+  }
+  state.themeManifest.entries.forEach((item, index) => {
+    const card = document.createElement("label");
+    card.className = "admin-card";
+    card.style.display = "block";
+
+    const topRow = document.createElement("div");
+    topRow.className = "actions";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.themeIndex = String(index);
+    checkbox.checked = item.checked !== false;
+    const title = document.createElement("strong");
+    setNodeText(title, `${item.name} [${item.themeId}]`);
+    topRow.appendChild(checkbox);
+    topRow.appendChild(title);
+    card.appendChild(topRow);
+
+    const sub = document.createElement("p");
+    sub.className = "admin-card-subtitle";
+    setNodeText(sub, formatAdminPageText("themeManifestVersion", { version: item.version }, "Version: {version}"));
+    card.appendChild(sub);
+    list.appendChild(card);
+  });
+}
+
+function getSelectedManifestThemes() {
+  return (state.themeManifest.entries || [])
+    .filter((item) => item.checked !== false)
+    .map((item) => item.themeId);
+}
+
+function setThemeManifestSelection(checked) {
+  if (!Array.isArray(state.themeManifest.entries) || state.themeManifest.entries.length <= 0) {
+    if (elements.themeManifestStatus) {
+      setMetaText(
+        elements.themeManifestStatus,
+        getAdminPageText("themeManifestEmptyList", "No selectable theme yet. Click Fetch first."),
+        "warn"
+      );
+    }
+    return;
+  }
+  state.themeManifest.entries.forEach((item) => {
+    item.checked = checked;
+  });
+  renderThemeManifestSelectableList();
+}
+
+async function fetchThemeManifestList() {
+  if (state.themeManifest.fetching) {
+    return;
+  }
+  const manifestUrl = String(elements.themeManifestUrl?.value || "").trim();
+  if (!manifestUrl) {
+    if (elements.themeManifestStatus) {
+      setMetaText(elements.themeManifestStatus, getAdminPageText("themeManifestNeedUrl", "Please enter manifest URL."), "warn");
+    }
+    return;
+  }
+  try {
+    window.localStorage.setItem(THEME_MANIFEST_URL_STORAGE_KEY, manifestUrl);
+  } catch (error) {
+    // ignore storage issues
+  }
+
+  if (elements.themeManifestStatus) {
+    setMetaText(elements.themeManifestStatus, getAdminPageText("themeManifestFetching", "Fetching, please wait..."), "info");
+  }
+
+  if (!state.token) {
+    if (elements.themeManifestStatus) {
+      setMetaText(elements.themeManifestStatus, getAdminPageText("themeStateRequireLogin", "Please sign in as admin first."), "warn");
+    }
+    return;
+  }
+  state.themeManifest.fetching = true;
+  if (elements.themeManifestFetchBtn) {
+    elements.themeManifestFetchBtn.disabled = true;
+  }
+
+  let payload;
+  try {
+    payload = await apiAdmin(`/api/admin/l10n/manifest?url=${encodeURIComponent(manifestUrl)}`, { method: "GET" });
+  } catch (error) {
+    if (elements.themeManifestStatus) {
+      setMetaText(
+        elements.themeManifestStatus,
+        formatAdminPageText("themeManifestFetchFailed", { message: error.message || error }, "Fetch failed: {message}"),
+        "error"
+      );
+    }
+    return;
+  } finally {
+    state.themeManifest.fetching = false;
+    if (elements.themeManifestFetchBtn) {
+      elements.themeManifestFetchBtn.disabled = false;
+    }
+  }
+
+  state.themeManifest.entries = parseManifestThemes(payload);
+  renderThemeManifestSelectableList();
+  if (elements.themeManifestStatus) {
+    setMetaText(
+      elements.themeManifestStatus,
+      formatAdminPageText(
+        "themeManifestFetchedSummary",
+        { count: state.themeManifest.entries.length },
+        "Fetched: {count} theme(s). Select and download."
+      ),
+      state.themeManifest.entries.length > 0 ? "success" : "warn"
+    );
+  }
+}
+
+async function runThemeCenterManifestSync() {
+  if (state.themeManifest.downloading) {
+    return;
+  }
+  const manifestUrl = String(elements.themeManifestUrl?.value || "").trim();
+  if (!manifestUrl) {
+    if (elements.themeManifestStatus) {
+      setMetaText(elements.themeManifestStatus, getAdminPageText("themeManifestNeedUrl", "Please enter manifest URL."), "warn");
+    }
+    return;
+  }
+  const selectedThemes = getSelectedManifestThemes();
+  if (selectedThemes.length <= 0) {
+    if (elements.themeManifestStatus) {
+      setMetaText(elements.themeManifestStatus, getAdminPageText("themeManifestNeedSelect", "Please select at least one theme."), "warn");
+    }
+    return;
+  }
+  if (!state.token) {
+    if (elements.themeManifestStatus) {
+      setMetaText(elements.themeManifestStatus, getAdminPageText("themeStateRequireLogin", "Please sign in as admin first."), "warn");
+    }
+    return;
+  }
+  if (elements.themeManifestStatus) {
+    setMetaText(
+      elements.themeManifestStatus,
+      formatAdminPageText("themeManifestDownloading", { count: selectedThemes.length }, "Downloading {count} theme(s)..."),
+      "info"
+    );
+  }
+  state.themeManifest.downloading = true;
+  if (elements.themeManifestDownloadBtn) {
+    elements.themeManifestDownloadBtn.disabled = true;
+  }
+  let payload;
+  try {
+    payload = await apiAdmin("/api/admin/themes/sync-manifest", {
+      method: "POST",
+      body: JSON.stringify({
+        url: manifestUrl,
+        themes: selectedThemes,
+      }),
+    });
+  } catch (error) {
+    if (elements.themeManifestStatus) {
+      setMetaText(
+        elements.themeManifestStatus,
+        formatAdminPageText("themeManifestDownloadFailed", { message: error.message || error }, "Download failed: {message}"),
+        "error"
+      );
+    }
+    return;
+  } finally {
+    state.themeManifest.downloading = false;
+    if (elements.themeManifestDownloadBtn) {
+      elements.themeManifestDownloadBtn.disabled = false;
+    }
+  }
+  applyThemeCenterState(payload?.state || state.themeCenter, { baseline: true, dirty: false });
+  const failed = Number(payload?.failed || 0);
+  updateThemeCenterStateView(
+    formatAdminPageText(
+      "themeManifestDownloaded",
+      { succeeded: Number(payload?.succeeded || 0), failed },
+      "Manifest download done: succeeded {succeeded}, failed {failed}"
+    ),
+    failed > 0 ? "warn" : "success"
+  );
+  closeThemeManifestDialog();
+}
+
+async function applyThemeCenterPendingChanges() {
+  if (!themeCenterDirty) {
+    updateThemeCenterStateView(getAdminPageText("themeStateNoPending", "No pending changes."), "info");
+    return;
+  }
+  if (!state.token) {
+    updateThemeCenterStateView(getAdminPageText("themeStateRequireLogin", "Please sign in as admin first."), "warn");
+    return;
+  }
+
+  const baseline = themeCenterBaselineState || cloneThemeCenterSnapshot(state.themeCenter);
+  const current = cloneThemeCenterSnapshot(state.themeCenter);
+  const baselineMap = new Map((baseline.themes || []).map((item) => [normalizeThemeCenterId(item.themeId), item]));
+  const currentMap = new Map((current.themes || []).map((item) => [normalizeThemeCenterId(item.themeId), item]));
+  let appliedOps = 0;
+
+  if (normalizeThemeCenterId(baseline.defaultTheme) !== normalizeThemeCenterId(current.defaultTheme)) {
+    await apiAdmin("/api/admin/themes/default", {
+      method: "POST",
+      body: JSON.stringify({ defaultTheme: current.defaultTheme }),
+    });
+    appliedOps += 1;
+  }
+
+  for (const [themeId, before] of baselineMap.entries()) {
+    const after = currentMap.get(themeId);
+    if (!after) {
+      if (before.builtIn) {
+        continue;
+      }
+      await apiAdmin("/api/admin/themes/action", {
+        method: "POST",
+        body: JSON.stringify({ themeId, action: "remove" }),
+      });
+      appliedOps += 1;
+      continue;
+    }
+    if (!!before.webEnabled !== !!after.webEnabled) {
+      await apiAdmin("/api/admin/themes/action", {
+        method: "POST",
+        body: JSON.stringify({ themeId, action: "toggleWeb" }),
+      });
+      appliedOps += 1;
+    }
+  }
+
+  await loadThemeCenterStateFromServer({
+    message: appliedOps > 0
+      ? formatAdminPageText("themeStateAppliedSummary", { count: appliedOps }, "Applied {count} change(s).")
+      : getAdminPageText("themeStateNoApplyNeeded", "No changes to apply."),
+    tone: "success",
+  });
+  themeCenterDirty = false;
 }
 
 function normalizeVersionText(versionText) {
@@ -3136,6 +3847,8 @@ function setLoggedOut() {
   setMetaText(elements.adminLoginStatus, getAdminPageText("loginStatusSignedOut", "Signed out"), "info");
   loadLocaleCenterState();
   updateLocaleCenterStateView(getAdminPageText("localeStateRequireLogin", "Please sign in as admin first."), "info");
+  loadThemeCenterState();
+  updateThemeCenterStateView(getAdminPageText("themeStateRequireLogin", "Please sign in as admin first."), "info");
 }
 
 async function loginAdmin() {
@@ -3162,6 +3875,10 @@ async function loginAdmin() {
     message: getAdminPageText("localeStateSynced", "Locale center synced."),
     tone: "success",
   });
+  await loadThemeCenterStateFromServer({
+    message: getAdminPageText("themeStateSynced", "Theme center synced."),
+    tone: "success",
+  });
 }
 
 async function loadAdminProfile() {
@@ -3178,6 +3895,7 @@ async function loadAdminProfile() {
     }
     startAdminAutoSync();
     await loadLocaleCenterStateFromServer();
+    await loadThemeCenterStateFromServer();
   } catch (error) {
     setLoggedOut();
   }
@@ -8662,6 +9380,129 @@ if (elements.localeManifestDialog) {
   });
 }
 
+if (elements.themeCenterOpenBtn) {
+  elements.themeCenterOpenBtn.addEventListener("click", () => {
+    openThemeManagerDialog().catch((error) => {
+      updateThemeCenterStateView(
+        formatAdminPageText("themeErrorOpenCenter", { message: error.message || error }, "Failed to open theme center: {message}"),
+        "error"
+      );
+    });
+  });
+}
+if (elements.themeManagerCloseBtn) {
+  elements.themeManagerCloseBtn.addEventListener("click", closeThemeManagerDialog);
+}
+if (elements.themeManagerDialog) {
+  elements.themeManagerDialog.addEventListener("click", (event) => {
+    if (event.target === elements.themeManagerDialog) {
+      closeThemeManagerDialog();
+    }
+  });
+}
+if (elements.themeManagerSaveDefaultBtn) {
+  elements.themeManagerSaveDefaultBtn.addEventListener("click", () => {
+    saveThemeCenterDefaultTheme().catch((error) => {
+      updateThemeCenterStateView(
+        formatAdminPageText("themeErrorSaveDefault", { message: error.message || error }, "Failed to save default theme: {message}"),
+        "error"
+      );
+    });
+  });
+}
+if (elements.themeManagerUploadBtn) {
+  elements.themeManagerUploadBtn.addEventListener("click", () => {
+    uploadThemeCenterPackage().catch((error) => {
+      updateThemeCenterStateView(
+        formatAdminPageText("themeErrorUpload", { message: error.message || error }, "Upload failed: {message}"),
+        "error"
+      );
+    });
+  });
+}
+if (elements.themeManagerManifestBtn) {
+  elements.themeManagerManifestBtn.addEventListener("click", openThemeManifestDialog);
+}
+if (elements.themeManagerApplyBtn) {
+  elements.themeManagerApplyBtn.addEventListener("click", () => {
+    applyThemeCenterPendingChanges().catch((error) => {
+      updateThemeCenterStateView(
+        formatAdminPageText("themeErrorApply", { message: error.message || error }, "Apply failed: {message}"),
+        "error"
+      );
+    });
+  });
+}
+if (elements.themeManagerThemeList) {
+  elements.themeManagerThemeList.addEventListener("click", (event) => {
+    handleThemeCenterRowAction(event).catch((error) => {
+      updateThemeCenterStateView(
+        formatAdminPageText("themeErrorRowAction", { message: error.message || error }, "Theme action failed: {message}"),
+        "error"
+      );
+    });
+  });
+}
+if (elements.themeManifestCancelBtn) {
+  elements.themeManifestCancelBtn.addEventListener("click", closeThemeManifestDialog);
+}
+if (elements.themeManifestFetchBtn) {
+  elements.themeManifestFetchBtn.addEventListener("click", () => {
+    fetchThemeManifestList().catch((error) => {
+      if (elements.themeManifestStatus) {
+        setMetaText(
+          elements.themeManifestStatus,
+          formatAdminPageText("themeErrorFetchList", { message: error.message || error }, "Fetch failed: {message}"),
+          "error"
+        );
+      }
+    });
+  });
+}
+if (elements.themeManifestSelectAllBtn) {
+  elements.themeManifestSelectAllBtn.addEventListener("click", () => {
+    setThemeManifestSelection(true);
+  });
+}
+if (elements.themeManifestClearAllBtn) {
+  elements.themeManifestClearAllBtn.addEventListener("click", () => {
+    setThemeManifestSelection(false);
+  });
+}
+if (elements.themeManifestDownloadBtn) {
+  elements.themeManifestDownloadBtn.addEventListener("click", () => {
+    runThemeCenterManifestSync().catch((error) => {
+      if (elements.themeManifestStatus) {
+        setMetaText(
+          elements.themeManifestStatus,
+          formatAdminPageText("themeErrorDownload", { message: error.message || error }, "Download failed: {message}"),
+          "error"
+        );
+      }
+    });
+  });
+}
+if (elements.themeManifestResultList) {
+  elements.themeManifestResultList.addEventListener("change", (event) => {
+    const checkbox = event.target.closest("input[type='checkbox'][data-theme-index]");
+    if (!checkbox) {
+      return;
+    }
+    const index = Number(checkbox.dataset.themeIndex);
+    if (!Number.isInteger(index) || index < 0 || index >= state.themeManifest.entries.length) {
+      return;
+    }
+    state.themeManifest.entries[index].checked = checkbox.checked;
+  });
+}
+if (elements.themeManifestDialog) {
+  elements.themeManifestDialog.addEventListener("click", (event) => {
+    if (event.target === elements.themeManifestDialog) {
+      closeThemeManifestDialog();
+    }
+  });
+}
+
 const savedToken = sessionStorage.getItem("webshop_admin_token");
 if (savedToken) {
   state.token = savedToken;
@@ -8911,6 +9752,24 @@ if (elements.localeManagerActionStatus) {
   setMetaText(
     elements.localeManagerActionStatus,
     getAdminPageText("localeManagerActionStatusWaiting", "Waiting for action"),
+    "info"
+  );
+}
+loadThemeCenterState();
+renderThemeCenterOverview();
+populateThemeCenterDefaultSelect();
+renderThemeCenterList();
+if (elements.themeCenterStatusView) {
+  setMetaText(
+    elements.themeCenterStatusView,
+    getAdminPageText("themeCenterStatusNeedLogin", "Waiting for admin sign-in before syncing theme center."),
+    "info"
+  );
+}
+if (elements.themeManagerActionStatus) {
+  setMetaText(
+    elements.themeManagerActionStatus,
+    getAdminPageText("themeManagerActionStatusWaiting", "Waiting for action"),
     "info"
   );
 }

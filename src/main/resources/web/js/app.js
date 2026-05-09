@@ -66,7 +66,12 @@
   hasLoadedOrders: false,
   hasLoadedNotifications: false,
   theme: "light",
+  themePackage: "default",
   hideOwnMarketListings: true,
+  themeCenter: {
+    defaultTheme: "default",
+    themes: [],
+  },
   realtime: {
     timer: null,
     busy: false,
@@ -603,6 +608,7 @@ const elements = {
   statusChip: document.getElementById("statusChip"),
   headerAccountBackBtn: document.getElementById("headerAccountBackBtn"),
   themeToggleBtn: document.getElementById("themeToggleBtn"),
+  themeSelect: document.getElementById("themeSelect"),
 
   authEntryCard: document.getElementById("authEntryCard"),
   authProfileCard: document.getElementById("authProfileCard"),
@@ -912,8 +918,17 @@ function notify(message, tone = "info", durationMs = 3200) {
 }
 
 const THEME_STORAGE_KEY = "webshopx_theme";
+const THEME_PACKAGE_STORAGE_KEY = "webshopx_theme_package";
+const THEME_LIGHT_OVERRIDE_LINK_ID = "themeOverrideLight";
+const THEME_DARK_OVERRIDE_LINK_ID = "themeOverrideDark";
 const SESSION_STORAGE_KEY = "webshopx_session";
 const MARKET_HIDE_OWN_STORAGE_KEY = "webshopx_market_hide_own";
+const THEME_CENTER_DEFAULTS = Object.freeze({
+  defaultTheme: "default",
+  themes: [
+    { themeId: "default", name: "Default", source: "built-in", version: "builtin-1" },
+  ],
+});
 
 function getInitialTheme() {
   const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -941,6 +956,158 @@ function applyTheme(theme) {
 
 function toggleTheme() {
   applyTheme(state.theme === "dark" ? "light" : "dark");
+}
+
+function cloneThemeCenterDefaults() {
+  return JSON.parse(JSON.stringify(THEME_CENTER_DEFAULTS));
+}
+
+function normalizeThemePackageId(raw) {
+  const themeId = String(raw || "").trim().toLowerCase().replaceAll(" ", "-");
+  if (!themeId) {
+    return "";
+  }
+  if (!/^[a-z0-9][a-z0-9._-]{0,47}$/.test(themeId)) {
+    return "";
+  }
+  return themeId;
+}
+
+function normalizeThemePackageRecord(raw) {
+  const themeId = normalizeThemePackageId(raw?.themeId || raw?.id || raw?.key || raw?.theme);
+  if (!themeId) {
+    return null;
+  }
+  return {
+    themeId,
+    name: String(raw?.name || themeId).trim() || themeId,
+    source: String(raw?.source || "upload").trim().toLowerCase(),
+    version: String(raw?.version || "").trim(),
+  };
+}
+
+function applyThemeCenterState(rawState) {
+  const fallback = cloneThemeCenterDefaults();
+  const source = rawState && typeof rawState === "object" ? rawState : fallback;
+  const themes = Array.isArray(source.themes)
+    ? source.themes.map((item) => normalizeThemePackageRecord(item)).filter(Boolean)
+    : fallback.themes.map((item) => normalizeThemePackageRecord(item)).filter(Boolean);
+  state.themeCenter = {
+    defaultTheme: normalizeThemePackageId(source.defaultTheme) || fallback.defaultTheme,
+    themes,
+  };
+}
+
+function loadThemeCenterState() {
+  applyThemeCenterState(cloneThemeCenterDefaults());
+}
+
+function renderThemeSelect() {
+  if (!elements.themeSelect) {
+    return;
+  }
+  const select = elements.themeSelect;
+  select.innerHTML = "";
+  const themes = Array.isArray(state.themeCenter.themes) ? state.themeCenter.themes : [];
+  const sorted = themes.slice().sort((left, right) => left.themeId.localeCompare(right.themeId));
+  if (sorted.length === 0) {
+    const option = document.createElement("option");
+    option.value = "default";
+    option.textContent = "Default";
+    select.appendChild(option);
+    return;
+  }
+  sorted.forEach((item) => {
+    const option = document.createElement("option");
+    const label = item.name && item.name !== item.themeId ? `${item.name} (${item.themeId})` : item.name;
+    option.value = item.themeId;
+    option.textContent = label || item.themeId;
+    select.appendChild(option);
+  });
+}
+
+function getSavedThemePackage() {
+  try {
+    return String(window.localStorage.getItem(THEME_PACKAGE_STORAGE_KEY) || "").trim();
+  } catch (error) {
+    return "";
+  }
+}
+
+function ensureThemeOverrideLink(id) {
+  let link = document.getElementById(id);
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.id = id;
+    document.head.appendChild(link);
+  }
+  return link;
+}
+
+function removeThemeOverrideLinks() {
+  const lightLink = document.getElementById(THEME_LIGHT_OVERRIDE_LINK_ID);
+  if (lightLink) {
+    lightLink.remove();
+  }
+  const darkLink = document.getElementById(THEME_DARK_OVERRIDE_LINK_ID);
+  if (darkLink) {
+    darkLink.remove();
+  }
+}
+
+function updateThemeOverrideLinks(themeId) {
+  const lightLink = ensureThemeOverrideLink(THEME_LIGHT_OVERRIDE_LINK_ID);
+  const darkLink = ensureThemeOverrideLink(THEME_DARK_OVERRIDE_LINK_ID);
+  const handleError = () => {
+    if (state.themePackage === themeId) {
+      applyThemePackage("default");
+    }
+  };
+  lightLink.onerror = handleError;
+  darkLink.onerror = handleError;
+  lightLink.href = `/themes/${themeId}/light.css`;
+  darkLink.href = `/themes/${themeId}/dark.css`;
+}
+
+function applyThemePackage(themeId, options = {}) {
+  const normalized = normalizeThemePackageId(themeId) || "default";
+  state.themePackage = normalized;
+  if (!options.skipStorage) {
+    try {
+      window.localStorage.setItem(THEME_PACKAGE_STORAGE_KEY, normalized);
+    } catch (error) {
+      // ignore storage issues
+    }
+  }
+  if (normalized === "default") {
+    removeThemeOverrideLinks();
+  } else {
+    updateThemeOverrideLinks(normalized);
+  }
+  if (elements.themeSelect) {
+    elements.themeSelect.value = normalized;
+  }
+}
+
+function syncThemePackageSelection() {
+  const available = new Set((state.themeCenter.themes || []).map((item) => item.themeId));
+  let next = normalizeThemePackageId(getSavedThemePackage());
+  if (!next || !available.has(next)) {
+    next = normalizeThemePackageId(state.themeCenter.defaultTheme) || "default";
+  }
+  applyThemePackage(next);
+}
+
+async function loadThemeCenterStateFromServer() {
+  try {
+    const payload = await api("/api/meta/themes", { method: "GET" });
+    applyThemeCenterState(payload);
+  } catch (error) {
+    loadThemeCenterState();
+  }
+  renderThemeSelect();
+  syncThemePackageSelection();
 }
 
 async function copyTextToClipboard(text) {
@@ -8171,8 +8338,17 @@ if (elements.priceDialog) {
 if (elements.themeToggleBtn) {
   elements.themeToggleBtn.addEventListener("click", toggleTheme);
 }
+if (elements.themeSelect) {
+  elements.themeSelect.addEventListener("change", () => {
+    applyThemePackage(elements.themeSelect.value);
+  });
+}
 
 applyTheme(getInitialTheme());
+applyThemePackage(getSavedThemePackage(), { skipStorage: true });
+loadThemeCenterStateFromServer().catch(() => {
+  // ignore theme center bootstrap errors
+});
 state.hideOwnMarketListings = getInitialHideOwnMarketListings();
 if (elements.marketHideOwnToggle) {
   elements.marketHideOwnToggle.checked = state.hideOwnMarketListings;
