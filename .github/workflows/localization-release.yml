@@ -62,6 +62,7 @@ jobs:
 
       - name: Pull translations from Crowdin (optional)
         if: ${{ inputs.pull_from_crowdin }}
+        id: crowdin_pull
         uses: crowdin/github-action@v2
         with:
           config: crowdin.yml
@@ -72,7 +73,39 @@ jobs:
           download_translations: true
           create_pull_request: false
           export_only_approved: ${{ inputs.crowdin_export_only_approved }}
-          download_translations_args: ${{ inputs.crowdin_branch != '' && format('--branch={0}', inputs.crowdin_branch) || '' }}
+          download_translations_args: ${{ inputs.crowdin_branch != '' && format('--all --branch={0}', inputs.crowdin_branch) || '--all' }}
+
+      - name: Normalize downloaded Crowdin files (optional)
+        if: ${{ inputs.pull_from_crowdin }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          copied=0
+          while IFS= read -r -d '' source_file; do
+            lang_dir="$(echo "${source_file}" | cut -d/ -f1)"
+            locale="${lang_dir}"
+            target="src/main/resources/messages/messages.${locale}.yml"
+            mkdir -p "$(dirname "${target}")"
+            cp -f "${source_file}" "${target}"
+            copied=$((copied + 1))
+          done < <(find . -type f -path './*/messages/messages.en-US.yml' -print0)
+
+          while IFS= read -r -d '' source_file; do
+            lang_dir="$(echo "${source_file}" | cut -d/ -f1)"
+            locale="${lang_dir}"
+            namespace="$(echo "${source_file}" | sed -E 's#^\./[^/]+/web/i18n/([^/]+)/en-US\.json$#\1#')"
+            target="src/main/resources/web/i18n/${namespace}/${locale}.json"
+            mkdir -p "$(dirname "${target}")"
+            cp -f "${source_file}" "${target}"
+            copied=$((copied + 1))
+          done < <(find . -type f -path './*/web/i18n/*/en-US.json' -print0)
+
+          if [[ "${copied}" -eq 0 ]]; then
+            echo "::warning::No translated files were normalized from Crowdin output."
+          else
+            echo "Normalized ${copied} translated files."
+          fi
 
       - name: Resolve release tag
         id: tag
