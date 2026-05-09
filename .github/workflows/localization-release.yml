@@ -93,8 +93,7 @@ jobs:
             --arg branch_id "${BRANCH_ID}" \
             '{
               exportApprovedOnly: $approved
-            } + (if $approved then { skipUntranslatedStrings: true } else {} end)
-              + (if $approved then { skipUntranslatedFiles: true } else {} end)
+            } + (if $approved then { skipUntranslatedFiles: true } else {} end)
               + (if ($branch_id != "") then { branchId: ($branch_id|tonumber) } else {} end)')"
 
           echo "Triggering Crowdin build..."
