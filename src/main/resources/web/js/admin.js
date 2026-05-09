@@ -1031,12 +1031,12 @@ async function loadLocaleCenterStateFromServer(options = {}) {
 
 function formatLocaleSource(source) {
   if (source === "github" || source === "crowdin") {
-    return "GitHub";
+    return getAdminPageText("localeSourceGithub", "GitHub");
   }
   if (source === "built-in") {
-    return "Built-in";
+    return getAdminPageText("localeSourceBuiltIn", "Built-in");
   }
-  return "Upload";
+  return getAdminPageText("localeSourceUpload", "Upload");
 }
 
 function syncLocaleCenterPublishedCount() {
@@ -1054,7 +1054,7 @@ function renderLocaleCenterOverview() {
   if (elements.localeCenterLastSyncView) {
     setNodeText(
       elements.localeCenterLastSyncView,
-      state.localeCenter.lastSyncAt ? formatDateTime(state.localeCenter.lastSyncAt) : "尚未同步"
+      state.localeCenter.lastSyncAt ? formatDateTime(state.localeCenter.lastSyncAt) : getAdminPageText("localeLastSyncNever", "Never synced")
     );
   }
 }
@@ -1099,10 +1099,16 @@ function renderLocaleCenterRow(item) {
 
   const tagRow = document.createElement("div");
   tagRow.className = "admin-tag-row";
-  tagRow.appendChild(createTag(item.webEnabled ? "Web 开启" : "Web 关闭", item.webEnabled ? "success" : "muted"));
-  tagRow.appendChild(createTag(item.gameEnabled ? "游戏内开启" : "游戏内关闭", item.gameEnabled ? "success" : "muted"));
+  tagRow.appendChild(createTag(
+    item.webEnabled ? getAdminPageText("localeTagWebOn", "Web On") : getAdminPageText("localeTagWebOff", "Web Off"),
+    item.webEnabled ? "success" : "muted"
+  ));
+  tagRow.appendChild(createTag(
+    item.gameEnabled ? getAdminPageText("localeTagGameOn", "Game On") : getAdminPageText("localeTagGameOff", "Game Off"),
+    item.gameEnabled ? "success" : "muted"
+  ));
   if (item.builtIn) {
-    tagRow.appendChild(createTag("内置", "accent"));
+    tagRow.appendChild(createTag(getAdminPageText("localeTagBuiltIn", "Built-in"), "accent"));
   }
   card.appendChild(tagRow);
 
@@ -1114,7 +1120,12 @@ function renderLocaleCenterRow(item) {
   toggleWebBtn.className = "btn-tonal";
   toggleWebBtn.dataset.action = "toggleWeb";
   toggleWebBtn.dataset.locale = item.locale;
-  setNodeText(toggleWebBtn, item.webEnabled ? "关闭 Web" : "开启 Web");
+  setNodeText(
+    toggleWebBtn,
+    item.webEnabled
+      ? getAdminPageText("localeActionDisableWeb", "Disable Web")
+      : getAdminPageText("localeActionEnableWeb", "Enable Web")
+  );
   actionRow.appendChild(toggleWebBtn);
 
   const toggleGameBtn = document.createElement("button");
@@ -1122,7 +1133,12 @@ function renderLocaleCenterRow(item) {
   toggleGameBtn.className = "btn-tonal";
   toggleGameBtn.dataset.action = "toggleGame";
   toggleGameBtn.dataset.locale = item.locale;
-  setNodeText(toggleGameBtn, item.gameEnabled ? "关闭游戏内" : "开启游戏内");
+  setNodeText(
+    toggleGameBtn,
+    item.gameEnabled
+      ? getAdminPageText("localeActionDisableGame", "Disable In-game")
+      : getAdminPageText("localeActionEnableGame", "Enable In-game")
+  );
   actionRow.appendChild(toggleGameBtn);
 
   if (!item.builtIn) {
@@ -1131,7 +1147,7 @@ function renderLocaleCenterRow(item) {
     removeBtn.className = "btn-tonal";
     removeBtn.dataset.action = "remove";
     removeBtn.dataset.locale = item.locale;
-    setNodeText(removeBtn, "删除");
+    setNodeText(removeBtn, getAdminPageText("localeActionRemove", "Remove"));
     actionRow.appendChild(removeBtn);
   }
 
@@ -1152,7 +1168,7 @@ function renderLocaleCenterList() {
   if (sorted.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    setNodeText(empty, "暂无语言");
+    setNodeText(empty, getAdminPageText("localeEmptyInstalled", "No installed locale"));
     container.appendChild(empty);
   }
 }
@@ -1165,7 +1181,10 @@ async function openLocaleManagerDialog() {
     try {
       await loadLocaleCenterStateFromServer();
     } catch (error) {
-      updateLocaleCenterStateView(`加载语言中心失败：${error.message || error}`, "error");
+      updateLocaleCenterStateView(
+        formatAdminPageText("localeErrorLoadCenter", { message: error.message || error }, "Failed to load locale center: {message}"),
+        "error"
+      );
     }
   }
   populateLocaleCenterDefaultSelect();
@@ -1173,7 +1192,11 @@ async function openLocaleManagerDialog() {
   if (elements.localeManagerSummary) {
     setNodeText(
       elements.localeManagerSummary,
-      `已安装 ${state.localeCenter.locales.length} 个语言包，Web 已启用 ${state.localeCenter.publishedCount} 个。`
+      formatAdminPageText(
+        "localeSummaryInstalled",
+        { installed: state.localeCenter.locales.length, published: state.localeCenter.publishedCount },
+        "Installed {installed} locale package(s), Web enabled {published}."
+      )
     );
   }
   elements.localeManagerDialog.classList.add("show");
@@ -1193,7 +1216,11 @@ function openLocaleManifestDialog() {
     return;
   }
   if (elements.localeManifestStatus) {
-    setMetaText(elements.localeManifestStatus, "请先点击“获取”加载语言列表。", "info");
+    setMetaText(
+      elements.localeManifestStatus,
+      getAdminPageText("localeManifestPromptFetchFirst", "Click Fetch first to load locale list."),
+      "info"
+    );
   }
   state.localeManifest.entries = [];
   if (elements.localeManifestResultList) {
@@ -1249,19 +1276,25 @@ async function handleLocaleCenterRowAction(event) {
     target.webEnabled = !target.webEnabled;
     target.updatedAt = new Date().toISOString();
     markLocaleCenterDirty();
-    updateLocaleCenterStateView(`${normalized} Web 状态已暂存，点击“应用”生效。`, "info");
+    updateLocaleCenterStateView(
+      formatAdminPageText("localeStateWebPending", { locale: normalized }, "{locale} Web state staged. Click Apply to save."),
+      "info"
+    );
     return;
   }
   if (action === "toggleGame") {
     target.gameEnabled = !target.gameEnabled;
     target.updatedAt = new Date().toISOString();
     markLocaleCenterDirty();
-    updateLocaleCenterStateView(`${normalized} 游戏内状态已暂存，点击“应用”生效。`, "info");
+    updateLocaleCenterStateView(
+      formatAdminPageText("localeStateGamePending", { locale: normalized }, "{locale} in-game state staged. Click Apply to save."),
+      "info"
+    );
     return;
   }
   if (action === "remove") {
     if (target.builtIn) {
-      updateLocaleCenterStateView("内置语言不能删除。", "warn");
+      updateLocaleCenterStateView(getAdminPageText("localeStateBuiltInCannotRemove", "Built-in locale cannot be removed."), "warn");
       return;
     }
     state.localeCenter.locales = state.localeCenter.locales.filter((item) => item.locale !== normalized);
@@ -1269,19 +1302,25 @@ async function handleLocaleCenterRowAction(event) {
       state.localeCenter.defaultLocale = "zh-CN";
     }
     markLocaleCenterDirty();
-    updateLocaleCenterStateView(`${normalized} 删除已暂存，点击“应用”生效。`, "info");
+    updateLocaleCenterStateView(
+      formatAdminPageText("localeStateRemovePending", { locale: normalized }, "{locale} removal staged. Click Apply to save."),
+      "info"
+    );
   }
 }
 
 async function saveLocaleCenterDefaultLocale() {
   const next = normalizeLocaleCenterLocale(elements.localeManagerDefaultLocaleSelect?.value || "");
   if (!next) {
-    updateLocaleCenterStateView("请选择默认语言。", "warn");
+    updateLocaleCenterStateView(getAdminPageText("localeStatePickDefault", "Please select a default locale."), "warn");
     return;
   }
   state.localeCenter.defaultLocale = next;
   markLocaleCenterDirty();
-  updateLocaleCenterStateView(`默认语言已暂存为 ${next}，点击“应用”生效。`, "info");
+  updateLocaleCenterStateView(
+    formatAdminPageText("localeStateDefaultPending", { locale: next }, "Default locale staged as {locale}. Click Apply to save."),
+    "info"
+  );
 }
 
 function readFileAsBase64(file) {
@@ -1289,13 +1328,13 @@ function readFileAsBase64(file) {
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result !== "string") {
-        reject(new Error("文件读取失败"));
+        reject(new Error(getAdminPageText("localeErrorReadFile", "Failed to read file")));
         return;
       }
       const commaIndex = reader.result.indexOf(",");
       resolve(commaIndex >= 0 ? reader.result.slice(commaIndex + 1) : reader.result);
     };
-    reader.onerror = () => reject(reader.error || new Error("文件读取失败"));
+    reader.onerror = () => reject(reader.error || new Error(getAdminPageText("localeErrorReadFile", "Failed to read file")));
     reader.readAsDataURL(file);
   });
 }
@@ -1303,11 +1342,11 @@ function readFileAsBase64(file) {
 async function uploadLocaleCenterPackage() {
   const file = elements.localeManagerUploadFile?.files?.[0];
   if (!file) {
-    updateLocaleCenterStateView("请先选择语言包文件。", "warn");
+    updateLocaleCenterStateView(getAdminPageText("localeStatePickUploadFile", "Please choose a locale package file first."), "warn");
     return;
   }
   if (!state.token) {
-    updateLocaleCenterStateView("请先登录管理员。", "warn");
+    updateLocaleCenterStateView(getAdminPageText("localeStateRequireLogin", "Please sign in as admin first."), "warn");
     return;
   }
   try {
@@ -1322,9 +1361,15 @@ async function uploadLocaleCenterPackage() {
     });
     applyLocaleCenterState(payload?.state || payload, { baseline: true, dirty: false });
     const changedCount = Array.isArray(payload?.changed) ? payload.changed.length : 0;
-    updateLocaleCenterStateView(`上传完成：${file.name}（${changedCount} 个语言）`, "success");
+    updateLocaleCenterStateView(
+      formatAdminPageText("localeStateUploadDone", { fileName: file.name, changedCount }, "Upload completed: {fileName} ({changedCount} locale(s))"),
+      "success"
+    );
   } catch (error) {
-    updateLocaleCenterStateView(`上传失败：${error.message || error}`, "error");
+    updateLocaleCenterStateView(
+      formatAdminPageText("localeStateUploadFailed", { message: error.message || error }, "Upload failed: {message}"),
+      "error"
+    );
   }
 }
 
@@ -1364,7 +1409,7 @@ function renderLocaleManifestSelectableList() {
   if (!Array.isArray(state.localeManifest.entries) || state.localeManifest.entries.length <= 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    setNodeText(empty, "暂无可选语言，请先点击“获取”。");
+    setNodeText(empty, getAdminPageText("localeManifestEmptyList", "No selectable locale yet. Click Fetch first."));
     list.appendChild(empty);
     return;
   }
@@ -1390,7 +1435,7 @@ function renderLocaleManifestSelectableList() {
 
     const sub = document.createElement("p");
     sub.className = "admin-card-subtitle";
-    setNodeText(sub, `版本：${item.version}`);
+    setNodeText(sub, formatAdminPageText("localeManifestVersion", { version: item.version }, "Version: {version}"));
     card.appendChild(sub);
     list.appendChild(card);
   });
@@ -1406,7 +1451,7 @@ async function fetchLocaleManifestList() {
   const manifestUrl = String(elements.localeManifestUrl?.value || "").trim();
   if (!manifestUrl) {
     if (elements.localeManifestStatus) {
-      setMetaText(elements.localeManifestStatus, "请填写 manifest URL。", "warn");
+      setMetaText(elements.localeManifestStatus, getAdminPageText("localeManifestNeedUrl", "Please enter manifest URL."), "warn");
     }
     return;
   }
@@ -1417,12 +1462,12 @@ async function fetchLocaleManifestList() {
   }
 
   if (elements.localeManifestStatus) {
-    setMetaText(elements.localeManifestStatus, "获取中，请稍候...", "info");
+    setMetaText(elements.localeManifestStatus, getAdminPageText("localeManifestFetching", "Fetching, please wait..."), "info");
   }
 
   if (!state.token) {
     if (elements.localeManifestStatus) {
-      setMetaText(elements.localeManifestStatus, "请先登录管理员。", "warn");
+      setMetaText(elements.localeManifestStatus, getAdminPageText("localeStateRequireLogin", "Please sign in as admin first."), "warn");
     }
     return;
   }
@@ -1432,7 +1477,11 @@ async function fetchLocaleManifestList() {
     payload = await apiAdmin(`/api/admin/l10n/manifest?url=${encodeURIComponent(manifestUrl)}`, { method: "GET" });
   } catch (error) {
     if (elements.localeManifestStatus) {
-      setMetaText(elements.localeManifestStatus, `获取失败：${error.message || error}`, "error");
+      setMetaText(
+        elements.localeManifestStatus,
+        formatAdminPageText("localeManifestFetchFailed", { message: error.message || error }, "Fetch failed: {message}"),
+        "error"
+      );
     }
     return;
   }
@@ -1442,7 +1491,11 @@ async function fetchLocaleManifestList() {
   if (elements.localeManifestStatus) {
     setMetaText(
       elements.localeManifestStatus,
-      `获取完成：共 ${state.localeManifest.entries.length} 个语言，可多选后下载。`,
+      formatAdminPageText(
+        "localeManifestFetchedSummary",
+        { count: state.localeManifest.entries.length },
+        "Fetched: {count} locale(s). Select and download."
+      ),
       state.localeManifest.entries.length > 0 ? "success" : "warn"
     );
   }
@@ -1452,25 +1505,29 @@ async function runLocaleCenterManifestSync() {
   const manifestUrl = String(elements.localeManifestUrl?.value || "").trim();
   if (!manifestUrl) {
     if (elements.localeManifestStatus) {
-      setMetaText(elements.localeManifestStatus, "请填写 manifest URL。", "warn");
+      setMetaText(elements.localeManifestStatus, getAdminPageText("localeManifestNeedUrl", "Please enter manifest URL."), "warn");
     }
     return;
   }
   const selectedLocales = getSelectedManifestLocales();
   if (selectedLocales.length <= 0) {
     if (elements.localeManifestStatus) {
-      setMetaText(elements.localeManifestStatus, "请至少选择一个语言。", "warn");
+      setMetaText(elements.localeManifestStatus, getAdminPageText("localeManifestNeedSelect", "Please select at least one locale."), "warn");
     }
     return;
   }
   if (!state.token) {
     if (elements.localeManifestStatus) {
-      setMetaText(elements.localeManifestStatus, "请先登录管理员。", "warn");
+      setMetaText(elements.localeManifestStatus, getAdminPageText("localeStateRequireLogin", "Please sign in as admin first."), "warn");
     }
     return;
   }
   if (elements.localeManifestStatus) {
-    setMetaText(elements.localeManifestStatus, `下载中：${selectedLocales.length} 个语言...`, "info");
+    setMetaText(
+      elements.localeManifestStatus,
+      formatAdminPageText("localeManifestDownloading", { count: selectedLocales.length }, "Downloading {count} locale(s)..."),
+      "info"
+    );
   }
   let payload;
   try {
@@ -1483,14 +1540,22 @@ async function runLocaleCenterManifestSync() {
     });
   } catch (error) {
     if (elements.localeManifestStatus) {
-      setMetaText(elements.localeManifestStatus, `下载失败：${error.message || error}`, "error");
+      setMetaText(
+        elements.localeManifestStatus,
+        formatAdminPageText("localeManifestDownloadFailed", { message: error.message || error }, "Download failed: {message}"),
+        "error"
+      );
     }
     return;
   }
   applyLocaleCenterState(payload?.state || state.localeCenter, { baseline: true, dirty: false });
   const failed = Number(payload?.failed || 0);
   updateLocaleCenterStateView(
-    `GitHub Manifest 下载完成：成功 ${Number(payload?.succeeded || 0)}，失败 ${failed}`,
+    formatAdminPageText(
+      "localeManifestDownloaded",
+      { succeeded: Number(payload?.succeeded || 0), failed },
+      "Manifest download done: succeeded {succeeded}, failed {failed}"
+    ),
     failed > 0 ? "warn" : "success"
   );
   closeLocaleManifestDialog();
@@ -1498,11 +1563,11 @@ async function runLocaleCenterManifestSync() {
 
 async function applyLocaleCenterPendingChanges() {
   if (!localeCenterDirty) {
-    updateLocaleCenterStateView("没有待应用的更改。", "info");
+    updateLocaleCenterStateView(getAdminPageText("localeStateNoPending", "No pending changes."), "info");
     return;
   }
   if (!state.token) {
-    updateLocaleCenterStateView("请先登录管理员。", "warn");
+    updateLocaleCenterStateView(getAdminPageText("localeStateRequireLogin", "Please sign in as admin first."), "warn");
     return;
   }
 
@@ -1550,7 +1615,9 @@ async function applyLocaleCenterPendingChanges() {
   }
 
   await loadLocaleCenterStateFromServer({
-    message: appliedOps > 0 ? `已应用 ${appliedOps} 项更改。` : "无需应用更改。",
+    message: appliedOps > 0
+      ? formatAdminPageText("localeStateAppliedSummary", { count: appliedOps }, "Applied {count} change(s).")
+      : getAdminPageText("localeStateNoApplyNeeded", "No changes to apply."),
     tone: "success",
   });
   localeCenterDirty = false;
@@ -3023,7 +3090,7 @@ function setLoggedOut() {
   renderAdminProfile();
   setMetaText(elements.adminLoginStatus, getAdminPageText("loginStatusSignedOut", "Signed out"), "info");
   loadLocaleCenterState();
-  updateLocaleCenterStateView("请先登录管理员。", "info");
+  updateLocaleCenterStateView(getAdminPageText("localeStateRequireLogin", "Please sign in as admin first."), "info");
 }
 
 async function loginAdmin() {
@@ -3046,7 +3113,10 @@ async function loginAdmin() {
     await loadAdminManagerData();
   }
   startAdminAutoSync();
-  await loadLocaleCenterStateFromServer({ message: "语言中心已同步。", tone: "success" });
+  await loadLocaleCenterStateFromServer({
+    message: getAdminPageText("localeStateSynced", "Locale center synced."),
+    tone: "success",
+  });
 }
 
 async function loadAdminProfile() {
@@ -8427,7 +8497,10 @@ if (elements.adminUpdateDialog) {
 if (elements.localeCenterOpenBtn) {
   elements.localeCenterOpenBtn.addEventListener("click", () => {
     openLocaleManagerDialog().catch((error) => {
-      updateLocaleCenterStateView(`打开语言中心失败：${error.message || error}`, "error");
+      updateLocaleCenterStateView(
+        formatAdminPageText("localeErrorOpenCenter", { message: error.message || error }, "Failed to open locale center: {message}"),
+        "error"
+      );
     });
   });
 }
@@ -8444,14 +8517,20 @@ if (elements.localeManagerDialog) {
 if (elements.localeManagerSaveDefaultBtn) {
   elements.localeManagerSaveDefaultBtn.addEventListener("click", () => {
     saveLocaleCenterDefaultLocale().catch((error) => {
-      updateLocaleCenterStateView(`保存默认语言失败：${error.message || error}`, "error");
+      updateLocaleCenterStateView(
+        formatAdminPageText("localeErrorSaveDefault", { message: error.message || error }, "Failed to save default locale: {message}"),
+        "error"
+      );
     });
   });
 }
 if (elements.localeManagerUploadBtn) {
   elements.localeManagerUploadBtn.addEventListener("click", () => {
     uploadLocaleCenterPackage().catch((error) => {
-      updateLocaleCenterStateView(`上传失败：${error.message || error}`, "error");
+      updateLocaleCenterStateView(
+        formatAdminPageText("localeErrorUpload", { message: error.message || error }, "Upload failed: {message}"),
+        "error"
+      );
     });
   });
 }
@@ -8461,14 +8540,20 @@ if (elements.localeManagerManifestBtn) {
 if (elements.localeManagerValidatePublishBtn) {
   elements.localeManagerValidatePublishBtn.addEventListener("click", () => {
     applyLocaleCenterPendingChanges().catch((error) => {
-      updateLocaleCenterStateView(`应用失败：${error.message || error}`, "error");
+      updateLocaleCenterStateView(
+        formatAdminPageText("localeErrorApply", { message: error.message || error }, "Apply failed: {message}"),
+        "error"
+      );
     });
   });
 }
 if (elements.localeManagerLocaleList) {
   elements.localeManagerLocaleList.addEventListener("click", (event) => {
     handleLocaleCenterRowAction(event).catch((error) => {
-      updateLocaleCenterStateView(`语言操作失败：${error.message || error}`, "error");
+      updateLocaleCenterStateView(
+        formatAdminPageText("localeErrorRowAction", { message: error.message || error }, "Locale action failed: {message}"),
+        "error"
+      );
     });
   });
 }
@@ -8479,7 +8564,11 @@ if (elements.localeManifestFetchBtn) {
   elements.localeManifestFetchBtn.addEventListener("click", () => {
     fetchLocaleManifestList().catch((error) => {
       if (elements.localeManifestStatus) {
-        setMetaText(elements.localeManifestStatus, `获取失败：${error.message || error}`, "error");
+        setMetaText(
+          elements.localeManifestStatus,
+          formatAdminPageText("localeErrorFetchList", { message: error.message || error }, "Fetch failed: {message}"),
+          "error"
+        );
       }
     });
   });
@@ -8488,7 +8577,11 @@ if (elements.localeManifestDownloadBtn) {
   elements.localeManifestDownloadBtn.addEventListener("click", () => {
     runLocaleCenterManifestSync().catch((error) => {
       if (elements.localeManifestStatus) {
-        setMetaText(elements.localeManifestStatus, `下载失败：${error.message || error}`, "error");
+        setMetaText(
+          elements.localeManifestStatus,
+          formatAdminPageText("localeErrorDownload", { message: error.message || error }, "Download failed: {message}"),
+          "error"
+        );
       }
     });
   });
@@ -8753,10 +8846,18 @@ renderLocaleCenterOverview();
 populateLocaleCenterDefaultSelect();
 renderLocaleCenterList();
 if (elements.localeCenterStatusView) {
-  setMetaText(elements.localeCenterStatusView, "等待管理员登录后同步语言中心。", "info");
+  setMetaText(
+    elements.localeCenterStatusView,
+    getAdminPageText("localeCenterStatusNeedLogin", "Waiting for admin sign-in before syncing locale center."),
+    "info"
+  );
 }
 if (elements.localeManagerActionStatus) {
-  setMetaText(elements.localeManagerActionStatus, "等待操作", "info");
+  setMetaText(
+    elements.localeManagerActionStatus,
+    getAdminPageText("localeManagerActionStatusWaiting", "Waiting for action"),
+    "info"
+  );
 }
 renderAdminProfile();
 populateAdminForm(null);

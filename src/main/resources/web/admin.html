@@ -692,24 +692,24 @@
 <article class="md-card section-card">
 <div class="section-head">
 <div>
-<h2>语言管理</h2>
-<p class="card-desc locale-help-desc">管理已安装语言，支持上传与在线获取。只有已安装的语言才能被使用。<br />
+<h2 data-i18n="uiText.page.localeSectionTitle">语言管理</h2>
+<p class="card-desc locale-help-desc" data-i18n-html="uiText.page.localeSectionDescHtml">管理已安装语言，支持上传与在线获取。只有已安装的语言才能被使用。<br />
 上传模板请前往 <a class="locale-help-link" href="https://docs.akihito.dpdns.org/" target="_blank" rel="noopener noreferrer">Wiki</a> 获取。<br />
 如果在线获取的语言没有你需要的，请到 <a class="locale-help-link" href="https://crowdin.com/project/webshopx/" target="_blank" rel="noopener noreferrer">Crowdin</a> 申请适配。</p>
 </div>
-<button id="localeCenterOpenBtn" type="button">管理语言</button>
+<button data-i18n="uiText.page.localeSectionManageBtn" id="localeCenterOpenBtn" type="button">管理语言</button>
 </div>
 <div class="field-grid three-col">
 <label class="field">
-<span>默认语言</span>
+<span data-i18n="uiText.page.localeSectionDefaultLabel">默认语言</span>
 <p class="meta" id="localeCenterDefaultLocaleView">-</p>
 </label>
 <label class="field">
-<span>Web 启用语言</span>
+<span data-i18n="uiText.page.localeSectionWebEnabledLabel">Web 启用语言</span>
 <p class="meta" id="localeCenterPublishedCountView">0</p>
 </label>
 <label class="field">
-<span>最近同步</span>
+<span data-i18n="uiText.page.localeSectionLastSyncLabel">最近同步</span>
 <p class="meta" id="localeCenterLastSyncView">-</p>
 </label>
 </div>
@@ -1561,64 +1561,64 @@
 </div>
 <div aria-hidden="true" class="dialog-backdrop" id="localeManagerDialog">
 <article class="md-card dialog-card market-policy-dialog-card">
-<h3>语言管理</h3>
+<h3 data-i18n="uiText.page.localeManagerTitle">语言管理</h3>
 <p id="localeManagerSummary"></p>
 <div class="dialog-details market-policy-dialog-scroll">
 <div class="field-grid two-col">
 <label class="field">
-<span>默认语言</span>
+<span data-i18n="uiText.page.localeManagerDefaultLocaleLabel">默认语言</span>
 <select id="localeManagerDefaultLocaleSelect"></select>
 </label>
 <label class="field dialog-select-field">
-<span>默认语言操作</span>
-<button class="btn-tonal btn-small" id="localeManagerSaveDefaultBtn" type="button">保存默认语言</button>
+<span data-i18n="uiText.page.localeManagerDefaultActionLabel">默认语言操作</span>
+<button class="btn-tonal btn-small" data-i18n="uiText.page.localeManagerSaveDefaultBtn" id="localeManagerSaveDefaultBtn" type="button">保存默认语言</button>
 </label>
 </div>
-<h4>已安装语言</h4>
+<h4 data-i18n="uiText.page.localeManagerInstalledLocalesTitle">已安装语言</h4>
 <div class="admin-list" id="localeManagerLocaleList"></div>
 <label class="field dialog-select-field">
-<span>在线获取或手动安装</span>
-<button class="btn-tonal" id="localeManagerManifestBtn" type="button">在线获取</button>
+<span data-i18n="uiText.page.localeManagerSourceInstallLabel">在线获取或手动安装</span>
+<button class="btn-tonal btn-small" data-i18n="uiText.page.localeManagerManifestBtn" id="localeManagerManifestBtn" type="button">在线获取</button>
 </label>
 <div class="field-grid two-col">
 <label class="field">
-<span>上传语言包(zip)</span>
+<span data-i18n="uiText.page.localeManagerUploadPackageLabel">上传语言包(zip)</span>
 <input accept=".zip,.json,.yml,.yaml" id="localeManagerUploadFile" type="file"/>
 </label>
 <label class="field dialog-select-field">
-<span>上传操作</span>
-<button class="btn-tonal btn-small" id="localeManagerUploadBtn" type="button">本地上传</button>
+<span data-i18n="uiText.page.localeManagerUploadActionLabel">上传操作</span>
+<button class="btn-tonal btn-small" data-i18n="uiText.page.localeManagerUploadBtn" id="localeManagerUploadBtn" type="button">本地上传</button>
 </label>
 </div>
-<p class="meta" id="localeManagerActionStatus">等待操作</p>
+<p class="meta" data-i18n="uiText.page.localeManagerActionStatusWaiting" id="localeManagerActionStatus">等待操作</p>
 </div>
 <div class="actions">
-<button id="localeManagerValidatePublishBtn" type="button">应用</button>
-<button class="btn-tonal" id="localeManagerCloseBtn" type="button">关闭</button>
+<button data-i18n="uiText.page.localeManagerApplyBtn" id="localeManagerValidatePublishBtn" type="button">应用</button>
+<button class="btn-tonal" data-i18n="uiText.page.localeManagerCloseBtn" id="localeManagerCloseBtn" type="button">关闭</button>
 </div>
 </article>
 </div>
 <div aria-hidden="true" class="dialog-backdrop" id="localeManifestDialog">
 <article class="md-card dialog-card market-policy-dialog-card">
-<h3>在线获取语言包</h3>
-<p>先获取语言列表，再勾选要下载的语言包。</p>
+<h3 data-i18n="uiText.page.localeManifestTitle">在线获取语言包</h3>
+<p data-i18n="uiText.page.localeManifestDesc">先获取语言列表，再勾选要下载的语言包。</p>
 <div class="dialog-details market-policy-dialog-scroll">
 <div class="field-grid two-col">
 <label class="field">
-<span>Manifest URL</span>
-<input id="localeManifestUrl" placeholder="例如 https://.../releases/latest/download/manifest.json" value="https://github.com/Cc-Cece/WebShopX-Issues/releases/download/l10n-cdn/manifest.json"/>
+<span data-i18n="uiText.page.localeManifestUrlLabel">Manifest URL</span>
+<input data-i18n-placeholder="uiText.page.localeManifestUrlPlaceholder" id="localeManifestUrl" placeholder="例如 https://.../releases/latest/download/manifest.json" value="https://github.com/Cc-Cece/WebShopX-Issues/releases/download/l10n-cdn/manifest.json"/>
 </label>
 <label class="field">
-<span>获取语言列表</span>
-<button class="btn-tonal btn-small" id="localeManifestFetchBtn" type="button">获取</button>
+<span data-i18n="uiText.page.localeManifestFetchListLabel">获取语言列表</span>
+<button class="btn-tonal btn-small" data-i18n="uiText.page.localeManifestFetchBtn" id="localeManifestFetchBtn" type="button">获取</button>
 </label>
 </div>
-<p class="meta" id="localeManifestStatus">等待获取</p>
+<p class="meta" data-i18n="uiText.page.localeManifestStatusWaiting" id="localeManifestStatus">等待获取</p>
 <div class="admin-list" id="localeManifestResultList"></div>
 </div>
 <div class="actions">
-<button class="btn-tonal" id="localeManifestDownloadBtn" type="button">下载所选</button>
-<button class="btn-tonal" id="localeManifestCancelBtn" type="button">关闭</button>
+<button class="btn-tonal btn-small" data-i18n="uiText.page.localeManifestDownloadBtn" id="localeManifestDownloadBtn" type="button">下载所选</button>
+<button class="btn-tonal btn-small" data-i18n="uiText.page.localeManifestCancelBtn" id="localeManifestCancelBtn" type="button">关闭</button>
 </div>
 </article>
 </div>
