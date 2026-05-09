@@ -24,9 +24,9 @@ on:
         default: false
         type: boolean
       crowdin_branch:
-        description: "Crowdin branch to export"
+        description: "Crowdin branch to export (optional, leave empty to use Crowdin default branch)"
         required: false
-        default: "main"
+        default: ""
       crowdin_export_only_approved:
         description: "Export only approved translations from Crowdin"
         required: false
@@ -71,8 +71,8 @@ jobs:
           upload_translations: false
           download_translations: true
           create_pull_request: false
-          crowdin_branch_name: ${{ inputs.crowdin_branch }}
           export_only_approved: ${{ inputs.crowdin_export_only_approved }}
+          download_translations_args: ${{ inputs.crowdin_branch != '' && format('--branch={0}', inputs.crowdin_branch) || '' }}
 
       - name: Resolve release tag
         id: tag
