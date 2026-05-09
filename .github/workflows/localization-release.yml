@@ -7,30 +7,30 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "GitHub release tag for localization assets (for example: l10n-cdn)"
+        description: "本地化资源的 GitHub 发布标签（例如：l10n-cdn）"
         required: false
         default: "l10n-cdn"
       target_repo:
-        description: "Target repository for localization CDN assets (owner/name)"
+        description: "本地化 CDN 资源的目标仓库（owner/name）"
         required: false
         default: "Cc-Cece/WebShopX-Issues"
       manifest_version:
-        description: "Optional manifest version (for example: l10n-2026.05.09-01)"
+        description: "可选的 manifest 版本号（例如：l10n-2026.05.09-01）"
         required: false
         default: ""
       pull_from_crowdin:
-        description: "Pull latest translations from Crowdin before packaging"
+        description: "打包前从 Crowdin 拉取最新翻译"
         required: false
-        default: false
+        default: true
         type: boolean
       crowdin_branch:
-        description: "Crowdin branch to export (optional, leave empty to use Crowdin default branch)"
+        description: "要导出的 Crowdin 分支（可选，留空则使用 Crowdin 默认分支）"
         required: false
         default: ""
       crowdin_export_only_approved:
-        description: "Export only approved translations from Crowdin"
+        description: "仅导出 Crowdin 中已审批的翻译"
         required: false
-        default: false
+        default: true
         type: boolean
 
 concurrency:
