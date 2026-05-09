@@ -95,16 +95,23 @@ jobs:
               exportApprovedOnly: $approved
             } + (if $approved then { skipUntranslatedStrings: true } else {} end)
               + (if $approved then { skipUntranslatedFiles: true } else {} end)
-              + {
-                escapeQuotes: 0
-            } + (if ($branch_id != "") then { branchId: ($branch_id|tonumber) } else {} end)')"
+              + (if ($branch_id != "") then { branchId: ($branch_id|tonumber) } else {} end)')"
 
           echo "Triggering Crowdin build..."
-          build_json="$(curl -fsSL -X POST \
-            -H "${AUTH_HEADER}" \
-            -H "Content-Type: application/json" \
-            -d "${request_payload}" \
-            "${API_BASE}/projects/${PROJECT_ID}/translations/builds")"
+          build_response_file="$(mktemp)"
+          build_http_code="$(
+            curl -sS -o "${build_response_file}" -w "%{http_code}" -X POST \
+              -H "${AUTH_HEADER}" \
+              -H "Content-Type: application/json" \
+              -d "${request_payload}" \
+              "${API_BASE}/projects/${PROJECT_ID}/translations/builds"
+          )"
+          if [[ "${build_http_code}" -lt 200 || "${build_http_code}" -ge 300 ]]; then
+            echo "::error::Crowdin build create failed with HTTP ${build_http_code}."
+            cat "${build_response_file}"
+            exit 1
+          fi
+          build_json="$(cat "${build_response_file}")"
 
           build_id="$(echo "${build_json}" | jq -r '.data.id')"
           if [[ -z "${build_id}" || "${build_id}" == "null" ]]; then
