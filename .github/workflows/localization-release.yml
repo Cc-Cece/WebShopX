@@ -60,20 +60,96 @@ jobs:
             exit 1
           fi
 
-      - name: Pull translations from Crowdin (optional)
+      - name: Pull translations from Crowdin API (optional)
         if: ${{ inputs.pull_from_crowdin }}
-        id: crowdin_pull
-        uses: crowdin/github-action@v2
-        with:
-          config: crowdin.yml
-          project_id: ${{ secrets.CROWDIN_PROJECT_ID || vars.CROWDIN_PROJECT_ID }}
-          token: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
-          upload_sources: false
-          upload_translations: false
-          download_translations: true
-          create_pull_request: false
-          export_only_approved: ${{ inputs.crowdin_export_only_approved }}
-          download_translations_args: ${{ inputs.crowdin_branch != '' && format('--all --branch={0}', inputs.crowdin_branch) || '--all' }}
+        shell: bash
+        env:
+          CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID || vars.CROWDIN_PROJECT_ID }}
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+          CROWDIN_BRANCH: ${{ inputs.crowdin_branch }}
+          CROWDIN_EXPORT_ONLY_APPROVED: ${{ inputs.crowdin_export_only_approved }}
+        run: |
+          set -euo pipefail
+
+          API_BASE="https://api.crowdin.com/api/v2"
+          AUTH_HEADER="Authorization: Bearer ${CROWDIN_PERSONAL_TOKEN}"
+          PROJECT_ID="${CROWDIN_PROJECT_ID}"
+          BRANCH_ID=""
+
+          if [[ -n "${CROWDIN_BRANCH}" ]]; then
+            echo "Resolving Crowdin branch id for '${CROWDIN_BRANCH}'..."
+            branch_json="$(curl -fsSL \
+              -H "${AUTH_HEADER}" \
+              "${API_BASE}/projects/${PROJECT_ID}/branches?limit=500")"
+            BRANCH_ID="$(echo "${branch_json}" | jq -r --arg name "${CROWDIN_BRANCH}" '.data[] | select(.data.name == $name) | .data.id' | head -n1)"
+            if [[ -z "${BRANCH_ID}" || "${BRANCH_ID}" == "null" ]]; then
+              echo "::error::Crowdin branch '${CROWDIN_BRANCH}' not found in project ${PROJECT_ID}."
+              exit 1
+            fi
+          fi
+
+          request_payload="$(jq -n \
+            --argjson approved "${CROWDIN_EXPORT_ONLY_APPROVED}" \
+            --arg branch_id "${BRANCH_ID}" \
+            '{
+              exportApprovedOnly: $approved
+            } + (if ($branch_id != "") then { branchId: ($branch_id|tonumber) } else {} end)')"
+
+          echo "Triggering Crowdin build..."
+          build_json="$(curl -fsSL -X POST \
+            -H "${AUTH_HEADER}" \
+            -H "Content-Type: application/json" \
+            -d "${request_payload}" \
+            "${API_BASE}/projects/${PROJECT_ID}/translations/builds")"
+
+          build_id="$(echo "${build_json}" | jq -r '.data.id')"
+          if [[ -z "${build_id}" || "${build_id}" == "null" ]]; then
+            echo "::error::Failed to create Crowdin translation build."
+            echo "${build_json}"
+            exit 1
+          fi
+          echo "Crowdin build id: ${build_id}"
+
+          echo "Polling Crowdin build status..."
+          status=""
+          for _ in $(seq 1 60); do
+            status_json="$(curl -fsSL \
+              -H "${AUTH_HEADER}" \
+              "${API_BASE}/projects/${PROJECT_ID}/translations/builds/${build_id}")"
+            status="$(echo "${status_json}" | jq -r '.data.status')"
+            if [[ "${status}" == "finished" ]]; then
+              break
+            fi
+            if [[ "${status}" == "failed" || "${status}" == "canceled" ]]; then
+              echo "::error::Crowdin build ended with status '${status}'."
+              echo "${status_json}"
+              exit 1
+            fi
+            sleep 5
+          done
+
+          if [[ "${status}" != "finished" ]]; then
+            echo "::error::Crowdin build did not finish in time."
+            exit 1
+          fi
+
+          echo "Requesting download URL..."
+          download_json="$(curl -fsSL \
+            -H "${AUTH_HEADER}" \
+            "${API_BASE}/projects/${PROJECT_ID}/translations/builds/${build_id}/download")"
+          download_url="$(echo "${download_json}" | jq -r '.data.url')"
+          if [[ -z "${download_url}" || "${download_url}" == "null" ]]; then
+            echo "::error::Failed to get Crowdin download URL."
+            echo "${download_json}"
+            exit 1
+          fi
+
+          rm -rf crowdin-download crowdin-download.zip
+          echo "Downloading archive..."
+          curl -fsSL -o crowdin-download.zip "${download_url}"
+          mkdir -p crowdin-download
+          unzip -q crowdin-download.zip -d crowdin-download
+          echo "Crowdin archive extracted to crowdin-download/"
 
       - name: Normalize downloaded Crowdin files (optional)
         if: ${{ inputs.pull_from_crowdin }}
@@ -83,26 +159,28 @@ jobs:
 
           copied=0
           while IFS= read -r -d '' source_file; do
-            lang_dir="$(echo "${source_file}" | cut -d/ -f1)"
+            lang_dir="$(echo "${source_file}" | cut -d/ -f2)"
             locale="${lang_dir}"
             target="src/main/resources/messages/messages.${locale}.yml"
             mkdir -p "$(dirname "${target}")"
             cp -f "${source_file}" "${target}"
             copied=$((copied + 1))
-          done < <(find . -type f -path './*/messages/messages.en-US.yml' -print0)
+          done < <(find crowdin-download -type f -path 'crowdin-download/*/messages/messages.en-US.yml' -print0)
 
           while IFS= read -r -d '' source_file; do
-            lang_dir="$(echo "${source_file}" | cut -d/ -f1)"
+            lang_dir="$(echo "${source_file}" | cut -d/ -f2)"
             locale="${lang_dir}"
-            namespace="$(echo "${source_file}" | sed -E 's#^\./[^/]+/web/i18n/([^/]+)/en-US\.json$#\1#')"
+            namespace="$(echo "${source_file}" | sed -E 's#^crowdin-download/[^/]+/web/i18n/([^/]+)/en-US\.json$#\1#')"
             target="src/main/resources/web/i18n/${namespace}/${locale}.json"
             mkdir -p "$(dirname "${target}")"
             cp -f "${source_file}" "${target}"
             copied=$((copied + 1))
-          done < <(find . -type f -path './*/web/i18n/*/en-US.json' -print0)
+          done < <(find crowdin-download -type f -path 'crowdin-download/*/web/i18n/*/en-US.json' -print0)
 
           if [[ "${copied}" -eq 0 ]]; then
-            echo "::warning::No translated files were normalized from Crowdin output."
+            echo "::error::No translated files were normalized from Crowdin output."
+            find crowdin-download -maxdepth 4 -type f | sort || true
+            exit 1
           else
             echo "Normalized ${copied} translated files."
           fi
