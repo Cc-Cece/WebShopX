@@ -5676,7 +5676,7 @@ class EmbeddedWebServer {
       return "ok";
     }
     if (payload != null && payload.has("error") && !payload.get("error").isJsonNull()) {
-      String value = payload.get("error").getAsString();
+      String value = asTelemetryString(payload.get("error"));
       if (value != null && !value.isBlank()) {
         return value.trim();
       }
@@ -5691,8 +5691,22 @@ class EmbeddedWebServer {
     if (payload == null || !payload.has("state") || payload.get("state").isJsonNull()) {
       return null;
     }
-    String state = payload.get("state").getAsString();
+    String state = asTelemetryString(payload.get("state"));
     return state == null || state.isBlank() ? null : state.trim();
+  }
+
+  private String asTelemetryString(JsonElement value) {
+    if (value == null || value.isJsonNull()) {
+      return null;
+    }
+    if (value.isJsonPrimitive()) {
+      try {
+        return value.getAsString();
+      } catch (UnsupportedOperationException ignored) {
+        return null;
+      }
+    }
+    return value.toString();
   }
 
   private String resolveTelemetryLocale(HttpExchange exchange) {
