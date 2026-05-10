@@ -7,9 +7,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Locale;
+import java.util.Map;
 import java.util.logging.Level;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bstats.bukkit.Metrics;
+import org.bstats.charts.AdvancedPie;
+import org.bstats.charts.MultiLineChart;
+import org.bstats.charts.SingleLineChart;
 import org.bstats.charts.SimplePie;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.Player;
@@ -51,11 +55,14 @@ public class WebShopPlugin extends JavaPlugin {
   private MaintenanceService maintenanceService;
   private PluginLogService pluginLogService;
   private BusinessLedgerLogService businessLedgerLogService;
+  private BStatsTelemetryService bStatsTelemetryService;
   private SchedulerBridge schedulerBridge;
   private Metrics metrics;
   private SchedulerBridge.TaskHandle deliveryTask;
   private SchedulerBridge.TaskHandle maintenanceTask;
   private SchedulerBridge.TaskHandle marketCycleTask;
+  private volatile BStatsTelemetryService.Snapshot telemetrySnapshotCache;
+  private volatile long telemetrySnapshotAtMillis;
 
   @Override
   public void onEnable() {
@@ -82,6 +89,13 @@ public class WebShopPlugin extends JavaPlugin {
       }
       runtimeConfigService.ensureDefaults(settings);
       settings = runtimeConfigService.applyTo(settings);
+      try {
+        bStatsTelemetryService = new BStatsTelemetryService(databaseManager, this::settings);
+        bStatsTelemetryService.markStartupAttempt();
+      } catch (Exception exception) {
+        getLogger().log(Level.WARNING, "Failed to initialize bStats telemetry service; continuing without telemetry.", exception);
+        bStatsTelemetryService = null;
+      }
       playerPresenceService = new PlayerPresenceService(databaseManager, this::settings);
       clusterEventBusService = new ClusterEventBusService(
           this,
@@ -152,14 +166,21 @@ public class WebShopPlugin extends JavaPlugin {
           visualCustomizationService,
           userMarketSettingsService,
           runtimeConfigService,
-          clusterEventBusService);
+          clusterEventBusService,
+          bStatsTelemetryService);
 
       // Products are managed via admin backend; no seed import from config.
       adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());
 
       registerCommands();
       getServer().getPluginManager().registerEvents(
-          new PlayerJoinListener(this, deliveryService, playerPresenceService, schedulerBridge),
+          new PlayerJoinListener(
+              this,
+              deliveryService,
+              playerPresenceService,
+              messageService,
+              bStatsTelemetryService,
+              schedulerBridge),
           this);
       getServer().getPluginManager().registerEvents(
           new PlayerQuitListener(this, playerPresenceService, schedulerBridge),
@@ -172,14 +193,23 @@ public class WebShopPlugin extends JavaPlugin {
       startMaintenanceLoop();
       startMarketCycleLoop();
       restartWebRuntime();
+      if (bStatsTelemetryService != null) {
+        bStatsTelemetryService.markStartupSuccess();
+      }
       initializeMetrics();
 
       getLogger().info(messageService.getConsole("console.enabled_success"));
     } catch (DefaultDatabaseConfigurationException exception) {
+      if (bStatsTelemetryService != null) {
+        bStatsTelemetryService.markStartupFailure("default_database_configuration");
+      }
       getLogger().warning(messageService.getConsole("console.default_database_config"));
       getLogger().warning(messageService.getConsole("console.update_database_instructions"));
       getServer().getPluginManager().disablePlugin(this);
     } catch (Exception exception) {
+      if (bStatsTelemetryService != null) {
+        bStatsTelemetryService.markStartupFailure("on_enable_exception");
+      }
       getLogger().log(Level.SEVERE, messageService.getConsole("console.failed_startup"), exception);
       getServer().getPluginManager().disablePlugin(this);
     }
@@ -511,6 +541,64 @@ public class WebShopPlugin extends JavaPlugin {
       metrics.addCustomChart(
           new SimplePie("cluster_role", () -> settings.clusterSettings().role().name().toLowerCase(Locale.ROOT)));
       metrics.addCustomChart(new SimplePie("default_locale", settings::defaultLocale));
+      metrics.addCustomChart(new SimplePie("database_type", () -> snapshotOrFallback().databaseType()));
+      metrics.addCustomChart(new SimplePie("cluster_enabled", () -> snapshotOrFallback().clusterEnabled()));
+      metrics.addCustomChart(new SimplePie("cluster_node_scale_bucket", () -> snapshotOrFallback().clusterNodeScaleBucket()));
+      metrics.addCustomChart(new SimplePie("web_management_enabled", () -> snapshotOrFallback().webManagementEnabled()));
+      metrics.addCustomChart(
+          new SimplePie("embedded_web_server_enabled", () -> snapshotOrFallback().embeddedWebServerEnabled()));
+
+      metrics.addCustomChart(new SingleLineChart("official_shop_product_count", () -> snapshotOrFallback().officialProductCount()));
+      metrics.addCustomChart(new AdvancedPie("official_shop_product_types", () -> snapshotOrFallback().officialProductTypeCounts()));
+
+      metrics.addCustomChart(
+          new SingleLineChart("player_market_sell_listing_count", () -> snapshotOrFallback().playerMarketSellCount()));
+      metrics.addCustomChart(
+          new SingleLineChart("player_market_recycle_listing_count", () -> snapshotOrFallback().playerMarketRecycleCount()));
+      metrics.addCustomChart(
+          new SingleLineChart("player_market_seller_count", () -> snapshotOrFallback().playerMarketSellerCount()));
+      metrics.addCustomChart(new SingleLineChart("auction_listing_count", () -> snapshotOrFallback().auctionListingCount()));
+
+      metrics.addCustomChart(new SingleLineChart("trade_volume_30d", () -> snapshotOrFallback().tradeVolume30d()));
+      metrics.addCustomChart(new AdvancedPie("trade_volume_breakdown_30d", () -> snapshotOrFallback().tradeVolumeBreakdown30d()));
+      metrics.addCustomChart(new MultiLineChart("order_funnel", () -> snapshotOrFallback().orderFunnel()));
+      metrics.addCustomChart(new MultiLineChart("market_liquidity_24h", () -> snapshotOrFallback().marketLiquidity()));
+      metrics.addCustomChart(new AdvancedPie("economy_flow_30d", () -> snapshotOrFallback().economyFlow30d()));
+      metrics.addCustomChart(new SimplePie("economy_net_direction_30d", () -> snapshotOrFallback().economyNetDirection30d()));
+      metrics.addCustomChart(new SingleLineChart("economy_net_delta_abs_30d", () -> snapshotOrFallback().economyNetDeltaAbs30d()));
+      metrics.addCustomChart(new AdvancedPie("retry_distribution", () -> snapshotOrFallback().retryDistribution()));
+      metrics.addCustomChart(new AdvancedPie("backlog_distribution", () -> snapshotOrFallback().backlogDistribution()));
+      metrics.addCustomChart(new SingleLineChart("idempotency_hit_rate_7d", () -> snapshotOrFallback().idempotencyHitRate7d()));
+      metrics.addCustomChart(new AdvancedPie("idempotency_details_7d", () -> snapshotOrFallback().idempotencyDetails7d()));
+      metrics.addCustomChart(new AdvancedPie("shopcoin_distribution", () -> snapshotOrFallback().shopCoinDistribution()));
+      metrics.addCustomChart(new AdvancedPie("gamecoin_distribution", () -> snapshotOrFallback().gameCoinDistribution()));
+      metrics.addCustomChart(new AdvancedPie("total_economy_distribution", () -> snapshotOrFallback().totalEconomyDistribution()));
+      metrics.addCustomChart(new SingleLineChart("shopcoin_total_stock", () -> snapshotOrFallback().totalShopCoin()));
+      metrics.addCustomChart(new SingleLineChart("gamecoin_total_stock", () -> snapshotOrFallback().totalGameCoin()));
+
+      metrics.addCustomChart(new SimplePie("vault_hooked", () -> snapshotOrFallback().vaultHooked()));
+      metrics.addCustomChart(new SimplePie("vault_provider_type", () -> snapshotOrFallback().vaultProviderType()));
+
+      metrics.addCustomChart(new AdvancedPie("active_locales_7d", () -> snapshotOrFallback().localeUsage7d()));
+      metrics.addCustomChart(new MultiLineChart("user_retention_signals", () -> snapshotOrFallback().retentionSignals()));
+
+      metrics.addCustomChart(new SimplePie("startup_last_result", () -> snapshotOrFallback().startupLastResult()));
+      metrics.addCustomChart(new SimplePie("startup_last_failure_signal", () -> snapshotOrFallback().startupLastFailure()));
+      metrics.addCustomChart(new MultiLineChart("startup_signals_7d", () -> snapshotOrFallback().startupSignals7d()));
+
+      metrics.addCustomChart(new SingleLineChart("api_request_total_7d", () -> snapshotOrFallback().apiRequestTotal7d()));
+      metrics.addCustomChart(new AdvancedPie("api_usage_7d", () -> snapshotOrFallback().apiUsage7d()));
+      metrics.addCustomChart(new AdvancedPie("api_latency_buckets_7d", () -> snapshotOrFallback().apiLatencyBuckets7d()));
+      metrics.addCustomChart(new SimplePie("api_latency_p50_bucket_7d", () -> snapshotOrFallback().apiLatencyP50Bucket7d()));
+      metrics.addCustomChart(new SimplePie("api_latency_p95_bucket_7d", () -> snapshotOrFallback().apiLatencyP95Bucket7d()));
+      metrics.addCustomChart(new SingleLineChart("api_latency_p50_estimate_ms_7d", () -> snapshotOrFallback().apiLatencyP50EstimateMs7d()));
+      metrics.addCustomChart(new SingleLineChart("api_latency_p95_estimate_ms_7d", () -> snapshotOrFallback().apiLatencyP95EstimateMs7d()));
+      metrics.addCustomChart(new AdvancedPie("api_error_distribution_7d", () -> snapshotOrFallback().apiErrorDistribution7d()));
+
+      metrics.addCustomChart(new SingleLineChart("active_admin_count", () -> snapshotOrFallback().activeAdminCount()));
+      metrics.addCustomChart(new AdvancedPie("admin_role_distribution", () -> snapshotOrFallback().adminRoleDistribution()));
+      metrics.addCustomChart(
+          new AdvancedPie("admin_permission_distribution", () -> snapshotOrFallback().adminPermissionDistribution()));
       getLogger().info(messageService.getConsole("console.bstats_enabled"));
     } catch (Throwable exception) {
       if (isMissingBStats(exception) || isRelocationGuard(exception)) {
@@ -547,6 +635,81 @@ public class WebShopPlugin extends JavaPlugin {
 
   private PluginSettings settings() {
     return settings;
+  }
+
+  private BStatsTelemetryService.Snapshot snapshotOrFallback() {
+    if (bStatsTelemetryService == null) {
+      return fallbackSnapshot();
+    }
+    long now = System.currentTimeMillis();
+    BStatsTelemetryService.Snapshot cached = telemetrySnapshotCache;
+    if (cached != null && now - telemetrySnapshotAtMillis <= 60_000L) {
+      return cached;
+    }
+    synchronized (this) {
+      cached = telemetrySnapshotCache;
+      if (cached != null && now - telemetrySnapshotAtMillis <= 60_000L) {
+        return cached;
+      }
+      try {
+        BStatsTelemetryService.Snapshot snapshot = bStatsTelemetryService.captureSnapshot(walletService);
+        telemetrySnapshotCache = snapshot;
+        telemetrySnapshotAtMillis = now;
+        return snapshot;
+      } catch (Exception exception) {
+        getLogger().log(Level.FINE, "Failed to capture bStats telemetry snapshot; using fallback values.", exception);
+        return fallbackSnapshot();
+      }
+    }
+  }
+
+  private BStatsTelemetryService.Snapshot fallbackSnapshot() {
+    return new BStatsTelemetryService.Snapshot(
+        settings.databaseSettings().type().name().toLowerCase(Locale.ROOT),
+        settings.clusterSettings().role() == PluginSettings.ClusterRole.STANDALONE ? "disabled" : "enabled",
+        "1",
+        settings.clusterSettings().shouldStartWebApi() ? "enabled" : "disabled",
+        settings.serverMode() == PluginSettings.ServerMode.INTERNAL ? "enabled" : "disabled",
+        0,
+        Map.of("no_data", 1),
+        0,
+        0,
+        0,
+        0,
+        0,
+        Map.of("no_data", 1),
+        Map.of("no_data", 1),
+        Map.of("no_data", 1),
+        Map.of("no_data", 1),
+        "unknown",
+        0,
+        Map.of("no_data", 1),
+        Map.of("no_data", 1),
+        0,
+        Map.of("no_data", 1),
+        Map.of("no_data", 1),
+        Map.of("no_data", 1),
+        Map.of("no_data", 1),
+        0,
+        0,
+        "unknown",
+        "unknown",
+        Map.of("no_data", 1),
+        Map.of("no_data", 1),
+        Map.of("no_data", 1),
+        0,
+        Map.of("no_data", 1),
+        Map.of("no_data", 1),
+        "unknown",
+        "unknown",
+        0,
+        0,
+        Map.of("no_data", 1),
+        "unknown",
+        "none",
+        0,
+        Map.of("no_data", 1),
+        Map.of("no_data", 1));
   }
 
   private String resolveMinecraftVersion() {

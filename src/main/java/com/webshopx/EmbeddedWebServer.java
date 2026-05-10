@@ -46,6 +46,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 class EmbeddedWebServer {
+  private static final String REQUEST_START_NANOS_ATTR = "webshopx.request.startNanos";
   private final JavaPlugin plugin;
   private final SchedulerBridge schedulerBridge;
   private final Supplier<PluginSettings> settingsSupplier;
@@ -64,6 +65,7 @@ class EmbeddedWebServer {
   private final UserMarketSettingsService userMarketSettingsService;
   private final RuntimeConfigService runtimeConfigService;
   private final ClusterEventBusService clusterEventBusService;
+  private final BStatsTelemetryService bStatsTelemetryService;
   private final Gson gson;
   private static final int MATERIAL_ICON_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
   private static final int REMOTE_LOCALE_PACKAGE_MAX_BYTES = 20 * 1024 * 1024;
@@ -115,7 +117,8 @@ class EmbeddedWebServer {
       VisualCustomizationService visualCustomizationService,
       UserMarketSettingsService userMarketSettingsService,
       RuntimeConfigService runtimeConfigService,
-      ClusterEventBusService clusterEventBusService) {
+      ClusterEventBusService clusterEventBusService,
+      BStatsTelemetryService bStatsTelemetryService) {
     this.plugin = plugin;
     this.schedulerBridge = schedulerBridge;
     this.settingsSupplier = settingsSupplier;
@@ -134,6 +137,7 @@ class EmbeddedWebServer {
     this.userMarketSettingsService = userMarketSettingsService;
     this.runtimeConfigService = runtimeConfigService;
     this.clusterEventBusService = clusterEventBusService;
+    this.bStatsTelemetryService = bStatsTelemetryService;
     this.gson = new GsonBuilder().disableHtmlEscaping().create();
     this.httpClient = HttpClient.newBuilder()
       .followRedirects(HttpClient.Redirect.NORMAL)
@@ -4628,11 +4632,23 @@ class EmbeddedWebServer {
   }
 
   private boolean ensureMethod(HttpExchange exchange, String method) throws IOException {
+    ensureRequestStart(exchange);
     if (!exchange.getRequestMethod().equalsIgnoreCase(method)) {
       sendJson(exchange, 405, errorJson("method_not_allowed", "Method not allowed"));
       return false;
     }
     return true;
+  }
+
+  private void ensureRequestStart(HttpExchange exchange) {
+    if (exchange == null) {
+      return;
+    }
+    Object started = exchange.getAttribute(REQUEST_START_NANOS_ATTR);
+    if (started instanceof Long) {
+      return;
+    }
+    exchange.setAttribute(REQUEST_START_NANOS_ATTR, System.nanoTime());
   }
 
   private boolean isPreflight(HttpExchange exchange) throws IOException {
@@ -5619,6 +5635,100 @@ class EmbeddedWebServer {
     try (OutputStream outputStream = exchange.getResponseBody()) {
       outputStream.write(body);
     }
+    recordApiTelemetry(exchange, statusCode, payload);
+  }
+
+  private void recordApiTelemetry(HttpExchange exchange, int statusCode, JsonObject payload) {
+    if (bStatsTelemetryService == null || exchange == null || exchange.getRequestURI() == null) {
+      return;
+    }
+    String path = exchange.getRequestURI().getPath();
+    if (path == null || !path.startsWith("/api/")) {
+      return;
+    }
+    String locale = resolveTelemetryLocale(exchange);
+    long durationMillis = resolveRequestDurationMillis(exchange);
+    String errorCode = resolveErrorCodeFromPayload(statusCode, payload);
+    String responseState = resolveResponseState(payload);
+    bStatsTelemetryService.recordApiRequest(
+        path,
+        statusCode,
+        locale,
+        durationMillis,
+        errorCode,
+        responseState);
+  }
+
+  private long resolveRequestDurationMillis(HttpExchange exchange) {
+    Object started = exchange.getAttribute(REQUEST_START_NANOS_ATTR);
+    if (!(started instanceof Long startNanos)) {
+      return 0L;
+    }
+    long elapsedNanos = System.nanoTime() - startNanos;
+    if (elapsedNanos <= 0L) {
+      return 0L;
+    }
+    return elapsedNanos / 1_000_000L;
+  }
+
+  private String resolveErrorCodeFromPayload(int statusCode, JsonObject payload) {
+    if (statusCode < 400) {
+      return "ok";
+    }
+    if (payload != null && payload.has("error") && !payload.get("error").isJsonNull()) {
+      String value = payload.get("error").getAsString();
+      if (value != null && !value.isBlank()) {
+        return value.trim();
+      }
+    }
+    if (statusCode >= 500) {
+      return "internal_error";
+    }
+    return "unknown_error";
+  }
+
+  private String resolveResponseState(JsonObject payload) {
+    if (payload == null || !payload.has("state") || payload.get("state").isJsonNull()) {
+      return null;
+    }
+    String state = payload.get("state").getAsString();
+    return state == null || state.isBlank() ? null : state.trim();
+  }
+
+  private String resolveTelemetryLocale(HttpExchange exchange) {
+    try {
+      Map<String, String> query = parseQuery(exchange);
+      String localeFromQuery = query.get("locale");
+      if (localeFromQuery != null && !localeFromQuery.isBlank()) {
+        String normalized = canonicalizeLocaleTag(localeFromQuery);
+        if (!normalized.isBlank()) {
+          return normalized;
+        }
+      }
+    } catch (Exception ignored) {
+      // Keep fallback behavior below.
+    }
+
+    String explicit = exchange.getRequestHeaders().getFirst("X-WebShop-Locale");
+    if (explicit != null && !explicit.isBlank()) {
+      String normalized = canonicalizeLocaleTag(explicit);
+      if (!normalized.isBlank()) {
+        return normalized;
+      }
+    }
+
+    String acceptLanguage = exchange.getRequestHeaders().getFirst("Accept-Language");
+    if (acceptLanguage != null && !acceptLanguage.isBlank()) {
+      String firstToken = acceptLanguage.split(",", 2)[0].trim();
+      if (!firstToken.isBlank()) {
+        String language = firstToken.split(";", 2)[0].trim();
+        String normalized = canonicalizeLocaleTag(language);
+        if (!normalized.isBlank()) {
+          return normalized;
+        }
+      }
+    }
+    return settingsSupplier.get().defaultLocale();
   }
 
   private void applyCorsHeaders(HttpExchange exchange) {
