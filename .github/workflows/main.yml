@@ -614,69 +614,92 @@ jobs:
           EOF
           }
 
-          version_number="${BASE_VERSION}"
-          version_title="${BASE_VERSION} (paper+folia-slim)"
-          changelog="$(generate_modrinth_changelog)"
-          loaders_json='["paper","purpur","spigot","bukkit","folia"]'
+          publish_modrinth() {
+            local file="$1"
+            local flavor="$2"
+            local loaders_json="$3"
+            local min_game_version="$4"
+            local max_game_version="${5:-}"
+            local version_suffix="${6:-}"
+            local version_number="${BASE_VERSION}${version_suffix}"
+            local version_title="${BASE_VERSION} (${flavor})"
+            local changelog
+            changelog="$(generate_modrinth_changelog)"
 
-          game_versions_json=$(
-            curl -sSf "https://api.modrinth.com/v2/tag/game_version" \
-              | jq -c --arg minv "1.18.2" '
-                  def semver: split(".") | map(tonumber);
-                  def ge($a; $b):
-                    ($a[0] > $b[0]) or
-                    ($a[0] == $b[0] and $a[1] > $b[1]) or
-                    ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) >= ($b[2] // 0));
-                  [ .[]
-                    | select(.version_type == "release")
-                    | .version
-                    | select(test("^\\d+\\.\\d+(\\.\\d+)?$"))
-                    | select(ge((semver + [0,0])[0:3]; (($minv | semver) + [0,0])[0:3]))
-                  ]
-                  | unique
-                  | sort_by(split(".") | map(tonumber))
-                '
-          )
+            local game_versions_json
+            game_versions_json=$(
+              curl -sSf "https://api.modrinth.com/v2/tag/game_version" \
+                | jq -c --arg minv "${min_game_version}" --arg maxv "${max_game_version}" '
+                    def semver: split(".") | map(tonumber);
+                    def ge($a; $b):
+                      ($a[0] > $b[0]) or
+                      ($a[0] == $b[0] and $a[1] > $b[1]) or
+                      ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) >= ($b[2] // 0));
+                    def le($a; $b):
+                      ($a[0] < $b[0]) or
+                      ($a[0] == $b[0] and $a[1] < $b[1]) or
+                      ($a[0] == $b[0] and $a[1] == $b[1] and ($a[2] // 0) <= ($b[2] // 0));
+                    [ .[]
+                      | select(.version_type == "release")
+                      | .version
+                      | select(test("^\\d+\\.\\d+(\\.\\d+)?$"))
+                      | select(ge((semver + [0,0])[0:3]; (($minv | semver) + [0,0])[0:3]))
+                      | select(
+                          ($maxv == "") or
+                          le((semver + [0,0])[0:3]; (($maxv | semver) + [0,0])[0:3])
+                        )
+                    ]
+                    | unique
+                    | sort_by(split(".") | map(tonumber))
+                  '
+            )
 
-          payload=$(
-            jq -cn \
-              --arg project_id "${MODRINTH_PROJECT_ID}" \
-              --arg version_number "${version_number}" \
-              --arg version_title "${version_title}" \
-              --arg changelog "${changelog}" \
-              --arg version_type "${VERSION_TYPE}" \
-              --argjson loaders "${loaders_json}" \
-              --argjson game_versions "${game_versions_json}" \
-              '{
-                project_id: $project_id,
-                version_number: $version_number,
-                name: $version_title,
-                changelog: $changelog,
-                version_type: $version_type,
-                loaders: $loaders,
-                game_versions: $game_versions,
-                dependencies: [],
-                featured: false,
-                status: "listed",
-                file_parts: ["file_folia", "file_paper_legacy", "file_paper_modern"]
-              }'
-          )
+            local payload
+            payload=$(
+              jq -cn \
+                --arg project_id "${MODRINTH_PROJECT_ID}" \
+                --arg version_number "${version_number}" \
+                --arg version_title "${version_title}" \
+                --arg changelog "${changelog}" \
+                --arg version_type "${VERSION_TYPE}" \
+                --argjson loaders "${loaders_json}" \
+                --argjson game_versions "${game_versions_json}" \
+                '{
+                  project_id: $project_id,
+                  version_number: $version_number,
+                  name: $version_title,
+                  changelog: $changelog,
+                  version_type: $version_type,
+                  loaders: $loaders,
+                  game_versions: $game_versions,
+                  dependencies: [],
+                  featured: false,
+                  status: "listed",
+                  file_parts: ["file"]
+                }'
+            )
 
-          echo "Uploading slim artifacts as ${version_number} (${VERSION_TYPE}) ..."
-          response_file="$(mktemp)"
-          http_code=$(
-            curl -sS -o "${response_file}" -w "%{http_code}" -X POST "https://api.modrinth.com/v2/version" \
-            -H "Authorization: ${MODRINTH_TOKEN}" \
-            -H "User-Agent: ${GITHUB_REPOSITORY}/actions" \
-            -F "data=${payload}" \
-            -F "file_folia=@${folia[0]};type=application/java-archive" \
-            -F "file_paper_legacy=@${paper_legacy[0]};type=application/java-archive" \
-            -F "file_paper_modern=@${paper_modern[0]};type=application/java-archive"
-          )
-          if [[ "${http_code}" -lt 200 || "${http_code}" -ge 300 ]]; then
-            echo "::error::Modrinth upload failed with HTTP ${http_code} for ${version_number}."
-            cat "${response_file}"
+            echo "Uploading ${file} as ${version_number} (${VERSION_TYPE}) ..."
+            local response_file
+            response_file="$(mktemp)"
+            local http_code
+            http_code=$(
+              curl -sS -o "${response_file}" -w "%{http_code}" -X POST "https://api.modrinth.com/v2/version" \
+              -H "Authorization: ${MODRINTH_TOKEN}" \
+              -H "User-Agent: ${GITHUB_REPOSITORY}/actions" \
+              -F "data=${payload}" \
+              -F "file=@${file};type=application/java-archive"
+            )
+            if [[ "${http_code}" -lt 200 || "${http_code}" -ge 300 ]]; then
+              echo "::error::Modrinth upload failed with HTTP ${http_code} for ${version_number}."
+              cat "${response_file}"
+              rm -f "${response_file}"
+              return 1
+            fi
             rm -f "${response_file}"
-            exit 1
-          fi
-          rm -f "${response_file}"
+          }
+
+          # Upload order matters for display/primary file preference.
+          publish_modrinth "${folia[0]}" "folia-1.19.4-slim" '["folia"]' "1.19.4" "" ""
+          publish_modrinth "${paper_legacy[0]}" "paper-1.18.2-slim" '["paper","purpur","spigot","bukkit"]' "1.18.2" "1.20.5" "-p182"
+          publish_modrinth "${paper_modern[0]}" "paper-1.20.6-slim" '["paper","purpur","spigot","bukkit"]' "1.20.6" "" "-p206"
