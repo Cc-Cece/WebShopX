@@ -7,7 +7,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Base64;
 import java.util.Optional;
 import java.util.UUID;
@@ -340,19 +342,19 @@ class AuthService {
   }
 
   private Optional<AuthUser> readUserBySession(Connection connection, String token) throws SQLException {
-    // Support both ISO timestamp strings and integer epoch-ms stored in SQLite.
-    String sql = "SELECT u.id, u.username, u.bound_uuid "
+    String sql = "SELECT u.id, u.username, u.bound_uuid, s.expires_at "
         + "FROM web_sessions s "
         + "JOIN web_users u ON u.id = s.user_id "
-        + "WHERE s.token = ? AND u.auth_state = ? AND (" 
-        + "(typeof(s.expires_at) = 'integer' AND datetime(s.expires_at/1000, 'unixepoch') > CURRENT_TIMESTAMP) "
-        + "OR (typeof(s.expires_at) != 'integer' AND s.expires_at > CURRENT_TIMESTAMP)" 
-        + ")";
+        + "WHERE s.token = ? AND u.auth_state = ?";
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, token);
       statement.setString(2, STATE_ACTIVE);
       try (ResultSet resultSet = statement.executeQuery()) {
         if (!resultSet.next()) {
+          return Optional.empty();
+        }
+        LocalDateTime expiresAt = parseSessionExpiresAt(resultSet.getObject("expires_at"));
+        if (expiresAt == null || !expiresAt.isAfter(LocalDateTime.now())) {
           return Optional.empty();
         }
         String boundUuidRaw = resultSet.getString("bound_uuid");
@@ -363,6 +365,39 @@ class AuthService {
             boundUuid));
       }
     }
+  }
+
+  private LocalDateTime parseSessionExpiresAt(Object rawExpiresAt) {
+    if (rawExpiresAt == null) {
+      return null;
+    }
+    if (rawExpiresAt instanceof Timestamp timestamp) {
+      return timestamp.toLocalDateTime();
+    }
+    if (rawExpiresAt instanceof Number numeric) {
+      return LocalDateTime.ofInstant(
+          Instant.ofEpochMilli(numeric.longValue()),
+          ZoneId.systemDefault());
+    }
+    if (rawExpiresAt instanceof String text) {
+      String trimmed = text.trim();
+      if (trimmed.isEmpty()) {
+        return null;
+      }
+      try {
+        return Timestamp.valueOf(trimmed).toLocalDateTime();
+      } catch (IllegalArgumentException ignored) {
+        // Continue to numeric parse fallback for legacy raw epoch values.
+      }
+      try {
+        return LocalDateTime.ofInstant(
+            Instant.ofEpochMilli(Long.parseLong(trimmed)),
+            ZoneId.systemDefault());
+      } catch (NumberFormatException ignored) {
+        return null;
+      }
+    }
+    return null;
   }
 
   private Optional<AuthUser> readUserById(Connection connection, long userId) throws SQLException {
