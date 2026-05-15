@@ -3443,7 +3443,13 @@ pre {
 #localeManagerDialog .field:has(> textarea),
 #localeManifestDialog .field:has(> input),
 #localeManifestDialog .field:has(> select),
-#localeManifestDialog .field:has(> textarea) {
+#localeManifestDialog .field:has(> textarea),
+#themeManifestDialog .field:has(> input),
+#themeManifestDialog .field:has(> select),
+#themeManifestDialog .field:has(> textarea),
+#manifestSourceDialog .field:has(> input),
+#manifestSourceDialog .field:has(> select),
+#manifestSourceDialog .field:has(> textarea) {
   min-height: 0;
   gap: 6px;
 }
@@ -3453,7 +3459,13 @@ pre {
 #localeManagerDialog .field:has(> textarea) > span:first-child,
 #localeManifestDialog .field:has(> input) > span:first-child,
 #localeManifestDialog .field:has(> select) > span:first-child,
-#localeManifestDialog .field:has(> textarea) > span:first-child {
+#localeManifestDialog .field:has(> textarea) > span:first-child,
+#themeManifestDialog .field:has(> input) > span:first-child,
+#themeManifestDialog .field:has(> select) > span:first-child,
+#themeManifestDialog .field:has(> textarea) > span:first-child,
+#manifestSourceDialog .field:has(> input) > span:first-child,
+#manifestSourceDialog .field:has(> select) > span:first-child,
+#manifestSourceDialog .field:has(> textarea) > span:first-child {
   position: static !important;
   top: auto !important;
   transform: none !important;
@@ -3467,7 +3479,9 @@ pre {
 }
 
 #localeManagerDialog .field:has(> select) > select,
-#localeManifestDialog .field:has(> select) > select {
+#localeManifestDialog .field:has(> select) > select,
+#themeManifestDialog .field:has(> select) > select,
+#manifestSourceDialog .field:has(> select) > select {
   padding-top: 0;
   padding-bottom: 0;
 }
@@ -3475,7 +3489,12 @@ pre {
 /* Keep normal button height, but avoid full-width stretch in locale dialogs. */
 #localeManagerSaveDefaultBtn,
 #localeManagerUploadBtn,
-#localeManifestFetchBtn {
+#localeManifestFetchBtn,
+#themeManifestFetchBtn,
+#localeManifestSourceBtn,
+#themeManifestSourceBtn,
+#manifestSourceApplyBtn,
+#manifestSourceCancelBtn {
   min-height: var(--control-height);
   height: var(--control-height);
   font-size: 14px;

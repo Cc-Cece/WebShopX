@@ -78,6 +78,9 @@ class EmbeddedWebServer {
       "https://hk.gh-proxy.com/",
       "https://gh-proxy.com/",
       "https://gh.llkk.cc/");
+  private static final String GITHUB_PROXY_MODE_AUTO = "auto";
+  private static final String GITHUB_PROXY_MODE_ON = "on";
+  private static final String GITHUB_PROXY_MODE_OFF = "off";
   private static final Set<String> MATERIAL_ICON_ALLOWED_EXTENSIONS =
       Set.of("png", "webp", "jpg", "jpeg", "gif");
   private static final int REMOTE_MANIFEST_MAX_BYTES = 1024 * 1024;
@@ -2119,8 +2122,8 @@ class EmbeddedWebServer {
         throw new ServiceException("bad_request", "Missing field: url");
       }
       URI manifestUri = parseManifestUri(rawUrl);
-      boolean enableGithubMirrorFallback = isGithubMirrorFallbackEnabledForManifest(manifestUri);
-      JsonObject manifest = fetchRemoteManifest(manifestUri, enableGithubMirrorFallback);
+      RemoteFetchOptions remoteFetchOptions = resolveRemoteFetchOptions(manifestUri, query.get("githubProxy"), query.get("githubProxyPrefix"));
+      JsonObject manifest = fetchRemoteManifest(manifestUri, remoteFetchOptions);
       sendJson(exchange, 200, manifest);
     });
   }
@@ -2254,8 +2257,11 @@ class EmbeddedWebServer {
       String rawUrl = getOptionalString(payload, "url")
           .orElseThrow(() -> new ServiceException("bad_request", "Missing field: url"));
       URI manifestUri = parseManifestUri(rawUrl);
-      boolean enableGithubMirrorFallback = isGithubMirrorFallbackEnabledForManifest(manifestUri);
-      JsonObject manifest = fetchRemoteManifest(manifestUri, enableGithubMirrorFallback);
+      RemoteFetchOptions remoteFetchOptions = resolveRemoteFetchOptions(
+          manifestUri,
+          getOptionalString(payload, "githubProxy").orElse(""),
+          getOptionalString(payload, "githubProxyPrefix").orElse(""));
+      JsonObject manifest = fetchRemoteManifest(manifestUri, remoteFetchOptions);
       List<ManifestLocalePackage> entries = parseManifestLocalePackages(manifest);
       if (entries.isEmpty()) {
         throw new ServiceException("bad_request", "Manifest contains no locale package entries");
@@ -2289,7 +2295,7 @@ class EmbeddedWebServer {
               packageUri,
               "locale package",
               REMOTE_LOCALE_PACKAGE_MAX_BYTES,
-              enableGithubMirrorFallback);
+              remoteFetchOptions);
           LocaleCenterService.InstallOutcome outcome = localeCenterService.installZipPackage(
               packageBytes,
               new LocaleCenterService.InstallOptions("github", entry.version(), entry.name(), entry.nativeName()));
@@ -2424,8 +2430,11 @@ class EmbeddedWebServer {
       String rawUrl = getOptionalString(payload, "url")
           .orElseThrow(() -> new ServiceException("bad_request", "Missing field: url"));
       URI manifestUri = parseManifestUri(rawUrl);
-      boolean enableGithubMirrorFallback = isGithubMirrorFallbackEnabledForManifest(manifestUri);
-      JsonObject manifest = fetchRemoteManifest(manifestUri, enableGithubMirrorFallback);
+      RemoteFetchOptions remoteFetchOptions = resolveRemoteFetchOptions(
+          manifestUri,
+          getOptionalString(payload, "githubProxy").orElse(""),
+          getOptionalString(payload, "githubProxyPrefix").orElse(""));
+      JsonObject manifest = fetchRemoteManifest(manifestUri, remoteFetchOptions);
       List<ManifestThemePackage> entries = parseManifestThemePackages(manifest);
       if (entries.isEmpty()) {
         throw new ServiceException("bad_request", "Manifest contains no theme package entries");
@@ -2462,7 +2471,7 @@ class EmbeddedWebServer {
               "WebShopX-Theme-Sync",
               Duration.ofSeconds(30),
               REMOTE_THEME_PACKAGE_MAX_BYTES,
-              enableGithubMirrorFallback);
+              remoteFetchOptions);
           ThemeCenterService.InstallOutcome outcome = themeCenterService.installZipPackage(
               packageBytes,
               new ThemeCenterService.InstallOptions("github", entry.version(), entry.name(), entry.themeId()));
@@ -5073,7 +5082,7 @@ class EmbeddedWebServer {
     return false;
   }
 
-  private JsonObject fetchRemoteManifest(URI uri, boolean enableGithubMirrorFallback) {
+  private JsonObject fetchRemoteManifest(URI uri, RemoteFetchOptions remoteFetchOptions) {
     byte[] body = fetchRemoteResourceWithRetry(
         uri,
         "manifest",
@@ -5081,7 +5090,7 @@ class EmbeddedWebServer {
         "WebShopX-Manifest-Proxy",
         Duration.ofSeconds(20),
         REMOTE_MANIFEST_MAX_BYTES,
-        enableGithubMirrorFallback);
+        remoteFetchOptions);
 
     String text = new String(body, StandardCharsets.UTF_8).trim();
     if (text.isEmpty()) {
@@ -5099,7 +5108,7 @@ class EmbeddedWebServer {
     return parsed.getAsJsonObject();
   }
 
-  private byte[] fetchRemoteBinary(URI uri, String label, int maxBytes, boolean enableGithubMirrorFallback) {
+  private byte[] fetchRemoteBinary(URI uri, String label, int maxBytes, RemoteFetchOptions remoteFetchOptions) {
     return fetchRemoteResourceWithRetry(
         uri,
         label,
@@ -5107,7 +5116,7 @@ class EmbeddedWebServer {
         "WebShopX-Locale-Sync",
         Duration.ofSeconds(30),
         maxBytes,
-        enableGithubMirrorFallback);
+        remoteFetchOptions);
   }
 
   private byte[] fetchRemoteResourceWithRetry(
@@ -5117,8 +5126,8 @@ class EmbeddedWebServer {
       String userAgent,
       Duration timeout,
       int maxBytes,
-      boolean enableGithubMirrorFallback) {
-    List<URI> candidates = buildRemoteFetchCandidates(uri, enableGithubMirrorFallback);
+      RemoteFetchOptions remoteFetchOptions) {
+    List<URI> candidates = buildRemoteFetchCandidates(uri, remoteFetchOptions);
     if (candidates.isEmpty()) {
       throw new ServiceException("bad_request", "No valid URL candidate for " + label);
     }
@@ -5225,10 +5234,10 @@ class EmbeddedWebServer {
     }
   }
 
-  private List<URI> buildRemoteFetchCandidates(URI sourceUri, boolean enableGithubMirrorFallback) {
+  private List<URI> buildRemoteFetchCandidates(URI sourceUri, RemoteFetchOptions remoteFetchOptions) {
     java.util.LinkedHashMap<String, URI> map = new java.util.LinkedHashMap<>();
     addFetchCandidate(map, sourceUri);
-    if (!enableGithubMirrorFallback) {
+    if (remoteFetchOptions == null || !remoteFetchOptions.enableGithubMirrorFallback()) {
       return List.copyOf(map.values());
     }
 
@@ -5239,9 +5248,7 @@ class EmbeddedWebServer {
 
     if (isGitHubOriginHost(host)) {
       String target = sourceUri.toString();
-      for (String prefix : GITHUB_PROXY_PREFIXES) {
-        addFetchCandidateFromText(map, prefix + target);
-      }
+      addGithubProxyCandidates(map, target, remoteFetchOptions.preferredGithubProxyPrefix());
       return List.copyOf(map.values());
     }
 
@@ -5249,9 +5256,7 @@ class EmbeddedWebServer {
       String wrappedTarget = extractWrappedTargetUrl(sourceUri);
       if (!wrappedTarget.isBlank()) {
         addFetchCandidateFromText(map, wrappedTarget);
-        for (String prefix : GITHUB_PROXY_PREFIXES) {
-          addFetchCandidateFromText(map, prefix + wrappedTarget);
-        }
+        addGithubProxyCandidates(map, wrappedTarget, remoteFetchOptions.preferredGithubProxyPrefix());
       }
     }
 
@@ -5260,7 +5265,93 @@ class EmbeddedWebServer {
 
   private boolean isGithubMirrorFallbackEnabledForManifest(URI manifestUri) {
     String host = normalizeHost(manifestUri == null ? null : manifestUri.getHost());
-    return "github.com".equals(host);
+    return isGitHubOriginHost(host) || isGitHubMirrorHost(host);
+  }
+
+  private RemoteFetchOptions resolveRemoteFetchOptions(URI manifestUri, String rawMode, String rawPreferredPrefix) {
+    boolean defaultFallback = isGithubMirrorFallbackEnabledForManifest(manifestUri);
+    String mode = normalizeGithubProxyMode(rawMode);
+    boolean fallbackEnabled = switch (mode) {
+      case GITHUB_PROXY_MODE_OFF -> false;
+      case GITHUB_PROXY_MODE_ON -> true;
+      default -> defaultFallback;
+    };
+    if (!fallbackEnabled) {
+      return new RemoteFetchOptions(false, "");
+    }
+    String preferredPrefix = normalizeGithubProxyPrefix(rawPreferredPrefix);
+    if (!preferredPrefix.isBlank() && !isKnownGithubProxyPrefix(preferredPrefix)) {
+      throw new ServiceException("bad_request", "Invalid field: githubProxyPrefix");
+    }
+    return new RemoteFetchOptions(true, preferredPrefix);
+  }
+
+  private String normalizeGithubProxyMode(String rawMode) {
+    String normalized = String.valueOf(rawMode == null ? "" : rawMode).trim().toLowerCase(Locale.ROOT);
+    if (GITHUB_PROXY_MODE_ON.equals(normalized) || GITHUB_PROXY_MODE_OFF.equals(normalized)) {
+      return normalized;
+    }
+    return GITHUB_PROXY_MODE_AUTO;
+  }
+
+  private String normalizeGithubProxyPrefix(String rawPrefix) {
+    String normalized = String.valueOf(rawPrefix == null ? "" : rawPrefix).trim();
+    if (normalized.isBlank() || !normalized.regionMatches(true, 0, "https://", 0, 8)) {
+      return "";
+    }
+    while (normalized.endsWith("/")) {
+      normalized = normalized.substring(0, normalized.length() - 1);
+    }
+    return normalized.isBlank() ? "" : normalized + "/";
+  }
+
+  private boolean isKnownGithubProxyPrefix(String prefix) {
+    String normalized = normalizeGithubProxyPrefix(prefix);
+    if (normalized.isBlank()) {
+      return false;
+    }
+    for (String candidate : GITHUB_PROXY_PREFIXES) {
+      if (normalized.equals(normalizeGithubProxyPrefix(candidate))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private void addGithubProxyCandidates(
+      java.util.LinkedHashMap<String, URI> map,
+      String targetUrl,
+      String preferredPrefix) {
+    String preferred = normalizeGithubProxyPrefix(preferredPrefix);
+    if (!preferred.isBlank()) {
+      addFetchCandidateFromText(map, preferred + targetUrl);
+    }
+    for (String prefix : GITHUB_PROXY_PREFIXES) {
+      String normalizedPrefix = normalizeGithubProxyPrefix(prefix);
+      if (normalizedPrefix.equals(preferred)) {
+        continue;
+      }
+      addFetchCandidateFromText(map, normalizedPrefix + targetUrl);
+    }
+  }
+
+  private static final class RemoteFetchOptions {
+    private final boolean enableGithubMirrorFallback;
+    private final String preferredGithubProxyPrefix;
+
+    private RemoteFetchOptions(boolean enableGithubMirrorFallback, String preferredGithubProxyPrefix) {
+      this.enableGithubMirrorFallback = enableGithubMirrorFallback;
+      this.preferredGithubProxyPrefix =
+          String.valueOf(preferredGithubProxyPrefix == null ? "" : preferredGithubProxyPrefix);
+    }
+
+    private boolean enableGithubMirrorFallback() {
+      return enableGithubMirrorFallback;
+    }
+
+    private String preferredGithubProxyPrefix() {
+      return preferredGithubProxyPrefix;
+    }
   }
 
   private void addFetchCandidate(java.util.LinkedHashMap<String, URI> map, URI candidate) {

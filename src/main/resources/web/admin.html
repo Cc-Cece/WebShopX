@@ -1637,6 +1637,16 @@
 <button class="btn-tonal" data-i18n="uiText.page.localeManifestFetchBtn" id="localeManifestFetchBtn" type="button">获取</button>
 </label>
 </div>
+<div class="field-grid two-col">
+<label class="field dialog-select-field">
+<span data-i18n="uiText.page.localeManifestSourceLabel">安装源配置</span>
+<button class="btn-tonal" data-i18n="uiText.page.localeManifestSourceBtn" id="localeManifestSourceBtn" type="button">源设置</button>
+</label>
+<label class="field">
+<span data-i18n="uiText.page.localeManifestSourceSummaryLabel">当前源策略</span>
+<p class="meta" id="localeManifestSourceSummary">自动</p>
+</label>
+</div>
 <p class="meta" data-i18n="uiText.page.localeManifestStatusWaiting" id="localeManifestStatus">等待获取</p>
 <div class="actions compact-actions">
 <button class="btn-tonal btn-small" data-i18n="uiText.page.localeManifestSelectAllBtn" id="localeManifestSelectAllBtn" type="button">全选</button>
@@ -1704,6 +1714,16 @@
 <button class="btn-tonal" data-i18n="uiText.page.themeManifestFetchBtn" id="themeManifestFetchBtn" type="button">获取</button>
 </label>
 </div>
+<div class="field-grid two-col">
+<label class="field dialog-select-field">
+<span data-i18n="uiText.page.themeManifestSourceLabel">安装源配置</span>
+<button class="btn-tonal" data-i18n="uiText.page.themeManifestSourceBtn" id="themeManifestSourceBtn" type="button">源设置</button>
+</label>
+<label class="field">
+<span data-i18n="uiText.page.themeManifestSourceSummaryLabel">当前源策略</span>
+<p class="meta" id="themeManifestSourceSummary">自动</p>
+</label>
+</div>
 <p class="meta" data-i18n="uiText.page.themeManifestStatusWaiting" id="themeManifestStatus">等待获取</p>
 <div class="actions compact-actions">
 <button class="btn-tonal btn-small" data-i18n="uiText.page.themeManifestSelectAllBtn" id="themeManifestSelectAllBtn" type="button">全选</button>
@@ -1714,6 +1734,39 @@
 <div class="actions">
 <button class="btn-tonal btn-small" data-i18n="uiText.page.themeManifestDownloadBtn" id="themeManifestDownloadBtn" type="button">下载所选</button>
 <button class="btn-tonal btn-small" data-i18n="uiText.page.themeManifestCancelBtn" id="themeManifestCancelBtn" type="button">关闭</button>
+</div>
+</article>
+</div>
+<div aria-hidden="true" class="dialog-backdrop" id="manifestSourceDialog">
+<article class="md-card dialog-card market-policy-dialog-card">
+<h3 data-i18n="uiText.page.manifestSourceDialogTitle">安装源设置</h3>
+<p data-i18n="uiText.page.manifestSourceDialogDesc">选择是否启用 GitHub 加速，并指定优先节点。</p>
+<div class="dialog-details market-policy-dialog-scroll">
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.page.manifestSourceModeLabel">GitHub 加速</span>
+<select id="manifestSourceModeSelect">
+<option data-i18n="uiText.page.manifestSourceModeAuto" value="auto">自动（推荐）</option>
+<option data-i18n="uiText.page.manifestSourceModeOn" value="on">启用</option>
+<option data-i18n="uiText.page.manifestSourceModeOff" value="off">禁用</option>
+</select>
+</label>
+<label class="field">
+<span data-i18n="uiText.page.manifestSourceProxyLabel">优先代理节点</span>
+<select id="manifestSourceProxySelect">
+<option data-i18n="uiText.page.manifestSourceProxyAuto" value="">按内置顺序</option>
+<option value="https://edgeone.gh-proxy.com/">https://edgeone.gh-proxy.com/</option>
+<option value="https://hk.gh-proxy.com/">https://hk.gh-proxy.com/</option>
+<option value="https://gh-proxy.com/">https://gh-proxy.com/</option>
+<option value="https://gh.llkk.cc/">https://gh.llkk.cc/</option>
+</select>
+</label>
+</div>
+<p class="meta" data-i18n="uiText.page.manifestSourceDialogHint" id="manifestSourceStatus">设置会同时应用到“获取列表”和“下载所选”。</p>
+</div>
+<div class="actions">
+<button data-i18n="uiText.page.manifestSourceApplyBtn" id="manifestSourceApplyBtn" type="button">应用</button>
+<button class="btn-tonal" data-i18n="uiText.page.manifestSourceCancelBtn" id="manifestSourceCancelBtn" type="button">取消</button>
 </div>
 </article>
 </div>

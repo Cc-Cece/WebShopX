@@ -113,6 +113,16 @@
     fetching: false,
     downloading: false,
   },
+  manifestSource: {
+    locale: {
+      githubProxy: "auto",
+      githubProxyPrefix: "",
+    },
+    theme: {
+      githubProxy: "auto",
+      githubProxyPrefix: "",
+    },
+  },
 };
 
 const I18N = window.WebShopXI18n || null;
@@ -256,6 +266,14 @@ const LOCALE_MANIFEST_URL_STORAGE_KEY = "webshopx_admin_locale_manifest_url";
 const DEFAULT_LOCALE_MANIFEST_URL = "https://github.com/Cc-Cece/WebShopX-Issues/releases/download/l10n-cdn/manifest.json";
 const THEME_MANIFEST_URL_STORAGE_KEY = "webshopx_admin_theme_manifest_url";
 const DEFAULT_THEME_MANIFEST_URL = "";
+const LOCALE_MANIFEST_SOURCE_STORAGE_KEY = "webshopx_admin_locale_manifest_source";
+const THEME_MANIFEST_SOURCE_STORAGE_KEY = "webshopx_admin_theme_manifest_source";
+const MANIFEST_GITHUB_PROXY_PREFIXES = Object.freeze([
+  "https://edgeone.gh-proxy.com/",
+  "https://hk.gh-proxy.com/",
+  "https://gh-proxy.com/",
+  "https://gh.llkk.cc/",
+]);
 const LOCALE_CENTER_DEFAULTS = Object.freeze({
   defaultLocale: "zh-CN",
   lastSyncAt: null,
@@ -860,6 +878,8 @@ const elements = {
   localeManifestFetchBtn: document.getElementById("localeManifestFetchBtn"),
   localeManifestDownloadBtn: document.getElementById("localeManifestDownloadBtn"),
   localeManifestCancelBtn: document.getElementById("localeManifestCancelBtn"),
+  localeManifestSourceBtn: document.getElementById("localeManifestSourceBtn"),
+  localeManifestSourceSummary: document.getElementById("localeManifestSourceSummary"),
 
   themeCenterOpenBtn: document.getElementById("themeCenterOpenBtn"),
   themeCenterDefaultThemeView: document.getElementById("themeCenterDefaultThemeView"),
@@ -886,6 +906,15 @@ const elements = {
   themeManifestFetchBtn: document.getElementById("themeManifestFetchBtn"),
   themeManifestDownloadBtn: document.getElementById("themeManifestDownloadBtn"),
   themeManifestCancelBtn: document.getElementById("themeManifestCancelBtn"),
+  themeManifestSourceBtn: document.getElementById("themeManifestSourceBtn"),
+  themeManifestSourceSummary: document.getElementById("themeManifestSourceSummary"),
+
+  manifestSourceDialog: document.getElementById("manifestSourceDialog"),
+  manifestSourceModeSelect: document.getElementById("manifestSourceModeSelect"),
+  manifestSourceProxySelect: document.getElementById("manifestSourceProxySelect"),
+  manifestSourceStatus: document.getElementById("manifestSourceStatus"),
+  manifestSourceApplyBtn: document.getElementById("manifestSourceApplyBtn"),
+  manifestSourceCancelBtn: document.getElementById("manifestSourceCancelBtn"),
 
   adminSubTabs: document.getElementById("adminSubTabs"),
   snackbarHost: document.getElementById("snackbarHost"),
@@ -896,6 +925,7 @@ let localeCenterBaselineState = null;
 let localeCenterDirty = false;
 let themeCenterBaselineState = null;
 let themeCenterDirty = false;
+let manifestSourceActiveTarget = "locale";
 
 function localizeDisplayText(text) {
   const localized = I18N ? I18N.localizeText(text) : text;
@@ -1276,6 +1306,8 @@ function openLocaleManifestDialog() {
   if (!elements.localeManifestDialog) {
     return;
   }
+  loadManifestSourceConfig("locale");
+  renderManifestSourceSummary("locale");
   if (elements.localeManifestStatus) {
     setMetaText(
       elements.localeManifestStatus,
@@ -1559,7 +1591,8 @@ async function fetchLocaleManifestList() {
 
   let payload;
   try {
-    payload = await apiAdmin(`/api/admin/l10n/manifest?url=${encodeURIComponent(manifestUrl)}`, { method: "GET" });
+    const query = appendManifestSourceQueryParams(manifestUrl, "locale");
+    payload = await apiAdmin(`/api/admin/l10n/manifest?${query}`, { method: "GET" });
   } catch (error) {
     if (elements.localeManifestStatus) {
       setMetaText(
@@ -1628,12 +1661,13 @@ async function runLocaleCenterManifestSync() {
   }
   let payload;
   try {
+    const requestPayload = applyManifestSourcePayload({
+      url: manifestUrl,
+      locales: selectedLocales,
+    }, "locale");
     payload = await apiAdmin("/api/admin/locales/sync-manifest", {
       method: "POST",
-      body: JSON.stringify({
-        url: manifestUrl,
-        locales: selectedLocales,
-      }),
+      body: JSON.stringify(requestPayload),
     });
   } catch (error) {
     if (elements.localeManifestStatus) {
@@ -1971,6 +2005,8 @@ function openThemeManifestDialog() {
   if (!elements.themeManifestDialog) {
     return;
   }
+  loadManifestSourceConfig("theme");
+  renderManifestSourceSummary("theme");
   if (elements.themeManifestStatus) {
     setMetaText(
       elements.themeManifestStatus,
@@ -1996,6 +2032,186 @@ function closeThemeManifestDialog() {
   }
   elements.themeManifestDialog.classList.remove("show");
   elements.themeManifestDialog.setAttribute("aria-hidden", "true");
+}
+
+function normalizeManifestGithubProxyMode(rawMode) {
+  const normalized = String(rawMode || "").trim().toLowerCase();
+  if (normalized === "on" || normalized === "off") {
+    return normalized;
+  }
+  return "auto";
+}
+
+function normalizeManifestGithubProxyPrefix(rawPrefix) {
+  let normalized = String(rawPrefix || "").trim();
+  if (!normalized) {
+    return "";
+  }
+  if (!/^https:\/\//i.test(normalized)) {
+    return "";
+  }
+  while (normalized.endsWith("/")) {
+    normalized = normalized.slice(0, -1);
+  }
+  normalized = `${normalized}/`;
+  return MANIFEST_GITHUB_PROXY_PREFIXES.includes(normalized) ? normalized : "";
+}
+
+function getManifestSourceStorageKey(target) {
+  return target === "theme" ? THEME_MANIFEST_SOURCE_STORAGE_KEY : LOCALE_MANIFEST_SOURCE_STORAGE_KEY;
+}
+
+function getManifestSourceConfig(target) {
+  if (!state.manifestSource) {
+    state.manifestSource = {
+      locale: { githubProxy: "auto", githubProxyPrefix: "" },
+      theme: { githubProxy: "auto", githubProxyPrefix: "" },
+    };
+  }
+  if (!state.manifestSource[target]) {
+    state.manifestSource[target] = { githubProxy: "auto", githubProxyPrefix: "" };
+  }
+  return state.manifestSource[target];
+}
+
+function loadManifestSourceConfig(target) {
+  const config = getManifestSourceConfig(target);
+  let parsed = null;
+  try {
+    const raw = window.localStorage.getItem(getManifestSourceStorageKey(target));
+    if (raw) {
+      parsed = JSON.parse(raw);
+    }
+  } catch (error) {
+    parsed = null;
+  }
+  config.githubProxy = normalizeManifestGithubProxyMode(parsed?.githubProxy || config.githubProxy);
+  config.githubProxyPrefix = normalizeManifestGithubProxyPrefix(parsed?.githubProxyPrefix || config.githubProxyPrefix);
+}
+
+function saveManifestSourceConfig(target) {
+  const config = getManifestSourceConfig(target);
+  try {
+    window.localStorage.setItem(
+      getManifestSourceStorageKey(target),
+      JSON.stringify({
+        githubProxy: normalizeManifestGithubProxyMode(config.githubProxy),
+        githubProxyPrefix: normalizeManifestGithubProxyPrefix(config.githubProxyPrefix),
+      })
+    );
+  } catch (error) {
+    // ignore storage issues
+  }
+}
+
+function getManifestSourceSummaryText(target) {
+  const config = getManifestSourceConfig(target);
+  const mode = normalizeManifestGithubProxyMode(config.githubProxy);
+  const prefix = normalizeManifestGithubProxyPrefix(config.githubProxyPrefix);
+  if (mode === "off") {
+    return getAdminPageText("manifestSourceSummaryOff", "GitHub acceleration disabled");
+  }
+  if (mode === "on") {
+    if (prefix) {
+      return formatAdminPageText(
+        "manifestSourceSummaryOnPrefix",
+        { prefix },
+        "GitHub acceleration enabled (preferred: {prefix})"
+      );
+    }
+    return getAdminPageText("manifestSourceSummaryOnAuto", "GitHub acceleration enabled (built-in order)");
+  }
+  if (prefix) {
+    return formatAdminPageText(
+      "manifestSourceSummaryAutoPrefix",
+      { prefix },
+      "Auto mode (preferred: {prefix})"
+    );
+  }
+  return getAdminPageText("manifestSourceSummaryAuto", "Auto mode (built-in order)");
+}
+
+function renderManifestSourceSummary(target) {
+  const text = getManifestSourceSummaryText(target);
+  if (target === "theme") {
+    if (elements.themeManifestSourceSummary) {
+      setNodeText(elements.themeManifestSourceSummary, text);
+    }
+    return;
+  }
+  if (elements.localeManifestSourceSummary) {
+    setNodeText(elements.localeManifestSourceSummary, text);
+  }
+}
+
+function appendManifestSourceQueryParams(manifestUrl, target) {
+  const config = getManifestSourceConfig(target);
+  const params = new URLSearchParams();
+  params.set("url", manifestUrl);
+  params.set("githubProxy", normalizeManifestGithubProxyMode(config.githubProxy));
+  const normalizedPrefix = normalizeManifestGithubProxyPrefix(config.githubProxyPrefix);
+  if (normalizedPrefix) {
+    params.set("githubProxyPrefix", normalizedPrefix);
+  }
+  return params.toString();
+}
+
+function applyManifestSourcePayload(payload, target) {
+  const config = getManifestSourceConfig(target);
+  payload.githubProxy = normalizeManifestGithubProxyMode(config.githubProxy);
+  const normalizedPrefix = normalizeManifestGithubProxyPrefix(config.githubProxyPrefix);
+  if (normalizedPrefix) {
+    payload.githubProxyPrefix = normalizedPrefix;
+  }
+  return payload;
+}
+
+function openManifestSourceDialog(target) {
+  if (!elements.manifestSourceDialog) {
+    return;
+  }
+  manifestSourceActiveTarget = target === "theme" ? "theme" : "locale";
+  const config = getManifestSourceConfig(manifestSourceActiveTarget);
+  if (elements.manifestSourceModeSelect) {
+    elements.manifestSourceModeSelect.value = normalizeManifestGithubProxyMode(config.githubProxy);
+  }
+  if (elements.manifestSourceProxySelect) {
+    elements.manifestSourceProxySelect.value = normalizeManifestGithubProxyPrefix(config.githubProxyPrefix);
+  }
+  refreshManifestSourceDialogState();
+  elements.manifestSourceDialog.classList.add("show");
+  elements.manifestSourceDialog.setAttribute("aria-hidden", "false");
+}
+
+function closeManifestSourceDialog() {
+  if (!elements.manifestSourceDialog) {
+    return;
+  }
+  elements.manifestSourceDialog.classList.remove("show");
+  elements.manifestSourceDialog.setAttribute("aria-hidden", "true");
+}
+
+function applyManifestSourceDialog() {
+  const config = getManifestSourceConfig(manifestSourceActiveTarget);
+  config.githubProxy = normalizeManifestGithubProxyMode(elements.manifestSourceModeSelect?.value || "auto");
+  config.githubProxyPrefix = normalizeManifestGithubProxyPrefix(elements.manifestSourceProxySelect?.value || "");
+  saveManifestSourceConfig(manifestSourceActiveTarget);
+  renderManifestSourceSummary(manifestSourceActiveTarget);
+  closeManifestSourceDialog();
+}
+
+function refreshManifestSourceDialogState() {
+  const mode = normalizeManifestGithubProxyMode(elements.manifestSourceModeSelect?.value || "auto");
+  if (elements.manifestSourceProxySelect) {
+    elements.manifestSourceProxySelect.disabled = mode === "off";
+  }
+  if (!elements.manifestSourceStatus) {
+    return;
+  }
+  const message = mode === "off"
+    ? getAdminPageText("manifestSourceDialogHintOff", "GitHub acceleration disabled. Requests go to the manifest URL directly.")
+    : getAdminPageText("manifestSourceDialogHint", "Settings apply to both \"Fetch list\" and \"Download selected\".");
+  setMetaText(elements.manifestSourceStatus, message, "info");
 }
 
 function updateThemeCenterStateView(message, tone = "info") {
@@ -2220,7 +2436,8 @@ async function fetchThemeManifestList() {
 
   let payload;
   try {
-    payload = await apiAdmin(`/api/admin/l10n/manifest?url=${encodeURIComponent(manifestUrl)}`, { method: "GET" });
+    const query = appendManifestSourceQueryParams(manifestUrl, "theme");
+    payload = await apiAdmin(`/api/admin/l10n/manifest?${query}`, { method: "GET" });
   } catch (error) {
     if (elements.themeManifestStatus) {
       setMetaText(
@@ -2289,12 +2506,13 @@ async function runThemeCenterManifestSync() {
   }
   let payload;
   try {
+    const requestPayload = applyManifestSourcePayload({
+      url: manifestUrl,
+      themes: selectedThemes,
+    }, "theme");
     payload = await apiAdmin("/api/admin/themes/sync-manifest", {
       method: "POST",
-      body: JSON.stringify({
-        url: manifestUrl,
-        themes: selectedThemes,
-      }),
+      body: JSON.stringify(requestPayload),
     });
   } catch (error) {
     if (elements.themeManifestStatus) {
@@ -9359,6 +9577,11 @@ if (elements.localeManifestDownloadBtn) {
     });
   });
 }
+if (elements.localeManifestSourceBtn) {
+  elements.localeManifestSourceBtn.addEventListener("click", () => {
+    openManifestSourceDialog("locale");
+  });
+}
 if (elements.localeManifestResultList) {
   elements.localeManifestResultList.addEventListener("change", (event) => {
     const checkbox = event.target.closest("input[type='checkbox'][data-locale-index]");
@@ -9482,6 +9705,11 @@ if (elements.themeManifestDownloadBtn) {
     });
   });
 }
+if (elements.themeManifestSourceBtn) {
+  elements.themeManifestSourceBtn.addEventListener("click", () => {
+    openManifestSourceDialog("theme");
+  });
+}
 if (elements.themeManifestResultList) {
   elements.themeManifestResultList.addEventListener("change", (event) => {
     const checkbox = event.target.closest("input[type='checkbox'][data-theme-index]");
@@ -9502,6 +9730,27 @@ if (elements.themeManifestDialog) {
     }
   });
 }
+if (elements.manifestSourceModeSelect) {
+  elements.manifestSourceModeSelect.addEventListener("change", refreshManifestSourceDialogState);
+}
+if (elements.manifestSourceCancelBtn) {
+  elements.manifestSourceCancelBtn.addEventListener("click", closeManifestSourceDialog);
+}
+if (elements.manifestSourceApplyBtn) {
+  elements.manifestSourceApplyBtn.addEventListener("click", applyManifestSourceDialog);
+}
+if (elements.manifestSourceDialog) {
+  elements.manifestSourceDialog.addEventListener("click", (event) => {
+    if (event.target === elements.manifestSourceDialog) {
+      closeManifestSourceDialog();
+    }
+  });
+}
+
+loadManifestSourceConfig("locale");
+loadManifestSourceConfig("theme");
+renderManifestSourceSummary("locale");
+renderManifestSourceSummary("theme");
 
 const savedToken = sessionStorage.getItem("webshop_admin_token");
 if (savedToken) {
