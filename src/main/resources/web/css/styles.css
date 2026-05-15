@@ -3441,6 +3441,9 @@ pre {
 #localeManagerDialog .field:has(> input),
 #localeManagerDialog .field:has(> select),
 #localeManagerDialog .field:has(> textarea),
+#themeManagerDialog .field:has(> input),
+#themeManagerDialog .field:has(> select),
+#themeManagerDialog .field:has(> textarea),
 #localeManifestDialog .field:has(> input),
 #localeManifestDialog .field:has(> select),
 #localeManifestDialog .field:has(> textarea),
@@ -3457,6 +3460,9 @@ pre {
 #localeManagerDialog .field:has(> input) > span:first-child,
 #localeManagerDialog .field:has(> select) > span:first-child,
 #localeManagerDialog .field:has(> textarea) > span:first-child,
+#themeManagerDialog .field:has(> input) > span:first-child,
+#themeManagerDialog .field:has(> select) > span:first-child,
+#themeManagerDialog .field:has(> textarea) > span:first-child,
 #localeManifestDialog .field:has(> input) > span:first-child,
 #localeManifestDialog .field:has(> select) > span:first-child,
 #localeManifestDialog .field:has(> textarea) > span:first-child,
@@ -3479,6 +3485,7 @@ pre {
 }
 
 #localeManagerDialog .field:has(> select) > select,
+#themeManagerDialog .field:has(> select) > select,
 #localeManifestDialog .field:has(> select) > select,
 #themeManifestDialog .field:has(> select) > select,
 #manifestSourceDialog .field:has(> select) > select {
@@ -3488,7 +3495,9 @@ pre {
 
 /* Keep normal button height, but avoid full-width stretch in locale dialogs. */
 #localeManagerSaveDefaultBtn,
+#themeManagerSaveDefaultBtn,
 #localeManagerUploadBtn,
+#themeManagerUploadBtn,
 #localeManifestFetchBtn,
 #themeManifestFetchBtn,
 #localeManifestSourceBtn,

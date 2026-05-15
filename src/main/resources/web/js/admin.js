@@ -274,6 +274,7 @@ const MANIFEST_GITHUB_PROXY_PREFIXES = Object.freeze([
   "https://gh-proxy.com/",
   "https://gh.llkk.cc/",
 ]);
+const MANIFEST_SOURCE_PROBE_TIMEOUT_MS = 10000;
 const LOCALE_CENTER_DEFAULTS = Object.freeze({
   defaultLocale: "zh-CN",
   lastSyncAt: null,
@@ -926,6 +927,7 @@ let localeCenterDirty = false;
 let themeCenterBaselineState = null;
 let themeCenterDirty = false;
 let manifestSourceActiveTarget = "locale";
+let manifestSourceProbeSeq = 0;
 
 function localizeDisplayText(text) {
   const localized = I18N ? I18N.localizeText(text) : text;
@@ -2166,11 +2168,127 @@ function applyManifestSourcePayload(payload, target) {
   return payload;
 }
 
+function resolveManifestUrlForTarget(target) {
+  const normalizedTarget = target === "theme" ? "theme" : "locale";
+  const input = normalizedTarget === "theme" ? elements.themeManifestUrl : elements.localeManifestUrl;
+  const fromInput = String(input?.value || "").trim();
+  if (fromInput) {
+    return fromInput;
+  }
+  const storageKey = normalizedTarget === "theme" ? THEME_MANIFEST_URL_STORAGE_KEY : LOCALE_MANIFEST_URL_STORAGE_KEY;
+  const fallback = normalizedTarget === "theme" ? DEFAULT_THEME_MANIFEST_URL : DEFAULT_LOCALE_MANIFEST_URL;
+  const fromStorage = String(window.localStorage.getItem(storageKey) || "").trim();
+  return fromStorage || fallback;
+}
+
+async function probeManifestSourceCandidate(manifestUrl, githubProxy, githubProxyPrefix) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), MANIFEST_SOURCE_PROBE_TIMEOUT_MS);
+  const params = new URLSearchParams();
+  params.set("url", manifestUrl);
+  params.set("githubProxy", normalizeManifestGithubProxyMode(githubProxy));
+  const normalizedPrefix = normalizeManifestGithubProxyPrefix(githubProxyPrefix);
+  if (normalizedPrefix) {
+    params.set("githubProxyPrefix", normalizedPrefix);
+  }
+  const startedAt = performance.now();
+  try {
+    await apiAdmin(`/api/admin/l10n/manifest?${params.toString()}`, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    return Math.max(1, Math.round(performance.now() - startedAt));
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+async function autoProbeManifestSource(target) {
+  const probeSeq = manifestSourceProbeSeq;
+  const manifestUrl = resolveManifestUrlForTarget(target);
+  if (!manifestUrl) {
+    if (elements.manifestSourceStatus) {
+      setMetaText(
+        elements.manifestSourceStatus,
+        getAdminPageText("manifestSourceProbeNeedManifestUrl", "Please fill manifest URL first."),
+        "warn"
+      );
+    }
+    return;
+  }
+  if (!state.token) {
+    if (elements.manifestSourceStatus) {
+      setMetaText(
+        elements.manifestSourceStatus,
+        getAdminPageText("manifestSourceProbeNeedLogin", "Please sign in as admin first."),
+        "warn"
+      );
+    }
+    return;
+  }
+  if (elements.manifestSourceStatus) {
+    setMetaText(
+      elements.manifestSourceStatus,
+      getAdminPageText("manifestSourceProbeRunning", "Testing proxy latency..."),
+      "info"
+    );
+  }
+  const candidates = [
+    ...MANIFEST_GITHUB_PROXY_PREFIXES.map((prefix) => ({ mode: "on", prefix, label: prefix })),
+  ];
+  const results = await Promise.all(
+    candidates.map(async (candidate) => {
+      try {
+        const latencyMs = await probeManifestSourceCandidate(manifestUrl, candidate.mode, candidate.prefix);
+        return { ...candidate, ok: true, latencyMs };
+      } catch (error) {
+        return { ...candidate, ok: false, latencyMs: Number.MAX_SAFE_INTEGER, error };
+      }
+    })
+  );
+  if (probeSeq !== manifestSourceProbeSeq || manifestSourceActiveTarget !== target) {
+    return;
+  }
+  const successes = results.filter((item) => item.ok).sort((a, b) => a.latencyMs - b.latencyMs);
+  if (successes.length <= 0) {
+    if (elements.manifestSourceStatus) {
+      setMetaText(
+        elements.manifestSourceStatus,
+        getAdminPageText("manifestSourceProbeFailed", "All proxy checks failed. Keep current settings."),
+        "warn"
+      );
+    }
+    return;
+  }
+  const fastest = successes[0];
+  if (elements.manifestSourceProxySelect) {
+    elements.manifestSourceProxySelect.value = normalizeManifestGithubProxyPrefix(fastest.prefix);
+  }
+  refreshManifestSourceDialogState();
+  if (elements.manifestSourceStatus) {
+    setMetaText(
+      elements.manifestSourceStatus,
+      formatAdminPageText(
+        "manifestSourceProbeFastest",
+        {
+          label: fastest.label,
+          latencyMs: fastest.latencyMs,
+          availableCount: successes.length,
+          totalCount: candidates.length,
+        },
+        "Auto test finished: fastest {label} ({latencyMs}ms), available {availableCount}/{totalCount}."
+      ),
+      "success"
+    );
+  }
+}
+
 function openManifestSourceDialog(target) {
   if (!elements.manifestSourceDialog) {
     return;
   }
   manifestSourceActiveTarget = target === "theme" ? "theme" : "locale";
+  manifestSourceProbeSeq += 1;
   const config = getManifestSourceConfig(manifestSourceActiveTarget);
   if (elements.manifestSourceModeSelect) {
     elements.manifestSourceModeSelect.value = normalizeManifestGithubProxyMode(config.githubProxy);
@@ -2181,12 +2299,27 @@ function openManifestSourceDialog(target) {
   refreshManifestSourceDialogState();
   elements.manifestSourceDialog.classList.add("show");
   elements.manifestSourceDialog.setAttribute("aria-hidden", "false");
+  autoProbeManifestSource(manifestSourceActiveTarget).catch((error) => {
+    if (!elements.manifestSourceStatus) {
+      return;
+    }
+    setMetaText(
+      elements.manifestSourceStatus,
+      formatAdminPageText(
+        "manifestSourceProbeError",
+        { message: error?.message || error },
+        "Auto test failed: {message}"
+      ),
+      "warn"
+    );
+  });
 }
 
 function closeManifestSourceDialog() {
   if (!elements.manifestSourceDialog) {
     return;
   }
+  manifestSourceProbeSeq += 1;
   elements.manifestSourceDialog.classList.remove("show");
   elements.manifestSourceDialog.setAttribute("aria-hidden", "true");
 }
