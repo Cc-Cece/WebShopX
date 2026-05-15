@@ -26,6 +26,7 @@ class SchemaManager {
     createPlayerPresence(connection);
     createWallets(connection);
     createWalletLedger(connection);
+    createRechargeOrders(connection);
     createRedeemCodes(connection);
     createRedeemUsage(connection);
     migrateRedeemCodes(connection);
@@ -249,6 +250,43 @@ class SchemaManager {
           KEY idx_wallet_ledger_wallet_id (wallet_id),
           CONSTRAINT fk_wallet_ledger_wallet_id
             FOREIGN KEY (wallet_id) REFERENCES wallets(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+  }
+
+  private void createRechargeOrders(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS webshopx_recharge_order (
+          id BIGINT NOT NULL AUTO_INCREMENT,
+          order_id VARCHAR(48) NOT NULL,
+          user_id BIGINT NOT NULL,
+          player_uuid CHAR(36) NULL,
+          amount_minor BIGINT NOT NULL,
+          currency VARCHAR(8) NOT NULL,
+          coin_amount BIGINT NOT NULL,
+          status VARCHAR(24) NOT NULL,
+          provider VARCHAR(32) NULL,
+          provider_order_id VARCHAR(96) NULL,
+          pay_url TEXT NULL,
+          qr_code_url TEXT NULL,
+          expire_time DATETIME NULL,
+          paid_time DATETIME NULL,
+          credited_time DATETIME NULL,
+          metadata JSON NULL,
+          error_code VARCHAR(64) NULL,
+          error_message VARCHAR(255) NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uniq_recharge_order_id (order_id),
+          KEY idx_recharge_user_id (user_id),
+          KEY idx_recharge_player_uuid (player_uuid),
+          KEY idx_recharge_provider_order_id (provider_order_id),
+          KEY idx_recharge_status (status),
+          CONSTRAINT fk_recharge_user_id
+            FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);

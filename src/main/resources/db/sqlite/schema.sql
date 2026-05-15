@@ -96,6 +96,35 @@ CREATE TABLE IF NOT EXISTS wallet_ledger (
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_wallet_biz ON wallet_ledger (wallet_id, biz_type, biz_id);
 CREATE INDEX IF NOT EXISTS idx_wallet_ledger_wallet_id ON wallet_ledger (wallet_id);
 
+CREATE TABLE IF NOT EXISTS webshopx_recharge_order (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id TEXT NOT NULL,
+  user_id INTEGER NOT NULL,
+  player_uuid TEXT NULL,
+  amount_minor INTEGER NOT NULL,
+  currency TEXT NOT NULL,
+  coin_amount INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  provider TEXT NULL,
+  provider_order_id TEXT NULL,
+  pay_url TEXT NULL,
+  qr_code_url TEXT NULL,
+  expire_time DATETIME NULL,
+  paid_time DATETIME NULL,
+  credited_time DATETIME NULL,
+  metadata TEXT NULL,
+  error_code TEXT NULL,
+  error_message TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_recharge_user_id FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_recharge_order_id ON webshopx_recharge_order (order_id);
+CREATE INDEX IF NOT EXISTS idx_recharge_user_id ON webshopx_recharge_order (user_id);
+CREATE INDEX IF NOT EXISTS idx_recharge_player_uuid ON webshopx_recharge_order (player_uuid);
+CREATE INDEX IF NOT EXISTS idx_recharge_provider_order_id ON webshopx_recharge_order (provider_order_id);
+CREATE INDEX IF NOT EXISTS idx_recharge_status ON webshopx_recharge_order (status);
+
 CREATE TABLE IF NOT EXISTS redeem_codes (
   code TEXT NOT NULL,
   shop_coin INTEGER NOT NULL DEFAULT 0,

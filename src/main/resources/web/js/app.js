@@ -90,6 +90,9 @@
     shopToGame: { enabled: true, ratio: 1.0 },
     gameToShop: { enabled: false, ratio: 1.0 },
   },
+  recharge: {
+    currentOrderId: null,
+  },
   leaderboard: {
     enabled: true,
     showOnlineStatusEnabled: true,
@@ -628,6 +631,12 @@ const elements = {
   walletView: document.getElementById("walletView"),
   walletLedgerView: document.getElementById("walletLedgerView"),
   walletLedgerList: document.getElementById("walletLedgerList"),
+  rechargeAmount: document.getElementById("rechargeAmount"),
+  rechargeCoinPreview: document.getElementById("rechargeCoinPreview"),
+  rechargeBtn: document.getElementById("rechargeBtn"),
+  rechargeStatusBtn: document.getElementById("rechargeStatusBtn"),
+  rechargePayLink: document.getElementById("rechargePayLink"),
+  rechargeView: document.getElementById("rechargeView"),
   redeemView: document.getElementById("redeemView"),
   exchangeRateHint: document.getElementById("exchangeRateHint"),
   exchangeView: document.getElementById("exchangeView"),
@@ -3391,6 +3400,67 @@ async function loadWalletLedger(options = {}) {
   setMetaText(elements.walletLedgerView, `最近变动：${(payload.entries || []).length} 条`, "info");
   if (announce) {
     notify(`最近变动已刷新：${(payload.entries || []).length} 条。`, "info");
+  }
+}
+
+function parseRechargeAmountMinor() {
+  const raw = String(elements.rechargeAmount?.value || "").trim();
+  if (!/^[0-9]+(\.[0-9]{1,2})?$/.test(raw)) {
+    throw new Error("Enter a valid amount with at most 2 decimal places.");
+  }
+  const [majorRaw, minorRaw = ""] = raw.split(".");
+  const major = Number(majorRaw);
+  const minor = Number((minorRaw + "00").slice(0, 2));
+  const amountMinor = major * 100 + minor;
+  if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+    throw new Error("Recharge amount must be positive.");
+  }
+  return amountMinor;
+}
+
+function updateRechargeCoinPreview() {
+  if (!elements.rechargeCoinPreview) {
+    return;
+  }
+  try {
+    const amountMinor = parseRechargeAmountMinor();
+    elements.rechargeCoinPreview.value = `${amountMinor} ShopCoin`;
+  } catch (error) {
+    elements.rechargeCoinPreview.value = "-";
+  }
+}
+
+function setRechargePayLink(url) {
+  if (!elements.rechargePayLink) {
+    return;
+  }
+  if (!url) {
+    elements.rechargePayLink.classList.add("hidden");
+    elements.rechargePayLink.href = "#";
+    return;
+  }
+  elements.rechargePayLink.href = url;
+  elements.rechargePayLink.classList.remove("hidden");
+}
+
+async function refreshRechargeStatus() {
+  ensureToken();
+  if (!state.recharge.currentOrderId) {
+    setMetaText(elements.rechargeView, "No recharge order to check yet.", "warn");
+    return;
+  }
+  const payload = await api(
+    `/api/recharge/status?orderId=${encodeURIComponent(state.recharge.currentOrderId)}`,
+    { method: "GET" }
+  );
+  setMetaText(
+    elements.rechargeView,
+    `Order ${payload.orderId}: ${payload.status}, credit ${payload.coinAmount} ShopCoin`,
+    payload.status === "PAID" ? "success" : "info"
+  );
+  if (payload.status === "PAID") {
+    await refreshWallet();
+    await loadWalletLedger();
   }
 }
 
@@ -7605,6 +7675,51 @@ document.getElementById("walletBtn").addEventListener("click", async () => {
   }
 });
 
+if (elements.rechargeAmount) {
+  elements.rechargeAmount.addEventListener("input", updateRechargeCoinPreview);
+}
+
+if (elements.rechargeBtn) {
+  elements.rechargeBtn.addEventListener("click", async () => {
+    try {
+      ensureToken();
+      const amountMinor = parseRechargeAmountMinor();
+      setMetaText(elements.rechargeView, "Creating YuPay payment order...", "info");
+      setRechargePayLink(null);
+      const payload = await api("/api/recharge/create", {
+        method: "POST",
+        body: JSON.stringify({
+          amountMinor,
+          currency: "CNY",
+          coinAmount: amountMinor,
+        }),
+      });
+      state.recharge.currentOrderId = payload.orderId;
+      setRechargePayLink(payload.payUrl);
+      setMetaText(
+        elements.rechargeView,
+        `Order ${payload.orderId} created. Complete payment in YuPay, then check status.`,
+        "success"
+      );
+    } catch (error) {
+      const message = resolveErrorMessage(error, "operation");
+      setMetaText(elements.rechargeView, `Recharge failed: ${message}`, "error");
+      notify(`Recharge failed: ${message}`, "error");
+    }
+  });
+}
+
+if (elements.rechargeStatusBtn) {
+  elements.rechargeStatusBtn.addEventListener("click", async () => {
+    try {
+      await refreshRechargeStatus();
+    } catch (error) {
+      const message = resolveErrorMessage(error, "operation");
+      setMetaText(elements.rechargeView, `Status check failed: ${message}`, "error");
+    }
+  });
+}
+
 document.getElementById("redeemBtn").addEventListener("click", async () => {
   try {
     ensureToken();
@@ -8367,6 +8482,8 @@ updateAuthLayout();
 updateMarketSectionContext();
 setMetaText(elements.walletView, APP_UI_TEXT.initMeta.walletView, "info");
 setMetaText(elements.walletLedgerView, APP_UI_TEXT.initMeta.walletLedgerView, "info");
+setMetaText(elements.rechargeView, "Waiting for recharge action", "info");
+updateRechargeCoinPreview();
 setMetaText(elements.redeemView, APP_UI_TEXT.initMeta.redeemView, "info");
 setMetaText(elements.exchangeRateHint, APP_UI_TEXT.initMeta.exchangeRateHint, "info");
 setMetaText(elements.exchangeView, APP_UI_TEXT.initMeta.exchangeView, "info");

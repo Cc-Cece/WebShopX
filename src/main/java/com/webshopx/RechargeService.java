@@ -1,0 +1,642 @@
+package com.webshopx;
+
+import com.google.gson.Gson;
+import java.security.SecureRandom;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Supplier;
+
+class RechargeService {
+  private static final DateTimeFormatter ORDER_DATE_FORMAT = DateTimeFormatter.BASIC_ISO_DATE;
+  private static final String PROVIDER_NAME = "YuPay";
+  private static final String LEDGER_BIZ_TYPE = "RECHARGE_YUPAY";
+  private static final String DEFAULT_CURRENCY = "CNY";
+
+  private final DatabaseManager databaseManager;
+  private final SqlProvider sqlProvider;
+  private final WalletService walletService;
+  private final YuPayBridge yuPayBridge;
+  private final Supplier<PluginSettings> settingsSupplier;
+  private final SecureRandom secureRandom = new SecureRandom();
+  private final Gson gson = new Gson();
+
+  RechargeService(
+      DatabaseManager databaseManager,
+      WalletService walletService,
+      YuPayBridge yuPayBridge,
+      Supplier<PluginSettings> settingsSupplier) {
+    this.databaseManager = databaseManager;
+    this.sqlProvider = databaseManager.sqlProvider();
+    this.walletService = walletService;
+    this.yuPayBridge = yuPayBridge;
+    this.settingsSupplier = settingsSupplier;
+  }
+
+  boolean isYuPayAvailable() {
+    return yuPayBridge.isAvailable();
+  }
+
+  void registerYuPayListener() {
+    yuPayBridge.registerPaymentListener(this::handlePaymentNotify);
+  }
+
+  void unregisterYuPayListener() {
+    yuPayBridge.unregisterPaymentListener();
+  }
+
+  RechargeCreateResult createRechargeOrder(RechargeCreateRequest request) {
+    RechargeCreateRequest normalized = normalizeCreateRequest(request);
+    String orderId = generateOrderId();
+    Map<String, String> metadata = new LinkedHashMap<>();
+    metadata.put("source", normalized.source());
+    metadata.put("coinAmount", String.valueOf(normalized.coinAmount()));
+
+    databaseManager.inTransaction(connection -> {
+      ensureUserExists(connection, normalized.userId());
+      insertRechargeOrder(connection, orderId, normalized, gson.toJson(metadata));
+      return null;
+    });
+
+    YuPayBridge.CreatePaymentResultData payResult;
+    try {
+      payResult = yuPayBridge.createPayment(new YuPayBridge.CreatePaymentRequestData(
+          orderId,
+          String.valueOf(normalized.userId()),
+          normalized.playerUuid(),
+          normalized.amountMinor(),
+          normalized.currency(),
+          "WebShopX Recharge " + normalized.coinAmount() + " ShopCoin",
+          "Recharge " + normalized.coinAmount() + " ShopCoin via " + normalized.source(),
+          null,
+          metadata));
+    } catch (ServiceException exception) {
+      markOrderFailed(orderId, exception.code(), exception.getMessage());
+      throw exception;
+    }
+
+    if (!payResult.success()) {
+      markOrderFailed(orderId, payResult.errorCode(), payResult.message());
+      return RechargeCreateResult.fail(
+          orderId,
+          payResult.errorCode() == null ? "PROVIDER_UNAVAILABLE" : payResult.errorCode(),
+          payResult.message() == null ? "YuPay createPayment failed" : payResult.message());
+    }
+
+    databaseManager.inTransaction(connection -> {
+      updateOrderPaying(connection, orderId, payResult);
+      return null;
+    });
+
+    return new RechargeCreateResult(
+        true,
+        orderId,
+        payResult.providerOrderId(),
+        payResult.payUrl(),
+        payResult.qrCodeUrl(),
+        payResult.expireTime(),
+        null,
+        "success");
+  }
+
+  YuPayBridge.NotifyResultData handlePaymentNotify(YuPayBridge.PaymentNotifyData notify) {
+    if (notify == null || isBlank(notify.merchantOrderId())) {
+      return YuPayBridge.NotifyResultData.fail("ORDER_NOT_FOUND", "missing merchantOrderId");
+    }
+    try {
+      return databaseManager.inTransaction(connection -> applyProviderResult(connection, notify));
+    } catch (ServiceException exception) {
+      return YuPayBridge.NotifyResultData.fail(exception.code(), exception.getMessage());
+    } catch (RuntimeException exception) {
+      return YuPayBridge.NotifyResultData.fail("INTERNAL_ERROR", exception.getMessage());
+    }
+  }
+
+  FixRechargeResult fixRechargeOrder(String orderId) {
+    String normalizedOrderId = normalizeOrderId(orderId);
+    RechargeOrder order = findOrder(normalizedOrderId);
+    if (order == null) {
+      return FixRechargeResult.fail(normalizedOrderId, null, "ORDER_NOT_FOUND", "Recharge order not found");
+    }
+    if (order.status() == RechargeOrderStatus.PAID) {
+      return new FixRechargeResult(
+          true,
+          order.orderId(),
+          order.providerOrderId(),
+          false,
+          order.status().name(),
+          null,
+          "order already processed");
+    }
+    if (isBlank(order.providerOrderId())) {
+      return FixRechargeResult.fail(order.orderId(), null, "INVALID_STATUS", "providerOrderId is missing");
+    }
+
+    YuPayBridge.QueryPaymentResultData query = yuPayBridge.queryPayment(order.providerOrderId());
+    if (!query.success()) {
+      return FixRechargeResult.fail(
+          order.orderId(),
+          order.providerOrderId(),
+          query.errorCode() == null ? "ORDER_NOT_FOUND" : query.errorCode(),
+          query.message() == null ? "YuPay queryPayment failed" : query.message());
+    }
+
+    RechargeOrder before = findOrder(normalizedOrderId);
+    YuPayBridge.NotifyResultData notifyResult = handlePaymentNotify(new YuPayBridge.PaymentNotifyData(
+        query.merchantOrderId(),
+        query.providerOrderId(),
+        query.status(),
+        query.amountMinor(),
+        query.currency(),
+        query.method(),
+        query.payTime(),
+        Map.of("source", "fix")));
+    RechargeOrder after = findOrder(normalizedOrderId);
+    boolean fixed = before != null
+        && after != null
+        && before.status() != RechargeOrderStatus.PAID
+        && after.status() == RechargeOrderStatus.PAID;
+    return new FixRechargeResult(
+        notifyResult.success(),
+        order.orderId(),
+        order.providerOrderId(),
+        fixed,
+        after == null ? order.status().name() : after.status().name(),
+        notifyResult.success() ? null : notifyResult.code(),
+        notifyResult.message());
+  }
+
+  RechargeOrder findOwnedOrder(long userId, String orderId) {
+    RechargeOrder order = findOrder(normalizeOrderId(orderId));
+    if (order == null || order.userId() != userId) {
+      return null;
+    }
+    return order;
+  }
+
+  UserBinding findUserByPlayer(UUID playerUuid) {
+    if (playerUuid == null) {
+      return null;
+    }
+    return databaseManager.withConnection(connection -> {
+      String sql = "SELECT id, username, bound_uuid FROM web_users WHERE bound_uuid = ? LIMIT 1";
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, playerUuid.toString());
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (!resultSet.next()) {
+            return null;
+          }
+          return new UserBinding(
+              resultSet.getLong("id"),
+              resultSet.getString("username"),
+              UUID.fromString(resultSet.getString("bound_uuid")));
+        }
+      }
+    });
+  }
+
+  long amountToCoinAmount(long amountMinor) {
+    return amountMinor;
+  }
+
+  long yuanToAmountMinor(String rawAmount) {
+    if (rawAmount == null || rawAmount.isBlank()) {
+      throw new ServiceException("invalid_amount", "Recharge amount is required");
+    }
+    String text = rawAmount.trim();
+    if (!text.matches("^[0-9]+(\\.[0-9]{1,2})?$")) {
+      throw new ServiceException("invalid_amount", "Amount must be a positive number with at most 2 decimals");
+    }
+    String[] parts = text.split("\\.", 2);
+    long yuan = Long.parseLong(parts[0]);
+    String centsText = parts.length == 2 ? (parts[1] + "00").substring(0, 2) : "00";
+    long cents = Long.parseLong(centsText);
+    long amountMinor = Math.addExact(Math.multiplyExact(yuan, 100L), cents);
+    if (amountMinor <= 0L) {
+      throw new ServiceException("invalid_amount", "Recharge amount must be positive");
+    }
+    return amountMinor;
+  }
+
+  private RechargeCreateRequest normalizeCreateRequest(RechargeCreateRequest request) {
+    if (request == null) {
+      throw new ServiceException("bad_request", "Recharge request is required");
+    }
+    long userId = request.userId();
+    if (userId <= 0L) {
+      throw new ServiceException("user_missing", "User id is required");
+    }
+    long amountMinor = request.amountMinor();
+    if (amountMinor <= 0L) {
+      throw new ServiceException("INVALID_AMOUNT", "amountMinor must be greater than 0");
+    }
+    long coinAmount = request.coinAmount();
+    if (coinAmount <= 0L) {
+      throw new ServiceException("invalid_amount", "coinAmount must be greater than 0");
+    }
+    String source = normalizeSource(request.source());
+    if ("MINECRAFT".equals(source) && request.playerUuid() == null) {
+      throw new ServiceException("bad_request", "playerUuid is required for Minecraft recharge");
+    }
+    return new RechargeCreateRequest(
+        userId,
+        request.playerUuid(),
+        amountMinor,
+        normalizeCurrency(request.currency()),
+        coinAmount,
+        source);
+  }
+
+  private String normalizeCurrency(String raw) {
+    String normalized = raw == null || raw.isBlank() ? DEFAULT_CURRENCY : raw.trim().toUpperCase(Locale.ROOT);
+    if (!normalized.matches("^[A-Z]{3,8}$")) {
+      throw new ServiceException("UNSUPPORTED_CURRENCY", "Unsupported currency: " + raw);
+    }
+    return normalized;
+  }
+
+  private String normalizeSource(String raw) {
+    String normalized = raw == null || raw.isBlank() ? "WEB" : raw.trim().toUpperCase(Locale.ROOT);
+    if (!normalized.equals("WEB") && !normalized.equals("MINECRAFT")) {
+      throw new ServiceException("bad_request", "Invalid recharge source");
+    }
+    return normalized;
+  }
+
+  private String normalizeOrderId(String orderId) {
+    String normalized = orderId == null ? "" : orderId.trim().toUpperCase(Locale.ROOT);
+    if (!normalized.matches("^WSX[0-9A-Z]{8,40}$")) {
+      throw new ServiceException("bad_request", "Invalid recharge order id");
+    }
+    return normalized;
+  }
+
+  private String generateOrderId() {
+    String date = ORDER_DATE_FORMAT.format(LocalDate.now(settingsSupplier.get().timeZone()));
+    for (int attempt = 0; attempt < 20; attempt++) {
+      String suffix = Long.toString(Math.abs(secureRandom.nextLong()), 36).toUpperCase(Locale.ROOT);
+      String orderId = "WSX" + date + suffix.substring(0, Math.min(10, suffix.length()));
+      if (!orderExists(orderId)) {
+        return orderId;
+      }
+    }
+    throw new ServiceException("internal_error", "Failed to generate recharge order id");
+  }
+
+  private boolean orderExists(String orderId) {
+    return databaseManager.withConnection(connection -> {
+      String sql = "SELECT 1 FROM webshopx_recharge_order WHERE order_id = ? LIMIT 1";
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, orderId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          return resultSet.next();
+        }
+      }
+    });
+  }
+
+  private void ensureUserExists(Connection connection, long userId) throws SQLException {
+    String sql = "SELECT 1 FROM web_users WHERE id = ? LIMIT 1";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          throw new ServiceException("user_missing", "User not found");
+        }
+      }
+    }
+  }
+
+  private void insertRechargeOrder(
+      Connection connection,
+      String orderId,
+      RechargeCreateRequest request,
+      String metadataJson) throws SQLException {
+    String sql = """
+        INSERT INTO webshopx_recharge_order (
+          order_id, user_id, player_uuid, amount_minor, currency, coin_amount,
+          status, provider, metadata
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, orderId);
+      statement.setLong(2, request.userId());
+      statement.setString(3, request.playerUuid() == null ? null : request.playerUuid().toString());
+      statement.setLong(4, request.amountMinor());
+      statement.setString(5, request.currency());
+      statement.setLong(6, request.coinAmount());
+      statement.setString(7, RechargeOrderStatus.PENDING.name());
+      statement.setString(8, PROVIDER_NAME);
+      statement.setString(9, metadataJson);
+      statement.executeUpdate();
+    }
+  }
+
+  private void updateOrderPaying(
+      Connection connection,
+      String orderId,
+      YuPayBridge.CreatePaymentResultData payResult) throws SQLException {
+    String sql = """
+        UPDATE webshopx_recharge_order
+        SET status = ?, provider = ?, provider_order_id = ?, pay_url = ?, qr_code_url = ?,
+            expire_time = ?, error_code = NULL, error_message = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE order_id = ? AND status = ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, RechargeOrderStatus.PAYING.name());
+      statement.setString(2, PROVIDER_NAME);
+      statement.setString(3, payResult.providerOrderId());
+      statement.setString(4, payResult.payUrl());
+      statement.setString(5, payResult.qrCodeUrl());
+      setTimestamp(statement, 6, payResult.expireTime());
+      statement.setString(7, orderId);
+      statement.setString(8, RechargeOrderStatus.PENDING.name());
+      int updated = statement.executeUpdate();
+      if (updated == 0) {
+        throw new ServiceException("INVALID_STATUS", "Recharge order is no longer pending");
+      }
+    }
+  }
+
+  private void markOrderFailed(String orderId, String errorCode, String message) {
+    databaseManager.inTransaction(connection -> {
+      String sql = """
+          UPDATE webshopx_recharge_order
+          SET status = ?, error_code = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE order_id = ? AND status IN ('PENDING', 'PAYING')
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, RechargeOrderStatus.FAILED.name());
+        statement.setString(2, blankToNull(errorCode));
+        statement.setString(3, blankToNull(message));
+        statement.setString(4, orderId);
+        statement.executeUpdate();
+      }
+      return null;
+    });
+  }
+
+  private YuPayBridge.NotifyResultData applyProviderResult(
+      Connection connection,
+      YuPayBridge.PaymentNotifyData notify) throws SQLException {
+    RechargeOrder order = readOrderForUpdate(connection, notify.merchantOrderId());
+    if (order == null) {
+      throw new ServiceException("ORDER_NOT_FOUND", "Recharge order not found");
+    }
+
+    RechargeOrderStatus targetStatus = mapProviderStatus(notify.status());
+    if (order.status() == RechargeOrderStatus.PAID) {
+      return YuPayBridge.NotifyResultData.ok("already processed");
+    }
+    if (order.status().isTerminal()) {
+      if (order.status() == targetStatus) {
+        return YuPayBridge.NotifyResultData.ok("already processed");
+      }
+      throw new ServiceException("ORDER_CLOSED", "Recharge order is already closed");
+    }
+    if (!order.status().canReceiveProviderResult()) {
+      throw new ServiceException("INVALID_STATUS", "Recharge order status does not accept payment results");
+    }
+    validateNotify(order, notify);
+
+    if (targetStatus == RechargeOrderStatus.PAID) {
+      boolean credited = walletService.applyDelta(
+          connection,
+          order.userId(),
+          CurrencyType.SHOP_COIN,
+          order.coinAmount(),
+          LEDGER_BIZ_TYPE,
+          order.orderId(),
+          false);
+      markOrderPaid(connection, order, notify);
+      return YuPayBridge.NotifyResultData.ok(credited ? "success" : "already processed");
+    }
+
+    markOrderTerminal(connection, order.orderId(), targetStatus);
+    return YuPayBridge.NotifyResultData.ok("success");
+  }
+
+  private void validateNotify(RechargeOrder order, YuPayBridge.PaymentNotifyData notify) {
+    if (!isBlank(order.providerOrderId())
+        && !String.valueOf(order.providerOrderId()).equals(String.valueOf(notify.providerOrderId()))) {
+      throw new ServiceException("PROVIDER_ORDER_MISMATCH", "providerOrderId mismatch");
+    }
+    if (order.amountMinor() != notify.amountMinor()) {
+      throw new ServiceException("AMOUNT_MISMATCH", "amountMinor mismatch");
+    }
+    if (!order.currency().equalsIgnoreCase(String.valueOf(notify.currency()))) {
+      throw new ServiceException("CURRENCY_MISMATCH", "currency mismatch");
+    }
+  }
+
+  private RechargeOrderStatus mapProviderStatus(String status) {
+    String normalized = status == null ? "" : status.trim().toUpperCase(Locale.ROOT);
+    return switch (normalized) {
+      case "SUCCESS" -> RechargeOrderStatus.PAID;
+      case "FAILED" -> RechargeOrderStatus.FAILED;
+      case "EXPIRED" -> RechargeOrderStatus.EXPIRED;
+      default -> throw new ServiceException("INVALID_STATUS", "Unsupported payment status: " + status);
+    };
+  }
+
+  private void markOrderPaid(
+      Connection connection,
+      RechargeOrder order,
+      YuPayBridge.PaymentNotifyData notify) throws SQLException {
+    String sql = """
+        UPDATE webshopx_recharge_order
+        SET status = ?, provider_order_id = COALESCE(provider_order_id, ?),
+            paid_time = ?, credited_time = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE order_id = ? AND status IN ('PENDING', 'PAYING')
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, RechargeOrderStatus.PAID.name());
+      statement.setString(2, notify.providerOrderId());
+      setTimestamp(statement, 3, notify.payTime() == null ? Instant.now() : notify.payTime());
+      statement.setString(4, order.orderId());
+      statement.executeUpdate();
+    }
+  }
+
+  private void markOrderTerminal(
+      Connection connection,
+      String orderId,
+      RechargeOrderStatus status) throws SQLException {
+    String sql = status == RechargeOrderStatus.EXPIRED
+        ? "UPDATE webshopx_recharge_order SET status = ?, "
+            + "expire_time = COALESCE(expire_time, CURRENT_TIMESTAMP), "
+            + "updated_at = CURRENT_TIMESTAMP "
+            + "WHERE order_id = ? AND status IN ('PENDING', 'PAYING')"
+        : "UPDATE webshopx_recharge_order SET status = ?, updated_at = CURRENT_TIMESTAMP "
+            + "WHERE order_id = ? AND status IN ('PENDING', 'PAYING')";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, status.name());
+      statement.setString(2, orderId);
+      statement.executeUpdate();
+    }
+  }
+
+  private RechargeOrder readOrderForUpdate(Connection connection, String orderId) throws SQLException {
+    String sql = """
+        SELECT id, order_id, user_id, player_uuid, amount_minor, currency, coin_amount,
+               status, provider, provider_order_id, pay_url, qr_code_url, expire_time,
+               paid_time, credited_time, metadata, created_at, updated_at, error_code, error_message
+        FROM webshopx_recharge_order
+        WHERE order_id = ?
+        """ + sqlProvider.forUpdateClause();
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, orderId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          return null;
+        }
+        return toOrder(resultSet);
+      }
+    }
+  }
+
+  private RechargeOrder findOrder(String orderId) {
+    return databaseManager.withConnection(connection -> {
+      String sql = """
+          SELECT id, order_id, user_id, player_uuid, amount_minor, currency, coin_amount,
+                 status, provider, provider_order_id, pay_url, qr_code_url, expire_time,
+                 paid_time, credited_time, metadata, created_at, updated_at, error_code, error_message
+          FROM webshopx_recharge_order
+          WHERE order_id = ?
+          LIMIT 1
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, orderId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (!resultSet.next()) {
+            return null;
+          }
+          return toOrder(resultSet);
+        }
+      }
+    });
+  }
+
+  private RechargeOrder toOrder(ResultSet resultSet) throws SQLException {
+    String playerUuid = resultSet.getString("player_uuid");
+    return new RechargeOrder(
+        resultSet.getLong("id"),
+        resultSet.getString("order_id"),
+        resultSet.getLong("user_id"),
+        isBlank(playerUuid) ? null : UUID.fromString(playerUuid),
+        resultSet.getLong("amount_minor"),
+        resultSet.getString("currency"),
+        resultSet.getLong("coin_amount"),
+        RechargeOrderStatus.valueOf(resultSet.getString("status")),
+        resultSet.getString("provider"),
+        resultSet.getString("provider_order_id"),
+        resultSet.getString("pay_url"),
+        resultSet.getString("qr_code_url"),
+        toInstant(resultSet.getTimestamp("expire_time")),
+        toInstant(resultSet.getTimestamp("paid_time")),
+        toInstant(resultSet.getTimestamp("credited_time")),
+        resultSet.getString("metadata"),
+        toInstant(resultSet.getTimestamp("created_at")),
+        toInstant(resultSet.getTimestamp("updated_at")),
+        resultSet.getString("error_code"),
+        resultSet.getString("error_message"));
+  }
+
+  private void setTimestamp(PreparedStatement statement, int index, Instant instant) throws SQLException {
+    if (instant == null) {
+      statement.setTimestamp(index, null);
+      return;
+    }
+    statement.setTimestamp(index, Timestamp.valueOf(LocalDateTime.ofInstant(instant, ZoneId.systemDefault())));
+  }
+
+  private Instant toInstant(Timestamp timestamp) {
+    if (timestamp == null) {
+      return null;
+    }
+    return timestamp.toInstant();
+  }
+
+  private String blankToNull(String value) {
+    return value == null || value.isBlank() ? null : value;
+  }
+
+  private boolean isBlank(String value) {
+    return value == null || value.isBlank();
+  }
+
+  record RechargeCreateRequest(
+      long userId,
+      UUID playerUuid,
+      long amountMinor,
+      String currency,
+      long coinAmount,
+      String source) {
+  }
+
+  record RechargeCreateResult(
+      boolean success,
+      String orderId,
+      String providerOrderId,
+      String payUrl,
+      String qrCodeUrl,
+      Instant expireTime,
+      String errorCode,
+      String message) {
+    static RechargeCreateResult fail(String orderId, String errorCode, String message) {
+      return new RechargeCreateResult(false, orderId, null, null, null, null, errorCode, message);
+    }
+  }
+
+  record FixRechargeResult(
+      boolean success,
+      String orderId,
+      String providerOrderId,
+      boolean fixed,
+      String status,
+      String errorCode,
+      String message) {
+    static FixRechargeResult fail(String orderId, String providerOrderId, String errorCode, String message) {
+      return new FixRechargeResult(false, orderId, providerOrderId, false, null, errorCode, message);
+    }
+  }
+
+  record RechargeOrder(
+      long id,
+      String orderId,
+      long userId,
+      UUID playerUuid,
+      long amountMinor,
+      String currency,
+      long coinAmount,
+      RechargeOrderStatus status,
+      String provider,
+      String providerOrderId,
+      String payUrl,
+      String qrCodeUrl,
+      Instant expireTime,
+      Instant paidTime,
+      Instant creditedTime,
+      String metadata,
+      Instant createdAt,
+      Instant updatedAt,
+      String errorCode,
+      String errorMessage) {
+  }
+
+  record UserBinding(long userId, String username, UUID playerUuid) {
+  }
+}

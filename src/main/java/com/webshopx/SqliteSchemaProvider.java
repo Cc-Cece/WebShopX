@@ -91,15 +91,18 @@ final class SqliteSchemaProvider implements SchemaProvider {
     assertTableExists(connection, "runtime_config");
     assertTableExists(connection, "orders");
     assertTableExists(connection, "market_listings");
+    assertTableExists(connection, "webshopx_recharge_order");
 
     assertColumnExists(connection, "web_users", "auth_state");
     assertColumnExists(connection, "runtime_config", "version");
     assertColumnExists(connection, "orders", "claim_token");
     assertColumnExists(connection, "market_listings", "source_mode");
     assertColumnExists(connection, "market_listings", "trade_mode");
+    assertColumnExists(connection, "webshopx_recharge_order", "provider_order_id");
 
     assertIndexExists(connection, "orders", "idx_orders_target_server");
     assertIndexExists(connection, "market_listings", "idx_market_listing_auction_due");
+    assertIndexExists(connection, "webshopx_recharge_order", "uniq_recharge_order_id");
   }
 
   private void migrateSchema(Connection connection) throws SQLException {

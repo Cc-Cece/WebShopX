@@ -5,8 +5,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -19,29 +23,35 @@ class ShopCommand implements CommandExecutor, TabCompleter {
   private final WebShopPlugin plugin;
   private final AuthService authService;
   private final RedeemCodeService redeemCodeService;
+  private final RechargeService rechargeService;
   private final MarketService marketService;
   private final MarketGuiService marketGuiService;
   private final DeliveryService deliveryService;
   private final MailboxService mailboxService;
   private final MessageService messageService;
+  private final SchedulerBridge schedulerBridge;
 
   ShopCommand(
       WebShopPlugin plugin,
       AuthService authService,
       RedeemCodeService redeemCodeService,
+      RechargeService rechargeService,
       MarketService marketService,
       MarketGuiService marketGuiService,
       DeliveryService deliveryService,
       MailboxService mailboxService,
-      MessageService messageService) {
+      MessageService messageService,
+      SchedulerBridge schedulerBridge) {
     this.plugin = plugin;
     this.authService = authService;
     this.redeemCodeService = redeemCodeService;
+    this.rechargeService = rechargeService;
     this.marketService = marketService;
     this.marketGuiService = marketGuiService;
     this.deliveryService = deliveryService;
     this.mailboxService = mailboxService;
     this.messageService = messageService;
+    this.schedulerBridge = schedulerBridge;
   }
 
   @Override
@@ -63,6 +73,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       case "mailbox" -> handleMailbox(sender, args);
       case "reload" -> handleReload(sender);
       case "redeem" -> handleRedeem(sender, args);
+      case "recharge" -> handleRecharge(sender, args);
       default -> {
         sender.sendMessage(msg(sender, "command.unknown_subcommand"));
         yield true;
@@ -81,9 +92,10 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       options.add("help");
       options.add("password");
       options.add("market");
-      options.add("claim");
-      options.add("mailbox");
-      if (sender.hasPermission("webshop.admin")) {
+        options.add("claim");
+        options.add("mailbox");
+        options.add("recharge");
+        if (sender.hasPermission("webshop.admin")) {
         options.add("reload");
         options.add("redeem");
       }
@@ -131,6 +143,17 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     if (top.equals("redeem") && sender.hasPermission("webshop.admin")) {
       if (args.length == 2) {
         return filterByPrefix(List.of("create"), args[1]);
+      }
+      return List.of();
+    }
+
+    if (top.equals("recharge")) {
+      if (args.length == 2) {
+        List<String> options = new ArrayList<>(List.of("10", "30", "50", "100"));
+        if (sender.hasPermission("webshop.admin")) {
+          options.add("fix");
+        }
+        return filterByPrefix(options, args[1]);
       }
       return List.of();
     }
@@ -353,6 +376,139 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       plugin.getLogger().log(Level.SEVERE, messageService.getConsole("console.reload_failed"), exception);
     }
     return true;
+  }
+
+  private boolean handleRecharge(CommandSender sender, String[] args) {
+    if (args.length >= 2 && args[1].equalsIgnoreCase("fix")) {
+      return handleRechargeFix(sender, args);
+    }
+    if (!(sender instanceof Player player)) {
+      sender.sendMessage("§cOnly players can create recharge orders.");
+      return true;
+    }
+    if (args.length < 2) {
+      player.sendMessage("§eUsage: /webshopx recharge <amount>");
+      return true;
+    }
+    UUID playerUuid = player.getUniqueId();
+    long amountMinor;
+    try {
+      amountMinor = rechargeService.yuanToAmountMinor(args[1]);
+    } catch (ServiceException exception) {
+      player.sendMessage("§c" + exception.getMessage());
+      return true;
+    }
+    player.sendMessage("§7[WebShopX] Creating recharge order...");
+    schedulerBridge.runAsync(() -> {
+      try {
+        RechargeService.UserBinding binding = rechargeService.findUserByPlayer(playerUuid);
+        if (binding == null) {
+          schedulerBridge.runPlayer(
+              playerUuid,
+              target -> target.sendMessage("§cPlease run /webshopx password <new-password> before recharging."),
+              () -> { });
+          return;
+        }
+        RechargeService.RechargeCreateResult result = rechargeService.createRechargeOrder(
+            new RechargeService.RechargeCreateRequest(
+                binding.userId(),
+                playerUuid,
+                amountMinor,
+                "CNY",
+                rechargeService.amountToCoinAmount(amountMinor),
+                "MINECRAFT"));
+        schedulerBridge.runPlayer(
+            playerUuid,
+            target -> sendRechargeCreated(target, result, amountMinor),
+            () -> { });
+      } catch (ServiceException exception) {
+        schedulerBridge.runPlayer(
+            playerUuid,
+            target -> target.sendMessage("§cRecharge failed: " + exception.getMessage()),
+            () -> { });
+      } catch (RuntimeException exception) {
+        plugin.getLogger().log(Level.WARNING, "Failed to create recharge order", exception);
+        schedulerBridge.runPlayer(
+            playerUuid,
+            target -> target.sendMessage("§cRecharge failed: server internal error."),
+            () -> { });
+      }
+    });
+    return true;
+  }
+
+  private boolean handleRechargeFix(CommandSender sender, String[] args) {
+    if (!sender.hasPermission("webshop.admin")) {
+      sender.sendMessage(msg(sender, "command.common.no_permission"));
+      return true;
+    }
+    if (args.length < 3) {
+      sender.sendMessage("§eUsage: /webshopx recharge fix <orderId>");
+      return true;
+    }
+    String orderId = args[2];
+    sender.sendMessage("§7[WebShopX] Querying YuPay and fixing recharge order...");
+    schedulerBridge.runAsync(() -> {
+      RechargeService.FixRechargeResult result;
+      try {
+        result = rechargeService.fixRechargeOrder(orderId);
+      } catch (ServiceException exception) {
+        result = RechargeService.FixRechargeResult.fail(orderId, null, exception.code(), exception.getMessage());
+      } catch (RuntimeException exception) {
+        plugin.getLogger().log(Level.WARNING, "Failed to fix recharge order", exception);
+        result = RechargeService.FixRechargeResult.fail(orderId, null, "INTERNAL_ERROR", "server internal error");
+      }
+      RechargeService.FixRechargeResult finalResult = result;
+      schedulerBridge.runGlobal(() -> sender.sendMessage(formatFixResult(finalResult)));
+    });
+    return true;
+  }
+
+  private void sendRechargeCreated(
+      Player player,
+      RechargeService.RechargeCreateResult result,
+      long amountMinor) {
+    if (!result.success()) {
+      player.sendMessage("§cRecharge order failed: " + result.message());
+      return;
+    }
+    player.sendMessage("§a[WebShopX] Recharge order created");
+    player.sendMessage("§7Amount: §f" + formatMinorCurrency(amountMinor) + " CNY");
+    player.sendMessage("§7Coins: §f" + rechargeService.amountToCoinAmount(amountMinor) + " ShopCoin");
+    if (result.expireTime() != null) {
+      player.sendMessage("§7Expires at: §f" + result.expireTime());
+    }
+    String payUrl = result.payUrl();
+    if (payUrl == null || payUrl.isBlank()) {
+      player.sendMessage("§cYuPay did not return a payment URL.");
+      return;
+    }
+    player.sendMessage(Component.text("[WebShopX] Click here to complete payment", NamedTextColor.AQUA)
+        .clickEvent(ClickEvent.openUrl(payUrl)));
+    player.sendMessage("§7" + payUrl);
+  }
+
+  private String formatFixResult(RechargeService.FixRechargeResult result) {
+    if (result.success()) {
+      return "§aRecharge fix completed: order="
+          + result.orderId()
+          + ", status="
+          + result.status()
+          + ", fixed="
+          + result.fixed();
+    }
+    return "§cRecharge fix failed: order="
+        + result.orderId()
+        + ", code="
+        + result.errorCode()
+        + ", message="
+        + result.message();
+  }
+
+  private String formatMinorCurrency(long amountMinor) {
+    long major = amountMinor / 100L;
+    long minor = Math.abs(amountMinor % 100L);
+    return major + "." + (minor < 10L ? "0" : "") + minor;
   }
 
   private boolean handleRedeem(CommandSender sender, String[] args) {

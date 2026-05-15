@@ -52,6 +52,7 @@ class EmbeddedWebServer {
   private final Supplier<PluginSettings> settingsSupplier;
   private final AuthService authService;
   private final WalletService walletService;
+  private final RechargeService rechargeService;
   private final RedeemCodeService redeemCodeService;
   private final ProductService productService;
   private final OrderService orderService;
@@ -105,6 +106,7 @@ class EmbeddedWebServer {
       Supplier<PluginSettings> settingsSupplier,
       AuthService authService,
       WalletService walletService,
+      RechargeService rechargeService,
       RedeemCodeService redeemCodeService,
       ProductService productService,
       OrderService orderService,
@@ -124,6 +126,7 @@ class EmbeddedWebServer {
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
     this.walletService = walletService;
+    this.rechargeService = rechargeService;
     this.redeemCodeService = redeemCodeService;
     this.productService = productService;
     this.orderService = orderService;
@@ -165,6 +168,8 @@ class EmbeddedWebServer {
     server.createContext("/api/wallet", this::handleWallet);
     server.createContext("/api/wallet/ledger", this::handleWalletLedger);
     server.createContext("/api/wallet/exchange", this::handleExchange);
+    server.createContext("/api/recharge/create", this::handleRechargeCreate);
+    server.createContext("/api/recharge/status", this::handleRechargeStatus);
     server.createContext("/api/redeem/use", this::handleRedeemUse);
     server.createContext("/api/products", this::handleProducts);
     server.createContext("/api/orders", this::handleOrders);
@@ -388,6 +393,54 @@ class EmbeddedWebServer {
       JsonObject response = new JsonObject();
       response.add("entries", rows);
       sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleRechargeCreate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      long amountMinor = payload.has("amountMinor")
+          ? getLong(payload, "amountMinor", 0L)
+          : rechargeService.yuanToAmountMinor(getString(payload, "amount"));
+      long coinAmount = payload.has("coinAmount")
+          ? getLong(payload, "coinAmount", 0L)
+          : rechargeService.amountToCoinAmount(amountMinor);
+      String currency = getOptionalString(payload, "currency").orElse("CNY");
+      RechargeService.RechargeCreateResult result = rechargeService.createRechargeOrder(
+          new RechargeService.RechargeCreateRequest(
+              user.id(),
+              user.boundUuid(),
+              amountMinor,
+              currency,
+              coinAmount,
+              "WEB"));
+      JsonObject response = rechargeCreateResultJson(result);
+      sendJson(exchange, result.success() ? 200 : 400, response);
+    });
+  }
+
+  private void handleRechargeStatus(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, null);
+      String orderId = parseQuery(exchange).get("orderId");
+      RechargeService.RechargeOrder order = rechargeService.findOwnedOrder(user.id(), orderId);
+      if (order == null) {
+        throw new ServiceException("ORDER_NOT_FOUND", "Recharge order not found");
+      }
+      sendJson(exchange, 200, rechargeOrderJson(order));
     });
   }
 
@@ -4623,6 +4676,58 @@ class EmbeddedWebServer {
     }
     response.add("visualPermission", resolveUserVisualPermissionJson(user));
     return response;
+  }
+
+  private JsonObject rechargeCreateResultJson(RechargeService.RechargeCreateResult result) {
+    JsonObject response = new JsonObject();
+    response.addProperty("success", result.success());
+    response.addProperty("orderId", result.orderId());
+    addNullableString(response, "providerOrderId", result.providerOrderId());
+    addNullableString(response, "payUrl", result.payUrl());
+    addNullableString(response, "qrCodeUrl", result.qrCodeUrl());
+    addNullableInstant(response, "expireTime", result.expireTime());
+    addNullableString(response, "errorCode", result.errorCode());
+    addNullableString(response, "message", result.message());
+    return response;
+  }
+
+  private JsonObject rechargeOrderJson(RechargeService.RechargeOrder order) {
+    JsonObject response = new JsonObject();
+    response.addProperty("orderId", order.orderId());
+    response.addProperty("userId", order.userId());
+    addNullableString(response, "playerUuid", order.playerUuid() == null ? null : order.playerUuid().toString());
+    response.addProperty("amountMinor", order.amountMinor());
+    response.addProperty("currency", order.currency());
+    response.addProperty("coinAmount", order.coinAmount());
+    response.addProperty("status", order.status().name());
+    addNullableString(response, "provider", order.provider());
+    addNullableString(response, "providerOrderId", order.providerOrderId());
+    addNullableString(response, "payUrl", order.payUrl());
+    addNullableString(response, "qrCodeUrl", order.qrCodeUrl());
+    addNullableInstant(response, "expireTime", order.expireTime());
+    addNullableInstant(response, "paidTime", order.paidTime());
+    addNullableInstant(response, "creditedTime", order.creditedTime());
+    addNullableInstant(response, "createdAt", order.createdAt());
+    addNullableInstant(response, "updatedAt", order.updatedAt());
+    addNullableString(response, "errorCode", order.errorCode());
+    addNullableString(response, "errorMessage", order.errorMessage());
+    return response;
+  }
+
+  private void addNullableString(JsonObject object, String key, String value) {
+    if (value == null) {
+      object.add(key, JsonNull.INSTANCE);
+      return;
+    }
+    object.addProperty(key, value);
+  }
+
+  private void addNullableInstant(JsonObject object, String key, java.time.Instant value) {
+    if (value == null) {
+      object.add(key, JsonNull.INSTANCE);
+      return;
+    }
+    object.addProperty(key, value.toString());
   }
 
   private JsonObject resolveUserVisualPermissionJson(AuthService.AuthUser user) {
