@@ -1300,13 +1300,13 @@
   "defaultNotificationTemplates": {
     "market_listed": "你的上架 #{listingId} 已发布：{item} x{quantity}，单价 {priceText}。",
     "market_trade": "上架 #{listingId} 已成交：{item} x{quantity}，总价 {totalText}。",
-    "auction_bid_self": "你在拍卖 #{listingId} 出价成功：{bidAmountText}。",
-    "auction_bid_seller": "拍卖 #{listingId} 收到来自 {bidderName} 的新出价。",
-    "auction_outbid": "你在拍卖 #{listingId} 的领先出价已被超过。",
+    "auction_bid_self": "你在拍卖 {listingText} 出价成功：{bidAmountText}。",
+    "auction_bid_seller": "拍卖 {listingText} 收到来自 {bidderName} 的新出价。",
+    "auction_outbid": "你在拍卖 {listingText} 的领先出价已被超过。",
     "auction_settlement": "{message}",
-    "market_buy_escrow_refund": "收购单 #{listingId} 托管金额已退回：{amountText}。",
+    "market_buy_escrow_refund": "收购单 {listingText} 托管金额已退回：{amountText}。",
     "delivery_wait_claim_order": "订单 {token} 自动发货失败，请在游戏内执行 /ws claim {token} 领取。原因：{reason}",
     "delivery_wait_claim_market": "市场物品自动发货失败，请在游戏内执行 /ws claim {token} 领取。原因：{reason}",
-    "mailbox_pending": "自动发货时背包不可用，物品已存入游戏信箱。请在游戏内执行 /ws mailbox claim 领取。来源：{sourceType} {sourceRef}"
+    "mailbox_pending": "自动发货时背包不可用，物品已存入游戏信箱。请在游戏内执行 /ws mailbox claim 领取。来源：{sourceType} {sourceDetail}"
   }
 }

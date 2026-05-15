@@ -65,6 +65,18 @@
       "leaderboardView": "等待加载榜单",
       "leaderboardMyRank": "我的名次：-"
     },
+    "notificationTypeLabels": {
+      "GENERAL": "通知",
+      "SYSTEM_ANNOUNCEMENT": "系统公告",
+      "MARKET_LISTED": "上架提醒",
+      "MARKET_TRADE": "市场成交",
+      "AUCTION_BID": "竞拍提醒",
+      "AUCTION_OUTBID": "竞拍超价",
+      "AUCTION_SETTLEMENT": "拍卖结算",
+      "MARKET_BUY_ORDER_REFUND_ESCROW": "托管退款",
+      "DELIVERY_WAIT_CLAIM": "待领取提醒",
+      "MAILBOX_PENDING": "信箱待领取"
+    },
     "templates": {
       "loadFailed": "加载失败：{message}",
       "saveFailed": "保存失败：{message}",

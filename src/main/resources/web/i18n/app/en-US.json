@@ -65,6 +65,18 @@
       "leaderboardView": "Waiting for the leaderboard to load",
       "leaderboardMyRank": "My ranking: -"
     },
+    "notificationTypeLabels": {
+      "GENERAL": "General",
+      "SYSTEM_ANNOUNCEMENT": "System Announcement",
+      "MARKET_LISTED": "Listing Notice",
+      "MARKET_TRADE": "Market Trade",
+      "AUCTION_BID": "Auction Bid",
+      "AUCTION_OUTBID": "Outbid",
+      "AUCTION_SETTLEMENT": "Auction Settlement",
+      "MARKET_BUY_ORDER_REFUND_ESCROW": "Buy Escrow Refund",
+      "DELIVERY_WAIT_CLAIM": "Awaiting Claim",
+      "MAILBOX_PENDING": "Mailbox Pending"
+    },
     "templates": {
       "loadFailed": "Load failed: {message}",
       "saveFailed": "Save failed: {message}",

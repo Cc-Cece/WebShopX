@@ -150,33 +150,33 @@ console:
   failed_delete_old_log_file: "Failed to delete old log file: {path}"
   missing_embedded_asset: "Missing embedded asset: {asset}"
 
-  market_buy_order_refund_escrow: "Market buy escrow refunded: listingId={listingId}, ownerUserId={ownerUserId}, side={side}, currency={currency}, amount={amount}, reason={reason}"
+  market_buy_order_refund_escrow: "Market buy escrow refunded: listing={listingText}, ownerUserId={ownerUserId}, side={side}, currency={currency}, amount={amount} ({amountText}), reason={reason}"
 
 notify:
   market:
     buy_escrow_refund_title: "Buy Escrow Refund"
-    buy_escrow_refund_content: "Buy order #{listingId} escrow was refunded: {amountText}."
+    buy_escrow_refund_content: "Buy order {listingText} escrow was refunded: {amountText}."
     listed_title: "Listing Notice"
     listed_content: "Your listing #{listingId} is published: {item} x{quantity}, unit price {priceText}."
     trade_title: "Market Trade"
     trade_content: "Listing #{listingId} sold: {item} x{quantity}, total {totalText}."
     auction_bid_title: "Auction Bid Notice"
-    auction_bid_self_sealed: "You submitted a sealed bid on auction #{listingId}."
-    auction_bid_self_open: "Your bid on auction #{listingId} succeeded: {bidAmountText}."
-    auction_bid_seller: "Auction #{listingId} received a new bid from {bidderName}."
+    auction_bid_self_sealed: "You submitted a sealed bid on auction {listingText}."
+    auction_bid_self_open: "Your bid on auction {listingText} succeeded: {bidAmountText}."
+    auction_bid_seller: "Auction {listingText} received a new bid from {bidderName}."
     auction_outbid_title: "Outbid Notice"
-    auction_outbid_content: "Your leading bid on auction #{listingId} has been outbid."
+    auction_outbid_content: "Your leading bid on auction {listingText} has been outbid."
     auction_settlement_title: "Auction Settlement"
-    auction_outbid_previous: "You were outbid on auction #{listingId}. Previous highest bid was {previousBid} {currency}."
-    auction_reset_refund: "Auction #{listingId} was reset or cancelled, and your frozen bid funds were returned."
-    auction_no_buyer: "Auction #{listingId} ended without a buyer, item returned for delivery."
-    auction_no_bid: "Auction #{listingId} ended with no bids, item returned for delivery."
-    auction_below_reserve: "Auction #{listingId} ended below reserve price, item returned for delivery."
-    auction_win: "You won auction #{listingId} at {finalBid} {currency}. Delivery is queued."
-    auction_sold: "Your auction #{listingId} was sold at {finalBid} {currency}."
-    auction_win_vickrey: "You won auction #{listingId} with bid {bidAmount} {currency}; final clearing price is {finalBid}."
-    auction_sold_vickrey: "Your auction #{listingId} was sold (Vickrey) at {finalBid} {currency}."
-    auction_loser_refunded: "Auction #{listingId} has ended, you did not win, and your frozen funds were returned."
+    auction_outbid_previous: "You were outbid on auction {listingText}. Previous highest bid was {previousBid} {currency}."
+    auction_reset_refund: "Auction {listingText} was reset or cancelled, and your frozen bid funds were returned."
+    auction_no_buyer: "Auction {listingText} ended without a buyer, item returned for delivery."
+    auction_no_bid: "Auction {listingText} ended with no bids, item returned for delivery."
+    auction_below_reserve: "Auction {listingText} ended below reserve price, item returned for delivery."
+    auction_win: "You won auction {listingText} at {finalBid} {currency}. Delivery is queued."
+    auction_sold: "Your auction {listingText} was sold at {finalBid} {currency}."
+    auction_win_vickrey: "You won auction {listingText} with bid {bidAmount} {currency}; final clearing price is {finalBid}."
+    auction_sold_vickrey: "Your auction {listingText} was sold (Vickrey) at {finalBid} {currency}."
+    auction_loser_refunded: "Auction {listingText} has ended, you did not win, and your frozen funds were returned."
 
   delivery:
     wait_claim_order_title: "Order Waiting for Claim"
@@ -184,7 +184,7 @@ notify:
     wait_claim_market_title: "Market Item Waiting for Claim"
     wait_claim_market_content: "Auto delivery for market item failed. Run /ws claim {token} in-game. Reason: {reason}"
     mailbox_pending_title: "Mailbox Pending Notice"
-    mailbox_pending_content: "Inventory was unavailable during auto delivery, item moved to mailbox. Run /ws mailbox claim in-game. Source: {sourceType} {sourceRef}"
+    mailbox_pending_content: "Inventory was unavailable during auto delivery, item moved to mailbox. Run /ws mailbox claim in-game. Source: {sourceType} {sourceDetail}"
 
 chat:
   delivery:

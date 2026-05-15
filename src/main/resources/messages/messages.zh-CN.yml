@@ -151,33 +151,33 @@ console:
   failed_delete_old_log_file: "删除旧日志文件失败：{path}"
   missing_embedded_asset: "缺少内置静态资源：{asset}"
 
-  market_buy_order_refund_escrow: "市场收购托管退款：listingId={listingId}, ownerUserId={ownerUserId}, side={side}, currency={currency}, amount={amount}, reason={reason}"
+  market_buy_order_refund_escrow: "市场收购托管退款：listing={listingText}, ownerUserId={ownerUserId}, side={side}, currency={currency}, amount={amount}({amountText}), reason={reason}"
 
 notify:
   market:
     buy_escrow_refund_title: "收购托管退款"
-    buy_escrow_refund_content: "收购单 #{listingId} 托管金额已退回：{amountText}。"
+    buy_escrow_refund_content: "收购单 {listingText} 托管金额已退回：{amountText}。"
     listed_title: "上架提醒"
     listed_content: "你的上架 #{listingId} 已发布：{item} x{quantity}，单价 {priceText}。"
     trade_title: "市场成交"
     trade_content: "上架 #{listingId} 已成交：{item} x{quantity}，总价 {totalText}。"
     auction_bid_title: "竞拍提醒"
-    auction_bid_self_sealed: "你已提交拍卖 #{listingId} 的密封出价。"
-    auction_bid_self_open: "你在拍卖 #{listingId} 出价成功：{bidAmountText}。"
-    auction_bid_seller: "拍卖 #{listingId} 收到来自 {bidderName} 的新出价。"
+    auction_bid_self_sealed: "你已提交拍卖 {listingText} 的密封出价。"
+    auction_bid_self_open: "你在拍卖 {listingText} 出价成功：{bidAmountText}。"
+    auction_bid_seller: "拍卖 {listingText} 收到来自 {bidderName} 的新出价。"
     auction_outbid_title: "超价提醒"
-    auction_outbid_content: "你在拍卖 #{listingId} 的领先出价已被超过。"
+    auction_outbid_content: "你在拍卖 {listingText} 的领先出价已被超过。"
     auction_settlement_title: "拍卖结算"
-    auction_outbid_previous: "你在拍卖 #{listingId} 已被超价，之前最高出价为 {previousBid} {currency}。"
-    auction_reset_refund: "拍卖 #{listingId} 已重置或取消，你冻结的竞拍资金已退回。"
-    auction_no_buyer: "拍卖 #{listingId} 无人购买，物品已回流待发货。"
-    auction_no_bid: "拍卖 #{listingId} 无人出价，物品已回流待发货。"
-    auction_below_reserve: "拍卖 #{listingId} 未达到保留价，物品已回流待发货。"
-    auction_win: "你已赢得拍卖 #{listingId}，成交价 {finalBid} {currency}，发货已入队。"
-    auction_sold: "你的拍卖 #{listingId} 已成交，成交价 {finalBid} {currency}。"
-    auction_win_vickrey: "你赢得拍卖 #{listingId}，出价 {bidAmount} {currency}，最终清算价 {finalBid}。"
-    auction_sold_vickrey: "你的拍卖 #{listingId}（维克瑞）已成交，清算价 {finalBid} {currency}。"
-    auction_loser_refunded: "拍卖 #{listingId} 已结束，你未中标，冻结资金已退回。"
+    auction_outbid_previous: "你在拍卖 {listingText} 已被超价，之前最高出价为 {previousBid} {currency}。"
+    auction_reset_refund: "拍卖 {listingText} 已重置或取消，你冻结的竞拍资金已退回。"
+    auction_no_buyer: "拍卖 {listingText} 无人购买，物品已回流待发货。"
+    auction_no_bid: "拍卖 {listingText} 无人出价，物品已回流待发货。"
+    auction_below_reserve: "拍卖 {listingText} 未达到保留价，物品已回流待发货。"
+    auction_win: "你已赢得拍卖 {listingText}，成交价 {finalBid} {currency}，发货已入队。"
+    auction_sold: "你的拍卖 {listingText} 已成交，成交价 {finalBid} {currency}。"
+    auction_win_vickrey: "你赢得拍卖 {listingText}，出价 {bidAmount} {currency}，最终清算价 {finalBid}。"
+    auction_sold_vickrey: "你的拍卖 {listingText}（维克瑞）已成交，清算价 {finalBid} {currency}。"
+    auction_loser_refunded: "拍卖 {listingText} 已结束，你未中标，冻结资金已退回。"
 
   delivery:
     wait_claim_order_title: "订单待领取提醒"
@@ -185,7 +185,7 @@ notify:
     wait_claim_market_title: "市场物品待领取提醒"
     wait_claim_market_content: "市场物品自动发货失败，请在游戏内执行 /ws claim {token} 领取。原因：{reason}"
     mailbox_pending_title: "信箱待领取提醒"
-    mailbox_pending_content: "自动发货时背包不可用，物品已存入游戏信箱。请在游戏内执行 /ws mailbox claim 领取。来源：{sourceType} {sourceRef}"
+    mailbox_pending_content: "自动发货时背包不可用，物品已存入游戏信箱。请在游戏内执行 /ws mailbox claim 领取。来源：{sourceType} {sourceDetail}"
 
 chat:
   delivery:

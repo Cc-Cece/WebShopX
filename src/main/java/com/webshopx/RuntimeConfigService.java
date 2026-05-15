@@ -788,13 +788,19 @@ class RuntimeConfigService {
         ? root.getAsJsonObject("templates")
         : null;
     if (templateObject != null) {
+      Map<String, String> legacyDefaults = NotificationSettings.legacyDefaultTemplateMap();
       for (Map.Entry<String, JsonElement> entry : templateObject.entrySet()) {
         if (entry.getValue() == null || entry.getValue().isJsonNull()) {
           continue;
         }
         String value = entry.getValue().getAsString();
         if (value != null && !value.isBlank()) {
-          templates.put(entry.getKey(), value.trim());
+          String normalized = value.trim();
+          String legacyValue = legacyDefaults.get(entry.getKey());
+          if (legacyValue != null && legacyValue.equals(normalized)) {
+            continue;
+          }
+          templates.put(entry.getKey(), normalized);
         }
       }
     }
@@ -909,36 +915,31 @@ class RuntimeConfigService {
 
     static Map<String, String> defaultTemplateMap() {
       Map<String, String> templates = new LinkedHashMap<>();
-      templates.put(
-          "market_listed",
-          "Your listing #{listingId} is published: {item} x{quantity}, unit price {priceText}.");
-      templates.put(
-          "market_trade",
-          "Listing #{listingId} sold: {item} x{quantity}, total {totalText}.");
-      templates.put(
-          "auction_bid_self",
-          "Your bid on auction #{listingId} succeeded: {bidAmountText}.");
-      templates.put(
-          "auction_bid_seller",
-          "Auction #{listingId} received a new bid from {bidderName}.");
-      templates.put(
-          "auction_outbid",
-          "Your leading bid on auction #{listingId} has been outbid.");
-      templates.put(
-          "auction_settlement",
-          "{message}");
-      templates.put(
-          "market_buy_escrow_refund",
-          "Buy order #{listingId} escrow was refunded: {amountText}.");
-      templates.put(
-          "delivery_wait_claim_order",
-          "Auto delivery for order {token} failed. Run /ws claim {token} in-game. Reason: {reason}");
-      templates.put(
-          "delivery_wait_claim_market",
-          "Auto delivery for market item failed. Run /ws claim {token} in-game. Reason: {reason}");
-      templates.put(
-          "mailbox_pending",
-          "Inventory was unavailable during auto delivery, item moved to mailbox. Run /ws mailbox claim in-game. Source: {sourceType} {sourceRef}");
+      templates.put("market_listed", "");
+      templates.put("market_trade", "");
+      templates.put("auction_bid_self", "");
+      templates.put("auction_bid_seller", "");
+      templates.put("auction_outbid", "");
+      templates.put("auction_settlement", "");
+      templates.put("market_buy_escrow_refund", "");
+      templates.put("delivery_wait_claim_order", "");
+      templates.put("delivery_wait_claim_market", "");
+      templates.put("mailbox_pending", "");
+      return templates;
+    }
+
+    static Map<String, String> legacyDefaultTemplateMap() {
+      Map<String, String> templates = new LinkedHashMap<>();
+      templates.put("market_listed", "Your listing #{listingId} is published: {item} x{quantity}, unit price {priceText}.");
+      templates.put("market_trade", "Listing #{listingId} sold: {item} x{quantity}, total {totalText}.");
+      templates.put("auction_bid_self", "Your bid on auction #{listingId} succeeded: {bidAmountText}.");
+      templates.put("auction_bid_seller", "Auction #{listingId} received a new bid from {bidderName}.");
+      templates.put("auction_outbid", "Your leading bid on auction #{listingId} has been outbid.");
+      templates.put("auction_settlement", "{message}");
+      templates.put("market_buy_escrow_refund", "Buy order #{listingId} escrow was refunded: {amountText}.");
+      templates.put("delivery_wait_claim_order", "Auto delivery for order {token} failed. Run /ws claim {token} in-game. Reason: {reason}");
+      templates.put("delivery_wait_claim_market", "Auto delivery for market item failed. Run /ws claim {token} in-game. Reason: {reason}");
+      templates.put("mailbox_pending", "Inventory was unavailable during auto delivery, item moved to mailbox. Run /ws mailbox claim in-game. Source: {sourceType} {sourceRef}");
       return templates;
     }
 

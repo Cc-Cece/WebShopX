@@ -1490,10 +1490,14 @@ class MarketService {
         "console.market_buy_order_refund_escrow",
         MapUtils.mapOf(
           "listingId", listing.id(),
+          "listingText", formatListingText(listing),
+          "item", resolveListingItemTitle(listing),
+          "quantity", resolveListingQuantity(listing),
           "ownerUserId", listing.sellerUserId(),
           "side", "BUY",
           "currency", listing.currency().name(),
           "amount", refundable,
+          "amountText", formatAmount(refundable, listing.currency()),
           "reason", reason)));
     enqueueBuyEscrowRefundNotification(listing, refundable);
     return refundable;
@@ -1506,6 +1510,7 @@ class MarketService {
     schedulerBridge.runAsyncLater(() -> {
       try {
         String amountText = formatAmount(refundable, listing.currency());
+        String listingText = formatListingText(listing);
         notifyMarketEvent(
             listing.sellerUserId(),
             "MARKET_BUY_ORDER_REFUND_ESCROW",
@@ -1513,9 +1518,17 @@ class MarketService {
             TEMPLATE_MARKET_BUY_ESCROW_REFUND,
           messageService.formatConsole(
             "notify.market.buy_escrow_refund_content",
-            MapUtils.mapOf("listingId", listing.id(), "amountText", amountText)),
+            MapUtils.mapOf(
+              "listingId", listing.id(),
+              "listingText", listingText,
+              "item", resolveListingItemTitle(listing),
+              "quantity", resolveListingQuantity(listing),
+              "amountText", amountText)),
             Map.of(
                 "listingId", listing.id(),
+                "listingText", listingText,
+                "item", resolveListingItemTitle(listing),
+                "quantity", resolveListingQuantity(listing),
                 "amountText", amountText));
       } catch (Exception ignored) {
         // Keep business path stable even when notification fails.
@@ -2102,12 +2115,16 @@ class MarketService {
 
       if (previousHighestBidderUuid != null
           && (previousHighestBidderUserId == null || previousHighestBidderUserId != bidder.userId())) {
+        String listingText = formatListingText(listing);
         notifyPlayerAsync(
             previousHighestBidderUuid,
           messageService.formatConsole(
             "notify.market.auction_outbid_previous",
             MapUtils.mapOf(
               "listingId", listing.id(),
+              "listingText", listingText,
+              "item", resolveListingItemTitle(listing),
+              "quantity", resolveListingQuantity(listing),
               "previousBid", previousHighestBid,
               "currency", listing.currency().name())));
       }
@@ -2321,11 +2338,16 @@ class MarketService {
       }
       markBidStatus(connection, refund.bidId(), "REFUNDED", true, false);
       if (refund.bidderUuid() != null) {
+        String listingText = formatListingText(listing);
         notifyPlayerAsync(
             refund.bidderUuid(),
             messageService.formatConsole(
                 "notify.market.auction_reset_refund",
-                MapUtils.mapOf("listingId", listing.id())));
+                MapUtils.mapOf(
+                  "listingId", listing.id(),
+                  "listingText", listingText,
+                  "item", resolveListingItemTitle(listing),
+                  "quantity", resolveListingQuantity(listing))));
       }
     }
 
@@ -2392,12 +2414,19 @@ class MarketService {
       Connection connection,
       MarketListing listing,
       List<AuctionSettlementNotice> notices) throws SQLException {
+    String listingText = formatListingText(listing);
     finalizeAuctionWithoutWinner(
         connection,
         listing,
         notices,
         "auction-expired-dutch",
-      messageService.formatConsole("notify.market.auction_no_buyer", MapUtils.mapOf("listingId", listing.id())));
+      messageService.formatConsole(
+        "notify.market.auction_no_buyer",
+        MapUtils.mapOf(
+          "listingId", listing.id(),
+          "listingText", listingText,
+          "item", resolveListingItemTitle(listing),
+          "quantity", resolveListingQuantity(listing))));
   }
 
   private void settleAscendingAuction(
@@ -2408,24 +2437,38 @@ class MarketService {
         || listing.auctionHighestBid() <= 0L
         || listing.auctionHighestBidderUserId() == null
         || listing.auctionHighestBidId() == null) {
+      String listingText = formatListingText(listing);
       finalizeAuctionWithoutWinner(
           connection,
           listing,
           notices,
           "auction-expired-no-bid",
-          messageService.formatConsole("notify.market.auction_no_bid", MapUtils.mapOf("listingId", listing.id())));
+          messageService.formatConsole(
+            "notify.market.auction_no_bid",
+            MapUtils.mapOf(
+              "listingId", listing.id(),
+              "listingText", listingText,
+              "item", resolveListingItemTitle(listing),
+              "quantity", resolveListingQuantity(listing))));
       return;
     }
 
     JsonObject auctionParams = MarketAlgorithmRegistry.parseParams(listing.auctionParamsJson());
     long reservePrice = Math.max(0L, MarketAlgorithmRegistry.getLongParam(auctionParams, "reservePrice", 0L));
     if (reservePrice > 0L && listing.auctionHighestBid() < reservePrice) {
+      String listingText = formatListingText(listing);
       finalizeAuctionWithoutWinner(
           connection,
           listing,
           notices,
           "auction-expired-reserve",
-          messageService.formatConsole("notify.market.auction_below_reserve", MapUtils.mapOf("listingId", listing.id())));
+          messageService.formatConsole(
+            "notify.market.auction_below_reserve",
+            MapUtils.mapOf(
+              "listingId", listing.id(),
+              "listingText", listingText,
+              "item", resolveListingItemTitle(listing),
+              "quantity", resolveListingQuantity(listing))));
       return;
     }
 
@@ -2442,16 +2485,29 @@ class MarketService {
     refundPendingAuctionLosers(connection, listing, listing.auctionHighestBidId(), "auction-settle");
     enqueueAuctionWinnerDelivery(connection, listing, winner, tradeId);
 
+    String listingText = formatListingText(listing);
     notices.add(new AuctionSettlementNotice(
         winner.boundUuid(),
       messageService.formatConsole(
         "notify.market.auction_win",
-        MapUtils.mapOf("listingId", listing.id(), "finalBid", finalBid, "currency", listing.currency().name()))));
+        MapUtils.mapOf(
+          "listingId", listing.id(),
+          "listingText", listingText,
+          "item", resolveListingItemTitle(listing),
+          "quantity", resolveListingQuantity(listing),
+          "finalBid", finalBid,
+          "currency", listing.currency().name()))));
     notices.add(new AuctionSettlementNotice(
         listing.sellerUuid(),
       messageService.formatConsole(
         "notify.market.auction_sold",
-        MapUtils.mapOf("listingId", listing.id(), "finalBid", finalBid, "currency", listing.currency().name()))));
+        MapUtils.mapOf(
+          "listingId", listing.id(),
+          "listingText", listingText,
+          "item", resolveListingItemTitle(listing),
+          "quantity", resolveListingQuantity(listing),
+          "finalBid", finalBid,
+          "currency", listing.currency().name()))));
   }
 
   private void settleVickreyAuction(
@@ -2486,12 +2542,19 @@ class MarketService {
     }
 
     if (bids.isEmpty()) {
+      String listingText = formatListingText(listing);
       finalizeAuctionWithoutWinner(
           connection,
           listing,
           notices,
           "auction-expired-no-bid",
-          messageService.formatConsole("notify.market.auction_no_bid", MapUtils.mapOf("listingId", listing.id())));
+          messageService.formatConsole(
+            "notify.market.auction_no_bid",
+            MapUtils.mapOf(
+              "listingId", listing.id(),
+              "listingText", listingText,
+              "item", resolveListingItemTitle(listing),
+              "quantity", resolveListingQuantity(listing))));
       return;
     }
 
@@ -2499,12 +2562,19 @@ class MarketService {
     long reservePrice = Math.max(0L, MarketAlgorithmRegistry.getLongParam(auctionParams, "reservePrice", 0L));
     AuctionBidRefund winnerBid = bids.get(0);
     if (reservePrice > 0L && winnerBid.bidAmount() < reservePrice) {
+      String listingText = formatListingText(listing);
       finalizeAuctionWithoutWinner(
           connection,
           listing,
           notices,
           "auction-expired-reserve",
-          messageService.formatConsole("notify.market.auction_below_reserve", MapUtils.mapOf("listingId", listing.id())));
+          messageService.formatConsole(
+            "notify.market.auction_below_reserve",
+            MapUtils.mapOf(
+              "listingId", listing.id(),
+              "listingText", listingText,
+              "item", resolveListingItemTitle(listing),
+              "quantity", resolveListingQuantity(listing))));
       return;
     }
 
@@ -2536,12 +2606,16 @@ class MarketService {
     refundPendingAuctionLosers(connection, listing, winnerBid.bidId(), "auction-settle-vickrey");
     enqueueAuctionWinnerDelivery(connection, listing, winner, tradeId);
 
+    String listingText = formatListingText(listing);
     notices.add(new AuctionSettlementNotice(
         winner.boundUuid(),
       messageService.formatConsole(
         "notify.market.auction_win_vickrey",
         MapUtils.mapOf(
           "listingId", listing.id(),
+          "listingText", listingText,
+          "item", resolveListingItemTitle(listing),
+          "quantity", resolveListingQuantity(listing),
           "bidAmount", winnerBid.bidAmount(),
           "currency", listing.currency().name(),
           "finalBid", finalBid))));
@@ -2549,7 +2623,13 @@ class MarketService {
         listing.sellerUuid(),
       messageService.formatConsole(
         "notify.market.auction_sold_vickrey",
-        MapUtils.mapOf("listingId", listing.id(), "finalBid", finalBid, "currency", listing.currency().name()))));
+        MapUtils.mapOf(
+          "listingId", listing.id(),
+          "listingText", listingText,
+          "item", resolveListingItemTitle(listing),
+          "quantity", resolveListingQuantity(listing),
+          "finalBid", finalBid,
+          "currency", listing.currency().name()))));
   }
 
   private void finalizeAuctionWithoutWinner(
@@ -2651,11 +2731,16 @@ class MarketService {
       }
       markBidStatus(connection, bid.bidId(), "OUTBID", true, false);
       if (bid.bidderUuid() != null) {
+        String listingText = formatListingText(listing);
         notifyPlayerAsync(
             bid.bidderUuid(),
             messageService.formatConsole(
                 "notify.market.auction_loser_refunded",
-                MapUtils.mapOf("listingId", listing.id())));
+                MapUtils.mapOf(
+                  "listingId", listing.id(),
+                  "listingText", listingText,
+                  "item", resolveListingItemTitle(listing),
+                  "quantity", resolveListingQuantity(listing))));
       }
     }
   }
@@ -3765,6 +3850,7 @@ class MarketService {
     try {
       String itemLabel = formatMaterial(result.material());
       String amountText = formatAmount(result.price(), result.currency());
+      String listingText = "#" + result.listingId() + " " + itemLabel + " x" + Math.max(1, result.quantity());
       broadcastService.broadcastTemplate(
           "listing-created",
           Map.of(
@@ -3785,11 +3871,13 @@ class MarketService {
             "notify.market.listed_content",
             MapUtils.mapOf(
               "listingId", result.listingId(),
+              "listingText", listingText,
               "item", itemLabel,
               "quantity", result.quantity(),
               "priceText", amountText)),
           Map.of(
               "listingId", result.listingId(),
+              "listingText", listingText,
               "item", itemLabel,
               "quantity", result.quantity(),
               "priceText", amountText));
@@ -3806,6 +3894,7 @@ class MarketService {
       }
       String totalText = formatAmount(context.totalPrice(), context.currency());
       String itemLabel = formatMaterial(context.itemMaterial());
+      String listingText = formatListingText(context.listingId(), context.itemMaterial(), context.quantity());
       broadcastService.broadcastTemplate(
           "trade-success",
           Map.of(
@@ -3827,11 +3916,13 @@ class MarketService {
             "notify.market.trade_content",
             MapUtils.mapOf(
               "listingId", context.listingId(),
+              "listingText", listingText,
               "item", itemLabel,
               "quantity", context.quantity(),
               "totalText", totalText)),
           Map.of(
               "listingId", context.listingId(),
+              "listingText", listingText,
               "item", itemLabel,
               "quantity", context.quantity(),
               "totalText", totalText));
@@ -3846,6 +3937,8 @@ class MarketService {
       if (context == null) {
         return;
       }
+      String listingText = formatListingText(context.listingId(), context.itemMaterial(), context.quantity());
+      String bidAmountText = formatAmount(context.bidAmount(), context.currency());
       if (result.sealedBid()) {
         broadcastService.broadcastTemplate(
             "auction-sealed-bid",
@@ -3855,7 +3948,6 @@ class MarketService {
                 "seller", context.sellerName(),
                 "currency", context.currency().name()));
       } else {
-        String amountText = formatAmount(context.bidAmount(), context.currency());
         broadcastService.broadcastTemplate(
             "auction-bid",
             Map.of(
@@ -3864,18 +3956,25 @@ class MarketService {
                 "seller", context.sellerName(),
                 "bidAmount", context.bidAmount(),
                 "currency", context.currency().name(),
-                "bidAmountText", amountText));
+                "bidAmountText", bidAmountText));
       }
 
         String bidderMessage = result.sealedBid()
           ? messageService.formatConsole(
             "notify.market.auction_bid_self_sealed",
-            MapUtils.mapOf("listingId", context.listingId()))
+            MapUtils.mapOf(
+              "listingId", context.listingId(),
+              "listingText", listingText,
+              "item", formatMaterial(context.itemMaterial()),
+              "quantity", Math.max(1, context.quantity())))
           : messageService.formatConsole(
             "notify.market.auction_bid_self_open",
             MapUtils.mapOf(
               "listingId", context.listingId(),
-              "bidAmountText", formatAmount(context.bidAmount(), context.currency())));
+              "listingText", listingText,
+              "item", formatMaterial(context.itemMaterial()),
+              "quantity", Math.max(1, context.quantity()),
+              "bidAmountText", bidAmountText));
       notifyMarketEvent(
           context.bidderUserId(),
           "AUCTION_BID",
@@ -3884,7 +3983,10 @@ class MarketService {
           bidderMessage,
           Map.of(
               "listingId", context.listingId(),
-              "bidAmountText", formatAmount(context.bidAmount(), context.currency())));
+              "listingText", listingText,
+              "item", formatMaterial(context.itemMaterial()),
+              "quantity", Math.max(1, context.quantity()),
+              "bidAmountText", bidAmountText));
       notifyMarketEvent(
           context.sellerUserId(),
           "AUCTION_BID",
@@ -3892,9 +3994,17 @@ class MarketService {
           TEMPLATE_AUCTION_BID_SELLER,
           messageService.formatConsole(
             "notify.market.auction_bid_seller",
-            MapUtils.mapOf("listingId", context.listingId(), "bidderName", context.bidderName())),
+            MapUtils.mapOf(
+              "listingId", context.listingId(),
+              "listingText", listingText,
+              "item", formatMaterial(context.itemMaterial()),
+              "quantity", Math.max(1, context.quantity()),
+              "bidderName", context.bidderName())),
           Map.of(
               "listingId", context.listingId(),
+              "listingText", listingText,
+              "item", formatMaterial(context.itemMaterial()),
+              "quantity", Math.max(1, context.quantity()),
               "bidderName", context.bidderName()));
       if (result.previousHighestBidderUserId() != null
           && result.previousHighestBidderUserId() > 0L
@@ -3906,8 +4016,16 @@ class MarketService {
             TEMPLATE_AUCTION_OUTBID,
           messageService.formatConsole(
             "notify.market.auction_outbid_content",
-            MapUtils.mapOf("listingId", context.listingId())),
-            Map.of("listingId", context.listingId()));
+            MapUtils.mapOf(
+              "listingId", context.listingId(),
+              "listingText", listingText,
+              "item", formatMaterial(context.itemMaterial()),
+              "quantity", Math.max(1, context.quantity()))),
+            Map.of(
+              "listingId", context.listingId(),
+              "listingText", listingText,
+              "item", formatMaterial(context.itemMaterial()),
+              "quantity", Math.max(1, context.quantity())));
       }
     } catch (Exception exception) {
       plugin.getLogger().warning(messageService.formatConsole("console.failed_publish_auction_bid_event", Map.of("reason", exception.getMessage())));
@@ -4043,7 +4161,7 @@ class MarketService {
     return databaseManager.withConnection(connection -> {
       String sql = """
           SELECT mb.id AS bid_id, mb.listing_id, mb.bid_amount, mb.bidder_user_id, bidder.username AS bidder_name,
-                 ml.seller_user_id, seller.username AS seller_name, ml.currency
+                 ml.seller_user_id, seller.username AS seller_name, ml.currency, ml.quantity, ml.item_material
           FROM market_bids mb
           JOIN market_listings ml ON ml.id = mb.listing_id
           JOIN web_users bidder ON bidder.id = mb.bidder_user_id
@@ -4065,7 +4183,9 @@ class MarketService {
               resultSet.getLong("seller_user_id"),
               resultSet.getString("seller_name"),
               CurrencyType.valueOf(resultSet.getString("currency")),
-              resultSet.getLong("bid_amount"));
+              resultSet.getLong("bid_amount"),
+              resultSet.getInt("quantity"),
+              resultSet.getString("item_material"));
         }
       }
     });
@@ -4073,6 +4193,41 @@ class MarketService {
 
   private String formatAmount(long amount, CurrencyType currency) {
     return amount + " " + currency.name();
+  }
+
+  private int resolveListingQuantity(MarketListing listing) {
+    if (listing == null) {
+      return 1;
+    }
+    if (listing.quantity() > 0) {
+      return listing.quantity();
+    }
+    if (listing.quantityTotal() > 0) {
+      return listing.quantityTotal();
+    }
+    return 1;
+  }
+
+  private String resolveListingItemTitle(MarketListing listing) {
+    if (listing == null) {
+      return "UNKNOWN";
+    }
+    if (listing.displayNameOverride() != null && !listing.displayNameOverride().isBlank()) {
+      return listing.displayNameOverride().trim();
+    }
+    return formatMaterial(listing.itemMaterial());
+  }
+
+  private String formatListingText(MarketListing listing) {
+    if (listing == null) {
+      return "#- UNKNOWN x1";
+    }
+    return "#" + listing.id() + " " + resolveListingItemTitle(listing) + " x" + resolveListingQuantity(listing);
+  }
+
+  private String formatListingText(long listingId, String itemMaterial, int quantity) {
+    int safeQuantity = quantity > 0 ? quantity : 1;
+    return "#" + listingId + " " + formatMaterial(itemMaterial) + " x" + safeQuantity;
   }
 
   private String formatMaterial(String material) {
@@ -5066,7 +5221,9 @@ class MarketService {
       long sellerUserId,
       String sellerName,
       CurrencyType currency,
-      long bidAmount) {
+      long bidAmount,
+      int quantity,
+      String itemMaterial) {
   }
 
   private record ExistingBid(

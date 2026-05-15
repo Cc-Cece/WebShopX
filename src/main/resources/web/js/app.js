@@ -209,6 +209,18 @@ const FALLBACK_APP_UI_TEXT = Object.freeze({
     leaderboardView: "等待加载榜单",
     leaderboardMyRank: "我的名次：-",
   }),
+  notificationTypeLabels: Object.freeze({
+    GENERAL: "通知",
+    SYSTEM_ANNOUNCEMENT: "系统公告",
+    MARKET_LISTED: "上架提醒",
+    MARKET_TRADE: "市场成交",
+    AUCTION_BID: "竞拍提醒",
+    AUCTION_OUTBID: "竞拍超价",
+    AUCTION_SETTLEMENT: "拍卖结算",
+    MARKET_BUY_ORDER_REFUND_ESCROW: "托管退款",
+    DELIVERY_WAIT_CLAIM: "待领取提醒",
+    MAILBOX_PENDING: "信箱待领取",
+  }),
   templates: Object.freeze({
     loadFailed: "Load failed: {message}",
     saveFailed: "Save failed: {message}",
@@ -6654,15 +6666,7 @@ function renderOrders(orders) {
 
 function notificationTypeLabel(type) {
   const key = String(type || "GENERAL").toUpperCase();
-  const labels = {
-    GENERAL: "通知",
-    SYSTEM_ANNOUNCEMENT: "系统公告",
-    MARKET_LISTED: "上架提醒",
-    MARKET_TRADE: "市场成交",
-    AUCTION_BID: "竞拍提醒",
-    AUCTION_OUTBID: "竞拍超价",
-    DELIVERY_WAIT_CLAIM: "待领取提醒",
-  };
+  const labels = APP_UI_TEXT.notificationTypeLabels || {};
   if (labels[key]) {
     return localizeDisplayText(labels[key]);
   }

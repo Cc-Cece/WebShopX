@@ -1087,7 +1087,13 @@ class DeliveryService {
           task.orderNo(),
           reason);
       markCommandDelivered(task.orderId(), task.id(), claimMode);
-      pushMailboxNotification(task.userId(), "ORDER", task.orderNo());
+      pushMailboxNotification(
+          task.userId(),
+          "ORDER",
+          task.orderNo(),
+          itemTitle(itemStack),
+          task.quantity(),
+          formatSourceDetail(task.orderNo(), itemStack, task.quantity()));
       if (player != null) {
         notifyDeliverySuccess(player, msg(player, "chat.delivery.mailbox_saved", Map.of("token", task.orderNo())));
       }
@@ -1115,7 +1121,13 @@ class DeliveryService {
           token,
           reason);
       markMarketDelivered(task, claimMode);
-      pushMailboxNotification(task.targetUserId(), "MARKET", token);
+      pushMailboxNotification(
+          task.targetUserId(),
+          "MARKET",
+          token,
+          itemTitle(itemStack),
+          task.quantity(),
+          formatSourceDetail(token, itemStack, task.quantity()));
       if (player != null) {
         notifyDeliverySuccess(player, msg(player, "chat.delivery.mailbox_saved", Map.of("token", token)));
       }
@@ -1136,7 +1148,13 @@ class DeliveryService {
     return new ItemStack(material, 1);
   }
 
-  private void pushMailboxNotification(long userId, String sourceType, String sourceRef) {
+  private void pushMailboxNotification(
+      long userId,
+      String sourceType,
+      String sourceRef,
+      String item,
+      int quantity,
+      String sourceDetail) {
     if (userId <= 0L) {
       return;
     }
@@ -1147,10 +1165,45 @@ class DeliveryService {
       messageService.getConsole("notify.delivery.mailbox_pending_title"),
       messageService.formatConsole(
         "notify.delivery.mailbox_pending_content",
-        MapUtils.mapOf("sourceType", sourceType, "sourceRef", sourceRef)),
+        MapUtils.mapOf(
+          "sourceType", sourceType,
+          "sourceRef", sourceRef,
+          "item", item,
+          "quantity", quantity,
+          "sourceDetail", sourceDetail)),
         Map.of(
             "sourceType", sourceType,
-            "sourceRef", sourceRef));
+            "sourceRef", sourceRef,
+            "item", item,
+            "quantity", quantity,
+            "sourceDetail", sourceDetail));
+  }
+
+  private String formatSourceDetail(String sourceRef, ItemStack itemStack, int quantity) {
+    String normalizedRef = sourceRef == null || sourceRef.isBlank() ? "-" : sourceRef.trim();
+    return normalizedRef + " | " + itemTitle(itemStack) + " x" + Math.max(1, quantity);
+  }
+
+  private String itemTitle(ItemStack itemStack) {
+    if (itemStack == null || itemStack.getType() == null || itemStack.getType() == Material.AIR) {
+      return "UNKNOWN";
+    }
+    String normalized = itemStack.getType().name().toLowerCase(Locale.ROOT).replace('_', ' ');
+    String[] parts = normalized.split(" ");
+    StringBuilder builder = new StringBuilder();
+    for (String part : parts) {
+      if (part.isBlank()) {
+        continue;
+      }
+      if (builder.length() > 0) {
+        builder.append(' ');
+      }
+      builder.append(Character.toUpperCase(part.charAt(0)));
+      if (part.length() > 1) {
+        builder.append(part.substring(1));
+      }
+    }
+    return builder.length() == 0 ? itemStack.getType().name() : builder.toString();
   }
   private void notifyDeliveryMailboxEvent(
       long userId,
