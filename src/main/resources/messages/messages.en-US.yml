@@ -49,6 +49,30 @@ command:
     created: "§aRedeem code created: §f{code}"
     number: "§cParameters must be valid numbers."
     failed: "§cCreate failed: {reason}"
+  recharge:
+    player_only: "§cOnly players can create recharge orders."
+    usage: "§eUsage: /webshopx recharge <amount>"
+    fix_usage: "§eUsage: /webshopx recharge fix <orderId>"
+    creating: "§7[WebShopX] Creating recharge order..."
+    fixing: "§7[WebShopX] Querying YuPay and fixing recharge order..."
+    not_bound: "§cPlease run /webshopx password <new-password> before recharging."
+    created: "§a[WebShopX] Recharge order created"
+    amount: "§7Amount: §f{amount} {currency}"
+    coins: "§7Coins: §f{coins} ShopCoin"
+    expires: "§7Expires at: §f{time}"
+    pay_link: "[WebShopX] Click here to complete payment"
+    pay_url: "§7{url}"
+    no_pay_url: "§cYuPay did not return a payment URL."
+    failed: "§cRecharge failed: {reason}"
+    fix_success: "§aRecharge fix completed: order={order}, status={status}, fixed={fixed}"
+    fix_failed: "§cRecharge fix failed: order={order}, code={code}, message={message}"
+  wallet:
+    gamecoin_usage: "§eUsage: /webshopx gamecoin <user|uuid|id> <delta> [reason]"
+    shopcoin_usage: "§eUsage: /webshopx shopcoin <user|uuid|id> <delta> [reason]"
+    number: "§cDelta must be a non-zero integer. Positive adds, negative subtracts."
+    adjusting: "§7[WebShopX] Adjusting {currency}..."
+    adjusted: "§aWallet updated: §f{username} §7| {currency} §f{delta} §7| Balance §f{balance}"
+    failed: "§cWallet adjustment failed: {reason}"
   help:
     base:
       - "§e/webshopx help §7- Show help"
@@ -56,11 +80,15 @@ command:
       - "§e/webshopx market [gui] §7- Open the market GUI"
       - "§e/webshopx market sell <price> [amount] [currency] §7- Legacy listing command"
       - "§e/webshopx market logs [count] §7- Show recent trades from your store"
+      - "§e/webshopx recharge <amount> §7- Create a YuPay recharge order"
       - "§e/webshopx claim [all|ODR-...|MKT-...|CLM-...|MCL-...] §7- Claim pending deliveries"
       - "§e/webshopx mailbox claim §7- Claim buffered items from in-game mailbox"
     admin:
       - "§e/webshopx reload §7- Reload config and embedded web assets"
       - "§e/webshopx redeem create <shop> <game> [max] [perUserMax] [minutes] [code] §7- Create a redeem code"
+      - "§e/webshopx recharge fix <orderId> §7- Query YuPay and repair a recharge order"
+      - "§e/webshopx gamecoin <user> <±amount> [reason] §7- Adjust configured game currency balance"
+      - "§e/webshopx shopcoin <user> <±amount> [reason] §7- Adjust configured shop currency balance"
   tag_recalc_completed: "§aTag recalc completed: scanned {scanned}, changed {changed}, elapsed {elapsed}ms."
   tag_recalc_failed: "§cTag recalc failed: {reason}"
 
@@ -352,6 +380,29 @@ error:
   redeem:
     invalid_amount: "At least one currency amount must be greater than 0."
     code_exists: "The redeem code already exists."
+  recharge:
+    yupay_unavailable: "YuPay API is not available."
+    yupay_api_mismatch: "YuPay API is incompatible with this WebShopX version."
+    yupay_api_error: "YuPay returned an error."
+    invalid_amount: "Recharge amount must be a positive number with at most 2 decimals."
+    unsupported_currency: "Unsupported recharge currency."
+    order_not_found: "Recharge order not found."
+    provider_order_mismatch: "YuPay order id does not match."
+    amount_mismatch: "Payment amount does not match."
+    currency_mismatch: "Payment currency does not match."
+    order_closed: "Recharge order is already closed."
+    invalid_status: "Recharge order status is invalid."
+    user_missing: "Web account not found."
+    bad_request: "Recharge request is invalid."
+    internal_error: "Server internal error."
+  wallet:
+    user_not_found: "Target web account was not found."
+    invalid_amount: "Wallet delta must be a non-zero integer."
+    invalid_currency: "Wallet currency is invalid."
+    insufficient_funds: "Balance is insufficient for subtraction."
+    vault_unavailable: "Vault economy service is not available."
+    vault_error: "Vault economy transaction failed."
+    internal_error: "Server internal error."
 
 admin:
   permissions:

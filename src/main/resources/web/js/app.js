@@ -199,6 +199,7 @@ const FALLBACK_APP_UI_TEXT = Object.freeze({
   initMeta: Object.freeze({
     walletView: "等待刷新余额",
     walletLedgerView: "等待加载记录",
+    rechargeView: "等待充值操作",
     redeemView: "等待兑换操作",
     exchangeRateHint: "等待加载兑换比例",
     exchangeView: "等待兑换操作",
@@ -219,6 +220,12 @@ const FALLBACK_APP_UI_TEXT = Object.freeze({
     notificationsLoadFailed: "Notification load failed: {message}",
     ordersLoadFailed: "Order load failed: {message}",
     redeemFailed: "Redeem failed: {message}",
+    rechargeNoOrder: "No recharge order to check yet.",
+    rechargeCreating: "Creating YuPay payment order...",
+    rechargeCreated: "Order {orderId} created. Complete payment in YuPay, then check status.",
+    rechargeStatus: "Order {orderId}: {status}, credit {coinAmount} ShopCoin",
+    rechargeFailed: "Recharge failed: {message}",
+    rechargeStatusFailed: "Status check failed: {message}",
     exchangeFailed: "Exchange failed: {message}",
     operationFailed: "Operation failed: {message}",
     markReadFailed: "Mark read failed: {message}",
@@ -3446,7 +3453,7 @@ function setRechargePayLink(url) {
 async function refreshRechargeStatus() {
   ensureToken();
   if (!state.recharge.currentOrderId) {
-    setMetaText(elements.rechargeView, "No recharge order to check yet.", "warn");
+    setMetaText(elements.rechargeView, formatAppTemplate("rechargeNoOrder"), "warn");
     return;
   }
   const payload = await api(
@@ -3455,7 +3462,11 @@ async function refreshRechargeStatus() {
   );
   setMetaText(
     elements.rechargeView,
-    `Order ${payload.orderId}: ${payload.status}, credit ${payload.coinAmount} ShopCoin`,
+    formatAppTemplate("rechargeStatus", {
+      orderId: payload.orderId,
+      status: payload.status,
+      coinAmount: payload.coinAmount,
+    }),
     payload.status === "PAID" ? "success" : "info"
   );
   if (payload.status === "PAID") {
@@ -7684,7 +7695,7 @@ if (elements.rechargeBtn) {
     try {
       ensureToken();
       const amountMinor = parseRechargeAmountMinor();
-      setMetaText(elements.rechargeView, "Creating YuPay payment order...", "info");
+      setMetaText(elements.rechargeView, formatAppTemplate("rechargeCreating"), "info");
       setRechargePayLink(null);
       const payload = await api("/api/recharge/create", {
         method: "POST",
@@ -7698,13 +7709,14 @@ if (elements.rechargeBtn) {
       setRechargePayLink(payload.payUrl);
       setMetaText(
         elements.rechargeView,
-        `Order ${payload.orderId} created. Complete payment in YuPay, then check status.`,
+        formatAppTemplate("rechargeCreated", { orderId: payload.orderId }),
         "success"
       );
     } catch (error) {
       const message = resolveErrorMessage(error, "operation");
-      setMetaText(elements.rechargeView, `Recharge failed: ${message}`, "error");
-      notify(`Recharge failed: ${message}`, "error");
+      const detail = formatAppTemplate("rechargeFailed", { message });
+      setMetaText(elements.rechargeView, detail, "error");
+      notify(detail, "error");
     }
   });
 }
@@ -7715,7 +7727,11 @@ if (elements.rechargeStatusBtn) {
       await refreshRechargeStatus();
     } catch (error) {
       const message = resolveErrorMessage(error, "operation");
-      setMetaText(elements.rechargeView, `Status check failed: ${message}`, "error");
+      setMetaText(
+        elements.rechargeView,
+        formatAppTemplate("rechargeStatusFailed", { message }),
+        "error"
+      );
     }
   });
 }
@@ -8482,7 +8498,7 @@ updateAuthLayout();
 updateMarketSectionContext();
 setMetaText(elements.walletView, APP_UI_TEXT.initMeta.walletView, "info");
 setMetaText(elements.walletLedgerView, APP_UI_TEXT.initMeta.walletLedgerView, "info");
-setMetaText(elements.rechargeView, "Waiting for recharge action", "info");
+setMetaText(elements.rechargeView, APP_UI_TEXT.initMeta.rechargeView, "info");
 updateRechargeCoinPreview();
 setMetaText(elements.redeemView, APP_UI_TEXT.initMeta.redeemView, "info");
 setMetaText(elements.exchangeRateHint, APP_UI_TEXT.initMeta.exchangeRateHint, "info");

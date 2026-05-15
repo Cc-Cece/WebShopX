@@ -2,10 +2,12 @@ package com.webshopx;
 
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 import net.kyori.adventure.text.Component;
@@ -24,34 +26,40 @@ class ShopCommand implements CommandExecutor, TabCompleter {
   private final AuthService authService;
   private final RedeemCodeService redeemCodeService;
   private final RechargeService rechargeService;
+  private final AdminService adminService;
   private final MarketService marketService;
   private final MarketGuiService marketGuiService;
   private final DeliveryService deliveryService;
   private final MailboxService mailboxService;
   private final MessageService messageService;
   private final SchedulerBridge schedulerBridge;
+  private final Supplier<PluginSettings> settingsSupplier;
 
   ShopCommand(
       WebShopPlugin plugin,
       AuthService authService,
       RedeemCodeService redeemCodeService,
       RechargeService rechargeService,
+      AdminService adminService,
       MarketService marketService,
       MarketGuiService marketGuiService,
       DeliveryService deliveryService,
       MailboxService mailboxService,
       MessageService messageService,
-      SchedulerBridge schedulerBridge) {
+      SchedulerBridge schedulerBridge,
+      Supplier<PluginSettings> settingsSupplier) {
     this.plugin = plugin;
     this.authService = authService;
     this.redeemCodeService = redeemCodeService;
     this.rechargeService = rechargeService;
+    this.adminService = adminService;
     this.marketService = marketService;
     this.marketGuiService = marketGuiService;
     this.deliveryService = deliveryService;
     this.mailboxService = mailboxService;
     this.messageService = messageService;
     this.schedulerBridge = schedulerBridge;
+    this.settingsSupplier = settingsSupplier;
   }
 
   @Override
@@ -74,6 +82,8 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       case "reload" -> handleReload(sender);
       case "redeem" -> handleRedeem(sender, args);
       case "recharge" -> handleRecharge(sender, args);
+      case "gamecoin" -> handleWalletDelta(sender, args, CurrencyType.GAME_COIN);
+      case "shopcoin" -> handleWalletDelta(sender, args, CurrencyType.SHOP_COIN);
       default -> {
         sender.sendMessage(msg(sender, "command.unknown_subcommand"));
         yield true;
@@ -92,12 +102,14 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       options.add("help");
       options.add("password");
       options.add("market");
-        options.add("claim");
-        options.add("mailbox");
-        options.add("recharge");
-        if (sender.hasPermission("webshop.admin")) {
+      options.add("claim");
+      options.add("mailbox");
+      options.add("recharge");
+      if (sender.hasPermission("webshop.admin")) {
         options.add("reload");
         options.add("redeem");
+        options.add("gamecoin");
+        options.add("shopcoin");
       }
       return filterByPrefix(options, args[0]);
     }
@@ -154,6 +166,18 @@ class ShopCommand implements CommandExecutor, TabCompleter {
           options.add("fix");
         }
         return filterByPrefix(options, args[1]);
+      }
+      return List.of();
+    }
+
+    if ((top.equals("gamecoin") || top.equals("shopcoin")) && sender.hasPermission("webshop.admin")) {
+      if (args.length == 2) {
+        return filterByPrefix(plugin.getServer().getOnlinePlayers().stream()
+            .map(Player::getName)
+            .toList(), args[1]);
+      }
+      if (args.length == 3) {
+        return filterByPrefix(List.of("100", "-100", "1000", "-1000"), args[2]);
       }
       return List.of();
     }
@@ -383,11 +407,11 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       return handleRechargeFix(sender, args);
     }
     if (!(sender instanceof Player player)) {
-      sender.sendMessage("§cOnly players can create recharge orders.");
+      sender.sendMessage(msg(sender, "command.recharge.player_only"));
       return true;
     }
     if (args.length < 2) {
-      player.sendMessage("§eUsage: /webshopx recharge <amount>");
+      player.sendMessage(msg(player, "command.recharge.usage"));
       return true;
     }
     UUID playerUuid = player.getUniqueId();
@@ -395,17 +419,18 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     try {
       amountMinor = rechargeService.yuanToAmountMinor(args[1]);
     } catch (ServiceException exception) {
-      player.sendMessage("§c" + exception.getMessage());
+      player.sendMessage(msg(player, "command.recharge.failed",
+          Map.of("reason", humanizeRechargeError(player, exception))));
       return true;
     }
-    player.sendMessage("§7[WebShopX] Creating recharge order...");
+    player.sendMessage(msg(player, "command.recharge.creating"));
     schedulerBridge.runAsync(() -> {
       try {
         RechargeService.UserBinding binding = rechargeService.findUserByPlayer(playerUuid);
         if (binding == null) {
           schedulerBridge.runPlayer(
               playerUuid,
-              target -> target.sendMessage("§cPlease run /webshopx password <new-password> before recharging."),
+              target -> target.sendMessage(msg(target, "command.recharge.not_bound")),
               () -> { });
           return;
         }
@@ -424,13 +449,15 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       } catch (ServiceException exception) {
         schedulerBridge.runPlayer(
             playerUuid,
-            target -> target.sendMessage("§cRecharge failed: " + exception.getMessage()),
+            target -> target.sendMessage(msg(target, "command.recharge.failed",
+                Map.of("reason", humanizeRechargeError(target, exception)))),
             () -> { });
       } catch (RuntimeException exception) {
         plugin.getLogger().log(Level.WARNING, "Failed to create recharge order", exception);
         schedulerBridge.runPlayer(
             playerUuid,
-            target -> target.sendMessage("§cRecharge failed: server internal error."),
+            target -> target.sendMessage(msg(target, "command.recharge.failed",
+                Map.of("reason", messageService.get(target, "error.recharge.internal_error")))),
             () -> { });
       }
     });
@@ -443,11 +470,11 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       return true;
     }
     if (args.length < 3) {
-      sender.sendMessage("§eUsage: /webshopx recharge fix <orderId>");
+      sender.sendMessage(msg(sender, "command.recharge.fix_usage"));
       return true;
     }
     String orderId = args[2];
-    sender.sendMessage("§7[WebShopX] Querying YuPay and fixing recharge order...");
+    sender.sendMessage(msg(sender, "command.recharge.fixing"));
     schedulerBridge.runAsync(() -> {
       RechargeService.FixRechargeResult result;
       try {
@@ -456,10 +483,14 @@ class ShopCommand implements CommandExecutor, TabCompleter {
         result = RechargeService.FixRechargeResult.fail(orderId, null, exception.code(), exception.getMessage());
       } catch (RuntimeException exception) {
         plugin.getLogger().log(Level.WARNING, "Failed to fix recharge order", exception);
-        result = RechargeService.FixRechargeResult.fail(orderId, null, "INTERNAL_ERROR", "server internal error");
+        result = RechargeService.FixRechargeResult.fail(
+            orderId,
+            null,
+            "internal_error",
+            messageService.getConsole("error.recharge.internal_error"));
       }
       RechargeService.FixRechargeResult finalResult = result;
-      schedulerBridge.runGlobal(() -> sender.sendMessage(formatFixResult(finalResult)));
+      schedulerBridge.runGlobal(() -> sender.sendMessage(formatFixResult(sender, finalResult)));
     });
     return true;
   }
@@ -469,40 +500,42 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       RechargeService.RechargeCreateResult result,
       long amountMinor) {
     if (!result.success()) {
-      player.sendMessage("§cRecharge order failed: " + result.message());
+      player.sendMessage(msg(player, "command.recharge.failed",
+          Map.of("reason", result.message())));
       return;
     }
-    player.sendMessage("§a[WebShopX] Recharge order created");
-    player.sendMessage("§7Amount: §f" + formatMinorCurrency(amountMinor) + " CNY");
-    player.sendMessage("§7Coins: §f" + rechargeService.amountToCoinAmount(amountMinor) + " ShopCoin");
+    player.sendMessage(msg(player, "command.recharge.created"));
+    player.sendMessage(msg(player, "command.recharge.amount",
+        Map.of("amount", formatMinorCurrency(amountMinor), "currency", "CNY")));
+    player.sendMessage(msg(player, "command.recharge.coins",
+        Map.of("coins", rechargeService.amountToCoinAmount(amountMinor))));
     if (result.expireTime() != null) {
-      player.sendMessage("§7Expires at: §f" + result.expireTime());
+      player.sendMessage(msg(player, "command.recharge.expires",
+          Map.of("time", result.expireTime())));
     }
     String payUrl = result.payUrl();
     if (payUrl == null || payUrl.isBlank()) {
-      player.sendMessage("§cYuPay did not return a payment URL.");
+      player.sendMessage(msg(player, "command.recharge.no_pay_url"));
       return;
     }
-    player.sendMessage(Component.text("[WebShopX] Click here to complete payment", NamedTextColor.AQUA)
+    player.sendMessage(Component.text(
+            messageService.get(player, "command.recharge.pay_link"),
+            NamedTextColor.AQUA)
         .clickEvent(ClickEvent.openUrl(payUrl)));
-    player.sendMessage("§7" + payUrl);
+    player.sendMessage(msg(player, "command.recharge.pay_url", Map.of("url", payUrl)));
   }
 
-  private String formatFixResult(RechargeService.FixRechargeResult result) {
+  private String formatFixResult(CommandSender sender, RechargeService.FixRechargeResult result) {
     if (result.success()) {
-      return "§aRecharge fix completed: order="
-          + result.orderId()
-          + ", status="
-          + result.status()
-          + ", fixed="
-          + result.fixed();
+      return msg(sender, "command.recharge.fix_success", Map.of(
+          "order", result.orderId(),
+          "status", result.status(),
+          "fixed", result.fixed()));
     }
-    return "§cRecharge fix failed: order="
-        + result.orderId()
-        + ", code="
-        + result.errorCode()
-        + ", message="
-        + result.message();
+    return msg(sender, "command.recharge.fix_failed", Map.of(
+        "order", result.orderId(),
+        "code", result.errorCode(),
+        "message", result.message()));
   }
 
   private String formatMinorCurrency(long amountMinor) {
@@ -549,6 +582,63 @@ class ShopCommand implements CommandExecutor, TabCompleter {
           Map.of("reason", humanizeRedeemError(sender, exception))));
       return true;
     }
+  }
+
+  private boolean handleWalletDelta(CommandSender sender, String[] args, CurrencyType currency) {
+    if (!sender.hasPermission("webshop.admin")) {
+      sender.sendMessage(msg(sender, "command.common.no_permission"));
+      return true;
+    }
+    if (args.length < 3) {
+      sender.sendMessage(msg(sender, currency == CurrencyType.GAME_COIN
+          ? "command.wallet.gamecoin_usage"
+          : "command.wallet.shopcoin_usage"));
+      return true;
+    }
+
+    String identifier = args[1];
+    long delta;
+    try {
+      delta = Long.parseLong(args[2]);
+      if (delta == 0L) {
+        throw new NumberFormatException("zero delta");
+      }
+    } catch (NumberFormatException exception) {
+      sender.sendMessage(msg(sender, "command.wallet.number"));
+      return true;
+    }
+
+    String reason = args.length >= 4
+        ? String.join(" ", Arrays.copyOfRange(args, 3, args.length))
+        : "COMMAND_ADJUST";
+    String currencyName = currencyDisplayName(currency);
+    sender.sendMessage(msg(sender, "command.wallet.adjusting", Map.of("currency", currencyName)));
+
+    schedulerBridge.runAsync(() -> {
+      try {
+        AdminService.UserSupportView user = adminService.lookupUser(identifier)
+            .orElseThrow(() -> new ServiceException("user_not_found", "User not found"));
+        WalletService.WalletBalance balance = adminService.adjustWallet(
+            user.userId(),
+            currency,
+            delta,
+            reason);
+        long currentBalance = balanceFor(balance, currency);
+        schedulerBridge.runGlobal(() -> sender.sendMessage(msg(sender, "command.wallet.adjusted", Map.of(
+            "username", user.username(),
+            "currency", currencyName,
+            "delta", delta,
+            "balance", currentBalance))));
+      } catch (ServiceException exception) {
+        schedulerBridge.runGlobal(() -> sender.sendMessage(msg(sender, "command.wallet.failed",
+            Map.of("reason", humanizeWalletError(sender, exception)))));
+      } catch (RuntimeException exception) {
+        plugin.getLogger().log(Level.WARNING, "Failed to adjust wallet from command", exception);
+        schedulerBridge.runGlobal(() -> sender.sendMessage(msg(sender, "command.wallet.failed",
+            Map.of("reason", messageService.get(sender, "error.wallet.internal_error")))));
+      }
+    });
+    return true;
   }
 
   private void sendHelp(CommandSender sender) {
@@ -608,6 +698,53 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       case "invalid_amount" -> messageService.get(sender, "error.redeem.invalid_amount");
       case "code_exists" -> messageService.get(sender, "error.redeem.code_exists");
       default -> exception.getMessage();
+    };
+  }
+
+  private String humanizeRechargeError(CommandSender sender, ServiceException exception) {
+    return switch (exception.code()) {
+      case "yupay_unavailable" -> messageService.get(sender, "error.recharge.yupay_unavailable");
+      case "yupay_api_mismatch" -> messageService.get(sender, "error.recharge.yupay_api_mismatch");
+      case "yupay_api_error" -> messageService.get(sender, "error.recharge.yupay_api_error");
+      case "invalid_amount", "INVALID_AMOUNT" -> messageService.get(sender, "error.recharge.invalid_amount");
+      case "UNSUPPORTED_CURRENCY" -> messageService.get(sender, "error.recharge.unsupported_currency");
+      case "ORDER_NOT_FOUND" -> messageService.get(sender, "error.recharge.order_not_found");
+      case "PROVIDER_ORDER_MISMATCH" -> messageService.get(sender, "error.recharge.provider_order_mismatch");
+      case "AMOUNT_MISMATCH" -> messageService.get(sender, "error.recharge.amount_mismatch");
+      case "CURRENCY_MISMATCH" -> messageService.get(sender, "error.recharge.currency_mismatch");
+      case "ORDER_CLOSED" -> messageService.get(sender, "error.recharge.order_closed");
+      case "INVALID_STATUS" -> messageService.get(sender, "error.recharge.invalid_status");
+      case "user_missing" -> messageService.get(sender, "error.recharge.user_missing");
+      case "bad_request" -> messageService.get(sender, "error.recharge.bad_request");
+      case "internal_error" -> messageService.get(sender, "error.recharge.internal_error");
+      default -> exception.getMessage();
+    };
+  }
+
+  private String humanizeWalletError(CommandSender sender, ServiceException exception) {
+    return switch (exception.code()) {
+      case "user_not_found" -> messageService.get(sender, "error.wallet.user_not_found");
+      case "invalid_amount" -> messageService.get(sender, "error.wallet.invalid_amount");
+      case "invalid_currency" -> messageService.get(sender, "error.wallet.invalid_currency");
+      case "insufficient_funds" -> messageService.get(sender, "error.wallet.insufficient_funds");
+      case "vault_unavailable" -> messageService.get(sender, "error.wallet.vault_unavailable");
+      case "vault_error" -> messageService.get(sender, "error.wallet.vault_error");
+      default -> exception.getMessage();
+    };
+  }
+
+  private String currencyDisplayName(CurrencyType currency) {
+    PluginSettings.CurrencyDisplaySettings display = settingsSupplier.get().currencyDisplaySettings();
+    return switch (currency) {
+      case SHOP_COIN -> display.shopCoinName();
+      case GAME_COIN -> display.gameCoinName();
+    };
+  }
+
+  private long balanceFor(WalletService.WalletBalance balance, CurrencyType currency) {
+    return switch (currency) {
+      case SHOP_COIN -> balance.shopCoin();
+      case GAME_COIN -> balance.gameCoin();
     };
   }
 

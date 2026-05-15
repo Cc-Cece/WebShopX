@@ -357,12 +357,14 @@ public class WebShopPlugin extends JavaPlugin {
         authService,
         redeemCodeService,
         rechargeService,
+        adminService,
         marketService,
         marketGuiService,
         deliveryService,
         mailboxService,
         messageService,
-        schedulerBridge);
+        schedulerBridge,
+        this::settings);
     PluginCommand rootCommand = getCommand("webshopx");
     if (rootCommand == null) {
       throw new IllegalStateException("Command 'webshopx' is not defined in plugin.yml");

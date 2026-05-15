@@ -15,7 +15,7 @@ libraries:
 commands:
   webshopx:
     description: WebShopX unified command
-    usage: "/webshopx <password|market|claim|mailbox|reload|redeem|help>"
+    usage: "/webshopx <password|market|claim|mailbox|recharge|gamecoin|shopcoin|reload|redeem|help>"
     aliases: [ws]
 softdepend: [Vault, YuPay]
 permissions:
