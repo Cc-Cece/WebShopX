@@ -45,7 +45,7 @@ processResources {
 jar {
     manifest {
         attributes(
-                'Implementation-Title': 'WebShopX Fabric M2',
+                'Implementation-Title': 'WebShopX Fabric Runtime',
                 'Implementation-Version': project.version,
                 'Automatic-Module-Name': 'com.webshopx.fabric'
         )
@@ -57,4 +57,27 @@ tasks.register('runM2FabricSmoke', JavaExec) {
     description = 'Runs the Fabric M2 runtime smoke bootstrap without game runtime.'
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.webshopx.fabric.WebShopXFabricSmoke'
+    systemProperty 'webshopx.runtime.line', '1.21.x'
+}
+
+tasks.register('runM3FabricMainlineSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the Fabric M3 mainline (1.21.x) runtime smoke bootstrap.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.webshopx.fabric.WebShopXFabricSmoke'
+    systemProperty 'webshopx.runtime.line', '1.21.x'
+}
+
+tasks.register('runM3FabricBackportSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the Fabric M3 backport (1.20.6) runtime smoke bootstrap.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.webshopx.fabric.WebShopXFabricSmoke'
+    systemProperty 'webshopx.runtime.line', '1.20.6'
+}
+
+tasks.register('runM3FabricSmoke') {
+    group = 'verification'
+    description = 'Runs Fabric M3 mainline + backport smoke tasks.'
+    dependsOn 'runM3FabricMainlineSmoke', 'runM3FabricBackportSmoke'
 }

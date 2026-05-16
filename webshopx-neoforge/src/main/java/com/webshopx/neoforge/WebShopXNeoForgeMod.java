@@ -12,6 +12,8 @@ public final class WebShopXNeoForgeMod {
 
   public static final String MOD_ID = "webshopx_neoforge";
   private static final Logger LOGGER = LoggerFactory.getLogger("WebShopX/NeoForge");
+  private static final String RUNTIME_LOADER = "neoforge";
+  private static final String DEFAULT_RUNTIME_LINE = "1.21.x";
   private static final AtomicReference<M2RuntimeBootstrap.RuntimeHandle> RUNTIME_HANDLE = new AtomicReference<>();
 
   public WebShopXNeoForgeMod() {
@@ -29,8 +31,9 @@ public final class WebShopXNeoForgeMod {
 
   private static void bootstrapRuntime(String source) {
     try {
+      String runtimeId = runtimeId();
       M2RuntimeBootstrap.RuntimeHandle runtimeHandle = M2RuntimeBootstrap.start(
-          "neoforge-1.21.x",
+          runtimeId,
           resolveVersion(),
           Path.of("build", "m2-runtime"),
           LOGGER::info);
@@ -59,5 +62,18 @@ public final class WebShopXNeoForgeMod {
     Package selfPackage = WebShopXNeoForgeMod.class.getPackage();
     String implementationVersion = selfPackage == null ? null : selfPackage.getImplementationVersion();
     return implementationVersion == null || implementationVersion.isBlank() ? "dev" : implementationVersion;
+  }
+
+  private static String runtimeId() {
+    return RUNTIME_LOADER + "-" + resolveRuntimeLine();
+  }
+
+  private static String resolveRuntimeLine() {
+    String declared = System.getProperty("webshopx.runtime.line", DEFAULT_RUNTIME_LINE);
+    String trimmed = declared == null ? "" : declared.trim();
+    if ("1.20.6".equals(trimmed) || "1.21.x".equals(trimmed)) {
+      return trimmed;
+    }
+    return DEFAULT_RUNTIME_LINE;
   }
 }

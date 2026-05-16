@@ -62,6 +62,7 @@ public final class M2RuntimeBootstrap {
     RuntimeConfig config = RuntimeConfig.load(runtimeRoot.resolve("m2-runtime.properties"));
     Path sqlitePath = runtimeRoot.resolve(config.sqlitePath()).normalize();
     initializeSchema(sqlitePath);
+    writeRuntimeProbe(sqlitePath, runtimeId, version);
 
     RuntimeState state = new RuntimeState(runtimeId, version, sqlitePath, config.adminToken());
     RuntimeServer server = RuntimeServer.start(config.host(), config.port(), state);
@@ -148,6 +149,23 @@ public final class M2RuntimeBootstrap {
               FOREIGN KEY (product_id) REFERENCES m2_products(id)
             )
             """);
+      }
+    }
+  }
+
+  private static void writeRuntimeProbe(Path sqlitePath, String runtimeId, String version) throws SQLException {
+    try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + sqlitePath.toAbsolutePath())) {
+      try (PreparedStatement statement = connection.prepareStatement("""
+          INSERT INTO m2_runtime_probe (runtime_id, version, boot_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(runtime_id) DO UPDATE SET
+            version = excluded.version,
+            boot_at = excluded.boot_at
+          """)) {
+        statement.setString(1, runtimeId);
+        statement.setString(2, version);
+        statement.setString(3, Instant.now().toString());
+        statement.executeUpdate();
       }
     }
   }
