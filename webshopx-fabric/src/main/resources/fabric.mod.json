@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "webshopx_m0_fabric",
+  "id": "webshopx_fabric",
   "version": "${version}",
-  "name": "WebShopX M0 Fabric Skeleton",
-  "description": "Phase M0 Fabric bootstrap skeleton for WebShopX mod migration.",
+  "name": "WebShopX Fabric Runtime",
+  "description": "WebShopX M2 Fabric runtime with shared API and data loop.",
   "environment": "server",
   "entrypoints": {
     "main": [

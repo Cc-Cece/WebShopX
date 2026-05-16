@@ -67,7 +67,7 @@ test {
 jar {
     manifest {
         attributes(
-                'Implementation-Title': 'WebShopX Core M0',
+                'Implementation-Title': 'WebShopX Core M2',
                 'Implementation-Version': project.version,
                 'Automatic-Module-Name': 'com.webshopx.core'
         )

@@ -1,9 +1,10 @@
 package com.webshopx.fabric;
 
-import com.webshopx.core.M0RuntimeBootstrap;
+import com.webshopx.core.M2RuntimeBootstrap;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicReference;
 import net.fabricmc.api.ModInitializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,8 +12,8 @@ import org.slf4j.LoggerFactory;
 public final class WebShopXFabricMod implements ModInitializer {
 
   private static final Logger LOGGER = LoggerFactory.getLogger("WebShopX/Fabric");
-  private static final String MOD_ID = "webshopx";
-  private static final String RUNTIME_ID = "fabric";
+  private static final String RUNTIME_ID = "fabric-1.21.x";
+  private static final AtomicReference<M2RuntimeBootstrap.RuntimeHandle> RUNTIME_HANDLE = new AtomicReference<>();
 
   @Override
   public void onInitialize() {
@@ -26,20 +27,29 @@ public final class WebShopXFabricMod implements ModInitializer {
 
   private static void bootstrapRuntime(String source) {
     try {
-      M0RuntimeBootstrap.RuntimeHandle runtimeHandle = M0RuntimeBootstrap.start(
+      M2RuntimeBootstrap.RuntimeHandle runtimeHandle = M2RuntimeBootstrap.start(
           RUNTIME_ID,
           resolveVersion(),
-          Path.of("build", "m0-runtime"),
+          Path.of("build", "m2-runtime"),
           LOGGER::info);
-      LOGGER.info("[M0] source={} runtime={} version={} health={}",
+      M2RuntimeBootstrap.RuntimeHandle previous = RUNTIME_HANDLE.getAndSet(runtimeHandle);
+      if (previous != null) {
+        previous.close();
+      }
+      Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+        M2RuntimeBootstrap.RuntimeHandle handle = RUNTIME_HANDLE.getAndSet(null);
+        if (handle != null) {
+          handle.close();
+        }
+      }, "webshopx-fabric-m2-shutdown"));
+      LOGGER.info("[M2] source={} runtime={} version={} endpoint={}",
           source,
           runtimeHandle.runtimeId(),
           runtimeHandle.version(),
-          runtimeHandle.healthEndpoint());
-      runtimeHandle.close();
+          runtimeHandle.endpoint());
     } catch (Exception exception) {
-      LOGGER.error("[M0] Fabric runtime bootstrap failed", exception);
-      throw new IllegalStateException("Fabric M0 bootstrap failed", exception);
+      LOGGER.error("[M2] Fabric runtime bootstrap failed", exception);
+      throw new IllegalStateException("Fabric M2 bootstrap failed", exception);
     }
   }
 
@@ -65,11 +75,11 @@ public final class WebShopXFabricMod implements ModInitializer {
         return null;
       });
       registerMethod.invoke(event, callbackProxy);
-      LOGGER.info("[M0] registered Fabric command bridge: /webshopx-m0-health");
+      LOGGER.info("[M2] registered Fabric command bridge: /webshopx");
     } catch (ClassNotFoundException ignored) {
-      LOGGER.info("[M0] Fabric command API not found; command bridge skipped in this runtime");
+      LOGGER.info("[M2] Fabric command API not found; command bridge skipped in this runtime");
     } catch (Exception exception) {
-      LOGGER.warn("[M0] Failed to register Fabric command bridge", exception);
+      LOGGER.warn("[M2] Failed to register Fabric command bridge", exception);
     }
   }
 
@@ -82,7 +92,7 @@ public final class WebShopXFabricMod implements ModInitializer {
     Class<?> commandClass = Class.forName("com.mojang.brigadier.Command", false, classLoader);
 
     Method literalFactory = literalBuilderClass.getMethod("literal", String.class);
-    Object literalBuilder = literalFactory.invoke(null, "webshopx-m0-health");
+    Object literalBuilder = literalFactory.invoke(null, "webshopx");
 
     Object commandProxy = Proxy.newProxyInstance(classLoader, new Class[] {commandClass}, (proxy, method, args) -> {
       if ("run".equals(method.getName())) {

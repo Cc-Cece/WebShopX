@@ -3,10 +3,10 @@ loaderVersion="[4,)"
 license="MIT"
 
 [[mods]]
-modId="webshopx_m0_neoforge"
+modId="webshopx_neoforge"
 version="${version}"
-displayName="WebShopX M0 NeoForge Skeleton"
+displayName="WebShopX NeoForge Runtime"
 authors="WebShopX"
 description='''
-Phase M0 NeoForge bootstrap skeleton for WebShopX mod migration.
+WebShopX M2 NeoForge runtime with shared API and data loop.
 '''

@@ -23,10 +23,16 @@ repositories {
         name = 'neoforged'
         url = 'https://maven.neoforged.net/releases/'
     }
+    maven {
+        name = 'minecraft'
+        url = 'https://libraries.minecraft.net'
+    }
 }
 
 dependencies {
     implementation project(':webshopx-core')
+    compileOnly 'net.neoforged.fancymodloader:loader:4.0.42'
+    compileOnly 'net.neoforged:bus:8.0.5'
     compileOnly 'org.slf4j:slf4j-api:2.0.17'
 }
 
@@ -44,16 +50,16 @@ processResources {
 jar {
     manifest {
         attributes(
-                'Implementation-Title': 'WebShopX NeoForge M0',
+                'Implementation-Title': 'WebShopX NeoForge M2',
                 'Implementation-Version': project.version,
                 'Automatic-Module-Name': 'com.webshopx.neoforge'
         )
     }
 }
 
-tasks.register('runM0NeoForgeSmoke', JavaExec) {
+tasks.register('runM2NeoForgeSmoke', JavaExec) {
     group = 'verification'
-    description = 'Runs the NeoForge M0 skeleton smoke bootstrap without game runtime.'
+    description = 'Runs the NeoForge M2 runtime smoke bootstrap without game runtime.'
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.webshopx.neoforge.WebShopXNeoForgeSmoke'
 }

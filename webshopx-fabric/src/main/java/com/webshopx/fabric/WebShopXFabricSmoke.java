@@ -1,6 +1,6 @@
 package com.webshopx.fabric;
 
-import com.webshopx.core.M0RuntimeBootstrap;
+import com.webshopx.core.M2RuntimeBootstrap;
 import java.nio.file.Path;
 
 public final class WebShopXFabricSmoke {
@@ -9,12 +9,12 @@ public final class WebShopXFabricSmoke {
   }
 
   public static void main(String[] args) throws Exception {
-    M0RuntimeBootstrap.RuntimeHandle runtimeHandle = M0RuntimeBootstrap.start(
-        "fabric",
+    M2RuntimeBootstrap.RuntimeHandle runtimeHandle = M2RuntimeBootstrap.start(
+        "fabric-1.21.x",
         resolveVersion(),
-        Path.of("build", "m0-runtime"),
+        Path.of("build", "m2-runtime"),
         System.out::println);
-    System.out.println("[M0] Fabric smoke health=" + runtimeHandle.healthEndpoint());
+    System.out.println("[M2] Fabric smoke endpoint=" + runtimeHandle.endpoint());
     runtimeHandle.close();
   }
 

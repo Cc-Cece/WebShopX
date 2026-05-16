@@ -45,16 +45,16 @@ processResources {
 jar {
     manifest {
         attributes(
-                'Implementation-Title': 'WebShopX Fabric M0',
+                'Implementation-Title': 'WebShopX Fabric M2',
                 'Implementation-Version': project.version,
                 'Automatic-Module-Name': 'com.webshopx.fabric'
         )
     }
 }
 
-tasks.register('runM0FabricSmoke', JavaExec) {
+tasks.register('runM2FabricSmoke', JavaExec) {
     group = 'verification'
-    description = 'Runs the Fabric M0 skeleton smoke bootstrap without game runtime.'
+    description = 'Runs the Fabric M2 runtime smoke bootstrap without game runtime.'
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.webshopx.fabric.WebShopXFabricSmoke'
 }
