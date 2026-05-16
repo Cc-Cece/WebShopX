@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'com.gradleup.shadow'
 }
 
 group = rootProject.group
@@ -57,6 +58,13 @@ jar {
     }
 }
 
+shadowJar {
+    archiveClassifier.set('all')
+    mergeServiceFiles()
+}
+
+assemble.dependsOn tasks.named('shadowJar')
+
 tasks.register('runM2NeoForgeSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs the NeoForge M2 runtime smoke bootstrap without game runtime.'
@@ -86,3 +94,4 @@ tasks.register('runM3NeoForgeSmoke') {
     description = 'Runs NeoForge M3 mainline + backport smoke tasks.'
     dependsOn 'runM3NeoForgeMainlineSmoke', 'runM3NeoForgeBackportSmoke'
 }
+

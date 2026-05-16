@@ -497,16 +497,16 @@ tasks.register('runM5ReleaseGate') {
 tasks.register('packageM5StableMods') {
     group = 'build'
     description = 'Collects stable Fabric/NeoForge artifacts into build/releases/m5.'
-    dependsOn ':webshopx-fabric:jar'
-    dependsOn ':webshopx-neoforge:jar'
+    dependsOn ':webshopx-fabric:shadowJar'
+    dependsOn ':webshopx-neoforge:shadowJar'
     doLast {
         File outputDir = layout.buildDirectory.dir('releases/m5').get().asFile
         if (!outputDir.exists()) {
             outputDir.mkdirs()
         }
 
-        File fabricJar = project(':webshopx-fabric').tasks.named('jar', Jar).get().archiveFile.get().asFile
-        File neoforgeJar = project(':webshopx-neoforge').tasks.named('jar', Jar).get().archiveFile.get().asFile
+        File fabricJar = project(':webshopx-fabric').tasks.named('shadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar).get().archiveFile.get().asFile
+        File neoforgeJar = project(':webshopx-neoforge').tasks.named('shadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar).get().archiveFile.get().asFile
 
         if (!fabricJar.exists() || !neoforgeJar.exists()) {
             throw new GradleException("M5 packaging failed: missing mod jars.")

@@ -36,9 +36,11 @@ import java.util.function.Consumer;
 public final class M2RuntimeBootstrap {
 
   private static final Gson GSON = new Gson();
+  private static final Object SQLITE_DRIVER_LOCK = new Object();
   private static final String DEFAULT_HOST = "127.0.0.1";
   private static final int DEFAULT_PORT = 18081;
   private static final String DEFAULT_SQLITE_PATH = "data/webshopx-m2.sqlite";
+  private static volatile boolean SQLITE_DRIVER_READY = false;
 
   private M2RuntimeBootstrap() {
   }
@@ -81,6 +83,7 @@ public final class M2RuntimeBootstrap {
       Files.createDirectories(parent);
     }
 
+    ensureSqliteDriver();
     String jdbcUrl = "jdbc:sqlite:" + sqlitePath.toAbsolutePath();
     try (Connection connection = DriverManager.getConnection(jdbcUrl)) {
       try (Statement statement = connection.createStatement()) {
@@ -154,6 +157,7 @@ public final class M2RuntimeBootstrap {
   }
 
   private static void writeRuntimeProbe(Path sqlitePath, String runtimeId, String version) throws SQLException {
+    ensureSqliteDriver();
     try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + sqlitePath.toAbsolutePath())) {
       try (PreparedStatement statement = connection.prepareStatement("""
           INSERT INTO m2_runtime_probe (runtime_id, version, boot_at)
@@ -166,6 +170,23 @@ public final class M2RuntimeBootstrap {
         statement.setString(2, version);
         statement.setString(3, Instant.now().toString());
         statement.executeUpdate();
+      }
+    }
+  }
+
+  private static void ensureSqliteDriver() throws SQLException {
+    if (SQLITE_DRIVER_READY) {
+      return;
+    }
+    synchronized (SQLITE_DRIVER_LOCK) {
+      if (SQLITE_DRIVER_READY) {
+        return;
+      }
+      try {
+        Class.forName("org.sqlite.JDBC");
+        SQLITE_DRIVER_READY = true;
+      } catch (ClassNotFoundException exception) {
+        throw new SQLException("SQLite JDBC driver is not available on runtime classpath", exception);
       }
     }
   }
@@ -237,6 +258,7 @@ public final class M2RuntimeBootstrap {
   private record RuntimeState(String runtimeId, String version, Path sqlitePath, String adminToken) {
 
     private Connection connection() throws SQLException {
+      ensureSqliteDriver();
       Connection connection = DriverManager.getConnection("jdbc:sqlite:" + sqlitePath.toAbsolutePath());
       try (Statement statement = connection.createStatement()) {
         statement.execute("PRAGMA foreign_keys=ON");
@@ -262,6 +284,7 @@ public final class M2RuntimeBootstrap {
     private static RuntimeServer start(String host, int port, RuntimeState state) throws IOException {
       HttpServer server = HttpServer.create(new InetSocketAddress(host, port), 0);
       ApiHandler handler = new ApiHandler(state);
+      server.createContext("/", handler);
       server.createContext("/health", handler);
       server.createContext("/api/m2", handler);
       server.start();
@@ -305,6 +328,10 @@ public final class M2RuntimeBootstrap {
 
       if ("/health".equals(path) && "GET".equals(method)) {
         handleHealth(exchange);
+        return;
+      }
+      if ("/".equals(path) && "GET".equals(method)) {
+        handleIndex(exchange);
         return;
       }
       if ("/api/m2/runtime".equals(path) && "GET".equals(method)) {
@@ -362,6 +389,29 @@ public final class M2RuntimeBootstrap {
       response.addProperty("version", state.version());
       response.addProperty("adminAuthRequired", state.adminAuthRequired());
       writeJson(exchange, 200, response);
+    }
+
+    private void handleIndex(HttpExchange exchange) throws IOException {
+      String html = """
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>WebShopX Runtime</title>
+          </head>
+          <body>
+            <h1>WebShopX Runtime</h1>
+            <p>Runtime: %s</p>
+            <p>Version: %s</p>
+            <ul>
+              <li><a href="/health">/health</a></li>
+              <li><a href="/api/m2/runtime">/api/m2/runtime</a></li>
+            </ul>
+          </body>
+          </html>
+          """.formatted(state.runtimeId(), state.version());
+      writeHtml(exchange, 200, html);
     }
 
     private void handleRegisterUser(HttpExchange exchange) throws Exception {
@@ -916,6 +966,15 @@ public final class M2RuntimeBootstrap {
       payload.addProperty("error", code);
       payload.addProperty("message", message == null ? code : message);
       writeJson(exchange, status, payload);
+    }
+
+    private void writeHtml(HttpExchange exchange, int status, String html) throws IOException {
+      byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
+      exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+      exchange.sendResponseHeaders(status, bytes.length);
+      try (OutputStream outputStream = exchange.getResponseBody()) {
+        outputStream.write(bytes);
+      }
     }
 
     private Map<String, String> parseQuery(String rawQuery) {

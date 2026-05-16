@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'com.gradleup.shadow'
 }
 
 group = rootProject.group
@@ -52,6 +53,13 @@ jar {
     }
 }
 
+shadowJar {
+    archiveClassifier.set('all')
+    mergeServiceFiles()
+}
+
+assemble.dependsOn tasks.named('shadowJar')
+
 tasks.register('runM2FabricSmoke', JavaExec) {
     group = 'verification'
     description = 'Runs the Fabric M2 runtime smoke bootstrap without game runtime.'
@@ -81,3 +89,4 @@ tasks.register('runM3FabricSmoke') {
     description = 'Runs Fabric M3 mainline + backport smoke tasks.'
     dependsOn 'runM3FabricMainlineSmoke', 'runM3FabricBackportSmoke'
 }
+
