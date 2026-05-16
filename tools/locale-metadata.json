@@ -1,10 +1,70 @@
 {
   "zh-CN": {
-    "name": "Simplified Chinese",
+    "name": "Chinese Simplified",
     "nativeName": "\u7b80\u4f53\u4e2d\u6587"
+  },
+  "zh-TW": {
+    "name": "Chinese Traditional",
+    "nativeName": "\u7e41\u9ad4\u4e2d\u6587"
+  },
+  "zh-HK": {
+    "name": "Chinese Traditional, Hong Kong",
+    "nativeName": "\u7e41\u9ad4\u4e2d\u6587\uff08\u9999\u6e2f\uff09"
   },
   "en-US": {
     "name": "English",
     "nativeName": "English"
+  },
+  "fr": {
+    "name": "French",
+    "nativeName": "Fran\u00e7ais"
+  },
+  "fr-FR": {
+    "name": "French",
+    "nativeName": "Fran\u00e7ais"
+  },
+  "de": {
+    "name": "German",
+    "nativeName": "Deutsch"
+  },
+  "de-DE": {
+    "name": "German",
+    "nativeName": "Deutsch"
+  },
+  "ja": {
+    "name": "Japanese",
+    "nativeName": "\u65e5\u672c\u8a9e"
+  },
+  "ja-JP": {
+    "name": "Japanese",
+    "nativeName": "\u65e5\u672c\u8a9e"
+  },
+  "pt": {
+    "name": "Portuguese",
+    "nativeName": "Portugu\u00eas"
+  },
+  "pt-PT": {
+    "name": "Portuguese",
+    "nativeName": "Portugu\u00eas"
+  },
+  "pt-BR": {
+    "name": "Portuguese",
+    "nativeName": "Portugu\u00eas (Brasil)"
+  },
+  "ru": {
+    "name": "Russian",
+    "nativeName": "\u0420\u0443\u0441\u0441\u043a\u0438\u0439"
+  },
+  "ru-RU": {
+    "name": "Russian",
+    "nativeName": "\u0420\u0443\u0441\u0441\u043a\u0438\u0439"
+  },
+  "es": {
+    "name": "Spanish",
+    "nativeName": "Espa\u00f1ol"
+  },
+  "es-ES": {
+    "name": "Spanish",
+    "nativeName": "Espa\u00f1ol"
   }
 }
