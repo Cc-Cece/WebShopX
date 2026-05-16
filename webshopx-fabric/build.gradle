@@ -1,0 +1,60 @@
+plugins {
+    id 'java'
+}
+
+group = rootProject.group
+version = rootProject.version
+
+String targetRuntime = rootProject.hasProperty('targetRuntime')
+        ? rootProject.property('targetRuntime').toString().trim().toLowerCase(java.util.Locale.ROOT)
+        : '1.20.6+'
+boolean legacy18Runtime = targetRuntime == '1.18.2+'
+int runtimeJavaLanguageVersion = legacy18Runtime ? 17 : 21
+JavaVersion runtimeJavaVersion = legacy18Runtime ? JavaVersion.VERSION_17 : JavaVersion.VERSION_21
+
+java {
+    sourceCompatibility = runtimeJavaVersion
+    targetCompatibility = runtimeJavaVersion
+}
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'fabric'
+        url = 'https://maven.fabricmc.net/'
+    }
+}
+
+dependencies {
+    implementation project(':webshopx-core')
+    compileOnly 'net.fabricmc:fabric-loader:0.16.14'
+    compileOnly 'org.slf4j:slf4j-api:2.0.17'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = runtimeJavaLanguageVersion
+}
+
+processResources {
+    inputs.property('version', project.version)
+    filesMatching('fabric.mod.json') {
+        expand(version: project.version)
+    }
+}
+
+jar {
+    manifest {
+        attributes(
+                'Implementation-Title': 'WebShopX Fabric M0',
+                'Implementation-Version': project.version,
+                'Automatic-Module-Name': 'com.webshopx.fabric'
+        )
+    }
+}
+
+tasks.register('runM0FabricSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the Fabric M0 skeleton smoke bootstrap without game runtime.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.webshopx.fabric.WebShopXFabricSmoke'
+}

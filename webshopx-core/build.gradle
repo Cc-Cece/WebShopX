@@ -1,0 +1,40 @@
+plugins {
+    id 'java-library'
+}
+
+group = rootProject.group
+version = rootProject.version
+
+String targetRuntime = rootProject.hasProperty('targetRuntime')
+        ? rootProject.property('targetRuntime').toString().trim().toLowerCase(java.util.Locale.ROOT)
+        : '1.20.6+'
+boolean legacy18Runtime = targetRuntime == '1.18.2+'
+int runtimeJavaLanguageVersion = legacy18Runtime ? 17 : 21
+JavaVersion runtimeJavaVersion = legacy18Runtime ? JavaVersion.VERSION_17 : JavaVersion.VERSION_21
+
+java {
+    sourceCompatibility = runtimeJavaVersion
+    targetCompatibility = runtimeJavaVersion
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.xerial:sqlite-jdbc:3.50.3.0'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = runtimeJavaLanguageVersion
+}
+
+jar {
+    manifest {
+        attributes(
+                'Implementation-Title': 'WebShopX Core M0',
+                'Implementation-Version': project.version,
+                'Automatic-Module-Name': 'com.webshopx.core'
+        )
+    }
+}

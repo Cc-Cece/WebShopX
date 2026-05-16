@@ -1,0 +1,12 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+
+[[mods]]
+modId="webshopx_m0_neoforge"
+version="${version}"
+displayName="WebShopX M0 NeoForge Skeleton"
+authors="WebShopX"
+description='''
+Phase M0 NeoForge bootstrap skeleton for WebShopX mod migration.
+'''

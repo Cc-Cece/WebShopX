@@ -1,1 +1,4 @@
 rootProject.name = 'WebShopX'
+include 'webshopx-core'
+include 'webshopx-fabric'
+include 'webshopx-neoforge'

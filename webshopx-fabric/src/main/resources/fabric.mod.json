@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "webshopx_m0_fabric",
+  "version": "${version}",
+  "name": "WebShopX M0 Fabric Skeleton",
+  "description": "Phase M0 Fabric bootstrap skeleton for WebShopX mod migration.",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "com.webshopx.fabric.WebShopXFabricMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.14"
+  },
+  "suggests": {
+    "fabric-command-api-v2": "*"
+  }
+}
