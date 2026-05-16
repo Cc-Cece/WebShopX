@@ -459,19 +459,23 @@ public final class M2RuntimeBootstrap {
         try {
           requireUser(connection, userId);
           ensureWallet(connection, userId);
+          boolean applied = insertLedgerEntry(connection, userId, currency, delta, bizType, bizId);
           long balance = readCurrencyBalanceForUpdate(connection, userId, currency);
-          long next = Math.addExact(balance, delta);
-          if (enforceBalance && next < 0) {
-            throw new ServiceException(409, "insufficient_balance", "insufficient wallet balance");
+          long next = balance;
+          if (applied) {
+            next = Math.addExact(balance, delta);
+            if (enforceBalance && next < 0) {
+              throw new ServiceException(409, "insufficient_balance", "insufficient wallet balance");
+            }
+            updateCurrencyBalance(connection, userId, currency, next);
           }
-          updateCurrencyBalance(connection, userId, currency, next);
-          upsertLedger(connection, userId, currency, delta, bizType, bizId);
           connection.commit();
           JsonObject response = new JsonObject();
           response.addProperty("userId", userId);
           response.addProperty("currency", currency);
           response.addProperty("balance", next);
-          response.addProperty("delta", delta);
+          response.addProperty("delta", applied ? delta : 0);
+          response.addProperty("applied", applied);
           writeJson(exchange, 200, response);
         } catch (Exception exception) {
           connection.rollback();
@@ -602,7 +606,16 @@ public final class M2RuntimeBootstrap {
           }
 
           updateCurrencyBalance(connection, userId, product.currency(), next);
-          upsertLedger(connection, userId, product.currency(), -totalAmount, "ORDER_DEBIT", idempotencyKey + ":DEBIT");
+          boolean debitApplied = insertLedgerEntry(
+              connection,
+              userId,
+              product.currency(),
+              -totalAmount,
+              "ORDER_DEBIT",
+              idempotencyKey + ":DEBIT");
+          if (!debitApplied) {
+            throw new ServiceException(409, "idempotency_conflict", "duplicate debit request");
+          }
 
           String orderNo = "M2-" + UUID.randomUUID().toString().replace("-", "").substring(0, 20).toUpperCase();
           try (PreparedStatement insert = connection.prepareStatement("""
@@ -749,7 +762,7 @@ public final class M2RuntimeBootstrap {
       }
     }
 
-    private void upsertLedger(
+    private boolean insertLedgerEntry(
         Connection connection,
         long userId,
         String currency,
@@ -767,7 +780,7 @@ public final class M2RuntimeBootstrap {
         statement.setString(4, bizType);
         statement.setString(5, bizId);
         statement.setString(6, Instant.now().toString());
-        statement.executeUpdate();
+        return statement.executeUpdate() > 0;
       }
     }
 

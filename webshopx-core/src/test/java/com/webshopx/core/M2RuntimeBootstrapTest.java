@@ -1,6 +1,7 @@
 package com.webshopx.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.gson.Gson;
@@ -69,7 +70,15 @@ class M2RuntimeBootstrapTest {
       adjustPayload.addProperty("delta", 500);
       adjustPayload.addProperty("bizType", "TEST_CREDIT");
       adjustPayload.addProperty("bizId", "credit-1");
-      postJson(client, endpoint + "/api/m2/wallet/adjust", GSON.toJson(adjustPayload), "test-admin-token");
+      JsonObject firstAdjust = postJson(client, endpoint + "/api/m2/wallet/adjust", GSON.toJson(adjustPayload), "test-admin-token");
+      assertTrue(firstAdjust.get("applied").getAsBoolean());
+      assertEquals(500L, firstAdjust.get("balance").getAsLong());
+      assertEquals(500L, firstAdjust.get("delta").getAsLong());
+
+      JsonObject duplicateAdjust = postJson(client, endpoint + "/api/m2/wallet/adjust", GSON.toJson(adjustPayload), "test-admin-token");
+      assertFalse(duplicateAdjust.get("applied").getAsBoolean());
+      assertEquals(500L, duplicateAdjust.get("balance").getAsLong());
+      assertEquals(0L, duplicateAdjust.get("delta").getAsLong());
 
       JsonObject orderPayload = new JsonObject();
       orderPayload.addProperty("userId", userId);
