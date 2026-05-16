@@ -94,6 +94,8 @@ configurations {
 }
 
 dependencies {
+    implementation project(':webshopx-core')
+    implementation project(':webshopx-platform-api')
     compileOnly "io.papermc.paper:paper-api:${runtimePaperApiVersion}"
     compileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
     implementation 'org.bstats:bstats-bukkit:3.2.1'

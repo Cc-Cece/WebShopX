@@ -1,6 +1,10 @@
 package com.webshopx;
 
 import com.tchristofferson.configupdater.ConfigUpdater;
+import com.webshopx.platform.EconomyGateway;
+import com.webshopx.platform.MessageDispatchGateway;
+import com.webshopx.platform.PlayerContextGateway;
+import com.webshopx.platform.SchedulerGateway;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -59,6 +63,10 @@ public class WebShopPlugin extends JavaPlugin {
   private BusinessLedgerLogService businessLedgerLogService;
   private BStatsTelemetryService bStatsTelemetryService;
   private SchedulerBridge schedulerBridge;
+  private PlayerContextGateway playerContextGateway;
+  private SchedulerGateway schedulerGateway;
+  private EconomyGateway economyGateway;
+  private MessageDispatchGateway messageDispatchGateway;
   private Metrics metrics;
   private SchedulerBridge.TaskHandle deliveryTask;
   private SchedulerBridge.TaskHandle maintenanceTask;
@@ -80,6 +88,10 @@ public class WebShopPlugin extends JavaPlugin {
       staticAssetInstaller = new StaticAssetInstaller(this);
       textureAssetManager = new TextureAssetManager(this, schedulerBridge);
       messageService = new MessageService(this, this::settings);
+      playerContextGateway = new BukkitPlayerContextGateway();
+      schedulerGateway = new BukkitSchedulerGateway(schedulerBridge);
+      economyGateway = new BukkitEconomyGateway(this);
+      messageDispatchGateway = new BukkitMessageDispatchGateway(this, messageService);
       getLogger().info("Scheduler runtime detected: " + schedulerBridge.runtimeName());
 
       enforceDatabaseModeGuard();

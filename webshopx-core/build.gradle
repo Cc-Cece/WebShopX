@@ -18,15 +18,50 @@ java {
 }
 
 repositories {
+    maven {
+        name = 'papermc'
+        url = 'https://repo.papermc.io/repository/maven-public/'
+        content {
+            includeModule("io.papermc.paper", "paper-api")
+            includeModule("net.md-5", "bungeecord-chat")
+            includeGroup("io.papermc.adventure")
+        }
+    }
+    maven {
+        name = 'jitpack'
+        url = 'https://jitpack.io'
+    }
+    maven {
+        name = 'minecraft'
+        url = 'https://libraries.minecraft.net'
+        content {
+            includeModule("com.mojang", "brigadier")
+        }
+    }
     mavenCentral()
 }
 
 dependencies {
+    api project(':webshopx-platform-api')
+    implementation 'com.zaxxer:HikariCP:5.1.0'
+    implementation 'com.google.code.gson:gson:2.11.0'
+    implementation('org.mariadb.jdbc:mariadb-java-client:3.3.3') {
+        exclude group: 'com.github.waffle', module: 'waffle-jna'
+    }
     implementation 'org.xerial:sqlite-jdbc:3.50.3.0'
+    compileOnly "io.papermc.paper:paper-api:${legacy18Runtime ? '1.18.2-R0.1-SNAPSHOT' : '1.20.6-R0.1-SNAPSHOT'}"
+    compileOnly 'com.github.MilkBowl:VaultAPI:1.7.1'
+    compileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.13.4'
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.release = runtimeJavaLanguageVersion
+}
+
+test {
+    useJUnitPlatform()
 }
 
 jar {
