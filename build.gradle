@@ -1,5 +1,6 @@
 import com.github.spotbugs.snom.SpotBugsTask
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import java.time.LocalDate
 
 plugins {
     id 'checkstyle'
@@ -34,6 +35,17 @@ def variantClassifier = { String baseClassifier ->
 def foliaVariantClassifier = { String baseClassifier ->
     "${baseClassifier}-${foliaClassifierSuffix}"
 }
+
+boolean enableForgeCompat = hasProperty('enableForgeCompat') && isTruthy(property('enableForgeCompat'))
+String forgeCompatDecisionDate = hasProperty('forgeCompatDecisionDate')
+        ? property('forgeCompatDecisionDate').toString().trim()
+        : LocalDate.now().toString()
+String forgeCompatDecisionOwner = hasProperty('forgeCompatDecisionOwner')
+        ? property('forgeCompatDecisionOwner').toString().trim()
+        : 'codex'
+String forgeCompatDecisionReason = hasProperty('forgeCompatDecisionReason')
+        ? property('forgeCompatDecisionReason').toString().trim()
+        : 'M4 default decision: keep Forge line disabled until explicit demand and data thresholds are met.'
 
 static boolean isTruthy(Object value) {
     if (value == null) {
@@ -404,4 +416,159 @@ tasks.register('release') {
                             + File.separator + rootProject.name + '.jar')
         }
     }
+}
+
+tasks.register('evaluateM4ForgeLine') {
+    group = 'verification'
+    description = 'Evaluates and records the M4 Forge compatibility line decision.'
+    doLast {
+        File outputDir = layout.buildDirectory.dir('reports/m4').get().asFile
+        if (!outputDir.exists()) {
+            outputDir.mkdirs()
+        }
+
+        Map<String, Object> decision = [
+                milestone              : 'M4',
+                decisionDate           : forgeCompatDecisionDate,
+                decisionOwner          : forgeCompatDecisionOwner,
+                forgeCompatEnabled     : enableForgeCompat,
+                reason                 : forgeCompatDecisionReason,
+                triggerPolicy          : [
+                        minMonthlyForgeDownloads: 200,
+                        minOpenForgeTickets     : 10,
+                        minForgeUserSharePercent: 20
+                ],
+                lifecyclePolicy        : [
+                        leadLagIterations: '1-2',
+                        stabilityPriority: true,
+                        firstReleaseOnMainline: false
+                ],
+                baselineCompatibility  : [
+                        mainline         : '1.21.x + Fabric/NeoForge',
+                        backport         : '1.20.6 + Fabric/NeoForge',
+                        optionalForgeLine: '1.20.1/1.19.2 + Forge'
+                ]
+        ]
+
+        File outputFile = new File(outputDir, 'forge-line-decision.json')
+        outputFile.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(decision))
+
+        if (enableForgeCompat) {
+            File forgeModuleBuild = file('webshopx-forge/build.gradle')
+            if (!forgeModuleBuild.exists()) {
+                throw new GradleException(
+                        "enableForgeCompat=true but module file is missing: ${forgeModuleBuild}. " +
+                                "Please scaffold webshopx-forge before enabling Forge compatibility line.")
+            }
+        }
+        println "M4 Forge decision written: ${outputFile}"
+    }
+}
+
+tasks.register('runM4CompatibilityGate') {
+    group = 'verification'
+    description = 'Runs M4 decision record + baseline regressions to keep compatibility work non-disruptive.'
+    dependsOn tasks.named('evaluateM4ForgeLine')
+    dependsOn ':webshopx-core:test'
+    dependsOn ':webshopx-fabric:runM3FabricSmoke'
+    dependsOn ':webshopx-neoforge:runM3NeoForgeSmoke'
+}
+
+boolean allowSnapshotStableRelease = hasProperty('allowSnapshotStableRelease') && isTruthy(property('allowSnapshotStableRelease'))
+
+tasks.register('runM5ReleaseGate') {
+    group = 'verification'
+    description = 'Runs M5 stable release gate: M4 compatibility + full regression + assemble.'
+    dependsOn tasks.named('runM4CompatibilityGate')
+    dependsOn tasks.named('test')
+    dependsOn tasks.named('assemble')
+    doLast {
+        if (!allowSnapshotStableRelease && version.toString().endsWith('-SNAPSHOT')) {
+            throw new GradleException(
+                    "M5 stable release gate failed: snapshot version is not allowed (${version}). " +
+                            "Use -PallowSnapshotStableRelease=true to override for pre-release drills.")
+        }
+        println "M5 release gate passed for version ${version}."
+    }
+}
+
+tasks.register('packageM5StableMods') {
+    group = 'build'
+    description = 'Collects stable Fabric/NeoForge artifacts into build/releases/m5.'
+    dependsOn ':webshopx-fabric:jar'
+    dependsOn ':webshopx-neoforge:jar'
+    doLast {
+        File outputDir = layout.buildDirectory.dir('releases/m5').get().asFile
+        if (!outputDir.exists()) {
+            outputDir.mkdirs()
+        }
+
+        File fabricJar = project(':webshopx-fabric').tasks.named('jar', Jar).get().archiveFile.get().asFile
+        File neoforgeJar = project(':webshopx-neoforge').tasks.named('jar', Jar).get().archiveFile.get().asFile
+
+        if (!fabricJar.exists() || !neoforgeJar.exists()) {
+            throw new GradleException("M5 packaging failed: missing mod jars.")
+        }
+
+        copy {
+            from fabricJar
+            into outputDir
+            rename { "webshopx-fabric-${version}-stable.jar" }
+        }
+        copy {
+            from neoforgeJar
+            into outputDir
+            rename { "webshopx-neoforge-${version}-stable.jar" }
+        }
+
+        println "M5 stable mod artifacts prepared at ${outputDir}"
+    }
+}
+
+tasks.register('generateM5ReleaseReport') {
+    group = 'verification'
+    description = 'Generates M5 stable release readiness report.'
+    dependsOn tasks.named('runM5ReleaseGate')
+    dependsOn tasks.named('packageM5StableMods')
+    doLast {
+        File releaseDir = layout.buildDirectory.dir('releases/m5').get().asFile
+        File reportDir = layout.buildDirectory.dir('reports/m5').get().asFile
+        if (!reportDir.exists()) {
+            reportDir.mkdirs()
+        }
+
+        List<String> artifacts = releaseDir.exists()
+                ? (releaseDir.listFiles()?.findAll { it.name.endsWith('.jar') }?.collect { it.name }?.sort() ?: [])
+                : []
+        if (artifacts.isEmpty()) {
+            throw new GradleException("M5 release report failed: no stable artifacts found in ${releaseDir}.")
+        }
+
+        Map<String, Object> report = [
+                milestone        : 'M5',
+                releaseDate      : LocalDate.now().toString(),
+                version          : version.toString(),
+                stableGatePassed : true,
+                forgeCompatEnabled: enableForgeCompat,
+                artifacts        : artifacts,
+                verification     : [
+                        'runM4CompatibilityGate',
+                        'test',
+                        'assemble',
+                        ':webshopx-fabric:runM3FabricSmoke',
+                        ':webshopx-neoforge:runM3NeoForgeSmoke'
+                ],
+                migrationDoc     : '.docs/reports/M5-插件到Mod迁移运维指南.md'
+        ]
+
+        File reportFile = new File(reportDir, 'release-readiness.json')
+        reportFile.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(report))
+        println "M5 release readiness report written: ${reportFile}"
+    }
+}
+
+tasks.register('releaseM5Stable') {
+    group = 'build'
+    description = 'One-command M5 stable release pipeline.'
+    dependsOn tasks.named('generateM5ReleaseReport')
 }
