@@ -1,7 +1,9 @@
 package com.webshopx.fabric;
 
 import com.webshopx.core.M2RuntimeBootstrap;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 public final class WebShopXFabricSmoke {
 
@@ -12,13 +14,26 @@ public final class WebShopXFabricSmoke {
 
   public static void main(String[] args) throws Exception {
     String runtimeLine = resolveRuntimeLine(args);
+    Path smokeRoot = prepareSmokeRoot("fabric-" + runtimeLine);
     M2RuntimeBootstrap.RuntimeHandle runtimeHandle = M2RuntimeBootstrap.start(
         "fabric-" + runtimeLine,
         resolveVersion(),
-        Path.of("build", "m2-runtime"),
+        smokeRoot,
         System.out::println);
     System.out.println("[M2] Fabric smoke line=" + runtimeLine + " endpoint=" + runtimeHandle.endpoint());
     runtimeHandle.close();
+  }
+
+  private static Path prepareSmokeRoot(String runtimeId) throws Exception {
+    Path root = Files.createTempDirectory("webshopx-fabric-smoke-");
+    Path runtimeRoot = root.resolve(runtimeId);
+    Files.createDirectories(runtimeRoot);
+    Files.write(runtimeRoot.resolve("m2-runtime.properties"), List.of(
+        "http.host=127.0.0.1",
+        "http.port=0",
+        "sqlite.path=data/smoke.sqlite",
+        "admin.token="));
+    return root;
   }
 
   private static String resolveVersion() {

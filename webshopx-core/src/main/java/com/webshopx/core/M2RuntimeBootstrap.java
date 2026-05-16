@@ -9,6 +9,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -40,6 +41,7 @@ public final class M2RuntimeBootstrap {
   private static final String DEFAULT_HOST = "127.0.0.1";
   private static final int DEFAULT_PORT = 18081;
   private static final String DEFAULT_SQLITE_PATH = "data/webshopx-m2.sqlite";
+  private static final String STATIC_WEB_ROOT = "web/";
   private static volatile boolean SQLITE_DRIVER_READY = false;
 
   private M2RuntimeBootstrap() {
@@ -239,7 +241,7 @@ public final class M2RuntimeBootstrap {
     private static int parsePort(String raw) {
       try {
         int value = Integer.parseInt(raw.trim());
-        return value > 0 && value <= 65535 ? value : DEFAULT_PORT;
+        return value >= 0 && value <= 65535 ? value : DEFAULT_PORT;
       } catch (Exception ignored) {
         return DEFAULT_PORT;
       }
@@ -326,12 +328,15 @@ public final class M2RuntimeBootstrap {
       URI uri = exchange.getRequestURI();
       String path = uri.getPath();
 
+      if ("/config.js".equals(path) && "GET".equals(method)) {
+        handleRuntimeConfigJs(exchange);
+        return;
+      }
       if ("/health".equals(path) && "GET".equals(method)) {
         handleHealth(exchange);
         return;
       }
-      if ("/".equals(path) && "GET".equals(method)) {
-        handleIndex(exchange);
+      if ("GET".equals(method) && tryHandleStaticWeb(exchange, path)) {
         return;
       }
       if ("/api/m2/runtime".equals(path) && "GET".equals(method)) {
@@ -371,6 +376,11 @@ public final class M2RuntimeBootstrap {
         handleListOrders(exchange, query.get("userId"));
         return;
       }
+      if (path.startsWith("/api/")) {
+        writeError(exchange, 501, "mod_endpoint_not_implemented",
+            "route is not available in current Mod runtime: " + path);
+        return;
+      }
       writeError(exchange, 404, "not_found", "endpoint not found");
     }
 
@@ -391,27 +401,113 @@ public final class M2RuntimeBootstrap {
       writeJson(exchange, 200, response);
     }
 
-    private void handleIndex(HttpExchange exchange) throws IOException {
-      String html = """
-          <!doctype html>
-          <html lang="en">
-          <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>WebShopX Runtime</title>
-          </head>
-          <body>
-            <h1>WebShopX Runtime</h1>
-            <p>Runtime: %s</p>
-            <p>Version: %s</p>
-            <ul>
-              <li><a href="/health">/health</a></li>
-              <li><a href="/api/m2/runtime">/api/m2/runtime</a></li>
-            </ul>
-          </body>
-          </html>
-          """.formatted(state.runtimeId(), state.version());
-      writeHtml(exchange, 200, html);
+    private void handleRuntimeConfigJs(HttpExchange exchange) throws IOException {
+      String script = """
+          window.WEBSHOPX_CONFIG = Object.freeze({
+            runtime: %s,
+            version: %s,
+            apiBaseUrl: "",
+            defaultLocale: "zh-CN",
+            docsManifest: "docs/index.json"
+          });
+          """.formatted(
+          GSON.toJson(state.runtimeId()),
+          GSON.toJson(state.version()));
+      writeText(exchange, 200, "application/javascript; charset=utf-8", script);
+    }
+
+    private boolean tryHandleStaticWeb(HttpExchange exchange, String rawPath) throws IOException {
+      String path = normalizePath(rawPath);
+      String resourcePath = switch (path) {
+        case "/", "/index", "/index.html" -> STATIC_WEB_ROOT + "index.html";
+        case "/admin", "/admin.html" -> STATIC_WEB_ROOT + "admin.html";
+        case "/help", "/help.html" -> STATIC_WEB_ROOT + "help.html";
+        default -> null;
+      };
+
+      if (resourcePath != null) {
+        writeClasspathResource(exchange, resourcePath);
+        return true;
+      }
+
+      if (path.startsWith("/web/")) {
+        writeClasspathResource(exchange, STATIC_WEB_ROOT + path.substring("/web/".length()));
+        return true;
+      }
+
+      if (path.startsWith("/css/")
+          || path.startsWith("/js/")
+          || path.startsWith("/vendor/")
+          || path.startsWith("/docs/")
+          || path.startsWith("/i18n/")
+          || "/material_zh.json".equals(path)) {
+        writeClasspathResource(exchange, STATIC_WEB_ROOT + path.substring(1));
+        return true;
+      }
+      return false;
+    }
+
+    private String normalizePath(String rawPath) {
+      if (rawPath == null || rawPath.isBlank()) {
+        return "/";
+      }
+      String normalized = rawPath.trim().replace('\\', '/');
+      while (normalized.contains("//")) {
+        normalized = normalized.replace("//", "/");
+      }
+      if (!normalized.startsWith("/")) {
+        normalized = "/" + normalized;
+      }
+      return normalized;
+    }
+
+    private void writeClasspathResource(HttpExchange exchange, String resourcePath) throws IOException {
+      String normalized = resourcePath.replace('\\', '/');
+      if (normalized.contains("..")) {
+        throw new ServiceException(400, "bad_path", "invalid resource path");
+      }
+      try (InputStream inputStream = M2RuntimeBootstrap.class.getClassLoader().getResourceAsStream(normalized)) {
+        if (inputStream == null) {
+          throw new ServiceException(404, "not_found", "resource not found");
+        }
+        byte[] bytes = inputStream.readAllBytes();
+        writeBytes(exchange, 200, contentType(normalized), bytes);
+      }
+    }
+
+    private String contentType(String resourcePath) {
+      String lower = resourcePath.toLowerCase();
+      if (lower.endsWith(".html")) {
+        return "text/html; charset=utf-8";
+      }
+      if (lower.endsWith(".css")) {
+        return "text/css; charset=utf-8";
+      }
+      if (lower.endsWith(".js")) {
+        return "application/javascript; charset=utf-8";
+      }
+      if (lower.endsWith(".json")) {
+        return "application/json; charset=utf-8";
+      }
+      if (lower.endsWith(".md")) {
+        return "text/markdown; charset=utf-8";
+      }
+      if (lower.endsWith(".svg")) {
+        return "image/svg+xml";
+      }
+      if (lower.endsWith(".png")) {
+        return "image/png";
+      }
+      if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+        return "image/jpeg";
+      }
+      if (lower.endsWith(".gif")) {
+        return "image/gif";
+      }
+      if (lower.endsWith(".webp")) {
+        return "image/webp";
+      }
+      return "application/octet-stream";
     }
 
     private void handleRegisterUser(HttpExchange exchange) throws Exception {
@@ -954,11 +1050,7 @@ public final class M2RuntimeBootstrap {
 
     private void writeJson(HttpExchange exchange, int status, JsonObject payload) throws IOException {
       byte[] bytes = GSON.toJson(payload).getBytes(StandardCharsets.UTF_8);
-      exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
-      exchange.sendResponseHeaders(status, bytes.length);
-      try (OutputStream outputStream = exchange.getResponseBody()) {
-        outputStream.write(bytes);
-      }
+      writeBytes(exchange, status, "application/json; charset=utf-8", bytes);
     }
 
     private void writeError(HttpExchange exchange, int status, String code, String message) throws IOException {
@@ -968,9 +1060,12 @@ public final class M2RuntimeBootstrap {
       writeJson(exchange, status, payload);
     }
 
-    private void writeHtml(HttpExchange exchange, int status, String html) throws IOException {
-      byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
-      exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+    private void writeText(HttpExchange exchange, int status, String contentType, String value) throws IOException {
+      writeBytes(exchange, status, contentType, value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private void writeBytes(HttpExchange exchange, int status, String contentType, byte[] bytes) throws IOException {
+      exchange.getResponseHeaders().set("Content-Type", contentType);
       exchange.sendResponseHeaders(status, bytes.length);
       try (OutputStream outputStream = exchange.getResponseBody()) {
         outputStream.write(bytes);

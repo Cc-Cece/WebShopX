@@ -4,6 +4,7 @@ import com.webshopx.core.M2RuntimeBootstrap;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReference;
 import net.fabricmc.api.ModInitializer;
 import org.slf4j.Logger;
@@ -82,7 +83,10 @@ public final class WebShopXFabricMod implements ModInitializer {
           true,
           classLoader);
       Object event = callbackClass.getField("EVENT").get(null);
-      Method registerMethod = event.getClass().getMethod("register", callbackClass);
+      Method registerMethod = Arrays.stream(event.getClass().getMethods())
+          .filter(method -> "register".equals(method.getName()) && method.getParameterCount() == 1)
+          .findFirst()
+          .orElseThrow(() -> new NoSuchMethodException("register(listener)"));
       Object callbackProxy = Proxy.newProxyInstance(classLoader, new Class[] {callbackClass}, (proxy, method, args) -> {
         if ("register".equals(method.getName()) && args != null && args.length >= 1) {
           registerCommand(args[0]);

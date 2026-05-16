@@ -54,9 +54,13 @@ jar {
 }
 
 shadowJar {
-    archiveClassifier.set('all')
+    dependsOn project(':webshopx-core').tasks.named('processResources')
+    from(project(':webshopx-core').layout.buildDirectory.dir('resources/main'))
+    archiveClassifier.set('')
     mergeServiceFiles()
 }
+
+jar.enabled = false
 
 assemble.dependsOn tasks.named('shadowJar')
 

@@ -2,6 +2,7 @@ package com.webshopx.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.gson.Gson;
@@ -98,6 +99,49 @@ class M2RuntimeBootstrapTest {
     }
   }
 
+  @Test
+  void runtimeServesWebResourcesAndReturnsApiCompatibilityErrors() throws Exception {
+    Path tempRoot = Files.createTempDirectory("webshopx-core-m2-static-test-");
+    Path runtimeRoot = tempRoot.resolve("fabric-1.21.x");
+    Files.createDirectories(runtimeRoot);
+    Files.writeString(runtimeRoot.resolve("m2-runtime.properties"), String.join(System.lineSeparator(),
+        "http.host=127.0.0.1",
+        "http.port=0",
+        "sqlite.path=data/test-m2.sqlite",
+        "admin.token="));
+
+    HttpClient client = HttpClient.newHttpClient();
+    try (M2RuntimeBootstrap.RuntimeHandle handle = M2RuntimeBootstrap.start(
+        "fabric-1.21.x",
+        "test",
+        tempRoot,
+        ignored -> {
+        })) {
+      String endpoint = handle.endpoint();
+
+      HttpResponse<String> home = getText(client, endpoint + "/", null);
+      assertEquals(200, home.statusCode());
+      assertTrue(home.body().contains("WebShopX"));
+
+      HttpResponse<String> admin = getText(client, endpoint + "/admin", null);
+      assertEquals(200, admin.statusCode());
+      assertTrue(admin.body().contains("window.WEBSHOPX_VERSION"));
+
+      HttpResponse<String> config = getText(client, endpoint + "/config.js", null);
+      assertEquals(200, config.statusCode());
+      assertTrue(config.body().contains("window.WEBSHOPX_CONFIG"));
+
+      HttpResponse<String> stylesheet = getText(client, endpoint + "/css/styles.css", null);
+      assertEquals(200, stylesheet.statusCode());
+      assertNotNull(stylesheet.headers().firstValue("content-type").orElse(null));
+
+      HttpResponse<String> legacyApi = getText(client, endpoint + "/api/auth/login", null);
+      assertEquals(501, legacyApi.statusCode());
+      JsonObject payload = GSON.fromJson(legacyApi.body(), JsonObject.class);
+      assertEquals("mod_endpoint_not_implemented", payload.get("error").getAsString());
+    }
+  }
+
   private JsonObject getJson(HttpClient client, String url, String adminToken) throws Exception {
     HttpRequest.Builder builder = HttpRequest.newBuilder()
         .GET()
@@ -121,5 +165,15 @@ class M2RuntimeBootstrapTest {
     HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     assertTrue(response.statusCode() >= 200 && response.statusCode() < 300, response.body());
     return GSON.fromJson(response.body(), JsonObject.class);
+  }
+
+  private HttpResponse<String> getText(HttpClient client, String url, String adminToken) throws Exception {
+    HttpRequest.Builder builder = HttpRequest.newBuilder()
+        .GET()
+        .uri(URI.create(url));
+    if (adminToken != null) {
+      builder.header("X-WebShopX-Admin-Token", adminToken);
+    }
+    return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
   }
 }
