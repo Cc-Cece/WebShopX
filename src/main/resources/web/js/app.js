@@ -1038,6 +1038,8 @@ function setupHeaderOverflowMenu() {
     });
   };
 
+  controls.refreshOverflowMenuLayout = scheduleLayout;
+
   const relayout = () => {
     const isMobile = mobileQuery.matches;
     closeMenu();
@@ -1088,16 +1090,6 @@ function setupHeaderOverflowMenu() {
     observer.observe(controls);
   } else {
     window.addEventListener("resize", scheduleLayout);
-  }
-
-  if (typeof MutationObserver === "function") {
-    const observer = new MutationObserver(() => scheduleLayout());
-    observer.observe(controls, {
-      subtree: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: ["class", "style"],
-    });
   }
 
   if (typeof mobileQuery.addEventListener === "function") {
@@ -2696,6 +2688,12 @@ function updateAccountBackButtonVisibility() {
   }
   const shouldShow = !!state.token && ACCOUNT_CHILD_TABS.has(state.activeTab);
   elements.headerAccountBackBtn.classList.toggle("hidden", !shouldShow);
+  if (
+    elements.headerControls
+    && typeof elements.headerControls.refreshOverflowMenuLayout === "function"
+  ) {
+    elements.headerControls.refreshOverflowMenuLayout();
+  }
 }
 
 function updateNotificationBadge() {

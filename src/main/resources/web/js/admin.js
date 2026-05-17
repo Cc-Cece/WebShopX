@@ -14,6 +14,11 @@
   selectedAdminManager: null,
   latestRedeemCode: null,
   theme: "light",
+  themePackage: "default",
+  themeHeader: {
+    defaultTheme: "default",
+    themes: [],
+  },
   materialMap: {},
   materialLookup: {},
   materialMapReady: false,
@@ -512,6 +517,7 @@ const elements = {
   headerControls: document.getElementById("adminHeaderControls"),
   headerMoreBtn: document.getElementById("adminHeaderMoreBtn"),
   headerMoreMenu: document.getElementById("adminHeaderMoreMenu"),
+  adminThemeSelect: document.getElementById("adminThemeSelect"),
   adminThemeToggleBtn: document.getElementById("adminThemeToggleBtn"),
   adminIdentifier: document.getElementById("adminIdentifier"),
   adminPassword: document.getElementById("adminPassword"),
@@ -964,6 +970,20 @@ function notify(message, tone = "info", durationMs = 3200) {
 }
 
 const THEME_STORAGE_KEY = "webshopx_theme";
+const THEME_PACKAGE_STORAGE_KEY = "webshopx_theme_package";
+const THEME_LIGHT_OVERRIDE_LINK_ID = "themeOverrideLight";
+const THEME_DARK_OVERRIDE_LINK_ID = "themeOverrideDark";
+const THEME_HEADER_DEFAULTS = Object.freeze({
+  defaultTheme: "default",
+  themes: [
+    {
+      themeId: "default",
+      name: getAdminPageText("themeManagerDefaultThemeLabel", "Default Theme"),
+      source: "built-in",
+      version: "builtin-1",
+    },
+  ],
+});
 
 function getInitialTheme() {
   const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -991,6 +1011,166 @@ function applyTheme(theme) {
 
 function toggleTheme() {
   applyTheme(state.theme === "dark" ? "light" : "dark");
+}
+
+function cloneThemeHeaderDefaults() {
+  return JSON.parse(JSON.stringify(THEME_HEADER_DEFAULTS));
+}
+
+function normalizeThemePackageId(raw) {
+  const themeId = String(raw || "").trim().toLowerCase().replaceAll(" ", "-");
+  if (!themeId) {
+    return "";
+  }
+  if (!/^[a-z0-9][a-z0-9._-]{0,47}$/.test(themeId)) {
+    return "";
+  }
+  return themeId;
+}
+
+function normalizeThemeHeaderRecord(raw) {
+  const themeId = normalizeThemePackageId(raw?.themeId || raw?.id || raw?.key || raw?.theme);
+  if (!themeId) {
+    return null;
+  }
+  return {
+    themeId,
+    name: String(raw?.name || themeId).trim() || themeId,
+    source: String(raw?.source || "upload").trim().toLowerCase(),
+    version: String(raw?.version || "").trim(),
+  };
+}
+
+function applyThemeHeaderState(rawState) {
+  const fallback = cloneThemeHeaderDefaults();
+  const source = rawState && typeof rawState === "object" ? rawState : fallback;
+  const themes = Array.isArray(source.themes)
+    ? source.themes.map((item) => normalizeThemeHeaderRecord(item)).filter(Boolean)
+    : fallback.themes.map((item) => normalizeThemeHeaderRecord(item)).filter(Boolean);
+  state.themeHeader = {
+    defaultTheme: normalizeThemePackageId(source.defaultTheme) || fallback.defaultTheme,
+    themes,
+  };
+}
+
+function loadThemeHeaderState() {
+  applyThemeHeaderState(cloneThemeHeaderDefaults());
+}
+
+function renderAdminThemeSelect() {
+  if (!elements.adminThemeSelect) {
+    return;
+  }
+  const select = elements.adminThemeSelect;
+  select.innerHTML = "";
+  const themes = Array.isArray(state.themeHeader.themes) ? state.themeHeader.themes : [];
+  const sorted = themes.slice().sort((left, right) => left.themeId.localeCompare(right.themeId));
+  if (sorted.length === 0) {
+    const option = document.createElement("option");
+    option.value = "default";
+    option.textContent = getAdminPageText("themeManagerDefaultThemeLabel", "Default Theme");
+    select.appendChild(option);
+  } else {
+    sorted.forEach((item) => {
+      const option = document.createElement("option");
+      const label = item.name && item.name !== item.themeId ? `${item.name} (${item.themeId})` : item.name;
+      option.value = item.themeId;
+      option.textContent = label || item.themeId;
+      select.appendChild(option);
+    });
+  }
+  if (
+    elements.headerControls
+    && typeof elements.headerControls.refreshOverflowMenuLayout === "function"
+  ) {
+    elements.headerControls.refreshOverflowMenuLayout();
+  }
+}
+
+function getSavedThemePackage() {
+  try {
+    return String(window.localStorage.getItem(THEME_PACKAGE_STORAGE_KEY) || "").trim();
+  } catch (error) {
+    return "";
+  }
+}
+
+function ensureThemeOverrideLink(id) {
+  let link = document.getElementById(id);
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.id = id;
+    document.head.appendChild(link);
+  }
+  return link;
+}
+
+function removeThemeOverrideLinks() {
+  const lightLink = document.getElementById(THEME_LIGHT_OVERRIDE_LINK_ID);
+  if (lightLink) {
+    lightLink.remove();
+  }
+  const darkLink = document.getElementById(THEME_DARK_OVERRIDE_LINK_ID);
+  if (darkLink) {
+    darkLink.remove();
+  }
+}
+
+function applyThemePackage(themeId, options = {}) {
+  const normalized = normalizeThemePackageId(themeId) || "default";
+  state.themePackage = normalized;
+  if (!options.skipStorage) {
+    try {
+      window.localStorage.setItem(THEME_PACKAGE_STORAGE_KEY, normalized);
+    } catch (error) {
+      // ignore storage issues
+    }
+  }
+
+  if (normalized === "default") {
+    removeThemeOverrideLinks();
+  } else {
+    const lightLink = ensureThemeOverrideLink(THEME_LIGHT_OVERRIDE_LINK_ID);
+    const darkLink = ensureThemeOverrideLink(THEME_DARK_OVERRIDE_LINK_ID);
+    const handleError = () => {
+      if (state.themePackage === normalized) {
+        applyThemePackage("default");
+      }
+    };
+    lightLink.onerror = handleError;
+    darkLink.onerror = handleError;
+    lightLink.href = `/themes/${normalized}/light.css`;
+    darkLink.href = `/themes/${normalized}/dark.css`;
+  }
+
+  if (elements.adminThemeSelect) {
+    elements.adminThemeSelect.value = normalized;
+  }
+}
+
+function syncThemePackageSelection() {
+  const available = new Set((state.themeHeader.themes || []).map((item) => item.themeId));
+  let next = normalizeThemePackageId(getSavedThemePackage());
+  if (!next || !available.has(next)) {
+    next = normalizeThemePackageId(state.themeHeader.defaultTheme) || "default";
+  }
+  applyThemePackage(next);
+}
+
+async function loadThemeHeaderStateFromServer() {
+  try {
+    const response = await fetch(resolveApiUrl("/api/meta/themes"), { method: "GET" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const payload = await response.json();
+    applyThemeHeaderState(payload);
+  } catch (error) {
+    loadThemeHeaderState();
+  }
+  renderAdminThemeSelect();
+  syncThemePackageSelection();
 }
 
 function setupHeaderOverflowMenu() {
@@ -1042,6 +1222,8 @@ function setupHeaderOverflowMenu() {
     });
   };
 
+  controls.refreshOverflowMenuLayout = scheduleLayout;
+
   const relayout = () => {
     const isMobile = mobileQuery.matches;
     closeMenu();
@@ -1092,16 +1274,6 @@ function setupHeaderOverflowMenu() {
     observer.observe(controls);
   } else {
     window.addEventListener("resize", scheduleLayout);
-  }
-
-  if (typeof MutationObserver === "function") {
-    const observer = new MutationObserver(() => scheduleLayout());
-    observer.observe(controls, {
-      subtree: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: ["class", "style"],
-    });
   }
 
   if (typeof mobileQuery.addEventListener === "function") {
@@ -9707,6 +9879,11 @@ elements.auditRefreshBtn.addEventListener("click", async () => {
 if (elements.adminThemeToggleBtn) {
   elements.adminThemeToggleBtn.addEventListener("click", toggleTheme);
 }
+if (elements.adminThemeSelect) {
+  elements.adminThemeSelect.addEventListener("change", () => {
+    applyThemePackage(elements.adminThemeSelect.value);
+  });
+}
 
 if (elements.adminUpdateDetailsBtn) {
   elements.adminUpdateDetailsBtn.addEventListener("click", openUpdateDialog);
@@ -10018,6 +10195,12 @@ loadModrinthUpdateNotice();
 
 setupHeaderOverflowMenu();
 applyTheme(getInitialTheme());
+loadThemeHeaderState();
+renderAdminThemeSelect();
+syncThemePackageSelection();
+loadThemeHeaderStateFromServer().catch(() => {
+  // ignore theme header bootstrap errors
+});
 localizeOrderStatusOptions();
 if (elements.productType) {
   elements.productType.addEventListener("change", () => {

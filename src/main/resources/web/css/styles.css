@@ -165,6 +165,7 @@ body {
   top: calc(100% + 8px);
   padding: 8px;
   min-width: 188px;
+  box-sizing: border-box;
   display: grid;
   gap: 8px;
   z-index: 1300;
@@ -2754,8 +2755,15 @@ pre {
   }
 
   .page-index .header-more-menu {
-    min-width: min(210px, calc(100vw - 24px));
+    width: min(340px, calc(100vw - 24px));
+    min-width: min(240px, calc(100vw - 24px));
     right: 0;
+  }
+
+  .page-index .header-more-menu .header-locale-select {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
   }
 
   .page-index .status-chip {
@@ -3084,8 +3092,15 @@ pre {
   }
 
   .page-admin .header-more-menu {
-    min-width: min(210px, calc(100vw - 24px));
+    width: min(340px, calc(100vw - 24px));
+    min-width: min(240px, calc(100vw - 24px));
     right: 0;
+  }
+
+  .page-admin .header-more-menu .header-locale-select {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
   }
 
   .page-admin .status-chip {
