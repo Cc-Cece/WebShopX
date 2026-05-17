@@ -1,4 +1,4 @@
-﻿name: CI, Build and Dual Release Sync
+name: CI, Build and Dual Release Sync
 
 permissions:
   contents: write
@@ -210,7 +210,7 @@ jobs:
       MIRROR_REPO: Prism-Committee/WebShopX-Issues
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: compiled-jars
           path: dist
@@ -385,7 +385,7 @@ jobs:
 #       CURSEFORGE_GAME_ENDPOINT: ${{ vars.CURSEFORGE_GAME_ENDPOINT }}
 #     steps:
 #       - name: Download build artifacts
-#         uses: actions/download-artifact@v4
+#         uses: actions/download-artifact@v8
 #         with:
 #           name: compiled-jars
 #           path: dist
@@ -538,7 +538,7 @@ jobs:
       MIRROR_REPO: Prism-Committee/WebShopX-Issues
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: compiled-jars
           path: dist
