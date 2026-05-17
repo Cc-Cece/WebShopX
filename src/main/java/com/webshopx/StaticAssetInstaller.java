@@ -336,6 +336,7 @@ class StaticAssetInstaller {
     List<String> assets = new ArrayList<>(List.of(
         "web/index.html",
         "web/admin.html",
+        "web/favicon.ico",
         "web/css/light.css",
         "web/css/dark.css",
         "web/css/styles.css",

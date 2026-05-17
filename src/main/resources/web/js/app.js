@@ -1048,21 +1048,17 @@ function setupHeaderOverflowMenu() {
       return;
     }
 
-    moreBtn.classList.add("hidden");
     const visibleCandidates = candidates.filter((item) => !item.classList.contains("hidden"));
-    for (let i = visibleCandidates.length - 1; i >= 0; i -= 1) {
-      if (controls.scrollWidth <= controls.clientWidth + 1) {
-        break;
-      }
-      moreMenu.insertBefore(visibleCandidates[i], moreMenu.firstChild);
-      moreBtn.classList.remove("hidden");
-    }
+    visibleCandidates.forEach((item) => {
+      moreMenu.appendChild(item);
+    });
 
-    if (moreMenu.childElementCount <= 0) {
+    if (visibleCandidates.length <= 0) {
       moreBtn.classList.add("hidden");
       closeMenu();
       return;
     }
+    moreBtn.classList.remove("hidden");
     closeMenu();
   };
 
