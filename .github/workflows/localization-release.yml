@@ -47,7 +47,7 @@ jobs:
       TARGET_REPO: ${{ inputs.target_repo || 'Prism-Committee/WebShopX-Issues' }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Validate Crowdin secrets (when enabled)
         if: ${{ github.event_name == 'schedule' || inputs.pull_from_crowdin }}
