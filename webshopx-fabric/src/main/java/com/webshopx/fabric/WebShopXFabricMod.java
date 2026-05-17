@@ -82,11 +82,12 @@ public final class WebShopXFabricMod implements ModInitializer {
           "net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback",
           true,
           classLoader);
+      Class<?> eventInterfaceClass = Class.forName(
+          "net.fabricmc.fabric.api.event.Event",
+          true,
+          classLoader);
       Object event = callbackClass.getField("EVENT").get(null);
-      Method registerMethod = Arrays.stream(event.getClass().getMethods())
-          .filter(method -> "register".equals(method.getName()) && method.getParameterCount() == 1)
-          .findFirst()
-          .orElseThrow(() -> new NoSuchMethodException("register(listener)"));
+      Method registerMethod = resolveEventRegisterMethod(event, callbackClass, eventInterfaceClass);
       Object callbackProxy = Proxy.newProxyInstance(classLoader, new Class[] {callbackClass}, (proxy, method, args) -> {
         if ("register".equals(method.getName()) && args != null && args.length >= 1) {
           registerCommand(args[0]);
@@ -100,6 +101,24 @@ public final class WebShopXFabricMod implements ModInitializer {
     } catch (Exception exception) {
       LOGGER.warn("[M2] Failed to register Fabric command bridge", exception);
     }
+  }
+
+  private static Method resolveEventRegisterMethod(Object event, Class<?> callbackClass, Class<?> eventInterfaceClass)
+      throws NoSuchMethodException {
+    // First try Event<T>.register(T listener) through public interface reflection.
+    for (Method method : eventInterfaceClass.getMethods()) {
+      if ("register".equals(method.getName()) && method.getParameterCount() == 1) {
+        return method;
+      }
+    }
+    // Fallback to concrete runtime event implementation.
+    return Arrays.stream(event.getClass().getMethods())
+        .filter(method -> "register".equals(method.getName()) && method.getParameterCount() == 1)
+        .filter(method -> method.getParameterTypes()[0].isAssignableFrom(callbackClass)
+            || callbackClass.isAssignableFrom(method.getParameterTypes()[0])
+            || Object.class.equals(method.getParameterTypes()[0]))
+        .findFirst()
+        .orElseThrow(() -> new NoSuchMethodException("register(listener)"));
   }
 
   private static void registerCommand(Object dispatcher) throws Exception {
