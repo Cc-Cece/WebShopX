@@ -4,6 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1" name="viewport"/>
+<link href="/favicon.ico" rel="icon" type="image/x-icon"/>
 <title data-i18n="uiText.page.title">WebShopX Control Panel</title>
 <script>
     (function() {
@@ -36,10 +37,12 @@
 <h1 data-i18n="uiText.page.headerTitle">WebShopX Control Panel</h1>
 <!-- <p class="app-subtitle">统一管理兑换码、官方商品、玩家市场与账号支持。</p> -->
 </div>
-<div class="header-controls">
-<select aria-label="Language" class="header-locale-select" id="adminLocaleSelect"></select>
-<button class="btn-tonal theme-toggle-btn" data-i18n="uiText.page.headerThemeToggle" id="adminThemeToggleBtn" type="button">Dark mode</button>
+<div class="header-controls" id="adminHeaderControls">
+<select aria-label="Language" class="header-locale-select" data-header-overflow-item="1" id="adminLocaleSelect"></select>
+<button class="btn-tonal theme-toggle-btn" data-header-overflow-item="1" data-i18n="uiText.page.headerThemeToggle" id="adminThemeToggleBtn" type="button">Dark mode</button>
+<button aria-controls="adminHeaderMoreMenu" aria-expanded="false" aria-haspopup="true" class="btn-tonal header-more-toggle hidden" id="adminHeaderMoreBtn" type="button">⋯</button>
 <div class="status-chip" data-i18n="uiText.page.headerStatusOffline" data-state="offline" id="adminStatusChip">Not signed in</div>
+<div class="md-card header-more-menu hidden" id="adminHeaderMoreMenu"></div>
 </div>
 </header>
 <nav aria-label="Admin categories" class="top-tabs" data-i18n-aria-label="uiText.page.navMajorAria" role="tablist">

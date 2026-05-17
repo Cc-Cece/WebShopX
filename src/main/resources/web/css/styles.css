@@ -143,6 +143,7 @@ body {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  position: relative;
 }
 
 .theme-toggle-btn {
@@ -151,6 +152,37 @@ body {
 
 .header-locale-select {
   min-width: 132px;
+}
+
+.header-more-toggle {
+  min-width: 40px;
+  padding-inline: 10px;
+}
+
+.header-more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  padding: 8px;
+  min-width: 188px;
+  display: grid;
+  gap: 8px;
+  z-index: 1300;
+}
+
+.header-more-menu > * {
+  width: 100%;
+}
+
+.header-more-menu .header-locale-select {
+  min-width: 0;
+  max-width: none;
+}
+
+.header-more-menu .btn-tonal,
+.header-more-menu .btn-return,
+.header-more-menu .theme-toggle-btn {
+  justify-content: flex-start;
 }
 
 .market-toggle {
@@ -2717,6 +2749,15 @@ pre {
     max-width: 112px;
   }
 
+  .page-index .header-more-toggle {
+    display: inline-flex;
+  }
+
+  .page-index .header-more-menu {
+    min-width: min(210px, calc(100vw - 24px));
+    right: 0;
+  }
+
   .page-index .status-chip {
     width: 12px;
     min-width: 12px;
@@ -3036,6 +3077,15 @@ pre {
   .page-admin .header-locale-select {
     min-width: 92px;
     max-width: 112px;
+  }
+
+  .page-admin .header-more-toggle {
+    display: inline-flex;
+  }
+
+  .page-admin .header-more-menu {
+    min-width: min(210px, calc(100vw - 24px));
+    right: 0;
   }
 
   .page-admin .status-chip {

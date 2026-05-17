@@ -509,6 +509,9 @@ const DEFAULT_NOTIFICATION_TEMPLATES = Object.freeze(
 
 const elements = {
   statusChip: document.getElementById("adminStatusChip"),
+  headerControls: document.getElementById("adminHeaderControls"),
+  headerMoreBtn: document.getElementById("adminHeaderMoreBtn"),
+  headerMoreMenu: document.getElementById("adminHeaderMoreMenu"),
   adminThemeToggleBtn: document.getElementById("adminThemeToggleBtn"),
   adminIdentifier: document.getElementById("adminIdentifier"),
   adminPassword: document.getElementById("adminPassword"),
@@ -988,6 +991,130 @@ function applyTheme(theme) {
 
 function toggleTheme() {
   applyTheme(state.theme === "dark" ? "light" : "dark");
+}
+
+function setupHeaderOverflowMenu() {
+  const controls = elements.headerControls;
+  const moreBtn = elements.headerMoreBtn;
+  const moreMenu = elements.headerMoreMenu;
+  if (!controls || !moreBtn || !moreMenu) {
+    return;
+  }
+  const candidates = Array.from(controls.querySelectorAll("[data-header-overflow-item='1']"));
+  if (candidates.length === 0) {
+    return;
+  }
+
+  const mobileQuery = window.matchMedia("(max-width: 860px)");
+  let layoutRaf = 0;
+
+  const closeMenu = () => {
+    controls.dataset.overflowOpen = "false";
+    moreBtn.setAttribute("aria-expanded", "false");
+    moreMenu.classList.add("hidden");
+  };
+
+  const openMenu = () => {
+    if (moreMenu.childElementCount <= 0 || moreBtn.classList.contains("hidden")) {
+      closeMenu();
+      return;
+    }
+    controls.dataset.overflowOpen = "true";
+    moreBtn.setAttribute("aria-expanded", "true");
+    moreMenu.classList.remove("hidden");
+  };
+
+  const moveAllBack = () => {
+    candidates.forEach((item) => {
+      if (item.parentElement !== controls) {
+        controls.insertBefore(item, moreBtn);
+      }
+    });
+  };
+
+  const scheduleLayout = () => {
+    if (layoutRaf) {
+      return;
+    }
+    layoutRaf = window.requestAnimationFrame(() => {
+      layoutRaf = 0;
+      relayout();
+    });
+  };
+
+  const relayout = () => {
+    const isMobile = mobileQuery.matches;
+    closeMenu();
+    moveAllBack();
+
+    if (!isMobile) {
+      moreBtn.classList.add("hidden");
+      return;
+    }
+
+    moreBtn.classList.add("hidden");
+    const visibleCandidates = candidates.filter((item) => !item.classList.contains("hidden"));
+    for (let i = visibleCandidates.length - 1; i >= 0; i -= 1) {
+      if (controls.scrollWidth <= controls.clientWidth + 1) {
+        break;
+      }
+      moreMenu.insertBefore(visibleCandidates[i], moreMenu.firstChild);
+      moreBtn.classList.remove("hidden");
+    }
+
+    if (moreMenu.childElementCount <= 0) {
+      moreBtn.classList.add("hidden");
+      closeMenu();
+      return;
+    }
+    closeMenu();
+  };
+
+  moreBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (controls.dataset.overflowOpen === "true") {
+      closeMenu();
+      return;
+    }
+    openMenu();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!controls.contains(event.target)) {
+      closeMenu();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeMenu();
+    }
+  });
+
+  if (typeof ResizeObserver === "function") {
+    const observer = new ResizeObserver(() => scheduleLayout());
+    observer.observe(controls);
+  } else {
+    window.addEventListener("resize", scheduleLayout);
+  }
+
+  if (typeof MutationObserver === "function") {
+    const observer = new MutationObserver(() => scheduleLayout());
+    observer.observe(controls, {
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
+  }
+
+  if (typeof mobileQuery.addEventListener === "function") {
+    mobileQuery.addEventListener("change", scheduleLayout);
+  } else if (typeof mobileQuery.addListener === "function") {
+    mobileQuery.addListener(scheduleLayout);
+  }
+
+  scheduleLayout();
 }
 
 async function copyTextToClipboard(text) {
@@ -9893,6 +10020,7 @@ if (savedToken) {
 
 loadModrinthUpdateNotice();
 
+setupHeaderOverflowMenu();
 applyTheme(getInitialTheme());
 localizeOrderStatusOptions();
 if (elements.productType) {

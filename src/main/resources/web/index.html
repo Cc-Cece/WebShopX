@@ -4,6 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1" name="viewport"/>
+<link href="/favicon.ico" rel="icon" type="image/x-icon"/>
 <title data-i18n="uiText.page.title">WebShopX - Minecraft Web Shop</title>
 <script>
     (function() {
@@ -32,12 +33,14 @@
 <h1 data-i18n="uiText.page.headerTitle">WebShopX Dashboard</h1>
 <!-- <p class="app-subtitle">致力于实现更完善的官方商城和玩家市场。</p> -->
 </div>
-<div class="header-controls">
-<button class="btn-tonal btn-return hidden" data-account-back="" data-i18n="uiText.page.headerBackAccount" id="headerAccountBackBtn" type="button">Back to Account</button>
-<select aria-label="Language" class="header-locale-select" id="localeSelect"></select>
-<select class="header-locale-select" data-i18n-aria-label="uiText.page.headerThemeSelectLabel" id="themeSelect"></select>
-<button class="btn-tonal theme-toggle-btn" data-i18n="uiText.page.headerThemeToggle" id="themeToggleBtn" type="button">Dark mode</button>
+<div class="header-controls" id="headerControls">
+<button class="btn-tonal btn-return hidden" data-account-back="" data-header-overflow-item="1" data-i18n="uiText.page.headerBackAccount" id="headerAccountBackBtn" type="button">Back to Account</button>
+<select aria-label="Language" class="header-locale-select" data-header-overflow-item="1" id="localeSelect"></select>
+<select class="header-locale-select" data-header-overflow-item="1" data-i18n-aria-label="uiText.page.headerThemeSelectLabel" id="themeSelect"></select>
+<button class="btn-tonal theme-toggle-btn" data-header-overflow-item="1" data-i18n="uiText.page.headerThemeToggle" id="themeToggleBtn" type="button">Dark mode</button>
+<button aria-controls="headerMoreMenu" aria-expanded="false" aria-haspopup="true" class="btn-tonal header-more-toggle hidden" id="headerMoreBtn" type="button">⋯</button>
 <div class="status-chip" data-i18n="uiText.page.headerStatusOffline" data-state="offline" id="statusChip">Not signed in</div>
+<div class="md-card header-more-menu hidden" id="headerMoreMenu"></div>
 </div>
 </header>
 <nav aria-label="Navigation tabs" class="top-tabs" data-i18n-aria-label="uiText.page.navTabsAria" role="tablist">
