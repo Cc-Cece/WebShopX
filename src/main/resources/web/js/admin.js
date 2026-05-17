@@ -1149,16 +1149,20 @@ function applyThemePackage(themeId, options = {}) {
   }
 }
 
-function syncThemePackageSelection() {
+function syncThemePackageSelection(options = {}) {
+  const persistFallback = options.persistFallback !== false;
   const available = new Set((state.themeHeader.themes || []).map((item) => item.themeId));
   let next = normalizeThemePackageId(getSavedThemePackage());
   if (!next || !available.has(next)) {
     next = normalizeThemePackageId(state.themeHeader.defaultTheme) || "default";
+    applyThemePackage(next, { skipStorage: !persistFallback });
+    return;
   }
-  applyThemePackage(next);
+  applyThemePackage(next, { skipStorage: true });
 }
 
 async function loadThemeHeaderStateFromServer() {
+  let loadedFromServer = false;
   try {
     const response = await fetch(resolveApiUrl("/api/meta/themes"), { method: "GET" });
     if (!response.ok) {
@@ -1166,11 +1170,12 @@ async function loadThemeHeaderStateFromServer() {
     }
     const payload = await response.json();
     applyThemeHeaderState(payload);
+    loadedFromServer = true;
   } catch (error) {
     loadThemeHeaderState();
   }
   renderAdminThemeSelect();
-  syncThemePackageSelection();
+  syncThemePackageSelection({ persistFallback: loadedFromServer });
 }
 
 function setupHeaderOverflowMenu() {
@@ -10197,7 +10202,7 @@ setupHeaderOverflowMenu();
 applyTheme(getInitialTheme());
 loadThemeHeaderState();
 renderAdminThemeSelect();
-syncThemePackageSelection();
+applyThemePackage(getSavedThemePackage(), { skipStorage: true });
 loadThemeHeaderStateFromServer().catch(() => {
   // ignore theme header bootstrap errors
 });
