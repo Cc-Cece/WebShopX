@@ -44,12 +44,12 @@ class LocaleCenterService {
       Set.of("app", "admin", "help", "market-algorithms", "materials");
 
   private final JavaPlugin plugin;
-  private final Supplier<Path> staticRootSupplier;
+  private final Supplier<Path> userWebRootSupplier;
   private final Gson gson;
 
-  LocaleCenterService(JavaPlugin plugin, Supplier<Path> staticRootSupplier) {
+  LocaleCenterService(JavaPlugin plugin, Supplier<Path> userWebRootSupplier) {
     this.plugin = plugin;
-    this.staticRootSupplier = staticRootSupplier;
+    this.userWebRootSupplier = userWebRootSupplier;
     this.gson = new GsonBuilder().disableHtmlEscaping().create();
   }
 
@@ -345,16 +345,16 @@ class LocaleCenterService {
       }
 
       if (!data.webFiles.isEmpty()) {
-        Path staticRoot = staticRootSupplier.get();
-        if (staticRoot == null) {
-          throw new ServiceException("internal_error", "Static root is not initialized");
+        Path userWebRoot = userWebRootSupplier.get();
+        if (userWebRoot == null) {
+          throw new ServiceException("internal_error", "User web root is not initialized");
         }
         for (Map.Entry<String, byte[]> entry : data.webFiles.entrySet()) {
-          Path target = staticRoot.resolve("i18n")
+          Path target = userWebRoot.resolve("i18n")
               .resolve(entry.getKey())
               .resolve(locale + ".json")
               .normalize();
-          if (!target.startsWith(staticRoot)) {
+          if (!target.startsWith(userWebRoot)) {
             throw new ServiceException("bad_request", "Invalid locale file path");
           }
           Files.createDirectories(target.getParent());

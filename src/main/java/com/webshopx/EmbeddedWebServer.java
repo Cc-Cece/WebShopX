@@ -102,6 +102,7 @@ class EmbeddedWebServer {
   private HttpServer server;
   private ExecutorService executorService;
   private Path staticRoot;
+  private Path webUserRoot;
 
   EmbeddedWebServer(
       JavaPlugin plugin,
@@ -149,13 +150,14 @@ class EmbeddedWebServer {
       .followRedirects(HttpClient.Redirect.NORMAL)
       .connectTimeout(Duration.ofSeconds(10))
       .build();
-    this.localeCenterService = new LocaleCenterService(plugin, () -> this.staticRoot);
-    this.themeCenterService = new ThemeCenterService(plugin, () -> this.staticRoot);
+    this.localeCenterService = new LocaleCenterService(plugin, () -> this.webUserRoot);
+    this.themeCenterService = new ThemeCenterService(plugin, () -> this.webUserRoot);
   }
 
-  void start(Path staticRoot) throws IOException {
+  void start(Path staticRoot, Path webUserRoot) throws IOException {
     stop();
-    this.staticRoot = staticRoot;
+    this.staticRoot = staticRoot.toAbsolutePath().normalize();
+    this.webUserRoot = webUserRoot.toAbsolutePath().normalize();
     PluginSettings.EmbeddedWebSettings webSettings = settingsSupplier.get().embeddedWebSettings();
     PluginSettings.ServerMode serverMode = settingsSupplier.get().serverMode();
 
@@ -280,6 +282,8 @@ class EmbeddedWebServer {
       executorService.shutdownNow();
       executorService = null;
     }
+    staticRoot = null;
+    webUserRoot = null;
   }
 
   private void handleHealth(HttpExchange exchange) throws IOException {
@@ -4352,8 +4356,8 @@ class EmbeddedWebServer {
       return;
     }
 
-    Path targetFile = staticRoot.resolve(relativePath).normalize();
-    if (!targetFile.startsWith(staticRoot) || !Files.isRegularFile(targetFile)) {
+    Path targetFile = resolveStaticFile(relativePath);
+    if (targetFile == null) {
       sendJson(exchange, 404, errorJson("not_found", "Static file not found"));
       return;
     }
@@ -4365,6 +4369,29 @@ class EmbeddedWebServer {
     try (OutputStream outputStream = exchange.getResponseBody()) {
       outputStream.write(content);
     }
+  }
+
+  private Path resolveStaticFile(String relativePath) {
+    Path userCandidate = resolveUnderRoot(webUserRoot, relativePath);
+    if (userCandidate != null && Files.isRegularFile(userCandidate)) {
+      return userCandidate;
+    }
+    Path systemCandidate = resolveUnderRoot(staticRoot, relativePath);
+    if (systemCandidate != null && Files.isRegularFile(systemCandidate)) {
+      return systemCandidate;
+    }
+    return null;
+  }
+
+  private Path resolveUnderRoot(Path root, String relativePath) {
+    if (root == null) {
+      return null;
+    }
+    Path candidate = root.resolve(relativePath).normalize();
+    if (!candidate.startsWith(root)) {
+      return null;
+    }
+    return candidate;
   }
 
   private boolean canRefund(OrderService.OrderView order, LocalDateTime now) {
@@ -5697,35 +5724,23 @@ class EmbeddedWebServer {
   }
 
   private Path resolveMaterialIconRoot() throws IOException {
-    if (staticRoot == null) {
-      throw new ServiceException("internal_error", "Static root is not initialized");
-    }
-    Path iconRoot = staticRoot.resolve("uploads").resolve("material-icons").normalize();
-    if (!iconRoot.startsWith(staticRoot)) {
-      throw new ServiceException("bad_request", "Invalid icon storage path");
-    }
-    Files.createDirectories(iconRoot);
-    return iconRoot;
+    return resolveUserUploadRoot("material-icons");
   }
 
   private Path resolveProductIconRoot() throws IOException {
-    if (staticRoot == null) {
-      throw new ServiceException("internal_error", "Static root is not initialized");
-    }
-    Path iconRoot = staticRoot.resolve("uploads").resolve("product-icons").normalize();
-    if (!iconRoot.startsWith(staticRoot)) {
-      throw new ServiceException("bad_request", "Invalid icon storage path");
-    }
-    Files.createDirectories(iconRoot);
-    return iconRoot;
+    return resolveUserUploadRoot("product-icons");
   }
 
   private Path resolveListingIconRoot() throws IOException {
-    if (staticRoot == null) {
-      throw new ServiceException("internal_error", "Static root is not initialized");
+    return resolveUserUploadRoot("listing-icons");
+  }
+
+  private Path resolveUserUploadRoot(String subDirectory) throws IOException {
+    if (webUserRoot == null) {
+      throw new ServiceException("internal_error", "User web root is not initialized");
     }
-    Path iconRoot = staticRoot.resolve("uploads").resolve("listing-icons").normalize();
-    if (!iconRoot.startsWith(staticRoot)) {
+    Path iconRoot = webUserRoot.resolve("uploads").resolve(subDirectory).normalize();
+    if (!iconRoot.startsWith(webUserRoot)) {
       throw new ServiceException("bad_request", "Invalid icon storage path");
     }
     Files.createDirectories(iconRoot);

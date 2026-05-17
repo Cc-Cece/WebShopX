@@ -120,4 +120,4 @@ A: 大概率是服务器遭遇了瞬时的 TPS 骤降或内存溢出（OOM），
 WebShopX 正在逐步完善中。如果您在部署过程中遇到任何 Bug，或希望加入到代码协作中，请务必联系我们！
 
 👉 **请至 GitHub 官方仓库提交 Issue：**
-[WebShopX-Issues (点击进入反馈中心)](https://github.com/Cc-Cece/WebShopX-Issues)
+[WebShopX-Issues (点击进入反馈中心)](https://github.com/Prism-Committee/WebShopX-Issues)

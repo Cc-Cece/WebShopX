@@ -6,8 +6,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Stream;
 import java.util.logging.Level;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bstats.bukkit.Metrics;
@@ -25,6 +27,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 public class WebShopPlugin extends JavaPlugin {
   private static final String MAIN_CONFIG_RESOURCE = "config.yml";
   private static final int BSTATS_PLUGIN_ID = 30746;
+  private static final String USER_WEB_ROOT = "web-user";
+  private static final String USER_WEB_MIGRATION_MARKER = ".migration-v1.done";
 
   private PluginSettings settings;
   private DatabaseManager databaseManager;
@@ -526,15 +530,64 @@ public class WebShopPlugin extends JavaPlugin {
     }
 
     Path staticRoot = staticAssetInstaller.install(settings.embeddedWebSettings().staticRoot(), settings);
+    Path userWebRoot = prepareUserWebRoot(staticRoot);
     textureAssetManager.ensureLocalTextureCacheAsync(staticRoot, resolveMinecraftVersion());
     if (settings.serverMode() == PluginSettings.ServerMode.EXTERNAL) {
       getLogger().info(messageService.formatConsole("console.server_mode_external", MapUtils.mapOf("path", staticRoot)));
     }
 
     try {
-      embeddedWebServer.start(staticRoot);
+      embeddedWebServer.start(staticRoot, userWebRoot);
     } catch (Exception exception) {
       throw new IllegalStateException("Failed to start embedded HTTP server", exception);
+    }
+  }
+
+  private Path prepareUserWebRoot(Path staticRoot) {
+    Path userWebRoot = getDataFolder().toPath().resolve(USER_WEB_ROOT).normalize();
+    try {
+      Files.createDirectories(userWebRoot);
+      migrateLegacyUserWebAssets(staticRoot, userWebRoot);
+      return userWebRoot;
+    } catch (IOException exception) {
+      throw new IllegalStateException("Failed to prepare user web root", exception);
+    }
+  }
+
+  private void migrateLegacyUserWebAssets(Path staticRoot, Path userWebRoot) throws IOException {
+    Path marker = userWebRoot.resolve(USER_WEB_MIGRATION_MARKER).normalize();
+    if (!marker.startsWith(userWebRoot) || Files.exists(marker)) {
+      return;
+    }
+
+    copyTreeIfPresent(staticRoot.resolve("themes"), userWebRoot.resolve("themes"));
+    copyTreeIfPresent(staticRoot.resolve("i18n"), userWebRoot.resolve("i18n"));
+    copyTreeIfPresent(staticRoot.resolve("uploads"), userWebRoot.resolve("uploads"));
+
+    Files.writeString(marker, "ok", StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+  }
+
+  private void copyTreeIfPresent(Path sourceRoot, Path targetRoot) throws IOException {
+    if (sourceRoot == null || targetRoot == null || !Files.isDirectory(sourceRoot)) {
+      return;
+    }
+    try (Stream<Path> stream = Files.walk(sourceRoot)) {
+      for (Path source : (Iterable<Path>) stream::iterator) {
+        Path relative = sourceRoot.relativize(source);
+        Path target = targetRoot.resolve(relative).normalize();
+        if (!target.startsWith(targetRoot)) {
+          continue;
+        }
+        if (Files.isDirectory(source)) {
+          Files.createDirectories(target);
+          continue;
+        }
+        if (!Files.isRegularFile(source) || Files.exists(target)) {
+          continue;
+        }
+        Files.createDirectories(target.getParent());
+        Files.copy(source, target);
+      }
     }
   }
 

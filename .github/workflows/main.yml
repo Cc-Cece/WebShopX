@@ -207,7 +207,7 @@ jobs:
     env:
       TAG_NAME: ${{ needs.build.outputs.tag_name }}
       IS_PRERELEASE: ${{ needs.build.outputs.is_prerelease }}
-      MIRROR_REPO: Cc-Cece/WebShopX-Issues
+      MIRROR_REPO: Prism-Committee/WebShopX-Issues
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -492,7 +492,7 @@ jobs:
 #           changelog: |
 #             由 GitHub 标签 `${{ github.ref_name }}` 自动发布。
 #             完整更新信息请查看 GitHub Release 页面：
-#             https://github.com/Cc-Cece/WebShopX-Issues/releases/tag/${{ github.ref_name }}
+#             https://github.com/Prism-Committee/WebShopX-Issues/releases/tag/${{ github.ref_name }}
 #           game_versions: ${{ steps.cf-versions.outputs.legacy_ids }}
 # 
 #       - name: Upload slim 1.19.4+ (Folia)
@@ -508,7 +508,7 @@ jobs:
 #           changelog: |
 #             由 GitHub 标签 `${{ github.ref_name }}` 自动发布。
 #             完整更新信息请查看 GitHub Release 页面：
-#             https://github.com/Cc-Cece/WebShopX-Issues/releases/tag/${{ github.ref_name }}
+#             https://github.com/Prism-Committee/WebShopX-Issues/releases/tag/${{ github.ref_name }}
 #           game_versions: ${{ steps.cf-versions.outputs.folia_ids }}
 # 
 #       - name: Upload slim 1.20.6+ (Paper)
@@ -524,7 +524,7 @@ jobs:
 #           changelog: |
 #             由 GitHub 标签 `${{ github.ref_name }}` 自动发布。
 #             完整更新信息请查看 GitHub Release 页面：
-#             https://github.com/Cc-Cece/WebShopX-Issues/releases/tag/${{ github.ref_name }}
+#             https://github.com/Prism-Committee/WebShopX-Issues/releases/tag/${{ github.ref_name }}
 #           game_versions: ${{ steps.cf-versions.outputs.modern_ids }}
 # 
   publish-modrinth:
@@ -535,7 +535,7 @@ jobs:
     env:
       MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
       MODRINTH_PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
-      MIRROR_REPO: Cc-Cece/WebShopX-Issues
+      MIRROR_REPO: Prism-Committee/WebShopX-Issues
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v4

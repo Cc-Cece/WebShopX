@@ -37,12 +37,12 @@ class ThemeCenterService {
   private static final Pattern THEME_ID_PATTERN = Pattern.compile("^[a-z0-9][a-z0-9._-]{0,47}$");
 
   private final JavaPlugin plugin;
-  private final Supplier<Path> staticRootSupplier;
+  private final Supplier<Path> userWebRootSupplier;
   private final Gson gson;
 
-  ThemeCenterService(JavaPlugin plugin, Supplier<Path> staticRootSupplier) {
+  ThemeCenterService(JavaPlugin plugin, Supplier<Path> userWebRootSupplier) {
     this.plugin = plugin;
-    this.staticRootSupplier = staticRootSupplier;
+    this.userWebRootSupplier = userWebRootSupplier;
     this.gson = new GsonBuilder().disableHtmlEscaping().create();
   }
 
@@ -299,12 +299,12 @@ class ThemeCenterService {
 
   private void writeThemeFiles(String themeId, ExtractedTheme data) {
     try {
-      Path staticRoot = staticRootSupplier.get();
-      if (staticRoot == null) {
-        throw new ServiceException("internal_error", "Static root is not initialized");
+      Path userWebRoot = userWebRootSupplier.get();
+      if (userWebRoot == null) {
+        throw new ServiceException("internal_error", "User web root is not initialized");
       }
-      Path root = staticRoot.resolve("themes").resolve(themeId).normalize();
-      if (!root.startsWith(staticRoot)) {
+      Path root = userWebRoot.resolve("themes").resolve(themeId).normalize();
+      if (!root.startsWith(userWebRoot)) {
         throw new ServiceException("bad_request", "Invalid theme id path");
       }
       Files.createDirectories(root);

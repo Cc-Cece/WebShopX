@@ -120,4 +120,4 @@ A: Most likely, the server experienced a transient TPS drop or Out of Memory (OO
 WebShopX is continuously being refined. If you encounter any bugs during deployment or wish to collaborate on the code, please contact us!
 
 👉 **Please submit Issues to the official GitHub repository:**
-[WebShopX-Issues (Click to enter Feedback Center)](https://github.com/Cc-Cece/WebShopX-Issues)
+[WebShopX-Issues (Click to enter Feedback Center)](https://github.com/Prism-Committee/WebShopX-Issues)

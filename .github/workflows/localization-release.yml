@@ -13,7 +13,7 @@ on:
       target_repo:
         description: "本地化 CDN 资源的目标仓库（owner/name）"
         required: false
-        default: "Cc-Cece/WebShopX-Issues"
+        default: "Prism-Committee/WebShopX-Issues"
       manifest_version:
         description: "可选的 manifest 版本号（例如：l10n-2026.05.09-01）"
         required: false
@@ -44,7 +44,7 @@ jobs:
     if: ${{ github.event_name != 'schedule' || vars.LOCALIZATION_RELEASE_SCHEDULE_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     env:
-      TARGET_REPO: ${{ inputs.target_repo || 'Cc-Cece/WebShopX-Issues' }}
+      TARGET_REPO: ${{ inputs.target_repo || 'Prism-Committee/WebShopX-Issues' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
