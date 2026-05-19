@@ -703,6 +703,18 @@ class ShopCommand implements CommandExecutor, TabCompleter {
 
   private String humanizeRechargeError(CommandSender sender, ServiceException exception) {
     return switch (exception.code()) {
+      case "payment_unavailable" -> messageService.get(sender, "error.recharge.payment_unavailable");
+      case "payment_provider_not_found" -> messageService.get(sender, "error.recharge.payment_provider_not_found");
+      case "payment_api_mismatch" -> messageService.get(sender, "error.recharge.payment_api_mismatch");
+      case "payment_api_error" -> messageService.get(sender, "error.recharge.payment_api_error");
+      case "payment_create_failed" -> messageService.get(sender, "error.recharge.payment_create_failed");
+      case "payment_query_failed" -> messageService.get(sender, "error.recharge.payment_query_failed");
+      case "payment_notify_rejected" -> messageService.get(sender, "error.recharge.payment_notify_rejected");
+      case "payment_amount_mismatch" -> messageService.get(sender, "error.recharge.payment_amount_mismatch");
+      case "payment_currency_mismatch" -> messageService.get(sender, "error.recharge.payment_currency_mismatch");
+      case "payment_provider_mismatch" -> messageService.get(sender, "error.recharge.payment_provider_mismatch");
+      case "payment_order_mismatch" -> messageService.get(sender, "error.recharge.payment_order_mismatch");
+      case "payment_unknown_status" -> messageService.get(sender, "error.recharge.payment_unknown_status");
       case "yupay_unavailable" -> messageService.get(sender, "error.recharge.yupay_unavailable");
       case "yupay_api_mismatch" -> messageService.get(sender, "error.recharge.yupay_api_mismatch");
       case "yupay_api_error" -> messageService.get(sender, "error.recharge.yupay_api_error");

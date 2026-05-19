@@ -14,6 +14,7 @@ record PluginSettings(
     ServerMode serverMode,
     ClusterSettings clusterSettings,
     String apiBaseUrl,
+    PaymentSettings paymentSettings,
     String defaultLocale,
     int sessionExpireHours,
     int bindRequestExpireMinutes,
@@ -148,6 +149,7 @@ record PluginSettings(
         mode,
         clusterSettings,
         normalizeApiBaseUrl(config.getString("webshop.api-base-url", "")),
+        new PaymentSettings(normalizeProviderId(config.getString("payment.provider", ""))),
         normalizeLocale(config.getString("webshop.default-locale", "zh-CN")),
         config.getInt("webshop.session-expire-hours", 72),
         config.getInt("webshop.bind-request-expire-minutes", 15),
@@ -199,6 +201,7 @@ record PluginSettings(
         serverMode,
         clusterSettings,
         apiBaseUrl,
+        paymentSettings,
         defaultLocale,
         sessionExpireHours,
         bindRequestExpireMinutes,
@@ -235,6 +238,13 @@ record PluginSettings(
       normalized = normalized.substring(0, normalized.length() - 1);
     }
     return normalized;
+  }
+
+  private static String normalizeProviderId(String rawProviderId) {
+    if (rawProviderId == null || rawProviderId.isBlank()) {
+      return "";
+    }
+    return rawProviderId.trim().toLowerCase(Locale.ROOT);
   }
 
   private static String normalizeLocale(String rawLocale) {
@@ -402,6 +412,9 @@ record PluginSettings(
   }
 
   record EmbeddedWebSettings(String host, int port, String staticRoot) {
+  }
+
+  record PaymentSettings(String provider) {
   }
 
   record AdminBootstrapSettings(boolean enabled, String username, String password, String role) {
