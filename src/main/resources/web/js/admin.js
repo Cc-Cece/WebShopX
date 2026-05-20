@@ -8284,7 +8284,7 @@ function applyRechargePaymentSettings(settings, provider) {
     ? settings.currencies.map(normalizePaymentCurrency).filter(Boolean)
     : ["CNY"];
   if (elements.rechargePaymentCurrencies) {
-    elements.rechargePaymentCurrencies.value = Array.from(new Set(currencies)).join(", ");
+    elements.rechargePaymentCurrencies.value = Array.from(new Set(currencies))[0] || "CNY";
   }
 
   const configuredMethods = new Set(
@@ -8315,10 +8315,8 @@ function applyRechargePaymentSettings(settings, provider) {
 
 async function saveRechargePaymentSettings() {
   ensureAdmin();
-  const currencies = String(elements.rechargePaymentCurrencies?.value || "")
-    .split(/[,\s]+/)
-    .map(normalizePaymentCurrency)
-    .filter(Boolean);
+  const currency = normalizePaymentCurrency(elements.rechargePaymentCurrencies?.value || "");
+  const currencies = currency ? [currency] : [];
   const methods = rechargeMethodInputs()
     .filter((input) => input.checked && !input.disabled)
     .map((input) => normalizePaymentMethod(input.value))

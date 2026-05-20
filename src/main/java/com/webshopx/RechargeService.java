@@ -133,6 +133,28 @@ class RechargeService {
     }
   }
 
+  RechargeCancelResult cancelRechargeOrder(long userId, String orderId) {
+    String normalizedOrderId = normalizeOrderId(orderId);
+    return databaseManager.inTransaction(connection -> {
+      RechargeOrder order = readOrderForUpdate(connection, normalizedOrderId);
+      if (order == null || order.userId() != userId) {
+        return RechargeCancelResult.fail(normalizedOrderId, null, "ORDER_NOT_FOUND", "Recharge order not found");
+      }
+      if (order.status() == RechargeOrderStatus.PAID) {
+        return RechargeCancelResult.fail(
+            order.orderId(),
+            order.status().name(),
+            "INVALID_STATUS",
+            "Paid order cannot be cancelled");
+      }
+      if (order.status().isTerminal()) {
+        return new RechargeCancelResult(true, order.orderId(), order.status().name(), null, "order already closed");
+      }
+      markOrderTerminal(connection, order.orderId(), RechargeOrderStatus.CLOSED);
+      return new RechargeCancelResult(true, order.orderId(), RechargeOrderStatus.CLOSED.name(), null, "success");
+    });
+  }
+
   FixRechargeResult fixRechargeOrder(String orderId) {
     String normalizedOrderId = normalizeOrderId(orderId);
     RechargeOrder order = findOrder(normalizedOrderId);
@@ -426,10 +448,7 @@ class RechargeService {
       return WebShopXPaymentBridge.NotifyResultData.ok("already processed");
     }
     if (order.status().isTerminal()) {
-      if (order.status() == targetStatus) {
-        return WebShopXPaymentBridge.NotifyResultData.ok("already processed");
-      }
-      throw new ServiceException("payment_notify_rejected", "Recharge order is already closed");
+      return WebShopXPaymentBridge.NotifyResultData.ok("ignored closed order");
     }
     if (!order.status().canReceiveProviderResult()) {
       throw new ServiceException("payment_notify_rejected", "Recharge order status does not accept payment results");
@@ -634,6 +653,17 @@ class RechargeService {
       String message) {
     static RechargeCreateResult fail(String orderId, String errorCode, String message) {
       return new RechargeCreateResult(false, orderId, null, null, null, null, errorCode, message);
+    }
+  }
+
+  record RechargeCancelResult(
+      boolean success,
+      String orderId,
+      String status,
+      String code,
+      String message) {
+    static RechargeCancelResult fail(String orderId, String status, String code, String message) {
+      return new RechargeCancelResult(false, orderId, status, code, message);
     }
   }
 

@@ -175,6 +175,7 @@ class EmbeddedWebServer {
     server.createContext("/api/wallet/ledger", this::handleWalletLedger);
     server.createContext("/api/wallet/exchange", this::handleExchange);
     server.createContext("/api/recharge/create", this::handleRechargeCreate);
+    server.createContext("/api/recharge/cancel", this::handleRechargeCancel);
     server.createContext("/api/recharge/status", this::handleRechargeStatus);
     server.createContext("/api/redeem/use", this::handleRedeemUse);
     server.createContext("/api/products", this::handleProducts);
@@ -421,7 +422,7 @@ class EmbeddedWebServer {
       long coinAmount = payload.has("coinAmount")
           ? getLong(payload, "coinAmount", 0L)
           : rechargeService.amountToCoinAmount(amountMinor);
-      String currency = getOptionalString(payload, "currency").orElse("CNY");
+      String currency = settingsSupplier.get().paymentSettings().primaryRechargeCurrency();
       PaymentMethod preferredMethod = parsePaymentMethod(
           getOptionalString(payload, "paymentMethod")
               .or(() -> getOptionalString(payload, "preferredMethod"))
@@ -438,6 +439,28 @@ class EmbeddedWebServer {
               methodCode,
               "WEB"));
       JsonObject response = rechargeCreateResultJson(result);
+      sendJson(exchange, result.success() ? 200 : 400, response);
+    });
+  }
+
+  private void handleRechargeCancel(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      String orderId = getString(payload, "orderId");
+      RechargeService.RechargeCancelResult result = rechargeService.cancelRechargeOrder(user.id(), orderId);
+      JsonObject response = new JsonObject();
+      response.addProperty("success", result.success());
+      response.addProperty("orderId", result.orderId());
+      response.addProperty("status", result.status());
+      addNullableString(response, "code", result.code());
+      addNullableString(response, "message", result.message());
       sendJson(exchange, result.success() ? 200 : 400, response);
     });
   }
@@ -3110,9 +3133,13 @@ class EmbeddedWebServer {
       JsonObject payload = readJson(exchange);
       AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
       PluginSettings.PaymentSettings current = settingsSupplier.get().paymentSettings();
+      List<String> currencies = getStringArray(payload, "currencies");
+      if (!currencies.isEmpty()) {
+        currencies = List.of(currencies.get(0));
+      }
       PluginSettings.PaymentSettings paymentSettings = new PluginSettings.PaymentSettings(
           current.provider(),
-          getStringArray(payload, "currencies"),
+          currencies,
           PluginSettings.normalizePaymentMethods(getStringArray(payload, "methods")));
       long version = runtimeConfigService.updatePaymentRecharge(paymentSettings);
       publishRuntimeConfigRefresh(version);

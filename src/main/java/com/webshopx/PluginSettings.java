@@ -512,6 +512,10 @@ record PluginSettings(
       return rechargeCurrencies.contains(currency.trim().toUpperCase(Locale.ROOT));
     }
 
+    String primaryRechargeCurrency() {
+      return rechargeCurrencies.isEmpty() ? "CNY" : rechargeCurrencies.get(0);
+    }
+
     boolean isMethodAllowed(PaymentMethod method) {
       PaymentMethod normalized = method == null ? PaymentMethod.AUTO : method;
       return rechargeMethods.contains(normalized);

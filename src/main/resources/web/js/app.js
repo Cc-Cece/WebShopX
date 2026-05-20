@@ -243,6 +243,9 @@ const FALLBACK_APP_UI_TEXT = Object.freeze({
     rechargeFailed: "Recharge failed: {message}",
     rechargeStatusFailed: "Status check failed: {message}",
     rechargeNoPayLink: "Payment provider did not return a payment link.",
+    rechargeCancelNoOrder: "No recharge order to cancel.",
+    rechargeCancelSuccess: "Order {orderId} has been cancelled.",
+    rechargeCancelFailed: "Cancel failed: {message}",
     exchangeFailed: "Exchange failed: {message}",
     operationFailed: "Operation failed: {message}",
     markReadFailed: "Mark read failed: {message}",
@@ -398,6 +401,8 @@ const FALLBACK_ERROR_TIPS_COMMON = {
   payment_create_failed: "支付订单创建失败，请稍后重试。",
   payment_query_failed: "支付订单查询失败，请稍后重试。",
   METHOD_UNSUPPORTED: "当前支付方式不可用，请选择其它支付方式。",
+  ORDER_NOT_FOUND: "未找到充值订单。",
+  INVALID_STATUS: "当前订单状态不允许该操作。",
   invalid_market_side: "上架方向无效，只支持 SELL 或 BUY。",
   invalid_tag: "分类标签无效或不允许。",
   tag_disabled: "该分类标签已停用。",
@@ -669,7 +674,7 @@ const elements = {
   walletLedgerView: document.getElementById("walletLedgerView"),
   walletLedgerList: document.getElementById("walletLedgerList"),
   rechargeAmount: document.getElementById("rechargeAmount"),
-  rechargeCurrency: document.getElementById("rechargeCurrency"),
+  rechargeAmountLabel: document.getElementById("rechargeAmountLabel"),
   rechargePaymentMethod: document.getElementById("rechargePaymentMethod"),
   rechargeCoinPreview: document.getElementById("rechargeCoinPreview"),
   rechargeBtn: document.getElementById("rechargeBtn"),
@@ -683,6 +688,7 @@ const elements = {
   rechargeQrImage: document.getElementById("rechargeQrImage"),
   rechargeQrEmpty: document.getElementById("rechargeQrEmpty"),
   rechargePaymentDialogClose: document.getElementById("rechargePaymentDialogClose"),
+  rechargePaymentDialogCancel: document.getElementById("rechargePaymentDialogCancel"),
   rechargePaymentDialogOpen: document.getElementById("rechargePaymentDialogOpen"),
   redeemView: document.getElementById("redeemView"),
   exchangeRateHint: document.getElementById("exchangeRateHint"),
@@ -3584,6 +3590,18 @@ function paymentMethodLabel(method) {
   return labels[method] || method;
 }
 
+function currentRechargeCurrency() {
+  return state.recharge.currencies[0] || "CNY";
+}
+
+function updateRechargeAmountLabel() {
+  if (!elements.rechargeAmountLabel) {
+    return;
+  }
+  const base = getAppPageText("rechargeAmountLabel") || "Payment Amount";
+  elements.rechargeAmountLabel.textContent = `${base} (${currentRechargeCurrency()})`;
+}
+
 function applyRechargePaymentMeta(settings, provider) {
   const configuredCurrencies = Array.isArray(settings?.currencies) ? settings.currencies : [];
   const configuredMethods = Array.isArray(settings?.methods) ? settings.methods : [];
@@ -3623,6 +3641,7 @@ function applyRechargePaymentMeta(settings, provider) {
   state.recharge.methods = Array.from(new Set(methods));
   state.recharge.provider = provider || null;
   renderRechargeSelectors();
+  updateRechargeAmountLabel();
 }
 
 function renderRechargeSelectors() {
@@ -3642,8 +3661,8 @@ function renderRechargeSelectors() {
       select.value = previous;
     }
   };
-  render(elements.rechargeCurrency, state.recharge.currencies, (currency) => currency);
   render(elements.rechargePaymentMethod, state.recharge.methods, paymentMethodLabel);
+  updateRechargeAmountLabel();
 }
 
 function parseRechargeAmountMinor() {
@@ -3734,6 +3753,26 @@ function openCurrentRechargePaymentPage() {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+async function cancelCurrentRechargeOrder() {
+  ensureToken();
+  const orderId = state.recharge.currentOrderId || state.recharge.currentPayment?.orderId;
+  if (!orderId) {
+    notify(formatAppTemplate("rechargeCancelNoOrder"), "warn");
+    return;
+  }
+  const payload = await api("/api/recharge/cancel", {
+    method: "POST",
+    body: JSON.stringify({ orderId }),
+  });
+  state.recharge.currentPayment = null;
+  state.recharge.currentOrderId = null;
+  setRechargePayLink(null);
+  setRechargePaymentDialogVisible(false);
+  const message = formatAppTemplate("rechargeCancelSuccess", { orderId: payload.orderId || orderId });
+  setMetaText(elements.rechargeView, message, "success");
+  notify(message, "success");
+}
+
 async function refreshRechargeStatus() {
   ensureToken();
   if (!state.recharge.currentOrderId) {
@@ -3753,6 +3792,9 @@ async function refreshRechargeStatus() {
       currency: payload.currency,
     };
     setRechargePayLink(payload.payUrl);
+  }
+  if (payload.status && ["PAID", "FAILED", "EXPIRED", "CLOSED"].includes(String(payload.status).toUpperCase())) {
+    setRechargePayLink(payload.status === "PAID" ? payload.payUrl : null);
   }
   setMetaText(
     elements.rechargeView,
@@ -7992,6 +8034,17 @@ if (elements.rechargePaymentDialogOpen) {
   elements.rechargePaymentDialogOpen.addEventListener("click", openCurrentRechargePaymentPage);
 }
 
+if (elements.rechargePaymentDialogCancel) {
+  elements.rechargePaymentDialogCancel.addEventListener("click", async () => {
+    try {
+      await cancelCurrentRechargeOrder();
+    } catch (error) {
+      const message = resolveErrorMessage(error, "operation");
+      notify(formatAppTemplate("rechargeCancelFailed", { message }), "error");
+    }
+  });
+}
+
 if (elements.rechargePaymentDialog) {
   elements.rechargePaymentDialog.addEventListener("click", (event) => {
     if (event.target === elements.rechargePaymentDialog) {
@@ -8005,7 +8058,7 @@ if (elements.rechargeBtn) {
     try {
       ensureToken();
       const amountMinor = parseRechargeAmountMinor();
-      const currency = normalizeRechargeCurrency(elements.rechargeCurrency?.value) || "CNY";
+      const currency = currentRechargeCurrency();
       const paymentMethod = normalizeRechargeMethod(elements.rechargePaymentMethod?.value) || "AUTO";
       setMetaText(elements.rechargeView, formatAppTemplate("rechargeCreating"), "info");
       setRechargePayLink(null);
