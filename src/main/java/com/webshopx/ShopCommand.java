@@ -441,6 +441,8 @@ class ShopCommand implements CommandExecutor, TabCompleter {
                 amountMinor,
                 "CNY",
                 rechargeService.amountToCoinAmount(amountMinor),
+                com.webshopx.payment.api.PaymentMethod.AUTO,
+                null,
                 "MINECRAFT"));
         schedulerBridge.runPlayer(
             playerUuid,
@@ -720,6 +722,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       case "yupay_api_error" -> messageService.get(sender, "error.recharge.yupay_api_error");
       case "invalid_amount", "INVALID_AMOUNT" -> messageService.get(sender, "error.recharge.invalid_amount");
       case "UNSUPPORTED_CURRENCY" -> messageService.get(sender, "error.recharge.unsupported_currency");
+      case "METHOD_UNSUPPORTED" -> messageService.get(sender, "error.recharge.unsupported_method");
       case "ORDER_NOT_FOUND" -> messageService.get(sender, "error.recharge.order_not_found");
       case "PROVIDER_ORDER_MISMATCH" -> messageService.get(sender, "error.recharge.provider_order_mismatch");
       case "AMOUNT_MISMATCH" -> messageService.get(sender, "error.recharge.amount_mismatch");

@@ -568,6 +568,31 @@
 <p class="meta" data-i18n="uiText.autoHtml.k0202" id="currencyStatusView">等待操作</p>
 </article>
 <article class="md-card section-card">
+<h2 data-i18n="uiText.page.rechargePaymentTitle">充值支付设置</h2>
+<p class="card-desc" data-i18n="uiText.page.rechargePaymentDesc">选择玩家充值时可用的支付币种与支付方式。</p>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.page.rechargePaymentCurrenciesLabel">支持支付币种</span>
+<input data-i18n-placeholder="uiText.page.rechargePaymentCurrenciesPlaceholder" id="rechargePaymentCurrencies" placeholder="CNY, USD"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.page.rechargePaymentProviderLabel">支付服务</span>
+<input id="rechargePaymentProvider" readonly=""/>
+</label>
+</div>
+<div class="payment-method-grid">
+<label><input id="rechargeMethodAuto" type="checkbox" value="AUTO"/><span data-i18n="uiText.paymentMethodLabels.AUTO">自动选择</span></label>
+<label><input id="rechargeMethodAlipay" type="checkbox" value="ALIPAY"/><span data-i18n="uiText.paymentMethodLabels.ALIPAY">支付宝</span></label>
+<label><input id="rechargeMethodWechat" type="checkbox" value="WECHAT"/><span data-i18n="uiText.paymentMethodLabels.WECHAT">微信支付</span></label>
+<label><input id="rechargeMethodPaypal" type="checkbox" value="PAYPAL"/><span data-i18n="uiText.paymentMethodLabels.PAYPAL">PayPal</span></label>
+<label><input id="rechargeMethodCustom" type="checkbox" value="CUSTOM"/><span data-i18n="uiText.paymentMethodLabels.CUSTOM">自定义</span></label>
+</div>
+<div class="actions">
+<button data-i18n="uiText.page.rechargePaymentSaveBtn" id="rechargePaymentSaveBtn" type="button">保存充值支付配置</button>
+</div>
+<p class="meta" data-i18n="uiText.page.rechargePaymentStatusView" id="rechargePaymentStatusView">等待操作</p>
+</article>
+<article class="md-card section-card">
 <h2 data-i18n="uiText.autoHtml.k0203">Vault 对接状态</h2>
 <p class="card-desc" data-i18n-html="uiText.autoHtml.k0204"><span data-i18n="uiText.autoHtml.k0004" id="vaultGameCoinName">游戏币</span> 与 Vault 经济系统的连接状态。</p>
 <p class="meta" data-i18n="uiText.autoHtml.k0206" id="vaultStatusView">等待加载</p>

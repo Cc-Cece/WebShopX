@@ -400,6 +400,30 @@ body {
   max-width: 760px;
 }
 
+.payment-method-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.payment-method-grid label {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--radius-small);
+  background: var(--app-card-soft-bg);
+  color: var(--md-sys-color-on-surface);
+  font-weight: 600;
+}
+
+.payment-method-grid input {
+  accent-color: var(--md-sys-color-primary);
+}
+
 .range-input {
   width: 100%;
   accent-color: var(--md-sys-color-primary);
@@ -3311,6 +3335,51 @@ pre {
 .price-summary-item strong {
   font-size: 16px;
   color: var(--md-sys-color-on-surface);
+}
+
+.payment-dialog-card {
+  width: min(560px, 100%);
+}
+
+.payment-dialog-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.payment-dialog-summary > div {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--radius-small);
+  background: var(--app-card-soft-bg);
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.payment-dialog-summary span {
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.payment-dialog-summary strong {
+  color: var(--md-sys-color-on-surface);
+  overflow-wrap: anywhere;
+}
+
+.payment-qr-panel {
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--radius-small);
+  background: var(--md-sys-color-surface-container-lowest);
+}
+
+.payment-qr-panel img {
+  width: min(260px, 78vw);
+  aspect-ratio: 1;
+  object-fit: contain;
 }
 
 .page-index .price-dialog-field {

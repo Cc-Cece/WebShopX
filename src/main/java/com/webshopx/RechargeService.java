@@ -50,6 +50,10 @@ class RechargeService {
     return paymentBridge.isAvailable();
   }
 
+  WebShopXPaymentBridge.PaymentProviderInfo paymentProviderInfo() {
+    return paymentBridge.providerInfo();
+  }
+
   void registerPaymentListener() {
     paymentBridge.registerPaymentListener(this::handlePaymentNotify);
   }
@@ -81,7 +85,8 @@ class RechargeService {
           normalized.currency(),
           "WebShopX Recharge " + normalized.coinAmount() + " ShopCoin",
           "Recharge " + normalized.coinAmount() + " ShopCoin via " + normalized.source(),
-          PaymentMethod.AUTO,
+          normalized.preferredMethod(),
+          normalized.methodCode(),
           null,
           null,
           null,
@@ -262,6 +267,8 @@ class RechargeService {
         amountMinor,
         normalizeCurrency(request.currency()),
         coinAmount,
+        normalizePaymentMethod(request.preferredMethod()),
+        blankToNull(request.methodCode()),
         source);
   }
 
@@ -269,6 +276,17 @@ class RechargeService {
     String normalized = raw == null || raw.isBlank() ? DEFAULT_CURRENCY : raw.trim().toUpperCase(Locale.ROOT);
     if (!normalized.matches("^[A-Z]{3,8}$")) {
       throw new ServiceException("UNSUPPORTED_CURRENCY", "Unsupported currency: " + raw);
+    }
+    if (!settingsSupplier.get().paymentSettings().isCurrencyAllowed(normalized)) {
+      throw new ServiceException("UNSUPPORTED_CURRENCY", "Unsupported currency: " + normalized);
+    }
+    return normalized;
+  }
+
+  private PaymentMethod normalizePaymentMethod(PaymentMethod method) {
+    PaymentMethod normalized = method == null ? PaymentMethod.AUTO : method;
+    if (!settingsSupplier.get().paymentSettings().isMethodAllowed(normalized)) {
+      throw new ServiceException("METHOD_UNSUPPORTED", "Unsupported payment method: " + normalized.name());
     }
     return normalized;
   }
@@ -600,6 +618,8 @@ class RechargeService {
       long amountMinor,
       String currency,
       long coinAmount,
+      PaymentMethod preferredMethod,
+      String methodCode,
       String source) {
   }
 

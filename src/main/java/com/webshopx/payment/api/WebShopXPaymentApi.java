@@ -9,6 +9,10 @@ public interface WebShopXPaymentApi {
 
   Set<PaymentMethod> supportedMethods();
 
+  default Set<String> supportedCurrencies() {
+    return Set.of();
+  }
+
   PaymentCreateResult createPayment(PaymentCreateRequest request);
 
   PaymentQueryResult queryPayment(PaymentQueryRequest request);

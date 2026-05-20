@@ -12,9 +12,12 @@ import com.webshopx.payment.api.PaymentStatus;
 import com.webshopx.payment.api.WebShopXPaymentApi;
 import java.time.Instant;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.logging.Level;
@@ -65,6 +68,47 @@ final class WebShopXPaymentBridge {
     return isBlank(provider) ? Optional.empty() : Optional.of(provider);
   }
 
+  PaymentProviderInfo providerInfo() {
+    ProviderHandle handle;
+    try {
+      handle = resolveProvider(false);
+    } catch (ServiceException exception) {
+      return new PaymentProviderInfo(false, null, null, Set.of(), Set.of());
+    }
+    if (handle == null) {
+      return new PaymentProviderInfo(false, null, null, Set.of(), Set.of());
+    }
+    if (handle.kind() == ProviderKind.LEGACY_YUPAY) {
+      return new PaymentProviderInfo(true, LEGACY_PROVIDER_ID, "YuPay", Set.of(PaymentMethod.AUTO), Set.of("CNY"));
+    }
+    Set<PaymentMethod> methods = new LinkedHashSet<>();
+    Set<String> currencies = new LinkedHashSet<>();
+    try {
+      if (handle.api().supportedMethods() != null) {
+        methods.addAll(handle.api().supportedMethods());
+      }
+    } catch (RuntimeException exception) {
+      plugin.getLogger().log(Level.WARNING, "Failed to read payment provider methods.", exception);
+    }
+    try {
+      if (handle.api().supportedCurrencies() != null) {
+        for (String currency : handle.api().supportedCurrencies()) {
+          if (currency != null && !currency.isBlank()) {
+            currencies.add(currency.trim().toUpperCase(Locale.ROOT));
+          }
+        }
+      }
+    } catch (RuntimeException exception) {
+      plugin.getLogger().log(Level.WARNING, "Failed to read payment provider currencies.", exception);
+    }
+    return new PaymentProviderInfo(
+        true,
+        handle.providerId(),
+        handle.api().displayName(),
+        Collections.unmodifiableSet(methods),
+        Collections.unmodifiableSet(currencies));
+  }
+
   CreatePaymentResultData createPayment(CreatePaymentRequestData request) {
     ProviderHandle handle = requireProvider();
     if (handle.kind() == ProviderKind.LEGACY_YUPAY) {
@@ -80,6 +124,7 @@ final class WebShopXPaymentBridge {
     apiRequest.setSubject(request.subject());
     apiRequest.setDescription(request.description());
     apiRequest.setPreferredMethod(request.preferredMethod());
+    apiRequest.setMethodCode(request.methodCode());
     apiRequest.setReturnUrl(request.returnUrl());
     apiRequest.setNotifyUrl(request.notifyUrl());
     apiRequest.setExpiresAt(request.expiresAt());
@@ -353,10 +398,19 @@ final class WebShopXPaymentBridge {
       String subject,
       String description,
       PaymentMethod preferredMethod,
+      String methodCode,
       String returnUrl,
       String notifyUrl,
       Instant expiresAt,
       Map<String, String> metadata) {
+  }
+
+  record PaymentProviderInfo(
+      boolean available,
+      String providerId,
+      String displayName,
+      Set<PaymentMethod> supportedMethods,
+      Set<String> supportedCurrencies) {
   }
 
   record CreatePaymentResultData(

@@ -144,7 +144,15 @@
 <div class="field-grid two-col">
 <label class="field">
 <input data-i18n-placeholder="uiText.page.rechargeAmountPlaceholder" id="rechargeAmount" min="0.01" placeholder="30.00" step="0.01" type="number" value="30"/>
-<span class="field-label" data-i18n="uiText.page.rechargeAmountLabel">Amount (CNY)</span>
+<span class="field-label" data-i18n="uiText.page.rechargeAmountLabel">Amount</span>
+</label>
+<label class="field field-select">
+<select id="rechargeCurrency"></select>
+<span class="field-label" data-i18n="uiText.page.rechargeCurrencyLabel">Currency</span>
+</label>
+<label class="field field-select">
+<select id="rechargePaymentMethod"></select>
+<span class="field-label" data-i18n="uiText.page.rechargeMethodLabel">Payment Method</span>
 </label>
 <label class="field">
 <input id="rechargeCoinPreview" readonly type="text" value="3000 ShopCoin"/>
@@ -154,7 +162,7 @@
 <div class="actions">
 <button data-i18n="uiText.page.rechargeCreateBtn" id="rechargeBtn" type="button">Create Payment</button>
 <button class="btn-tonal" data-i18n="uiText.page.rechargeStatusBtn" id="rechargeStatusBtn" type="button">Check Status</button>
-<a class="btn-tonal hidden" data-i18n="uiText.page.rechargeOpenPayBtn" href="#" id="rechargePayLink" rel="noopener noreferrer" target="_blank">Open Payment</a>
+<button class="btn-tonal hidden" data-i18n="uiText.page.rechargeOpenPayBtn" id="rechargePayLink" type="button">Open Payment</button>
 </div>
 <p class="meta" data-i18n="uiText.initMeta.rechargeView" id="rechargeView">Waiting for recharge action</p>
 </article>
@@ -522,6 +530,30 @@
 <div class="actions dialog-actions">
 <button class="btn-tonal" data-i18n="uiText.page.priceDialogCancelBtn" id="priceDialogCancel" type="button">Cancel</button>
 <button data-i18n="uiText.page.priceDialogConfirmBtn" id="priceDialogConfirm" type="button">Confirm Price Change</button>
+</div>
+</div>
+</div>
+<div aria-hidden="true" class="dialog-backdrop" id="rechargePaymentDialog">
+<div aria-labelledby="rechargePaymentDialogTitle" aria-modal="true" class="dialog-card md-card payment-dialog-card" role="dialog">
+<h3 data-i18n="uiText.page.rechargePaymentDialogTitle" id="rechargePaymentDialogTitle">Complete Payment</h3>
+<p data-i18n="uiText.page.rechargePaymentDialogDesc" id="rechargePaymentDialogDesc">Scan the QR code on mobile or open the payment page.</p>
+<div class="payment-dialog-summary">
+<div>
+<span data-i18n="uiText.page.rechargePaymentOrderLabel">Order</span>
+<strong id="rechargePaymentDialogOrder">-</strong>
+</div>
+<div>
+<span data-i18n="uiText.page.rechargePaymentAmountLabel">Amount</span>
+<strong id="rechargePaymentDialogAmount">-</strong>
+</div>
+</div>
+<div class="payment-qr-panel hidden" id="rechargeQrPanel">
+<img alt="Payment QR code" data-i18n-alt="uiText.page.rechargePaymentQrAlt" id="rechargeQrImage"/>
+</div>
+<p class="meta hidden" data-i18n="uiText.page.rechargePaymentNoQr" id="rechargeQrEmpty">No QR code was returned for this payment method.</p>
+<div class="actions dialog-actions">
+<button class="btn-tonal" data-i18n="uiText.page.rechargePaymentCloseBtn" id="rechargePaymentDialogClose" type="button">Close</button>
+<button data-i18n="uiText.page.rechargePaymentOpenBtn" id="rechargePaymentDialogOpen" type="button">Open Payment Page</button>
 </div>
 </div>
 </div>

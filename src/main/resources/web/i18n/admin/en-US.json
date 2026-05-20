@@ -55,6 +55,13 @@
       "tagSaveFailed": "Tag save failed: {message}",
       "ruleSaveFailed": "Rule save failed: {message}"
     },
+    "paymentMethodLabels": {
+      "AUTO": "Auto",
+      "ALIPAY": "Alipay",
+      "WECHAT": "WeChat Pay",
+      "PAYPAL": "PayPal",
+      "CUSTOM": "Custom"
+    },
     "page": {
       "title": "WebShopX Control Panel",
       "headerTitle": "WebShopX Control Panel",
@@ -122,6 +129,17 @@
       "loginMissingCredentials": "Please enter admin account and password.",
       "headerStatusOnline": "Signed in: {username}",
       "loginStatusSuccess": "Sign-in successful",
+      "rechargePaymentTitle": "Recharge Payment Settings",
+      "rechargePaymentDesc": "Choose the payment currencies and methods players can use for recharge.",
+      "rechargePaymentCurrenciesLabel": "Supported Payment Currencies",
+      "rechargePaymentCurrenciesPlaceholder": "CNY, USD",
+      "rechargePaymentProviderLabel": "Payment Provider",
+      "rechargePaymentSaveBtn": "Save Recharge Payment Settings",
+      "rechargePaymentStatusView": "Waiting for action",
+      "rechargePaymentProviderUnavailable": "Payment provider unavailable",
+      "rechargePaymentCurrencyRequired": "Enter at least one payment currency.",
+      "rechargePaymentMethodRequired": "Select at least one payment method.",
+      "rechargePaymentSaved": "Recharge payment settings saved",
       "emptyState": "No data",
       "tabLabelLogin": "Status",
       "tabLabelAudit": "Audit",

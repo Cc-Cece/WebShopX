@@ -6,11 +6,14 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.webshopx.payment.api.PaymentMethod;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.time.ZoneId;
@@ -30,6 +33,7 @@ class RuntimeConfigService {
   private static final String KEY_LOGGING = "logging";
   private static final String KEY_BROADCAST = "broadcast";
   private static final String KEY_NOTIFICATION = "notification";
+  private static final String KEY_PAYMENT_RECHARGE = "payment_recharge";
 
   private final DatabaseManager databaseManager;
   private final SqlProvider sqlProvider;
@@ -67,6 +71,7 @@ class RuntimeConfigService {
       upsertConfig(connection, KEY_LOGGING, serializeLogging(settings.loggingSettings()));
       upsertConfig(connection, KEY_BROADCAST, serializeBroadcast(settings.broadcastSettings()));
       upsertConfig(connection, KEY_NOTIFICATION, serializeDefaultNotificationConfig());
+      upsertConfig(connection, KEY_PAYMENT_RECHARGE, serializePaymentRecharge(settings.paymentSettings()));
       writeMetaValue(connection, META_LEGACY_MIGRATED, "1");
       return true;
     });
@@ -100,6 +105,7 @@ class RuntimeConfigService {
       insertIfMissing(connection, KEY_LOGGING, serializeLogging(settings.loggingSettings()));
       insertIfMissing(connection, KEY_BROADCAST, serializeBroadcast(settings.broadcastSettings()));
       insertIfMissing(connection, KEY_NOTIFICATION, serializeDefaultNotificationConfig());
+      insertIfMissing(connection, KEY_PAYMENT_RECHARGE, serializePaymentRecharge(settings.paymentSettings()));
       return null;
     });
   }
@@ -133,7 +139,7 @@ class RuntimeConfigService {
 
   PluginSettings applyTo(PluginSettings defaults) {
     RuntimeSnapshot snapshot = loadSnapshot(defaults);
-    return defaults.withBusinessSettings(
+    return defaults.withPaymentSettings(snapshot.paymentSettings()).withBusinessSettings(
         snapshot.defaultLocale(),
         snapshot.sessionExpireHours(),
         snapshot.bindRequestExpireMinutes(),
@@ -237,6 +243,11 @@ class RuntimeConfigService {
         updateConfig(connection, KEY_NOTIFICATION, serializeNotification(normalized)));
   }
 
+  long updatePaymentRecharge(PluginSettings.PaymentSettings paymentSettings) {
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_PAYMENT_RECHARGE, serializePaymentRecharge(paymentSettings)));
+  }
+
   private RuntimeSnapshot loadSnapshot(Connection connection, PluginSettings defaults) throws SQLException {
     Map<String, ConfigRow> rows = readConfigRows(connection);
 
@@ -263,6 +274,9 @@ class RuntimeConfigService {
     PluginSettings.BroadcastSettings broadcastSettings = parseBroadcast(
         rows.get(KEY_BROADCAST),
         defaults.broadcastSettings());
+    PluginSettings.PaymentSettings paymentSettings = parsePaymentRecharge(
+        rows.get(KEY_PAYMENT_RECHARGE),
+        defaults.paymentSettings());
 
     long maxVersion = 0L;
     for (ConfigRow row : rows.values()) {
@@ -291,6 +305,7 @@ class RuntimeConfigService {
         maintenanceSettings,
         loggingSettings,
         broadcastSettings,
+        paymentSettings,
         maxVersion);
   }
 
@@ -388,7 +403,7 @@ class RuntimeConfigService {
     String sql = """
         SELECT config_key, config_value, version
         FROM runtime_config
-        WHERE config_key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        WHERE config_key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, KEY_EXCHANGE);
@@ -402,6 +417,7 @@ class RuntimeConfigService {
       statement.setString(9, KEY_MAINTENANCE);
       statement.setString(10, KEY_LOGGING);
       statement.setString(11, KEY_BROADCAST);
+      statement.setString(12, KEY_PAYMENT_RECHARGE);
       try (ResultSet resultSet = statement.executeQuery()) {
         Map<String, ConfigRow> rows = new HashMap<>();
         while (resultSet.next()) {
@@ -543,6 +559,38 @@ class RuntimeConfigService {
           readString(root, "shopCoinShort", fallback.shopCoinShort()),
           readString(root, "gameCoinName", fallback.gameCoinName()),
           readString(root, "gameCoinShort", fallback.gameCoinShort()));
+    } catch (Exception exception) {
+      return fallback;
+    }
+  }
+
+  private String serializePaymentRecharge(PluginSettings.PaymentSettings settings) {
+    JsonObject root = new JsonObject();
+    JsonArray currencies = new JsonArray();
+    for (String currency : settings.rechargeCurrencies()) {
+      currencies.add(currency);
+    }
+    JsonArray methods = new JsonArray();
+    for (PaymentMethod method : settings.rechargeMethods()) {
+      methods.add(method.name());
+    }
+    root.add("currencies", currencies);
+    root.add("methods", methods);
+    return gson.toJson(root);
+  }
+
+  private PluginSettings.PaymentSettings parsePaymentRecharge(
+      ConfigRow row,
+      PluginSettings.PaymentSettings fallback) {
+    if (row == null || row.configValue() == null || row.configValue().isBlank()) {
+      return fallback;
+    }
+    try {
+      JsonObject root = JsonParser.parseString(row.configValue()).getAsJsonObject();
+      return new PluginSettings.PaymentSettings(
+          fallback.provider(),
+          readStringArray(root, "currencies", fallback.rechargeCurrencies()),
+          PluginSettings.normalizePaymentMethods(readStringArray(root, "methods", paymentMethodNames(fallback.rechargeMethods()))));
     } catch (Exception exception) {
       return fallback;
     }
@@ -896,6 +944,41 @@ class RuntimeConfigService {
     }
   }
 
+  private List<String> readStringArray(JsonObject jsonObject, String field, List<String> fallback) {
+    if (jsonObject == null || !jsonObject.has(field) || jsonObject.get(field).isJsonNull()) {
+      return fallback;
+    }
+    JsonElement value = jsonObject.get(field);
+    if (!value.isJsonArray()) {
+      return fallback;
+    }
+    List<String> result = new ArrayList<>();
+    for (JsonElement element : value.getAsJsonArray()) {
+      if (element == null || element.isJsonNull()) {
+        continue;
+      }
+      try {
+        result.add(element.getAsString());
+      } catch (Exception ignored) {
+        // Skip malformed array values.
+      }
+    }
+    return result.isEmpty() ? fallback : result;
+  }
+
+  private List<String> paymentMethodNames(List<PaymentMethod> methods) {
+    if (methods == null) {
+      return List.of();
+    }
+    List<String> names = new ArrayList<>();
+    for (PaymentMethod method : methods) {
+      if (method != null) {
+        names.add(method.name());
+      }
+    }
+    return names;
+  }
+
   private ZoneId readZoneId(JsonObject jsonObject, String field, ZoneId fallback) {
     String raw = readString(jsonObject, field, fallback.getId());
     try {
@@ -989,6 +1072,7 @@ class RuntimeConfigService {
       PluginSettings.MaintenanceSettings maintenanceSettings,
       PluginSettings.LoggingSettings loggingSettings,
       PluginSettings.BroadcastSettings broadcastSettings,
+      PluginSettings.PaymentSettings paymentSettings,
       long maxVersion) {
   }
 

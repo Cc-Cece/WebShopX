@@ -658,6 +658,15 @@ const elements = {
   currencyGameCoinShort: document.getElementById("currencyGameCoinShort"),
   currencySaveBtn: document.getElementById("currencySaveBtn"),
   currencyStatusView: document.getElementById("currencyStatusView"),
+  rechargePaymentCurrencies: document.getElementById("rechargePaymentCurrencies"),
+  rechargePaymentProvider: document.getElementById("rechargePaymentProvider"),
+  rechargeMethodAuto: document.getElementById("rechargeMethodAuto"),
+  rechargeMethodAlipay: document.getElementById("rechargeMethodAlipay"),
+  rechargeMethodWechat: document.getElementById("rechargeMethodWechat"),
+  rechargeMethodPaypal: document.getElementById("rechargeMethodPaypal"),
+  rechargeMethodCustom: document.getElementById("rechargeMethodCustom"),
+  rechargePaymentSaveBtn: document.getElementById("rechargePaymentSaveBtn"),
+  rechargePaymentStatusView: document.getElementById("rechargePaymentStatusView"),
   runtimeDefaultLocale: document.getElementById("runtimeDefaultLocale"),
   runtimeTimeZone: document.getElementById("runtimeTimeZone"),
   runtimeSessionExpireHours: document.getElementById("runtimeSessionExpireHours"),
@@ -7598,6 +7607,7 @@ async function loadEconomySettings() {
     elements.currencyGameCoinShort.value = state.currencyMeta.GAME_COIN.short;
   }
   applyCurrencyMetaToUi();
+  applyRechargePaymentSettings(payload.rechargePayment || {}, payload.paymentProvider || {});
 
   const vault = payload.vault || {};
   const gameCoinLabel = currencyName("GAME_COIN");
@@ -8247,6 +8257,85 @@ async function saveCurrencyDisplaySettings() {
   applyCurrencyMetaToUi();
   setMetaText(elements.currencyStatusView, getAdminUiText("autoJs.k0009"), "success");
   notify(getAdminUiText("autoJs.k0009"), "success");
+}
+
+function rechargeMethodInputs() {
+  return [
+    elements.rechargeMethodAuto,
+    elements.rechargeMethodAlipay,
+    elements.rechargeMethodWechat,
+    elements.rechargeMethodPaypal,
+    elements.rechargeMethodCustom,
+  ].filter(Boolean);
+}
+
+function normalizePaymentMethod(value) {
+  const normalized = String(value || "").trim().toUpperCase().replace(/-/g, "_");
+  return ["AUTO", "ALIPAY", "WECHAT", "PAYPAL", "CUSTOM"].includes(normalized) ? normalized : "";
+}
+
+function normalizePaymentCurrency(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  return /^[A-Z]{3,8}$/.test(normalized) ? normalized : "";
+}
+
+function applyRechargePaymentSettings(settings, provider) {
+  const currencies = Array.isArray(settings.currencies)
+    ? settings.currencies.map(normalizePaymentCurrency).filter(Boolean)
+    : ["CNY"];
+  if (elements.rechargePaymentCurrencies) {
+    elements.rechargePaymentCurrencies.value = Array.from(new Set(currencies)).join(", ");
+  }
+
+  const configuredMethods = new Set(
+    (Array.isArray(settings.methods) ? settings.methods : ["AUTO"])
+      .map(normalizePaymentMethod)
+      .filter(Boolean)
+  );
+  const supportedMethods = new Set(
+    (Array.isArray(provider.supportedMethods) ? provider.supportedMethods : [])
+      .map(normalizePaymentMethod)
+      .filter(Boolean)
+  );
+  rechargeMethodInputs().forEach((input) => {
+    const method = normalizePaymentMethod(input.value);
+    input.checked = configuredMethods.has(method);
+    input.disabled = provider.available !== false && supportedMethods.size > 0 && !supportedMethods.has(method);
+  });
+
+  if (elements.rechargePaymentProvider) {
+    const unavailable = getAdminUiText("page.rechargePaymentProviderUnavailable");
+    const methodText = Array.from(supportedMethods).join(", ") || "-";
+    const currencyText = (Array.isArray(provider.supportedCurrencies) ? provider.supportedCurrencies : []).join(", ") || "-";
+    elements.rechargePaymentProvider.value = provider.available === false
+      ? unavailable
+      : `${provider.displayName || provider.providerId || "-"} | ${currencyText} | ${methodText}`;
+  }
+}
+
+async function saveRechargePaymentSettings() {
+  ensureAdmin();
+  const currencies = String(elements.rechargePaymentCurrencies?.value || "")
+    .split(/[,\s]+/)
+    .map(normalizePaymentCurrency)
+    .filter(Boolean);
+  const methods = rechargeMethodInputs()
+    .filter((input) => input.checked && !input.disabled)
+    .map((input) => normalizePaymentMethod(input.value))
+    .filter(Boolean);
+  if (!currencies.length) {
+    throw new Error(getAdminUiText("page.rechargePaymentCurrencyRequired"));
+  }
+  if (!methods.length) {
+    throw new Error(getAdminUiText("page.rechargePaymentMethodRequired"));
+  }
+  const payload = await apiAdmin("/api/admin/economy/recharge-payment", {
+    method: "POST",
+    body: JSON.stringify({ currencies, methods }),
+  });
+  applyRechargePaymentSettings(payload.rechargePayment || { currencies, methods }, {});
+  setMetaText(elements.rechargePaymentStatusView, getAdminUiText("page.rechargePaymentSaved"), "success");
+  notify(getAdminUiText("page.rechargePaymentSaved"), "success");
 }
 
 async function saveWebshopRuntimeSettings() {
@@ -9317,6 +9406,17 @@ if (elements.currencySaveBtn) {
       await saveCurrencyDisplaySettings();
     } catch (error) {
       setMetaText(elements.currencyStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
+      notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
+    }
+  });
+}
+
+if (elements.rechargePaymentSaveBtn) {
+  elements.rechargePaymentSaveBtn.addEventListener("click", async () => {
+    try {
+      await saveRechargePaymentSettings();
+    } catch (error) {
+      setMetaText(elements.rechargePaymentStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
       notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
     }
   });

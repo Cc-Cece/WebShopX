@@ -9,6 +9,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.webshopx.payment.api.PaymentMethod;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -233,6 +234,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/economy/market", this::handleAdminMarketEconomyUpdate);
     server.createContext("/api/admin/economy/leaderboard", this::handleAdminLeaderboardSettingsUpdate);
     server.createContext("/api/admin/economy/currency", this::handleAdminCurrencyDisplayUpdate);
+    server.createContext("/api/admin/economy/recharge-payment", this::handleAdminRechargePaymentUpdate);
     server.createContext("/api/admin/market/tags-config", this::handleAdminMarketTagsConfig);
     server.createContext("/api/admin/market/limitation-config", this::handleAdminMarketLimitationConfig);
     server.createContext("/api/admin/system/webshop", this::handleAdminWebshopRuntimeUpdate);
@@ -420,6 +422,11 @@ class EmbeddedWebServer {
           ? getLong(payload, "coinAmount", 0L)
           : rechargeService.amountToCoinAmount(amountMinor);
       String currency = getOptionalString(payload, "currency").orElse("CNY");
+      PaymentMethod preferredMethod = parsePaymentMethod(
+          getOptionalString(payload, "paymentMethod")
+              .or(() -> getOptionalString(payload, "preferredMethod"))
+              .orElse("AUTO"));
+      String methodCode = getOptionalString(payload, "methodCode").orElse(null);
       RechargeService.RechargeCreateResult result = rechargeService.createRechargeOrder(
           new RechargeService.RechargeCreateRequest(
               user.id(),
@@ -427,6 +434,8 @@ class EmbeddedWebServer {
               amountMinor,
               currency,
               coinAmount,
+              preferredMethod,
+              methodCode,
               "WEB"));
       JsonObject response = rechargeCreateResultJson(result);
       sendJson(exchange, result.success() ? 200 : 400, response);
@@ -849,6 +858,8 @@ class EmbeddedWebServer {
       response.add("shopCoin", shop);
       response.add("gameCoin", game);
       response.add("exchange", buildExchangeMetaJson());
+      response.add("payment", rechargePaymentSettingsJson(settingsSupplier.get().paymentSettings()));
+      response.add("paymentProvider", paymentProviderInfoJson(rechargeService.paymentProviderInfo()));
       response.addProperty("timeZone", settingsSupplier.get().timeZone().getId());
       sendJson(exchange, 200, response);
     });
@@ -2920,6 +2931,8 @@ class EmbeddedWebServer {
       response.add("marketLimitationConfig", runtimeConfigService.readMarketLimitationConfig().config());
       response.add("leaderboard", leaderboardSettingsJson(settings));
       response.add("webshopRuntime", webshopRuntimeJson(settings));
+      response.add("rechargePayment", rechargePaymentSettingsJson(settings.paymentSettings()));
+      response.add("paymentProvider", paymentProviderInfoJson(rechargeService.paymentProviderInfo()));
       response.add("marketRuntime", marketRuntimeJson(settings));
       response.add("maintenance", maintenanceSettingsJson(settings.maintenanceSettings()));
       response.add("logging", loggingSettingsJson(settings.loggingSettings()));
@@ -3082,6 +3095,36 @@ class EmbeddedWebServer {
 
       JsonObject response = new JsonObject();
       response.addProperty("status", "ok");
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminRechargePaymentUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      PluginSettings.PaymentSettings current = settingsSupplier.get().paymentSettings();
+      PluginSettings.PaymentSettings paymentSettings = new PluginSettings.PaymentSettings(
+          current.provider(),
+          getStringArray(payload, "currencies"),
+          PluginSettings.normalizePaymentMethods(getStringArray(payload, "methods")));
+      long version = runtimeConfigService.updatePaymentRecharge(paymentSettings);
+      publishRuntimeConfigRefresh(version);
+
+      JsonObject detail = new JsonObject();
+      detail.add("currencies", stringArrayJson(paymentSettings.rechargeCurrencies()));
+      detail.add("methods", paymentMethodArrayJson(paymentSettings.rechargeMethods()));
+      adminAuditService.log(admin, "RECHARGE_PAYMENT_UPDATE", "payment", null, detail, clientIp(exchange));
+
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      response.add("rechargePayment", rechargePaymentSettingsJson(paymentSettings));
       sendJson(exchange, 200, response);
     });
   }
@@ -4750,6 +4793,57 @@ class EmbeddedWebServer {
     return response;
   }
 
+  private JsonObject rechargePaymentSettingsJson(PluginSettings.PaymentSettings settings) {
+    JsonObject response = new JsonObject();
+    response.add("currencies", stringArrayJson(settings.rechargeCurrencies()));
+    response.add("methods", paymentMethodArrayJson(settings.rechargeMethods()));
+    return response;
+  }
+
+  private JsonObject paymentProviderInfoJson(WebShopXPaymentBridge.PaymentProviderInfo info) {
+    JsonObject response = new JsonObject();
+    if (info == null) {
+      response.addProperty("available", false);
+      response.add("providerId", JsonNull.INSTANCE);
+      response.add("displayName", JsonNull.INSTANCE);
+      response.add("supportedMethods", new JsonArray());
+      response.add("supportedCurrencies", new JsonArray());
+      return response;
+    }
+    response.addProperty("available", info.available());
+    addNullableString(response, "providerId", info.providerId());
+    addNullableString(response, "displayName", info.displayName());
+    response.add("supportedMethods", paymentMethodArrayJson(List.copyOf(info.supportedMethods())));
+    response.add("supportedCurrencies", stringArrayJson(List.copyOf(info.supportedCurrencies())));
+    return response;
+  }
+
+  private JsonArray stringArrayJson(List<String> values) {
+    JsonArray array = new JsonArray();
+    if (values == null) {
+      return array;
+    }
+    for (String value : values) {
+      if (value != null) {
+        array.add(value);
+      }
+    }
+    return array;
+  }
+
+  private JsonArray paymentMethodArrayJson(List<PaymentMethod> methods) {
+    JsonArray array = new JsonArray();
+    if (methods == null) {
+      return array;
+    }
+    for (PaymentMethod method : methods) {
+      if (method != null) {
+        array.add(method.name());
+      }
+    }
+    return array;
+  }
+
   private void addNullableString(JsonObject object, String key, String value) {
     if (value == null) {
       object.add(key, JsonNull.INSTANCE);
@@ -4856,6 +4950,14 @@ class EmbeddedWebServer {
       return Optional.empty();
     }
     return Optional.of(text);
+  }
+
+  private PaymentMethod parsePaymentMethod(String raw) {
+    PaymentMethod method = PluginSettings.parsePaymentMethod(raw);
+    if (method == null) {
+      throw new ServiceException("METHOD_UNSUPPORTED", "Unsupported payment method: " + raw);
+    }
+    return method;
   }
 
   private java.time.LocalDateTime getOptionalDateTime(JsonObject payload, String key) {

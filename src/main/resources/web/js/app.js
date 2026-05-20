@@ -92,6 +92,10 @@
   },
   recharge: {
     currentOrderId: null,
+    currentPayment: null,
+    currencies: ["CNY"],
+    methods: ["AUTO"],
+    provider: null,
   },
   leaderboard: {
     enabled: true,
@@ -238,6 +242,7 @@ const FALLBACK_APP_UI_TEXT = Object.freeze({
     rechargeStatus: "Order {orderId}: {status}, credit {coinAmount} ShopCoin",
     rechargeFailed: "Recharge failed: {message}",
     rechargeStatusFailed: "Status check failed: {message}",
+    rechargeNoPayLink: "Payment provider did not return a payment link.",
     exchangeFailed: "Exchange failed: {message}",
     operationFailed: "Operation failed: {message}",
     markReadFailed: "Mark read failed: {message}",
@@ -392,6 +397,7 @@ const FALLBACK_ERROR_TIPS_COMMON = {
   payment_api_error: "支付服务返回错误，请稍后重试。",
   payment_create_failed: "支付订单创建失败，请稍后重试。",
   payment_query_failed: "支付订单查询失败，请稍后重试。",
+  METHOD_UNSUPPORTED: "当前支付方式不可用，请选择其它支付方式。",
   invalid_market_side: "上架方向无效，只支持 SELL 或 BUY。",
   invalid_tag: "分类标签无效或不允许。",
   tag_disabled: "该分类标签已停用。",
@@ -630,6 +636,10 @@ function formatAppTemplate(key, params = {}) {
   });
 }
 
+function getAppPageText(key, fallback = "") {
+  return String(APP_UI_TEXT.page?.[key] || fallback);
+}
+
 const elements = {
   logBox: document.getElementById("logBox"),
   statusChip: document.getElementById("statusChip"),
@@ -659,11 +669,21 @@ const elements = {
   walletLedgerView: document.getElementById("walletLedgerView"),
   walletLedgerList: document.getElementById("walletLedgerList"),
   rechargeAmount: document.getElementById("rechargeAmount"),
+  rechargeCurrency: document.getElementById("rechargeCurrency"),
+  rechargePaymentMethod: document.getElementById("rechargePaymentMethod"),
   rechargeCoinPreview: document.getElementById("rechargeCoinPreview"),
   rechargeBtn: document.getElementById("rechargeBtn"),
   rechargeStatusBtn: document.getElementById("rechargeStatusBtn"),
   rechargePayLink: document.getElementById("rechargePayLink"),
   rechargeView: document.getElementById("rechargeView"),
+  rechargePaymentDialog: document.getElementById("rechargePaymentDialog"),
+  rechargePaymentDialogOrder: document.getElementById("rechargePaymentDialogOrder"),
+  rechargePaymentDialogAmount: document.getElementById("rechargePaymentDialogAmount"),
+  rechargeQrPanel: document.getElementById("rechargeQrPanel"),
+  rechargeQrImage: document.getElementById("rechargeQrImage"),
+  rechargeQrEmpty: document.getElementById("rechargeQrEmpty"),
+  rechargePaymentDialogClose: document.getElementById("rechargePaymentDialogClose"),
+  rechargePaymentDialogOpen: document.getElementById("rechargePaymentDialogOpen"),
   redeemView: document.getElementById("redeemView"),
   exchangeRateHint: document.getElementById("exchangeRateHint"),
   exchangeView: document.getElementById("exchangeView"),
@@ -3462,6 +3482,7 @@ function applyCurrencyMeta(meta) {
   applyText("exchangeDescGameCoin", CURRENCY_META.GAME_COIN.label);
 
   applyExchangeMeta(meta.exchange);
+  applyRechargePaymentMeta(meta.payment, meta.paymentProvider);
   updateExchangeRateHint();
 
   if (state.activeTab === "leaderboard" && state.leaderboard.enabled) {
@@ -3548,6 +3569,83 @@ async function loadWalletLedger(options = {}) {
   }
 }
 
+function normalizeRechargeCurrency(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  return /^[A-Z]{3,8}$/.test(normalized) ? normalized : "";
+}
+
+function normalizeRechargeMethod(value) {
+  const normalized = String(value || "").trim().toUpperCase().replace(/-/g, "_");
+  return ["AUTO", "ALIPAY", "WECHAT", "PAYPAL", "CUSTOM"].includes(normalized) ? normalized : "";
+}
+
+function paymentMethodLabel(method) {
+  const labels = APP_UI_TEXT.paymentMethodLabels || {};
+  return labels[method] || method;
+}
+
+function applyRechargePaymentMeta(settings, provider) {
+  const configuredCurrencies = Array.isArray(settings?.currencies) ? settings.currencies : [];
+  const configuredMethods = Array.isArray(settings?.methods) ? settings.methods : [];
+  const providerCurrencies = Array.isArray(provider?.supportedCurrencies) ? provider.supportedCurrencies : [];
+  const providerMethods = Array.isArray(provider?.supportedMethods) ? provider.supportedMethods : [];
+  const providerAvailable = provider?.available !== false;
+  const currencyAllow = new Set(providerCurrencies.map(normalizeRechargeCurrency).filter(Boolean));
+  const methodAllow = new Set(providerMethods.map(normalizeRechargeMethod).filter(Boolean));
+
+  let currencies = configuredCurrencies.map(normalizeRechargeCurrency).filter(Boolean);
+  if (providerAvailable && currencyAllow.size > 0) {
+    currencies = currencies.filter((currency) => currencyAllow.has(currency));
+  }
+  if (currencies.length === 0) {
+    currencies = (providerCurrencies.length ? providerCurrencies : ["CNY"])
+      .map(normalizeRechargeCurrency)
+      .filter(Boolean);
+  }
+  if (currencies.length === 0) {
+    currencies = ["CNY"];
+  }
+
+  let methods = configuredMethods.map(normalizeRechargeMethod).filter(Boolean);
+  if (providerAvailable && methodAllow.size > 0) {
+    methods = methods.filter((method) => methodAllow.has(method));
+  }
+  if (methods.length === 0) {
+    methods = (providerMethods.length ? providerMethods : ["AUTO"])
+      .map(normalizeRechargeMethod)
+      .filter(Boolean);
+  }
+  if (methods.length === 0) {
+    methods = ["AUTO"];
+  }
+
+  state.recharge.currencies = Array.from(new Set(currencies));
+  state.recharge.methods = Array.from(new Set(methods));
+  state.recharge.provider = provider || null;
+  renderRechargeSelectors();
+}
+
+function renderRechargeSelectors() {
+  const render = (select, values, labeler) => {
+    if (!select) {
+      return;
+    }
+    const previous = select.value;
+    select.replaceChildren();
+    values.forEach((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = labeler(value);
+      select.appendChild(option);
+    });
+    if (values.includes(previous)) {
+      select.value = previous;
+    }
+  };
+  render(elements.rechargeCurrency, state.recharge.currencies, (currency) => currency);
+  render(elements.rechargePaymentMethod, state.recharge.methods, paymentMethodLabel);
+}
+
 function parseRechargeAmountMinor() {
   const raw = String(elements.rechargeAmount?.value || "").trim();
   if (!/^[0-9]+(\.[0-9]{1,2})?$/.test(raw)) {
@@ -3581,11 +3679,59 @@ function setRechargePayLink(url) {
   }
   if (!url) {
     elements.rechargePayLink.classList.add("hidden");
-    elements.rechargePayLink.href = "#";
     return;
   }
-  elements.rechargePayLink.href = url;
   elements.rechargePayLink.classList.remove("hidden");
+}
+
+function formatPaymentAmountMinor(amountMinor, currency) {
+  const value = Number(amountMinor || 0) / 100;
+  return `${String(currency || "").toUpperCase()} ${value.toFixed(2)}`;
+}
+
+function setRechargePaymentDialogVisible(visible) {
+  if (!elements.rechargePaymentDialog) {
+    return;
+  }
+  elements.rechargePaymentDialog.classList.toggle("show", visible);
+  elements.rechargePaymentDialog.setAttribute("aria-hidden", visible ? "false" : "true");
+}
+
+function showRechargePaymentDialog(payment) {
+  const data = payment || state.recharge.currentPayment;
+  if (!data || !data.payUrl) {
+    notify(formatAppTemplate("rechargeNoPayLink"), "warn");
+    return;
+  }
+  state.recharge.currentPayment = data;
+  if (elements.rechargePaymentDialogOrder) {
+    elements.rechargePaymentDialogOrder.textContent = data.orderId || "-";
+  }
+  if (elements.rechargePaymentDialogAmount) {
+    elements.rechargePaymentDialogAmount.textContent = formatPaymentAmountMinor(data.amountMinor, data.currency);
+  }
+  const qrCodeUrl = String(data.qrCodeUrl || "").trim();
+  if (qrCodeUrl && elements.rechargeQrImage && elements.rechargeQrPanel) {
+    elements.rechargeQrImage.src = qrCodeUrl;
+    elements.rechargeQrPanel.classList.remove("hidden");
+    elements.rechargeQrEmpty?.classList.add("hidden");
+  } else {
+    if (elements.rechargeQrImage) {
+      elements.rechargeQrImage.removeAttribute("src");
+    }
+    elements.rechargeQrPanel?.classList.add("hidden");
+    elements.rechargeQrEmpty?.classList.remove("hidden");
+  }
+  setRechargePaymentDialogVisible(true);
+}
+
+function openCurrentRechargePaymentPage() {
+  const url = state.recharge.currentPayment?.payUrl;
+  if (!url) {
+    notify(formatAppTemplate("rechargeNoPayLink"), "warn");
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 async function refreshRechargeStatus() {
@@ -3598,6 +3744,16 @@ async function refreshRechargeStatus() {
     `/api/recharge/status?orderId=${encodeURIComponent(state.recharge.currentOrderId)}`,
     { method: "GET" }
   );
+  if (payload.payUrl) {
+    state.recharge.currentPayment = {
+      orderId: payload.orderId,
+      payUrl: payload.payUrl,
+      qrCodeUrl: payload.qrCodeUrl,
+      amountMinor: payload.amountMinor,
+      currency: payload.currency,
+    };
+    setRechargePayLink(payload.payUrl);
+  }
   setMetaText(
     elements.rechargeView,
     formatAppTemplate("rechargeStatus", {
@@ -7820,28 +7976,64 @@ if (elements.rechargeAmount) {
   elements.rechargeAmount.addEventListener("input", updateRechargeCoinPreview);
 }
 
+if (elements.rechargePayLink) {
+  elements.rechargePayLink.addEventListener("click", () => {
+    showRechargePaymentDialog();
+  });
+}
+
+if (elements.rechargePaymentDialogClose) {
+  elements.rechargePaymentDialogClose.addEventListener("click", () => {
+    setRechargePaymentDialogVisible(false);
+  });
+}
+
+if (elements.rechargePaymentDialogOpen) {
+  elements.rechargePaymentDialogOpen.addEventListener("click", openCurrentRechargePaymentPage);
+}
+
+if (elements.rechargePaymentDialog) {
+  elements.rechargePaymentDialog.addEventListener("click", (event) => {
+    if (event.target === elements.rechargePaymentDialog) {
+      setRechargePaymentDialogVisible(false);
+    }
+  });
+}
+
 if (elements.rechargeBtn) {
   elements.rechargeBtn.addEventListener("click", async () => {
     try {
       ensureToken();
       const amountMinor = parseRechargeAmountMinor();
+      const currency = normalizeRechargeCurrency(elements.rechargeCurrency?.value) || "CNY";
+      const paymentMethod = normalizeRechargeMethod(elements.rechargePaymentMethod?.value) || "AUTO";
       setMetaText(elements.rechargeView, formatAppTemplate("rechargeCreating"), "info");
       setRechargePayLink(null);
+      state.recharge.currentPayment = null;
       const payload = await api("/api/recharge/create", {
         method: "POST",
         body: JSON.stringify({
           amountMinor,
-          currency: "CNY",
+          currency,
+          paymentMethod,
           coinAmount: amountMinor,
         }),
       });
       state.recharge.currentOrderId = payload.orderId;
+      state.recharge.currentPayment = {
+        orderId: payload.orderId,
+        payUrl: payload.payUrl,
+        qrCodeUrl: payload.qrCodeUrl,
+        amountMinor,
+        currency,
+      };
       setRechargePayLink(payload.payUrl);
       setMetaText(
         elements.rechargeView,
         formatAppTemplate("rechargeCreated", { orderId: payload.orderId }),
         "success"
       );
+      showRechargePaymentDialog(state.recharge.currentPayment);
     } catch (error) {
       const message = resolveErrorMessage(error, "operation");
       const detail = formatAppTemplate("rechargeFailed", { message });
@@ -8630,6 +8822,7 @@ updateMarketSectionContext();
 setMetaText(elements.walletView, APP_UI_TEXT.initMeta.walletView, "info");
 setMetaText(elements.walletLedgerView, APP_UI_TEXT.initMeta.walletLedgerView, "info");
 setMetaText(elements.rechargeView, APP_UI_TEXT.initMeta.rechargeView, "info");
+renderRechargeSelectors();
 updateRechargeCoinPreview();
 setMetaText(elements.redeemView, APP_UI_TEXT.initMeta.redeemView, "info");
 setMetaText(elements.exchangeRateHint, APP_UI_TEXT.initMeta.exchangeRateHint, "info");
