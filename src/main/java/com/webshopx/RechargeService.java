@@ -67,6 +67,7 @@ class RechargeService {
   RechargeCreateResult createRechargeOrder(RechargeCreateRequest request) {
     RechargeCreateRequest normalized = normalizeCreateRequest(request);
     String orderId = generateOrderId();
+    Instant requestedExpiresAt = resolveRechargeOrderExpiresAt();
     Map<String, String> metadata = new LinkedHashMap<>();
     metadata.put("source", normalized.source());
     metadata.put("coinAmount", String.valueOf(normalized.coinAmount()));
@@ -91,7 +92,7 @@ class RechargeService {
           normalized.methodCode(),
           null,
           null,
-          null,
+          requestedExpiresAt,
           metadata));
     } catch (ServiceException exception) {
       markOrderFailed(orderId, exception.code(), exception.getMessage());
@@ -106,8 +107,10 @@ class RechargeService {
           payResult.message() == null ? "Payment provider createPayment failed" : payResult.message());
     }
 
+    Instant expireTime = mergeExpireTime(requestedExpiresAt, payResult.expireTime());
+
     databaseManager.inTransaction(connection -> {
-      updateOrderPaying(connection, orderId, payResult);
+      updateOrderPaying(connection, orderId, payResult, expireTime);
       return null;
     });
 
@@ -117,7 +120,7 @@ class RechargeService {
         payResult.providerOrderId(),
         payResult.payUrl(),
         payResult.qrCodeUrl(),
-        payResult.expireTime(),
+          expireTime,
         null,
         "success");
   }
@@ -320,6 +323,24 @@ class RechargeService {
         source);
   }
 
+  private Instant resolveRechargeOrderExpiresAt() {
+    int expireMinutes = settingsSupplier.get().rechargeOrderExpireMinutes();
+    if (expireMinutes <= 0) {
+      return null;
+    }
+    return Instant.now().plusSeconds(expireMinutes * 60L);
+  }
+
+  private Instant mergeExpireTime(Instant requested, Instant upstream) {
+    if (requested == null) {
+      return upstream;
+    }
+    if (upstream == null) {
+      return requested;
+    }
+    return requested.isBefore(upstream) ? requested : upstream;
+  }
+
   private String normalizeCurrency(String raw) {
     String normalized = raw == null || raw.isBlank() ? DEFAULT_CURRENCY : raw.trim().toUpperCase(Locale.ROOT);
     if (!normalized.matches("^[A-Z]{3,8}$")) {
@@ -420,7 +441,8 @@ class RechargeService {
   private void updateOrderPaying(
       Connection connection,
       String orderId,
-      WebShopXPaymentBridge.CreatePaymentResultData payResult) throws SQLException {
+      WebShopXPaymentBridge.CreatePaymentResultData payResult,
+      Instant expireTime) throws SQLException {
     String sql = """
         UPDATE webshopx_recharge_order
         SET status = ?, provider = ?, provider_order_id = ?, pay_url = ?, qr_code_url = ?,
@@ -433,7 +455,7 @@ class RechargeService {
       statement.setString(3, payResult.providerOrderId());
       statement.setString(4, payResult.payUrl());
       statement.setString(5, payResult.qrCodeUrl());
-      setTimestamp(statement, 6, payResult.expireTime());
+      setTimestamp(statement, 6, expireTime);
       statement.setString(7, orderId);
       statement.setString(8, RechargeOrderStatus.PENDING.name());
       int updated = statement.executeUpdate();

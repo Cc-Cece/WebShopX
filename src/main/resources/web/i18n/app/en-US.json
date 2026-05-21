@@ -217,6 +217,8 @@
       "rechargePaymentDialogDesc": "Scan the QR code on mobile or open the payment page.",
       "rechargePaymentOrderLabel": "Order",
       "rechargePaymentAmountLabel": "Amount",
+      "rechargePaymentExpireLabel": "Expires At",
+      "rechargePaymentExpireRemainingLabel": "Time Left",
       "rechargePaymentQrAlt": "Payment QR code",
       "rechargePaymentNoQr": "No QR code was returned for this payment method.",
       "rechargePaymentSuccessTitle": "Payment confirmed",

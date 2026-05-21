@@ -680,6 +680,7 @@ const elements = {
   runtimeDeliveryBatchSize: document.getElementById("runtimeDeliveryBatchSize"),
   runtimeDeliveryRetrySeconds: document.getElementById("runtimeDeliveryRetrySeconds"),
   runtimeOrderCooldownSeconds: document.getElementById("runtimeOrderCooldownSeconds"),
+  runtimeRechargeOrderExpireMinutes: document.getElementById("runtimeRechargeOrderExpireMinutes"),
   runtimeAllowSharedClaimCommand: document.getElementById("runtimeAllowSharedClaimCommand"),
   runtimeRefundUndeliveredEnabled: document.getElementById("runtimeRefundUndeliveredEnabled"),
   runtimeWebshopSaveBtn: document.getElementById("runtimeWebshopSaveBtn"),
@@ -7682,6 +7683,9 @@ async function loadEconomySettings() {
   if (elements.runtimeOrderCooldownSeconds) {
     elements.runtimeOrderCooldownSeconds.value = String(webshopRuntime.orderCooldownSeconds ?? 15);
   }
+  if (elements.runtimeRechargeOrderExpireMinutes) {
+    elements.runtimeRechargeOrderExpireMinutes.value = String(webshopRuntime.rechargeOrderExpireMinutes ?? 15);
+  }
   if (elements.runtimeAllowSharedClaimCommand) {
     elements.runtimeAllowSharedClaimCommand.value = String(!!webshopRuntime.allowSharedClaimCommand);
   }
@@ -8458,6 +8462,7 @@ async function saveWebshopRuntimeSettings() {
       deliveryBatchSize: Number(elements.runtimeDeliveryBatchSize?.value || 20),
       deliveryRetrySeconds: Number(elements.runtimeDeliveryRetrySeconds?.value || 30),
       orderCooldownSeconds: Number(elements.runtimeOrderCooldownSeconds?.value || 15),
+      rechargeOrderExpireMinutes: Number(elements.runtimeRechargeOrderExpireMinutes?.value || 15),
       allowSharedClaimCommand: elements.runtimeAllowSharedClaimCommand?.value === "true",
       refundUndeliveredEnabled: elements.runtimeRefundUndeliveredEnabled?.value === "true",
     }),

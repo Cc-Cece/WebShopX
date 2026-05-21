@@ -147,6 +147,7 @@ class RuntimeConfigService {
         snapshot.deliveryBatchSize(),
         snapshot.deliveryRetrySeconds(),
         snapshot.orderCooldownSeconds(),
+      snapshot.rechargeOrderExpireMinutes(),
         snapshot.allowSharedClaimCommand(),
         snapshot.refundUndeliveredEnabled(),
         snapshot.timeZone(),
@@ -293,6 +294,7 @@ class RuntimeConfigService {
         webshopRuntime.deliveryBatchSize(),
         webshopRuntime.deliveryRetrySeconds(),
         webshopRuntime.orderCooldownSeconds(),
+      webshopRuntime.rechargeOrderExpireMinutes(),
         webshopRuntime.allowSharedClaimCommand(),
         webshopRuntime.refundUndeliveredEnabled(),
         webshopRuntime.timeZone(),
@@ -639,6 +641,7 @@ class RuntimeConfigService {
         settings.deliveryBatchSize(),
         settings.deliveryRetrySeconds(),
         settings.orderCooldownSeconds(),
+      settings.rechargeOrderExpireMinutes(),
         settings.allowSharedClaimCommand(),
         settings.refundUndeliveredEnabled(),
         settings.timeZone());
@@ -654,6 +657,7 @@ class RuntimeConfigService {
     root.addProperty("deliveryBatchSize", update.deliveryBatchSize());
     root.addProperty("deliveryRetrySeconds", update.deliveryRetrySeconds());
     root.addProperty("orderCooldownSeconds", update.orderCooldownSeconds());
+    root.addProperty("rechargeOrderExpireMinutes", update.rechargeOrderExpireMinutes());
     root.addProperty("allowSharedClaimCommand", update.allowSharedClaimCommand());
     root.addProperty("refundUndeliveredEnabled", update.refundUndeliveredEnabled());
     root.addProperty("timeZone", update.timeZone().getId());
@@ -670,6 +674,7 @@ class RuntimeConfigService {
           fallback.deliveryBatchSize(),
           fallback.deliveryRetrySeconds(),
           fallback.orderCooldownSeconds(),
+          fallback.rechargeOrderExpireMinutes(),
           fallback.allowSharedClaimCommand(),
           fallback.refundUndeliveredEnabled(),
           fallback.timeZone());
@@ -684,6 +689,7 @@ class RuntimeConfigService {
           readInt(root, "deliveryBatchSize", fallback.deliveryBatchSize()),
           readInt(root, "deliveryRetrySeconds", fallback.deliveryRetrySeconds()),
           readInt(root, "orderCooldownSeconds", fallback.orderCooldownSeconds()),
+          readInt(root, "rechargeOrderExpireMinutes", fallback.rechargeOrderExpireMinutes()),
           readBoolean(root, "allowSharedClaimCommand", fallback.allowSharedClaimCommand()),
           readBoolean(root, "refundUndeliveredEnabled", fallback.refundUndeliveredEnabled()),
           readZoneId(root, "timeZone", fallback.timeZone()));
@@ -696,6 +702,7 @@ class RuntimeConfigService {
           fallback.deliveryBatchSize(),
           fallback.deliveryRetrySeconds(),
           fallback.orderCooldownSeconds(),
+          fallback.rechargeOrderExpireMinutes(),
           fallback.allowSharedClaimCommand(),
           fallback.refundUndeliveredEnabled(),
           fallback.timeZone());
@@ -1094,6 +1101,7 @@ class RuntimeConfigService {
       int deliveryBatchSize,
       int deliveryRetrySeconds,
       int orderCooldownSeconds,
+      int rechargeOrderExpireMinutes,
       boolean allowSharedClaimCommand,
       boolean refundUndeliveredEnabled,
       ZoneId timeZone,
@@ -1118,6 +1126,7 @@ class RuntimeConfigService {
       int deliveryBatchSize,
       int deliveryRetrySeconds,
       int orderCooldownSeconds,
+      int rechargeOrderExpireMinutes,
       boolean allowSharedClaimCommand,
       boolean refundUndeliveredEnabled,
       ZoneId timeZone) {

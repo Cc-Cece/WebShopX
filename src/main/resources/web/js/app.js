@@ -99,6 +99,7 @@
     provider: null,
     statusPollTimer: null,
     statusPollBusy: false,
+    expireTimer: null,
   },
   leaderboard: {
     enabled: true,
@@ -691,6 +692,8 @@ const elements = {
   rechargePaymentDialog: document.getElementById("rechargePaymentDialog"),
   rechargePaymentDialogOrder: document.getElementById("rechargePaymentDialogOrder"),
   rechargePaymentDialogAmount: document.getElementById("rechargePaymentDialogAmount"),
+  rechargePaymentDialogExpireAt: document.getElementById("rechargePaymentDialogExpireAt"),
+  rechargePaymentDialogExpireCountdown: document.getElementById("rechargePaymentDialogExpireCountdown"),
   rechargePaymentDialogStatus: document.getElementById("rechargePaymentDialogStatus"),
   rechargeQrPanel: document.getElementById("rechargeQrPanel"),
   rechargeQrImage: document.getElementById("rechargeQrImage"),
@@ -3773,6 +3776,9 @@ function setRechargePaymentDialogVisible(visible) {
   }
   elements.rechargePaymentDialog.classList.toggle("show", visible);
   elements.rechargePaymentDialog.setAttribute("aria-hidden", visible ? "false" : "true");
+  if (!visible) {
+    stopRechargeExpireCountdown();
+  }
 }
 
 function normalizeRechargeStatus(status) {
@@ -3814,6 +3820,40 @@ function setRechargePaymentActionsEnabled(enabled) {
   }
 }
 
+function stopRechargeExpireCountdown() {
+  if (state.recharge.expireTimer) {
+    window.clearInterval(state.recharge.expireTimer);
+    state.recharge.expireTimer = null;
+  }
+}
+
+function updateRechargeExpireCountdown() {
+  if (!elements.rechargePaymentDialogExpireAt || !elements.rechargePaymentDialogExpireCountdown) {
+    return;
+  }
+  const expireTime = state.recharge.currentPayment?.expireTime;
+  if (!expireTime) {
+    elements.rechargePaymentDialogExpireAt.textContent = "-";
+    elements.rechargePaymentDialogExpireCountdown.textContent = "-";
+    return;
+  }
+  elements.rechargePaymentDialogExpireAt.textContent = formatDateTime(expireTime);
+  const remaining = formatCountdown(expireTime);
+  elements.rechargePaymentDialogExpireCountdown.textContent = remaining || "-";
+}
+
+function startRechargeExpireCountdown() {
+  stopRechargeExpireCountdown();
+  if (!elements.rechargePaymentDialog?.classList.contains("show")) {
+    return;
+  }
+  updateRechargeExpireCountdown();
+  if (!state.recharge.currentPayment?.expireTime) {
+    return;
+  }
+  state.recharge.expireTimer = window.setInterval(updateRechargeExpireCountdown, 1000);
+}
+
 function setRechargeQrVisible(visible, qrCodeUrl = "") {
   if (visible && qrCodeUrl && elements.rechargeQrImage && elements.rechargeQrPanel) {
     elements.rechargeQrImage.src = qrCodeUrl;
@@ -3841,6 +3881,7 @@ function updateRechargePaymentDialogStatus(status, payload = {}) {
     return;
   }
   if (normalizedStatus === "PAID") {
+    stopRechargeExpireCountdown();
     setRechargePaymentSuccessVisible(true);
     setMetaText(
       elements.rechargePaymentDialogStatus,
@@ -3853,6 +3894,7 @@ function updateRechargePaymentDialogStatus(status, payload = {}) {
     return;
   }
   if (["FAILED", "EXPIRED", "CLOSED"].includes(normalizedStatus)) {
+    stopRechargeExpireCountdown();
     setMetaText(
       elements.rechargePaymentDialogStatus,
       formatAppTemplate("rechargeOrderClosed", {
@@ -3883,12 +3925,14 @@ function showRechargePaymentDialog(payment) {
   if (elements.rechargePaymentDialogAmount) {
     elements.rechargePaymentDialogAmount.textContent = formatPaymentAmountMinor(data.amountMinor, data.currency);
   }
+  updateRechargeExpireCountdown();
   const qrCodeUrl = String(data.qrCodeUrl || "").trim();
   setRechargePaymentSuccessVisible(false);
   setRechargeQrVisible(true, qrCodeUrl);
   setRechargePaymentActionsEnabled(true);
   updateRechargePaymentDialogStatus(data.status || "PAYING", data);
   setRechargePaymentDialogVisible(true);
+  startRechargeExpireCountdown();
   startRechargeStatusPolling();
 }
 
@@ -3948,6 +3992,7 @@ async function refreshRechargeStatus(options = {}) {
         qrCodeUrl: payload.qrCodeUrl,
         amountMinor: payload.amountMinor,
         currency: payload.currency,
+        expireTime: payload.expireTime || state.recharge.currentPayment?.expireTime,
         status,
       };
       setRechargePayLink(payload.payUrl);
@@ -8276,6 +8321,7 @@ if (elements.rechargeBtn) {
         qrCodeUrl: payload.qrCodeUrl,
         amountMinor,
         currency,
+        expireTime: payload.expireTime,
         status: "PAYING",
       };
       setRechargePayLink(payload.payUrl);

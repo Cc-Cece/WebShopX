@@ -217,6 +217,8 @@
       "rechargePaymentDialogDesc": "可使用手机扫码支付，也可以打开支付页面继续。",
       "rechargePaymentOrderLabel": "订单号",
       "rechargePaymentAmountLabel": "支付金额",
+      "rechargePaymentExpireLabel": "过期时间",
+      "rechargePaymentExpireRemainingLabel": "剩余时间",
       "rechargePaymentQrAlt": "支付二维码",
       "rechargePaymentNoQr": "当前支付方式未返回二维码。",
       "rechargePaymentSuccessTitle": "支付已确认",

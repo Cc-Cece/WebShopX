@@ -586,6 +586,7 @@
       "k0237": "Single Shipment Batch",
       "k0238": "Shipment Retry Interval (Seconds)",
       "k0239": "Order Cooling (seconds)",
+      "k0901": "Recharge order expiration (minutes)",
       "k0240": "Allow proxy order",
       "k0241": "Turn on",
       "k0242": "Close",

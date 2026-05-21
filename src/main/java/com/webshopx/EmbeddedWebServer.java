@@ -1070,6 +1070,7 @@ class EmbeddedWebServer {
     json.addProperty("deliveryBatchSize", settings.deliveryBatchSize());
     json.addProperty("deliveryRetrySeconds", settings.deliveryRetrySeconds());
     json.addProperty("orderCooldownSeconds", settings.orderCooldownSeconds());
+    json.addProperty("rechargeOrderExpireMinutes", settings.rechargeOrderExpireMinutes());
     json.addProperty("allowSharedClaimCommand", settings.allowSharedClaimCommand());
     json.addProperty("refundUndeliveredEnabled", settings.refundUndeliveredEnabled());
     json.addProperty("timeZone", settings.timeZone().getId());
@@ -3260,6 +3261,8 @@ class EmbeddedWebServer {
       int deliveryBatchSize = clampInt(getLong(payload, "deliveryBatchSize", 20L), 1, 1000, "deliveryBatchSize");
       int deliveryRetrySeconds = clampInt(getLong(payload, "deliveryRetrySeconds", 30L), 5, 86400, "deliveryRetrySeconds");
       int orderCooldownSeconds = clampInt(getLong(payload, "orderCooldownSeconds", 15L), 0, 86400, "orderCooldownSeconds");
+        int rechargeOrderExpireMinutes = clampInt(
+          getLong(payload, "rechargeOrderExpireMinutes", 15L), 1, 24 * 60 * 30, "rechargeOrderExpireMinutes");
       boolean allowSharedClaimCommand = getBoolean(payload, "allowSharedClaimCommand");
       boolean refundUndeliveredEnabled = getBoolean(payload, "refundUndeliveredEnabled");
       ZoneId timeZone = readTimeZoneField(getString(payload, "timeZone"), "timeZone");
@@ -3272,6 +3275,7 @@ class EmbeddedWebServer {
           deliveryBatchSize,
           deliveryRetrySeconds,
           orderCooldownSeconds,
+          rechargeOrderExpireMinutes,
           allowSharedClaimCommand,
           refundUndeliveredEnabled,
           timeZone);
@@ -3284,6 +3288,7 @@ class EmbeddedWebServer {
       detail.addProperty("deliveryBatchSize", deliveryBatchSize);
       detail.addProperty("deliveryRetrySeconds", deliveryRetrySeconds);
       detail.addProperty("orderCooldownSeconds", orderCooldownSeconds);
+      detail.addProperty("rechargeOrderExpireMinutes", rechargeOrderExpireMinutes);
       adminAuditService.log(admin, "WEBSHOP_RUNTIME_UPDATE", "webshop_runtime", null, detail, clientIp(exchange));
 
       JsonObject response = new JsonObject();
