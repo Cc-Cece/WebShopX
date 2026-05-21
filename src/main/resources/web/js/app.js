@@ -151,13 +151,28 @@ function loadAppLocaleBundle() {
 
 const APP_LOCALE_BUNDLE = loadAppLocaleBundle();
 
+const APP_UI_TEXT = mergeLocaleValue(FALLBACK_APP_UI_TEXT, APP_LOCALE_BUNDLE.uiText || {});
+
+function getAppUiText(path, fallback = "") {
+  const parts = String(path || "").split(".").filter(Boolean);
+  let current = APP_UI_TEXT;
+  for (const part of parts) {
+    if (!current || typeof current !== "object" || !(part in current)) {
+      return fallback;
+    }
+    current = current[part];
+  }
+  return typeof current === "string" ? current : fallback;
+}
+
+
 const FALLBACK_CURRENCY_META = {
   SHOP_COIN: {
-    label: "网页币",
+    label: getAppUiText("autoJs.k0001", "网页币"),
     short: "SC",
   },
   GAME_COIN: {
-    label: "游戏币",
+    label: getAppUiText("autoJs.k0002", "游戏币"),
     short: "GC",
   },
 };
@@ -818,7 +833,7 @@ function normalizeListingSide(listing) {
 }
 
 function formatListingSide(side) {
-  return String(side || "SELL").toUpperCase() === "BUY" ? "收购单" : "出售单";
+  return String(side || "SELL").toUpperCase() === "BUY" ? getAppUiText("autoJs.k0003", "收购单") : getAppUiText("autoJs.k0004", "出售单");
 }
 
 function formatListingTopStatus(status, side) {
@@ -826,14 +841,14 @@ function formatListingTopStatus(status, side) {
   const normalizedSide = String(side || "SELL").toUpperCase();
   if (normalizedStatus === "ACTIVE") {
     return normalizedSide === "BUY"
-      ? localizeDisplayText("回收")
-      : localizeDisplayText("在售");
+      ? localizeDisplayText(getAppUiText("autoJs.k0005", "回收"))
+      : localizeDisplayText(getAppUiText("autoJs.k0006", "在售"));
   }
   if (normalizedStatus === "PAUSED") {
-    return localizeDisplayText("暂停");
+    return localizeDisplayText(getAppUiText("autoJs.k0007", "暂停"));
   }
   if (normalizedStatus === "UNLISTED") {
-    return localizeDisplayText("下架");
+    return localizeDisplayText(getAppUiText("autoJs.k0008", "下架"));
   }
   return formatListingStatus(normalizedStatus);
 }
@@ -853,7 +868,7 @@ function getMarketTagMeta(tagCode) {
 function getMarketTagDisplayName(tagCode) {
   const normalizedTag = normalizeTagCode(tagCode);
   if (!normalizedTag) {
-    return "未分类";
+    return getAppUiText("autoJs.k0009", "未分类");
   }
   const meta = getMarketTagMeta(normalizedTag);
   if (meta && meta.displayName) {
@@ -1300,7 +1315,7 @@ async function loadThemeCenterStateFromServer() {
 async function copyTextToClipboard(text) {
   const value = String(text || "").trim();
   if (!value) {
-    throw new Error(localizeDisplayText("没有可复制的内容。"));
+    throw new Error(localizeDisplayText(getAppUiText("autoJs.k0010", "没有可复制的内容。")));
   }
   if (navigator.clipboard && navigator.clipboard.writeText) {
     await navigator.clipboard.writeText(value);
@@ -1319,7 +1334,7 @@ async function copyTextToClipboard(text) {
 let confirmResolver = null;
 let confirmSubmitHandler = null;
 
-function openConfirmDialog({ title, message, details = [], confirmText = "确认" }) {
+function openConfirmDialog({ title, message, details = [], confirmText = getAppUiText("autoJs.k0011", "确认") }) {
   if (!elements.confirmDialog) {
     return Promise.resolve(window.confirm(`${title}\n${message}`));
   }
@@ -1349,7 +1364,7 @@ function openDeliveryConfirmDialog({
   title,
   message,
   details = [],
-  confirmText = "确认",
+  confirmText = getAppUiText("autoJs.k0012", "确认"),
   initialValue = "IMMEDIATE",
   allowClaim = true,
   summary,
@@ -1377,25 +1392,25 @@ function openDeliveryConfirmDialog({
   const select = document.createElement("select");
   select.innerHTML = `
     <option value="IMMEDIATE">即时到账</option>
-    <option value="CLAIM">手动领取（/ws claim）</option>
+    <option value="CLAIM">${getAppUiText("autoJs.k0014", "手动领取（/ws claim）")}</option>
   `;
   select.value = allowClaim ? initialValue : "IMMEDIATE";
   if (!allowClaim) {
     select.value = "IMMEDIATE";
     select.disabled = true;
   }
-  const field = createDialogSelectField("领取方式", select);
+  const field = createDialogSelectField(getAppUiText("autoJs.k0015", "领取方式"), select);
   elements.confirmDetails.appendChild(field);
 
   if (summary) {
     const summaryCard = createEl("div", "checkout-summary");
-    summaryCard.appendChild(createEl("p", "checkout-kicker", "结算摘要"));
+    summaryCard.appendChild(createEl("p", "checkout-kicker", getAppUiText("autoJs.k0016", "结算摘要")));
     const rows = [];
     const isCredit = !!summary.isCredit;
-    const finalLabel = summary.finalLabel || (isCredit ? "预计入账" : "最终扣款");
-    rows.push(["小计", formatCurrency(summary.subtotal, summary.currency)]);
+    const finalLabel = summary.finalLabel || (isCredit ? getAppUiText("autoJs.k0017", "预计入账") : getAppUiText("autoJs.k0018", "最终扣款"));
+    rows.push([getAppUiText("autoJs.k0019", "小计"), formatCurrency(summary.subtotal, summary.currency)]);
     if (Number(summary.taxAmount || 0) > 0) {
-      rows.push([summary.taxLabel || "税额（买家承担）", formatCurrency(summary.taxAmount, summary.currency)]);
+      rows.push([summary.taxLabel || getAppUiText("autoJs.k0020", "税额（买家承担）"), formatCurrency(summary.taxAmount, summary.currency)]);
     }
     rows.push([
       finalLabel,
@@ -1407,13 +1422,13 @@ function openDeliveryConfirmDialog({
     const isInsufficient = !isCredit && hasRemainingBalance && summary.remainingBalance < 0;
     if (hasCurrentBalance && hasRemainingBalance) {
       rows.push([
-        "余额变化",
+        getAppUiText("autoJs.k0021", "余额变化"),
         `${formatCurrency(summary.currentBalance, summary.currency)} → ${formatCurrency(summary.remainingBalance, summary.currency)}`,
         isInsufficient ? "balance-negative" : "balance-positive",
       ]);
     } else if (hasRemainingBalance) {
       rows.push([
-        isInsufficient ? "余额不足" : "结算后余额",
+        isInsufficient ? getAppUiText("autoJs.k0022", "余额不足") : getAppUiText("autoJs.k0023", "结算后余额"),
         formatCurrency(summary.remainingBalance, summary.currency),
         isInsufficient ? "balance-negative" : "balance-positive",
       ]);
@@ -1440,8 +1455,8 @@ function openDeliveryConfirmDialog({
     elements.confirmDetails.appendChild(summaryCard);
 
     const noteText = summary.noteText || (isInsufficient
-      ? `余额不足，还差 ${formatCurrency(Math.abs(summary.remainingBalance), summary.currency)}。`
-      : (isCredit ? "确认后将按照以上金额入账。" : "确认后将按照以上金额结算。"));
+      ? getAppUiText("autoJs.k0024", "余额不足，还差 {0}。").replace("{0}", formatCurrency(Math.abs(summary.remainingBalance), summary.currency))
+      : (isCredit ? getAppUiText("autoJs.k0025", "确认后将按照以上金额入账。") : getAppUiText("autoJs.k0026", "确认后将按照以上金额结算。")));
     const note = createEl(
       "p",
       isInsufficient ? "checkout-warning negative" : "checkout-warning",
@@ -1477,7 +1492,7 @@ function openExchangeConfirmDialog({
     const toMeta = CURRENCY_META[toCurrency] || { label: toCurrency };
     return Promise.resolve(
       window.confirm(
-        `确认兑换\n${fromMeta.label} -> ${toMeta.label}\n${formatCurrency(amount, fromCurrency)} -> ${formatCurrency(convertedAmount, toCurrency)}`
+        getAppUiText("autoJs.k0027", "确认兑换\n{0} -> {1}\n{2} -> {3}").replace("{0}", fromMeta.label).replace("{1}", toMeta.label).replace("{2}", formatCurrency(amount, fromCurrency)).replace("{3}", formatCurrency(convertedAmount, toCurrency))
       )
     );
   }
@@ -1492,20 +1507,20 @@ function openExchangeConfirmDialog({
   const toRemaining = Number(toBalance || 0) + Number(convertedAmount || 0);
   const isInsufficient = fromRemaining < 0;
 
-  setNodeText(elements.confirmTitle, "确认兑换");
-  setNodeText(elements.confirmMessage, "请确认本次兑换信息，确认后将立即结算。");
+  setNodeText(elements.confirmTitle, getAppUiText("autoJs.k0028", "确认兑换"));
+  setNodeText(elements.confirmMessage, getAppUiText("autoJs.k0029", "请确认本次兑换信息，确认后将立即结算。"));
   elements.confirmDetails.innerHTML = "";
   confirmSubmitHandler = null;
 
   const summaryCard = createEl("div", "checkout-summary");
-  summaryCard.appendChild(createEl("p", "checkout-kicker", "结算摘要"));
+  summaryCard.appendChild(createEl("p", "checkout-kicker", getAppUiText("autoJs.k0030", "结算摘要")));
   const rows = [
-    ["兑换方向", `${fromMeta.label} → ${toMeta.label}`],
-    ["当前比例", `1 ${fromMeta.short} = ${formatRatioValue(ratio)} ${toMeta.short}`],
-    ["扣除", formatCurrency(amount, fromCurrency), "negative"],
-    ["预计入账", formatCurrency(convertedAmount, toCurrency), "balance-positive"],
-    [`结算后${fromMeta.label}余额`, formatCurrency(fromRemaining, fromCurrency), isInsufficient ? "balance-negative" : "balance-positive"],
-    [`结算后${toMeta.label}余额`, formatCurrency(toRemaining, toCurrency), "balance-positive"],
+    [getAppUiText("autoJs.k0031", "兑换方向"), `${fromMeta.label} → ${toMeta.label}`],
+    [getAppUiText("autoJs.k0032", "当前比例"), `1 ${fromMeta.short} = ${formatRatioValue(ratio)} ${toMeta.short}`],
+    [getAppUiText("autoJs.k0033", "扣除"), formatCurrency(amount, fromCurrency), "negative"],
+    [getAppUiText("autoJs.k0034", "预计入账"), formatCurrency(convertedAmount, toCurrency), "balance-positive"],
+    [getAppUiText("autoJs.k0035", "结算后{0}余额").replace("{0}", fromMeta.label), formatCurrency(fromRemaining, fromCurrency), isInsufficient ? "balance-negative" : "balance-positive"],
+    [getAppUiText("autoJs.k0036", "结算后{0}余额").replace("{0}", toMeta.label), formatCurrency(toRemaining, toCurrency), "balance-positive"],
   ];
 
   rows.forEach(([label, value, tone]) => {
@@ -1527,14 +1542,14 @@ function openExchangeConfirmDialog({
   elements.confirmDetails.appendChild(summaryCard);
 
   const noteText = isInsufficient
-    ? `余额不足，还差 ${formatCurrency(Math.abs(fromRemaining), fromCurrency)}。`
-    : "确认后将按以上信息完成兑换。";
+    ? getAppUiText("autoJs.k0037", "余额不足，还差 {0}。").replace("{0}", formatCurrency(Math.abs(fromRemaining), fromCurrency))
+    : getAppUiText("autoJs.k0038", "确认后将按以上信息完成兑换。");
   const note = createEl("p", isInsufficient ? "checkout-warning negative" : "checkout-warning", noteText);
   elements.confirmDetails.appendChild(note);
 
   elements.confirmOkBtn.disabled = isInsufficient;
   confirmSubmitHandler = () => closeConfirmDialog(true);
-  setNodeText(elements.confirmOkBtn, "确认兑换");
+  setNodeText(elements.confirmOkBtn, getAppUiText("autoJs.k0039", "确认兑换"));
   elements.confirmDialog.classList.add("show");
   elements.confirmDialog.setAttribute("aria-hidden", "false");
 
@@ -1585,8 +1600,8 @@ function openMarketParamDialog({ title, hint, confirmText, setupForm, resolveVal
     marketParamResolver = null;
   }
 
-  setNodeText(elements.marketParamTitle, title || "参数设置");
-  setNodeText(elements.marketParamHint, hint || "请设置参数后保存。");
+  setNodeText(elements.marketParamTitle, title || getAppUiText("autoJs.k0040", "参数设置"));
+  setNodeText(elements.marketParamHint, hint || getAppUiText("autoJs.k0041", "请设置参数后保存。"));
   elements.marketParamDetails.innerHTML = "";
   const context = setupForm(elements.marketParamDetails);
 
@@ -1598,11 +1613,11 @@ function openMarketParamDialog({ title, hint, confirmText, setupForm, resolveVal
       }
       closeMarketParamDialog(value);
     } catch (error) {
-      notify(error?.message || "参数校验失败，请检查输入后重试。", "error");
+      notify(error?.message || getAppUiText("autoJs.k0042", "参数校验失败，请检查输入后重试。"), "error");
     }
   };
 
-  setNodeText(elements.marketParamSaveBtn, confirmText || "保存参数");
+  setNodeText(elements.marketParamSaveBtn, confirmText || getAppUiText("autoJs.k0043", "保存参数"));
   elements.marketParamDialog.classList.add("show");
   elements.marketParamDialog.setAttribute("aria-hidden", "false");
 
@@ -1613,9 +1628,9 @@ function openMarketParamDialog({ title, hint, confirmText, setupForm, resolveVal
 
 function buildParamTabContainers(host) {
   const tabRow = createEl("div", "dialog-param-tabs");
-  const basicTabBtn = createEl("button", "dialog-param-tab is-active", "基础参数");
+  const basicTabBtn = createEl("button", "dialog-param-tab is-active", getAppUiText("autoJs.k0044", "基础参数"));
   basicTabBtn.type = "button";
-  const advancedTabBtn = createEl("button", "dialog-param-tab", "高级参数");
+  const advancedTabBtn = createEl("button", "dialog-param-tab", getAppUiText("autoJs.k0045", "高级参数"));
   advancedTabBtn.type = "button";
   tabRow.appendChild(basicTabBtn);
   tabRow.appendChild(advancedTabBtn);
@@ -1627,9 +1642,9 @@ function buildParamTabContainers(host) {
 
   const advancedDetails = createEl("details", "dialog-advanced-details");
   advancedDetails.open = true;
-  const advancedSummary = createEl("summary", "", "高级参数（查看文档 | 谨慎修改）");
+  const advancedSummary = createEl("summary", "", getAppUiText("autoJs.k0046", "高级参数（查看文档 | 谨慎修改）"));
   advancedDetails.appendChild(advancedSummary);
-  advancedDetails.appendChild(createEl("p", "field-hint", "留空将自动回退到默认值。"));
+  advancedDetails.appendChild(createEl("p", "field-hint", getAppUiText("autoJs.k0047", "留空将自动回退到默认值。")));
   const advancedParamHost = createEl("div", "dialog-algo-params");
   advancedDetails.appendChild(advancedParamHost);
   advancedPanel.appendChild(advancedDetails);
@@ -1656,9 +1671,9 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
   const catalog = getAlgorithmCatalog("dynamic");
   const fallbackAlgorithm = catalog[0]?.id || "LINEAR_DEMAND_V1";
   return openMarketParamDialog({
-    title: "动态定价参数",
-    hint: "参数与说明来自外部配置文件，修改后可扩展新算法。",
-    confirmText: "保存动态参数",
+    title: getAppUiText("autoJs.k0048", "动态定价参数"),
+    hint: getAppUiText("autoJs.k0049", "参数与说明来自外部配置文件，修改后可扩展新算法。"),
+    confirmText: getAppUiText("autoJs.k0050", "保存动态参数"),
     setupForm: (host) => {
       const tabLayout = buildParamTabContainers(host);
       const basicHost = tabLayout.basicPanel;
@@ -1675,11 +1690,11 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       if (!algorithmSelect.value) {
         algorithmSelect.value = fallbackAlgorithm;
       }
-      const algorithmField = createDialogSelectField("选择动态定价算法", algorithmSelect);
+      const algorithmField = createDialogSelectField(getAppUiText("autoJs.k0051", "选择动态定价算法"), algorithmSelect);
       algorithmRow.appendChild(algorithmField);
-      const helpBtn = createEl("button", "btn-tonal", "文档");
+      const helpBtn = createEl("button", "btn-tonal", getAppUiText("autoJs.k0052", "文档"));
       helpBtn.type = "button";
-      helpBtn.title = "查看算法帮助";
+      helpBtn.title = getAppUiText("autoJs.k0053", "查看算法帮助");
       helpBtn.addEventListener("click", () => openAlgorithmHelpPage("dynamic", algorithmSelect.value));
       algorithmRow.appendChild(helpBtn);
       basicHost.appendChild(algorithmRow);
@@ -1693,7 +1708,7 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       baseInput.step = "1";
       const baseValue = state.dynamicBasePrice ?? fallbackBasePrice;
       baseInput.value = Number.isFinite(Number(baseValue)) ? String(baseValue) : "";
-      const baseField = createDialogSelectField("动态基准价", baseInput);
+      const baseField = createDialogSelectField(getAppUiText("autoJs.k0054", "动态基准价"), baseInput);
       basicHost.appendChild(baseField);
 
       const floorInput = document.createElement("input");
@@ -1704,7 +1719,7 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       floorInput.value = Number.isFinite(normalizedFloorValue) && normalizedFloorValue > 0
         ? String(Math.floor(normalizedFloorValue))
         : "";
-      const floorField = createDialogSelectField("地板价（可选）", floorInput);
+      const floorField = createDialogSelectField(getAppUiText("autoJs.k0055", "地板价（可选）"), floorInput);
       basicHost.appendChild(floorField);
 
       const capInput = document.createElement("input");
@@ -1715,7 +1730,7 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       capInput.value = Number.isFinite(normalizedCapValue) && normalizedCapValue > 0
         ? String(Math.floor(normalizedCapValue))
         : "";
-      const capField = createDialogSelectField("封顶价（可选）", capInput);
+      const capField = createDialogSelectField(getAppUiText("autoJs.k0056", "封顶价（可选）"), capInput);
       basicHost.appendChild(capField);
 
       const stepInput = document.createElement("input");
@@ -1723,7 +1738,7 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
       stepInput.min = "1";
       stepInput.step = "1";
       stepInput.value = Number.isFinite(Number(state.dynamicPriceStep)) ? String(state.dynamicPriceStep) : "1";
-      const stepField = createDialogSelectField("价格波动系数（步长）", stepInput);
+      const stepField = createDialogSelectField(getAppUiText("autoJs.k0057", "价格波动系数（步长）"), stepInput);
       basicHost.appendChild(stepField);
 
       const paramHost = createEl("div", "dialog-algo-params");
@@ -1749,7 +1764,7 @@ async function openDynamicParamDialog(state, fallbackBasePrice) {
           advancedParamHost,
           definition?.params || [],
           values,
-          { advancedOnly: true, emptyMessage: "当前算法暂无高级参数。" }
+          { advancedOnly: true, emptyMessage: getAppUiText("autoJs.k0058", "当前算法暂无高级参数。") }
         );
       };
       algorithmSelect.addEventListener("change", renderParams);
@@ -1827,9 +1842,9 @@ async function openAuctionParamDialog(state, fallbackPrice) {
   const catalog = getAlgorithmCatalog("auction");
   const fallbackAlgorithm = catalog[0]?.id || "ENGLISH_AUCTION_V1";
   return openMarketParamDialog({
-    title: "拍卖竞价参数",
-    hint: "根据算法类型展示对应参数；帮助页可查看详细说明。",
-    confirmText: "保存拍卖参数",
+    title: getAppUiText("autoJs.k0059", "拍卖竞价参数"),
+    hint: getAppUiText("autoJs.k0060", "根据算法类型展示对应参数；帮助页可查看详细说明。"),
+    confirmText: getAppUiText("autoJs.k0061", "保存拍卖参数"),
     setupForm: (host) => {
       const tabLayout = buildParamTabContainers(host);
       const basicHost = tabLayout.basicPanel;
@@ -1846,11 +1861,11 @@ async function openAuctionParamDialog(state, fallbackPrice) {
       if (!algorithmSelect.value) {
         algorithmSelect.value = fallbackAlgorithm;
       }
-      const algorithmField = createDialogSelectField("选择拍卖竞价算法", algorithmSelect);
+      const algorithmField = createDialogSelectField(getAppUiText("autoJs.k0062", "选择拍卖竞价算法"), algorithmSelect);
       algorithmRow.appendChild(algorithmField);
-      const helpBtn = createEl("button", "btn-tonal", "文档");
+      const helpBtn = createEl("button", "btn-tonal", getAppUiText("autoJs.k0063", "文档"));
       helpBtn.type = "button";
-      helpBtn.title = "查看算法帮助";
+      helpBtn.title = getAppUiText("autoJs.k0064", "查看算法帮助");
       helpBtn.addEventListener("click", () => openAlgorithmHelpPage("auction", algorithmSelect.value));
       algorithmRow.appendChild(helpBtn);
       basicHost.appendChild(algorithmRow);
@@ -1864,7 +1879,7 @@ async function openAuctionParamDialog(state, fallbackPrice) {
       startInput.step = "1";
       const startValue = state.auctionStartPrice ?? fallbackPrice;
       startInput.value = Number.isFinite(Number(startValue)) ? String(startValue) : "";
-      const startField = createDialogSelectField("起拍价", startInput);
+      const startField = createDialogSelectField(getAppUiText("autoJs.k0065", "起拍价"), startInput);
       basicHost.appendChild(startField);
 
       const incrementInput = document.createElement("input");
@@ -1874,13 +1889,13 @@ async function openAuctionParamDialog(state, fallbackPrice) {
       incrementInput.value = Number.isFinite(Number(state.auctionMinIncrement))
         ? String(state.auctionMinIncrement)
         : "1";
-      const incrementField = createDialogSelectField("最小加价幅度", incrementInput);
+      const incrementField = createDialogSelectField(getAppUiText("autoJs.k0066", "最小加价幅度"), incrementInput);
       basicHost.appendChild(incrementField);
 
       const endInput = document.createElement("input");
       endInput.type = "datetime-local";
       endInput.value = toDateTimeLocalValue(state.auctionEndAt);
-      const endField = createDialogSelectField("拍卖结束时间", endInput);
+      const endField = createDialogSelectField(getAppUiText("autoJs.k0067", "拍卖结束时间"), endInput);
       basicHost.appendChild(endField);
 
       const paramHost = createEl("div", "dialog-algo-params");
@@ -1909,7 +1924,7 @@ async function openAuctionParamDialog(state, fallbackPrice) {
           advancedParamHost,
           currentDefinition?.params || [],
           values,
-          { advancedOnly: true, emptyMessage: "当前算法暂无高级参数。" }
+          { advancedOnly: true, emptyMessage: getAppUiText("autoJs.k0068", "当前算法暂无高级参数。") }
         );
       };
       algorithmSelect.addEventListener("change", renderByAlgorithm);
@@ -1990,9 +2005,9 @@ async function openListingVisualDialog({
     customUploadAllowed: visualPermission?.customUploadAllowed !== false,
   };
   return openMarketParamDialog({
-    title: "展示设置",
-    hint: "(仅对当前设置商品生效)展示材质：输入物品id可以使用该物品的图标; 展示图标：上传图片后会覆盖材质图标进行展示，支持png/jpg/jpeg/webp/gif等常见格式，建议尺寸不超过512x512像素。",
-    confirmText: "保存展示设置",
+    title: getAppUiText("autoJs.k0069", "展示设置"),
+    hint: getAppUiText("autoJs.k0070", "(仅对当前设置商品生效)展示材质：输入物品id可以使用该物品的图标; 展示图标：上传图片后会覆盖材质图标进行展示，支持png/jpg/jpeg/webp/gif等常见格式，建议尺寸不超过512x512像素。"),
+    confirmText: getAppUiText("autoJs.k0071", "保存展示设置"),
     setupForm: (host) => {
       const dialogDraft = {
         displayIconPath: String(currentDisplayIconPath || "").trim() || null,
@@ -2003,19 +2018,19 @@ async function openListingVisualDialog({
       const displayNameInput = document.createElement("input");
       displayNameInput.type = "text";
       displayNameInput.maxLength = 128;
-      displayNameInput.placeholder = "留空则跟随默认展示名称";
+      displayNameInput.placeholder = getAppUiText("autoJs.k0072", "留空则跟随默认展示名称");
       displayNameInput.value = currentDisplayNameOverride || "";
       displayNameInput.disabled = !normalizedPermission.customNameAllowed;
-      const displayNameField = createDialogSelectField("展示名称", displayNameInput);
+      const displayNameField = createDialogSelectField(getAppUiText("autoJs.k0073", "展示名称"), displayNameInput);
       if (!normalizedPermission.customNameAllowed) {
-        displayNameField.appendChild(createEl("p", "field-hint", "当前账户没有修改展示名称的权限。"));
+        displayNameField.appendChild(createEl("p", "field-hint", getAppUiText("autoJs.k0074", "当前账户没有修改展示名称的权限。")));
       }
       host.appendChild(displayNameField);
 
       const displayMaterialInput = document.createElement("input");
       displayMaterialInput.type = "text";
       displayMaterialInput.maxLength = 64;
-      displayMaterialInput.placeholder = "如 DIAMOND_SWORD，留空则跟随原材质";
+      displayMaterialInput.placeholder = getAppUiText("autoJs.k0075", "如 DIAMOND_SWORD，留空则跟随原材质");
       displayMaterialInput.value = currentDisplayMaterial || "";
       displayMaterialInput.disabled = !normalizedPermission.customIconAllowed;
       displayMaterialInput.addEventListener("blur", () => {
@@ -2028,26 +2043,26 @@ async function openListingVisualDialog({
           return;
         }
         if (String(displayMaterialInput.value || "").trim()) {
-          notify("展示材质未识别，将按输入值规范化后提交。", "warn");
+          notify(getAppUiText("autoJs.k0076", "展示材质未识别，将按输入值规范化后提交。"), "warn");
           displayMaterialInput.value = normalizeMaterialKey(String(displayMaterialInput.value || "").trim());
         }
       });
-      const displayMaterialField = createDialogSelectField("展示材质", displayMaterialInput);
+      const displayMaterialField = createDialogSelectField(getAppUiText("autoJs.k0077", "展示材质"), displayMaterialInput);
       if (!normalizedPermission.customIconAllowed) {
-        displayMaterialField.appendChild(createEl("p", "field-hint", "当前账户没有修改展示材质或展示图标的权限。"));
+        displayMaterialField.appendChild(createEl("p", "field-hint", getAppUiText("autoJs.k0078", "当前账户没有修改展示材质或展示图标的权限。")));
       }
       host.appendChild(displayMaterialField);
 
       const iconField = createEl("div", "dialog-select-field");
-      iconField.appendChild(createEl("span", "dialog-select-label", "展示图标"));
+      iconField.appendChild(createEl("span", "dialog-select-label", getAppUiText("autoJs.k0079", "展示图标")));
       const iconPreviewWrap = createEl("div", "material-override-preview");
       const iconPreviewImage = document.createElement("img");
-      iconPreviewImage.alt = "商品图标预览";
+      iconPreviewImage.alt = getAppUiText("autoJs.k0080", "商品图标预览");
       iconPreviewImage.src = getFallbackTexture();
       const iconPreviewText = document.createElement("div");
-      const iconPreviewMeta = createEl("p", "meta", "当前图标预览");
+      const iconPreviewMeta = createEl("p", "meta", getAppUiText("autoJs.k0081", "当前图标预览"));
       const iconPreviewLabel = document.createElement("strong");
-      const iconStatus = createEl("p", "meta", "当前跟随材质图标。");
+      const iconStatus = createEl("p", "meta", getAppUiText("autoJs.k0082", "当前跟随材质图标。"));
       iconPreviewText.appendChild(iconPreviewMeta);
       iconPreviewText.appendChild(iconPreviewLabel);
       iconPreviewText.appendChild(iconStatus);
@@ -2063,22 +2078,22 @@ async function openListingVisualDialog({
       iconField.appendChild(iconFileInput);
 
       const iconActionRow = createEl("div", "actions compact-actions");
-      const iconUploadBtn = createEl("button", "btn-tonal", "上传图片");
+      const iconUploadBtn = createEl("button", "btn-tonal", getAppUiText("autoJs.k0083", "上传图片"));
       iconUploadBtn.type = "button";
       iconUploadBtn.disabled =
           !normalizedPermission.customIconAllowed || !normalizedPermission.customUploadAllowed;
-      const iconClearBtn = createEl("button", "btn-tonal", "清除自定义图标");
+      const iconClearBtn = createEl("button", "btn-tonal", getAppUiText("autoJs.k0084", "清除自定义图标"));
       iconClearBtn.type = "button";
       iconClearBtn.disabled = !normalizedPermission.customIconAllowed;
       iconActionRow.appendChild(iconUploadBtn);
       iconActionRow.appendChild(iconClearBtn);
       iconField.appendChild(iconActionRow);
       if (!normalizedPermission.customIconAllowed) {
-        iconField.appendChild(createEl("p", "field-hint", "当前账户没有修改展示图标的权限。"));
+        iconField.appendChild(createEl("p", "field-hint", getAppUiText("autoJs.k0085", "当前账户没有修改展示图标的权限。")));
       } else if (!normalizedPermission.customUploadAllowed) {
-        iconField.appendChild(createEl("p", "field-hint", "当前账户可以沿用或清除已有图标，但没有上传新图片的权限。"));
+        iconField.appendChild(createEl("p", "field-hint", getAppUiText("autoJs.k0086", "当前账户可以沿用或清除已有图标，但没有上传新图片的权限。")));
       } else {
-        iconField.appendChild(createEl("p", "field-hint", "上传图片会先进入待保存状态，回到主窗口保存修改后才会真正生效。"));
+        iconField.appendChild(createEl("p", "field-hint", getAppUiText("autoJs.k0087", "上传图片会先进入待保存状态，回到主窗口保存修改后才会真正生效。")));
       }
       host.appendChild(iconField);
 
@@ -2099,7 +2114,7 @@ async function openListingVisualDialog({
 
       const updateListingIconPreview = (message, tone = null) => {
         const visual = resolveListingPreviewVisual();
-        const previewTitle = visual.title || String(currentFallbackTitle || "").trim() || "未命名商品";
+        const previewTitle = visual.title || String(currentFallbackTitle || "").trim() || getAppUiText("autoJs.k0088", "未命名商品");
         setNodeText(iconPreviewLabel, previewTitle);
         if (dialogDraft.pendingDisplayIconPreviewUrl) {
           iconPreviewImage.src = dialogDraft.pendingDisplayIconPreviewUrl;
@@ -2117,22 +2132,22 @@ async function openListingVisualDialog({
           return;
         }
         if (dialogDraft.pendingDisplayIconPreviewUrl) {
-          setMetaText(iconStatus, "已选择新的自定义图片，回到主窗口保存修改后生效。", "success");
+          setMetaText(iconStatus, getAppUiText("autoJs.k0089", "已选择新的自定义图片，回到主窗口保存修改后生效。"), "success");
           return;
         }
         if (dialogDraft.displayIconPath) {
-          setMetaText(iconStatus, "当前使用已保存的自定义图片。", "info");
+          setMetaText(iconStatus, getAppUiText("autoJs.k0090", "当前使用已保存的自定义图片。"), "info");
           return;
         }
         if (originalDisplayIconPath) {
-          setMetaText(iconStatus, "回到主窗口保存修改后将移除当前自定义图标。", "warn");
+          setMetaText(iconStatus, getAppUiText("autoJs.k0091", "回到主窗口保存修改后将移除当前自定义图标。"), "warn");
           return;
         }
         if (normalizeMaterialKey(displayMaterialInput.value || "")) {
-          setMetaText(iconStatus, "当前跟随展示材质的图标。", "info");
+          setMetaText(iconStatus, getAppUiText("autoJs.k0092", "当前跟随展示材质的图标。"), "info");
           return;
         }
-        setMetaText(iconStatus, "当前跟随原始材质图标。", "info");
+        setMetaText(iconStatus, getAppUiText("autoJs.k0093", "当前跟随原始材质图标。"), "info");
       };
 
       iconUploadBtn.addEventListener("click", async () => {
@@ -2143,17 +2158,17 @@ async function openListingVisualDialog({
           iconUploadBtn.disabled = true;
           const file = iconFileInput.files?.[0];
           if (!file) {
-            throw new Error("请先选择图标文件。");
+            throw new Error(getAppUiText("autoJs.k0094", "请先选择图标文件。"));
           }
           const croppedFile = await cropImageFileToSquarePng(file, 128);
           if (!croppedFile) {
-            updateListingIconPreview("已取消裁剪与上传。", "info");
+            updateListingIconPreview(getAppUiText("autoJs.k0095", "已取消裁剪与上传。"), "info");
             return;
           }
           dialogDraft.pendingDisplayIconFile = croppedFile;
           dialogDraft.pendingDisplayIconPreviewUrl = await readFileAsDataUrl(croppedFile);
           iconFileInput.value = "";
-          updateListingIconPreview("新的自定义图片已加入待保存队列。", "success");
+          updateListingIconPreview(getAppUiText("autoJs.k0096", "新的自定义图片已加入待保存队列。"), "success");
         } catch (error) {
           const message = resolveErrorMessage(error, "market_icon_upload");
           updateListingIconPreview(formatAppTemplate("iconProcessFailed", { message }), "error");
@@ -2227,27 +2242,27 @@ async function openListingEditDialog({
     : (currentDynamicPricingEnabled ? "DIRECT_DYNAMIC" : "DIRECT_STATIC");
 
   if (!elements.confirmDialog) {
-    const rawPrice = window.prompt("请输入新的价格", String(currentPrice));
+    const rawPrice = window.prompt(getAppUiText("autoJs.k0097", "请输入新的价格"), String(currentPrice));
     if (rawPrice === null) {
       return Promise.resolve(null);
     }
-    const rawCurrency = window.prompt("请输入币种（SHOP_COIN / GAME_COIN）", String(currency || "GAME_COIN"));
+    const rawCurrency = window.prompt(getAppUiText("autoJs.k0098", "请输入币种（SHOP_COIN / GAME_COIN）"), String(currency || "GAME_COIN"));
     if (rawCurrency === null) {
       return Promise.resolve(null);
     }
-    const rawRemark = window.prompt("请输入备注（留空清空）", currentRemark || "");
+    const rawRemark = window.prompt(getAppUiText("autoJs.k0099", "请输入备注（留空清空）"), currentRemark || "");
     if (rawRemark === null) {
       return Promise.resolve(null);
     }
-    const rawDisplayName = window.prompt("请输入展示名称（留空则跟随默认）", currentDisplayNameOverride || "");
+    const rawDisplayName = window.prompt(getAppUiText("autoJs.k0100", "请输入展示名称（留空则跟随默认）"), currentDisplayNameOverride || "");
     if (rawDisplayName === null) {
       return Promise.resolve(null);
     }
-    const rawDisplayMaterial = window.prompt("请输入展示材质（留空则跟随原材质）", currentDisplayMaterial || "");
+    const rawDisplayMaterial = window.prompt(getAppUiText("autoJs.k0101", "请输入展示材质（留空则跟随原材质）"), currentDisplayMaterial || "");
     if (rawDisplayMaterial === null) {
       return Promise.resolve(null);
     }
-    const rawDisplayIconPath = window.prompt("请输入展示图标路径（留空则跟随材质）", currentDisplayIconPath || "");
+    const rawDisplayIconPath = window.prompt(getAppUiText("autoJs.k0102", "请输入展示图标路径（留空则跟随材质）"), currentDisplayIconPath || "");
     if (rawDisplayIconPath === null) {
       return Promise.resolve(null);
     }
@@ -2306,8 +2321,8 @@ async function openListingEditDialog({
     auctionEndAt: currentAuctionEndAt || null,
   };
 
-  setNodeText(elements.confirmTitle, `修改上架 #${listingId}`);
-  setNodeText(elements.confirmMessage, "先选择交易模式，再按需进入参数设置。");
+  setNodeText(elements.confirmTitle, getAppUiText("autoJs.k0103", "修改上架 #{0}").replace("{0}", listingId));
+  setNodeText(elements.confirmMessage, getAppUiText("autoJs.k0104", "先选择交易模式，再按需进入参数设置。"));
   elements.confirmDetails.innerHTML = "";
 
   const priceInput = document.createElement("input");
@@ -2315,7 +2330,7 @@ async function openListingEditDialog({
   priceInput.min = "1";
   priceInput.step = "1";
   priceInput.value = String(currentPrice || "");
-  const priceField = createDialogSelectField("新价格", priceInput);
+  const priceField = createDialogSelectField(getAppUiText("autoJs.k0105", "新价格"), priceInput);
   elements.confirmDetails.appendChild(priceField);
 
   const currencySelect = document.createElement("select");
@@ -2326,18 +2341,18 @@ async function openListingEditDialog({
     currencySelect.appendChild(option);
   });
   currencySelect.value = currency || "GAME_COIN";
-  const currencyField = createDialogSelectField("币种", currencySelect);
+  const currencyField = createDialogSelectField(getAppUiText("autoJs.k0106", "币种"), currencySelect);
   elements.confirmDetails.appendChild(currencyField);
 
   const remarkInput = document.createElement("textarea");
   remarkInput.rows = 3;
   remarkInput.value = currentRemark || "";
-  const remarkField = createDialogSelectField("备注", remarkInput);
+  const remarkField = createDialogSelectField(getAppUiText("autoJs.k0107", "备注"), remarkInput);
   elements.confirmDetails.appendChild(remarkField);
 
   const iconField = createEl("div", "dialog-select-field");
-  iconField.appendChild(createEl("span", "dialog-select-label", "展示设置（仅前端显示）"));
-  const iconConfigBtn = createEl("button", "btn-tonal", "编辑展示设置");
+  iconField.appendChild(createEl("span", "dialog-select-label", getAppUiText("autoJs.k0108", "展示设置（仅前端显示）")));
+  const iconConfigBtn = createEl("button", "btn-tonal", getAppUiText("autoJs.k0109", "编辑展示设置"));
   iconConfigBtn.type = "button";
   iconField.appendChild(iconConfigBtn);
   elements.confirmDetails.appendChild(iconField);
@@ -2364,9 +2379,9 @@ async function openListingEditDialog({
 
   const modeSelect = document.createElement("select");
   [
-    { value: "DIRECT_STATIC", label: "一口价" },
-    { value: "DIRECT_DYNAMIC", label: "动态价格" },
-    { value: "AUCTION", label: "拍卖竞价" },
+    { value: "DIRECT_STATIC", label: getAppUiText("autoJs.k0110", "一口价") },
+    { value: "DIRECT_DYNAMIC", label: getAppUiText("autoJs.k0111", "动态价格") },
+    { value: "AUCTION", label: getAppUiText("autoJs.k0112", "拍卖竞价") },
   ].forEach((item) => {
     const option = document.createElement("option");
     option.value = item.value;
@@ -2377,7 +2392,7 @@ async function openListingEditDialog({
     modeSelect.appendChild(option);
   });
   modeSelect.value = draft.mode;
-  const modeField = createDialogSelectField("交易模式", modeSelect);
+  const modeField = createDialogSelectField(getAppUiText("autoJs.k0113", "交易模式"), modeSelect);
   elements.confirmDetails.appendChild(modeField);
 
   const dynamicConfigRow = createEl("div", "inline-action dialog-inline-config");
@@ -2392,8 +2407,8 @@ async function openListingEditDialog({
     draft.dynamicAlgorithm = defaultDynamicAlgorithm;
   }
   dynamicAlgoSelect.value = draft.dynamicAlgorithm;
-  const dynamicAlgoField = createDialogSelectField("选择动态定价算法", dynamicAlgoSelect);
-  const dynamicParamBtn = createEl("button", "btn-tonal", "参数设置");
+  const dynamicAlgoField = createDialogSelectField(getAppUiText("autoJs.k0114", "选择动态定价算法"), dynamicAlgoSelect);
+  const dynamicParamBtn = createEl("button", "btn-tonal", getAppUiText("autoJs.k0115", "参数设置"));
   dynamicParamBtn.type = "button";
   dynamicConfigRow.appendChild(dynamicAlgoField);
   dynamicConfigRow.appendChild(dynamicParamBtn);
@@ -2411,8 +2426,8 @@ async function openListingEditDialog({
     draft.auctionAlgorithm = defaultAuctionAlgorithm;
   }
   auctionAlgoSelect.value = draft.auctionAlgorithm;
-  const auctionAlgoField = createDialogSelectField("选择拍卖竞价算法", auctionAlgoSelect);
-  const auctionParamBtn = createEl("button", "btn-tonal", "参数设置");
+  const auctionAlgoField = createDialogSelectField(getAppUiText("autoJs.k0116", "选择拍卖竞价算法"), auctionAlgoSelect);
+  const auctionParamBtn = createEl("button", "btn-tonal", getAppUiText("autoJs.k0117", "参数设置"));
   auctionParamBtn.type = "button";
   auctionConfigRow.appendChild(auctionAlgoField);
   auctionConfigRow.appendChild(auctionParamBtn);
@@ -2469,7 +2484,7 @@ async function openListingEditDialog({
     supplyBatchInput.min = "1";
     supplyBatchInput.step = "1";
     supplyBatchInput.value = String(currentSupplyBatchSize || "");
-    const batchField = createDialogSelectField("单次提取量", supplyBatchInput);
+    const batchField = createDialogSelectField(getAppUiText("autoJs.k0118", "单次提取量"), supplyBatchInput);
     elements.confirmDetails.appendChild(batchField);
 
     supplyMaxInput = document.createElement("input");
@@ -2477,7 +2492,7 @@ async function openListingEditDialog({
     supplyMaxInput.min = "1";
     supplyMaxInput.step = "1";
     supplyMaxInput.value = String(currentSupplyMaxStock || "");
-    const maxField = createDialogSelectField("中转上限", supplyMaxInput);
+    const maxField = createDialogSelectField(getAppUiText("autoJs.k0119", "中转上限"), supplyMaxInput);
     elements.confirmDetails.appendChild(maxField);
   }
 
@@ -2532,25 +2547,25 @@ async function openListingEditDialog({
       const base = Number(draft.dynamicBasePrice ?? price);
       const step = Number(draft.dynamicPriceStep ?? 1);
       if (!Number.isFinite(base) || base <= 0) {
-        notify("动态定价参数无效：基准价必须大于 0。", "warn");
+        notify(getAppUiText("autoJs.k0120", "动态定价参数无效：基准价必须大于 0。"), "warn");
         return;
       }
       if (!Number.isFinite(step) || step <= 0) {
-        notify("动态定价参数无效：波动系数必须大于 0。", "warn");
+        notify(getAppUiText("autoJs.k0121", "动态定价参数无效：波动系数必须大于 0。"), "warn");
         return;
       }
       const floor = draft.dynamicFloorPrice == null ? null : Number(draft.dynamicFloorPrice);
       const cap = draft.dynamicCapPrice == null ? null : Number(draft.dynamicCapPrice);
       if (floor != null && (!Number.isFinite(floor) || floor <= 0)) {
-        notify("动态定价参数无效：地板价必须大于 0。", "warn");
+        notify(getAppUiText("autoJs.k0122", "动态定价参数无效：地板价必须大于 0。"), "warn");
         return;
       }
       if (cap != null && (!Number.isFinite(cap) || cap <= 0)) {
-        notify("动态定价参数无效：封顶价必须大于 0。", "warn");
+        notify(getAppUiText("autoJs.k0123", "动态定价参数无效：封顶价必须大于 0。"), "warn");
         return;
       }
       if (floor != null && cap != null && floor > cap) {
-        notify("动态定价参数无效：地板价不能高于封顶价。", "warn");
+        notify(getAppUiText("autoJs.k0124", "动态定价参数无效：地板价不能高于封顶价。"), "warn");
         return;
       }
       dynamicBasePrice = Math.floor(base);
@@ -2563,7 +2578,7 @@ async function openListingEditDialog({
       const auctionParamPayload = parseAlgorithmParamsJson(draft.auctionParamsJson);
       const start = Number(draft.auctionStartPrice ?? price);
       if (!Number.isFinite(start) || start <= 0) {
-        notify("拍卖参数无效：起拍价必须大于 0。", "warn");
+        notify(getAppUiText("autoJs.k0125", "拍卖参数无效：起拍价必须大于 0。"), "warn");
         return;
       }
 
@@ -2583,19 +2598,19 @@ async function openListingEditDialog({
       if (definition?.requiresMinIncrement) {
         const increment = Number(draft.auctionMinIncrement ?? 1);
         if (!Number.isFinite(increment) || increment <= 0) {
-          notify("拍卖参数无效：最小加价幅度必须大于 0。", "warn");
+          notify(getAppUiText("autoJs.k0126", "拍卖参数无效：最小加价幅度必须大于 0。"), "warn");
           return;
         }
         auctionMinIncrement = Math.floor(increment);
       }
       if (definition?.requiresEndAt) {
         if (!draft.auctionEndAt) {
-          notify("拍卖参数无效：请设置结束时间。", "warn");
+          notify(getAppUiText("autoJs.k0127", "拍卖参数无效：请设置结束时间。"), "warn");
           return;
         }
         const endTimestamp = Date.parse(draft.auctionEndAt);
         if (!Number.isFinite(endTimestamp)) {
-          notify("拍卖参数无效：结束时间格式不正确。", "warn");
+          notify(getAppUiText("autoJs.k0128", "拍卖参数无效：结束时间格式不正确。"), "warn");
           return;
         }
         auctionEndAt = new Date(endTimestamp).toISOString();
@@ -2630,7 +2645,7 @@ async function openListingEditDialog({
   };
 
   elements.confirmOkBtn.disabled = false;
-  setNodeText(elements.confirmOkBtn, "保存修改");
+  setNodeText(elements.confirmOkBtn, getAppUiText("autoJs.k0129", "保存修改"));
   elements.confirmDialog.classList.add("show");
   elements.confirmDialog.setAttribute("aria-hidden", "false");
   priceInput.focus();
@@ -2645,7 +2660,7 @@ let priceResolver = null;
 function openPriceDialog({ listingId, currentPrice, currency }) {
   if (!elements.priceDialog) {
     const raw = window.prompt(
-      `请输入新的价格（当前 ${formatCurrency(currentPrice, currency)}）`,
+      getAppUiText("autoJs.k0130", "请输入新的价格（当前 {0}）").replace("{0}", formatCurrency(currentPrice, currency)),
       String(currentPrice)
     );
     if (raw === null) {
@@ -2664,8 +2679,8 @@ function openPriceDialog({ listingId, currentPrice, currency }) {
   }
 
   const currencyMeta = CURRENCY_META[currency] || { short: String(currency || "--") };
-  setNodeText(elements.priceDialogTitle, `修改价格 #${listingId}`);
-  setNodeText(elements.priceDialogHint, "价格修改后立即生效，请谨慎操作。");
+  setNodeText(elements.priceDialogTitle, getAppUiText("autoJs.k0131", "修改价格 #{0}").replace("{0}", listingId));
+  setNodeText(elements.priceDialogHint, getAppUiText("autoJs.k0132", "价格修改后立即生效，请谨慎操作。"));
   if (elements.priceDialogBadge) {
     elements.priceDialogBadge.textContent = `#${listingId}`;
   }
@@ -2705,7 +2720,7 @@ function submitPriceDialog() {
   const raw = elements.priceDialogInput.value.trim();
   const price = Number(raw);
   if (!Number.isFinite(price) || price <= 0) {
-    setNodeText(elements.priceDialogError, "价格必须是大于 0 的数字。");
+    setNodeText(elements.priceDialogError, getAppUiText("autoJs.k0133", "价格必须是大于 0 的数字。"));
     return;
   }
   elements.priceDialogError.textContent = "";
@@ -2796,7 +2811,7 @@ function switchTab(tabName, skipHistory = false) {
         setMetaText(elements.walletView, formatAppTemplate("walletRefreshFailed", { message }), "error");
       });
     } else {
-      setMetaText(elements.walletView, "请先登录后查看钱包。", "warn");
+      setMetaText(elements.walletView, getAppUiText("autoJs.k0134", "请先登录后查看钱包。"), "warn");
     }
   }
   if (tabName === "shop") {
@@ -2806,14 +2821,14 @@ function switchTab(tabName, skipHistory = false) {
     if (state.token) {
       loadOrders();
     } else {
-      setMetaText(elements.orderView, "请先登录后查看订单。", "warn");
+      setMetaText(elements.orderView, getAppUiText("autoJs.k0135", "请先登录后查看订单。"), "warn");
     }
   }
   if (tabName === "notifications") {
     if (state.token) {
       loadNotifications();
     } else {
-      setMetaText(elements.notificationsView, "请先登录后查看通知。", "warn");
+      setMetaText(elements.notificationsView, getAppUiText("autoJs.k0136", "请先登录后查看通知。"), "warn");
     }
   }
   if (tabName === "market" || tabName === "auction") {
@@ -2844,7 +2859,7 @@ accountEntryButtons.forEach((button) => {
     }
     if (!state.token) {
       switchTab("auth");
-      notify("请先登录后访问账户功能。", "warn");
+      notify(getAppUiText("autoJs.k0137", "请先登录后访问账户功能。"), "warn");
       return;
     }
     switchTab(targetTab);
@@ -2937,7 +2952,7 @@ function leaderboardMetricLabel(metric) {
     return CURRENCY_META.SHOP_COIN.label || "SHOP_COIN";
   }
   if (metric === "ONLINE_TIME") {
-    return "在线时长";
+    return getAppUiText("autoJs.k0138", "在线时长");
   }
   return CURRENCY_META.GAME_COIN.label || "GAME_COIN";
 }
@@ -2953,7 +2968,7 @@ function leaderboardTrendInfo(userKey, rank) {
   if (rank > previous) {
     return { text: `↓ ${rank - previous}`, toneClass: "is-trend-down" };
   }
-  return { text: "持平", toneClass: "is-trend-stable" };
+  return { text: getAppUiText("autoJs.k0139", "持平"), toneClass: "is-trend-stable" };
 }
 
 function buildLeaderboardAvatarImage(username) {
@@ -2984,18 +2999,18 @@ function renderLeaderboard(payload) {
   elements.leaderboardList.innerHTML = "";
 
   state.leaderboard.myRank = myRank;
-  const rankText = myRank ? `我的名次：#${myRank}` : "我的名次：未上榜";
+  const rankText = myRank ? getAppUiText("autoJs.k0140", "我的名次：#{0}").replace("{0}", myRank) : getAppUiText("autoJs.k0141", "我的名次：未上榜");
   setNodeText(elements.leaderboardMyRankView, rankText);
 
   if (!rows.length) {
     state.leaderboard.previousRanks = nextRanks;
-    setMetaText(elements.leaderboardView, "当前没有可显示的排行榜数据。", "warn");
+    setMetaText(elements.leaderboardView, getAppUiText("autoJs.k0142", "当前没有可显示的排行榜数据。"), "warn");
     return;
   }
 
   rows.forEach((entry, index) => {
     const rank = Number(entry.rank || index + 1);
-    const username = String(entry.username || `玩家${rank}`);
+    const username = String(entry.username || getAppUiText("autoJs.k0143", "玩家{0}").replace("{0}", rank));
     const userKey = entry.userId == null ? `anonymous-${rank}-${username}` : String(entry.userId);
     const trend = leaderboardTrendInfo(userKey, rank);
     nextRanks[userKey] = rank;
@@ -3015,11 +3030,11 @@ function renderLeaderboard(payload) {
     const rankBox = createEl("div", "leaderboard-rank");
     rankBox.appendChild(createEl("strong", "", `#${rank}`));
     if (rank === 1) {
-      rankBox.appendChild(createEl("span", "leaderboard-medal", "冠军"));
+      rankBox.appendChild(createEl("span", "leaderboard-medal", getAppUiText("autoJs.k0144", "冠军")));
     } else if (rank === 2) {
-      rankBox.appendChild(createEl("span", "leaderboard-medal", "亚军"));
+      rankBox.appendChild(createEl("span", "leaderboard-medal", getAppUiText("autoJs.k0145", "亚军")));
     } else if (rank === 3) {
-      rankBox.appendChild(createEl("span", "leaderboard-medal", "季军"));
+      rankBox.appendChild(createEl("span", "leaderboard-medal", getAppUiText("autoJs.k0146", "季军")));
     }
     top.appendChild(rankBox);
 
@@ -3028,26 +3043,26 @@ function renderLeaderboard(payload) {
     player.appendChild(avatar);
     const playerText = createEl("div", "leaderboard-player-text");
     playerText.appendChild(createEl("h3", "leaderboard-player-name", username));
-    playerText.appendChild(createEl("p", "leaderboard-player-sub", `榜单名次 第 ${rank} 名`));
+    playerText.appendChild(createEl("p", "leaderboard-player-sub", getAppUiText("autoJs.k0147", "榜单名次 第 {0} 名").replace("{0}", rank)));
     player.appendChild(playerText);
     top.appendChild(player);
 
     const chipRow = createEl("div", "leaderboard-chip-row");
-    chipRow.appendChild(createEl("span", `leaderboard-chip ${trend.toneClass}`, `趋势 ${trend.text}`));
+    chipRow.appendChild(createEl("span", `leaderboard-chip ${trend.toneClass}`, getAppUiText("autoJs.k0148", "趋势 {0}").replace("{0}", trend.text)));
     if (showOnlineRealtime) {
       chipRow.appendChild(
-        createEl("span", `leaderboard-chip ${entry.online ? "is-online" : "is-offline"}`, entry.online ? "在线" : "离线")
+        createEl("span", `leaderboard-chip ${entry.online ? "is-online" : "is-offline"}`, entry.online ? getAppUiText("autoJs.k0149", "在线") : getAppUiText("autoJs.k0150", "离线"))
       );
     }
     if (myRank && rank === Number(myRank)) {
-      chipRow.appendChild(createEl("span", "leaderboard-chip is-me-chip", "我的位置"));
+      chipRow.appendChild(createEl("span", "leaderboard-chip is-me-chip", getAppUiText("autoJs.k0151", "我的位置")));
     }
     top.appendChild(chipRow);
 
     card.appendChild(top);
 
     const scoreRow = createEl("div", "leaderboard-score-row");
-    scoreRow.appendChild(createEl("span", "leaderboard-score-label", `${metricLabel} 当前值`));
+    scoreRow.appendChild(createEl("span", "leaderboard-score-label", getAppUiText("autoJs.k0152", "{0} 当前值").replace("{0}", metricLabel)));
     scoreRow.appendChild(createEl("strong", "leaderboard-score-value", leaderboardScoreText(entry, metric)));
 
     const metricChips = createEl("div", "leaderboard-metric-chips");
@@ -3056,7 +3071,7 @@ function renderLeaderboard(payload) {
       ["SHOP_COIN", CURRENCY_META.SHOP_COIN.label || "SHOP_COIN", formatCurrency(entry.shopCoin, "SHOP_COIN")],
     ];
     if (shouldRenderOnlineTimeChip) {
-      chips.push(["ONLINE_TIME", "在线时长", formatOnlineMinutes(entry.onlineTimeMinutes)]);
+      chips.push(["ONLINE_TIME", getAppUiText("autoJs.k0153", "在线时长"), formatOnlineMinutes(entry.onlineTimeMinutes)]);
     }
     chips.forEach(([type, label, value]) => {
       const chip = createEl(
@@ -3077,12 +3092,12 @@ function renderLeaderboard(payload) {
 
   state.leaderboard.previousRanks = nextRanks;
 
-  let statusText = `已加载 ${rows.length} / ${payload.total || rows.length} 条`;
+  let statusText = getAppUiText("autoJs.k0154", "已加载 {0} / {1} 条").replace("{0}", rows.length).replace("{1}", payload.total || rows.length);
   if (payload.requestedRange && payload.effectiveRange && payload.requestedRange !== payload.effectiveRange) {
-    statusText += "（当前维度仅支持总榜）";
+    statusText += getAppUiText("autoJs.k0155", "（当前维度仅支持总榜）");
   }
   const refreshedAt = new Date().toLocaleTimeString(I18N ? I18N.getIntlLocale() : "zh-CN", { hour12: false });
-  statusText += ` · 刷新于 ${refreshedAt}`;
+  statusText += getAppUiText("autoJs.k0156", " · 刷新于 {0}").replace("{0}", refreshedAt);
   setMetaText(elements.leaderboardView, statusText, "info");
 }
 
@@ -3112,16 +3127,16 @@ async function loadLeaderboard() {
 
 function locateMyLeaderboardRank() {
   if (!state.leaderboard.myRank) {
-    notify("当前未找到你的榜单名次。", "warn");
+    notify(getAppUiText("autoJs.k0157", "当前未找到你的榜单名次。"), "warn");
     return;
   }
   if (!elements.leaderboardList || !elements.leaderboardList.querySelector("[data-rank]")) {
-    notify("请先加载榜单后再定位。", "warn");
+    notify(getAppUiText("autoJs.k0158", "请先加载榜单后再定位。"), "warn");
     return;
   }
   const target = elements.leaderboardList.querySelector(`[data-rank="${state.leaderboard.myRank}"]`);
   if (!target) {
-    notify("当前分页未包含你的名次。", "warn");
+    notify(getAppUiText("autoJs.k0159", "当前分页未包含你的名次。"), "warn");
     return;
   }
   if (state.leaderboard.focusTimer) {
@@ -3136,7 +3151,7 @@ function locateMyLeaderboardRank() {
     state.leaderboard.focusTimer = null;
   }, 1500);
   target.scrollIntoView({ behavior: "smooth", block: "center" });
-  notify(`已定位到 #${state.leaderboard.myRank}`, "success");
+  notify(getAppUiText("autoJs.k0160", "已定位到 #{0}").replace("{0}", state.leaderboard.myRank), "success");
 }
 
 function startLeaderboardRealtime() {
@@ -3223,13 +3238,13 @@ function updateExchangeRateHint() {
   const fromCurrency = String(elements.exchangeFrom.value || "").trim();
   const toCurrency = String(elements.exchangeTo.value || "").trim();
   if (!fromCurrency || !toCurrency || fromCurrency === toCurrency) {
-    setMetaText(elements.exchangeRateHint, "请选择有效的兑换方向。", "warn");
+    setMetaText(elements.exchangeRateHint, getAppUiText("autoJs.k0161", "请选择有效的兑换方向。"), "warn");
     return;
   }
 
   const direction = resolveExchangeDirectionSettings(fromCurrency, toCurrency);
   if (!direction) {
-    setMetaText(elements.exchangeRateHint, "请选择有效的兑换方向。", "warn");
+    setMetaText(elements.exchangeRateHint, getAppUiText("autoJs.k0162", "请选择有效的兑换方向。"), "warn");
     return;
   }
 
@@ -3237,10 +3252,10 @@ function updateExchangeRateHint() {
   const toMeta = CURRENCY_META[toCurrency] || { short: toCurrency };
   const ratioText = `1 ${fromMeta.short} = ${formatRatioValue(direction.ratio)} ${toMeta.short}`;
   if (!direction.enabled) {
-    setMetaText(elements.exchangeRateHint, `当前方向已关闭：${ratioText}`, "warn");
+    setMetaText(elements.exchangeRateHint, getAppUiText("autoJs.k0163", "当前方向已关闭：{0}").replace("{0}", ratioText), "warn");
     return;
   }
-  setMetaText(elements.exchangeRateHint, `当前比例：${ratioText}`, "info");
+  setMetaText(elements.exchangeRateHint, getAppUiText("autoJs.k0164", "当前比例：{0}").replace("{0}", ratioText), "info");
 }
 
 function applyExchangeMeta(meta) {
@@ -3327,19 +3342,19 @@ function resolveOfficialProductStock(product) {
 function deliveryModeLabel(mode) {
   const key = String(mode || "").toUpperCase();
   if (key === "CLAIM") {
-    return "手动领取";
+    return getAppUiText("autoJs.k0165", "手动领取");
   }
-  return "即时到账";
+  return getAppUiText("autoJs.k0166", "即时到账");
 }
 
 function productTypeLabel(type) {
   const key = String(type || "").toUpperCase();
-  if (key === "COMMAND") return "指令";
-  if (key === "GIVE_ITEM") return "出售物品";
-  if (key === "POTION_EFFECT") return "药水效果";
-  if (key === "RECYCLE_ITEM") return "回收物品";
-  if (key === "GROUP_BUY_VOUCHER") return "团购券";
-  return key || "未知类型";
+  if (key === "COMMAND") return getAppUiText("autoJs.k0167", "指令");
+  if (key === "GIVE_ITEM") return getAppUiText("autoJs.k0168", "出售物品");
+  if (key === "POTION_EFFECT") return getAppUiText("autoJs.k0169", "药水效果");
+  if (key === "RECYCLE_ITEM") return getAppUiText("autoJs.k0170", "回收物品");
+  if (key === "GROUP_BUY_VOUCHER") return getAppUiText("autoJs.k0171", "团购券");
+  return key || getAppUiText("autoJs.k0172", "未知类型");
 }
 
 function buildOrderDigest(orders) {
@@ -3393,7 +3408,7 @@ function notifyOrderTransitions(previousDigest, orders) {
     ].join("|");
     const old = previous[orderNo];
     if (!old) {
-      changes.push(`新订单：${orderNo}（${ORDER_STATUS_LABELS[String(order.status || "").toUpperCase()]?.label || order.status || "状态未知"}）`);
+      changes.push(getAppUiText("autoJs.k0173", "新订单：{0}（{1}）").replace("{0}", orderNo).replace("{1}", ORDER_STATUS_LABELS[String(order.status || "").toUpperCase()]?.label || order.status || "状态未知"));
       return;
     }
     if (old === current) {
@@ -3401,13 +3416,13 @@ function notifyOrderTransitions(previousDigest, orders) {
     }
     const status = String(order.status || "").toUpperCase();
     if (status === "DELIVERED") {
-      changes.push(`订单已发放：${orderNo}`);
+      changes.push(getAppUiText("autoJs.k0174", "订单已发放：{0}").replace("{0}", orderNo));
     } else if (status === "WAIT_CLAIM") {
-      changes.push(`订单待领取：${orderNo}（可在游戏内 /ws claim）`);
+      changes.push(getAppUiText("autoJs.k0175", "订单待领取：{0}（可在游戏内 /ws claim）").replace("{0}", orderNo));
     } else if (status === "REFUNDED") {
-      changes.push(`订单已退款：${orderNo}`);
+      changes.push(getAppUiText("autoJs.k0176", "订单已退款：{0}").replace("{0}", orderNo));
     } else {
-      changes.push(`订单状态更新：${orderNo} -> ${status || "UNKNOWN"}`);
+      changes.push(getAppUiText("autoJs.k0177", "订单状态更新：{0} -> {1}").replace("{0}", orderNo).replace("{1}", status || "UNKNOWN"));
     }
   });
   changes.slice(0, 3).forEach((message) => notify(message, "info"));
@@ -3440,15 +3455,15 @@ function notifyListingTransitions(previousDigest, listings) {
     const oldQty = Number(oldParts[1] || listing.quantity || 0);
     const newQty = Number(listing.quantity || 0);
     if (newStatus === "SOLD") {
-      changes.push(`上架 #${listing.id} 已售出`);
+      changes.push(getAppUiText("autoJs.k0178", "上架 #{0} 已售出").replace("{0}", listing.id));
       return;
     }
     if (newStatus === "UNLISTED") {
-      changes.push(`上架 #${listing.id} 已下架，退回处理中`);
+      changes.push(getAppUiText("autoJs.k0179", "上架 #{0} 已下架，退回处理中").replace("{0}", listing.id));
       return;
     }
     if (Number.isFinite(oldQty) && Number.isFinite(newQty) && newQty < oldQty) {
-      changes.push(`上架 #${listing.id} 发生部分售出：剩余 ${newQty}`);
+      changes.push(getAppUiText("autoJs.k0180", "上架 #{0} 发生部分售出：剩余 {1}").replace("{0}", listing.id).replace("{1}", newQty));
     }
   });
   changes.slice(0, 3).forEach((message) => notify(message, "info"));
@@ -3531,18 +3546,18 @@ function formatWalletInline(shopCoin, gameCoin) {
 
 function humanizeLedgerType(bizType, bizId) {
   const normalized = String(bizType || "").toUpperCase();
-  if (normalized === "ORDER_DEBIT") return `购买商品 ${bizId || ""}`.trim();
-  if (normalized === "ORDER_REFUND") return `订单退款 ${bizId || ""}`.trim();
-  if (normalized === "RECYCLE_CREDIT") return `回收入账 ${bizId || ""}`.trim();
-  if (normalized === "EXCHANGE_OUT") return "货币兑换转出";
-  if (normalized === "EXCHANGE_IN") return "货币兑换转入";
-  if (normalized === "MARKET_BUY") return "市场购买";
-  if (normalized === "MARKET_SELL") return "市场售出";
-  if (normalized === "MARKET_BID_HOLD") return "拍卖出价冻结";
-  if (normalized === "MARKET_BID_REFUND") return "拍卖退回";
-  if (normalized === "REDEEM") return "兑换码入账";
-  if (normalized === "ADMIN_ADJUST") return "管理员调整";
-  return normalized || "未知变动";
+  if (normalized === "ORDER_DEBIT") return getAppUiText("autoJs.k0181", "购买商品 {0}").replace("{0}", bizId || "").trim();
+  if (normalized === "ORDER_REFUND") return getAppUiText("autoJs.k0182", "订单退款 {0}").replace("{0}", bizId || "").trim();
+  if (normalized === "RECYCLE_CREDIT") return getAppUiText("autoJs.k0183", "回收入账 {0}").replace("{0}", bizId || "").trim();
+  if (normalized === "EXCHANGE_OUT") return getAppUiText("autoJs.k0184", "货币兑换转出");
+  if (normalized === "EXCHANGE_IN") return getAppUiText("autoJs.k0185", "货币兑换转入");
+  if (normalized === "MARKET_BUY") return getAppUiText("autoJs.k0186", "市场购买");
+  if (normalized === "MARKET_SELL") return getAppUiText("autoJs.k0187", "市场售出");
+  if (normalized === "MARKET_BID_HOLD") return getAppUiText("autoJs.k0188", "拍卖出价冻结");
+  if (normalized === "MARKET_BID_REFUND") return getAppUiText("autoJs.k0189", "拍卖退回");
+  if (normalized === "REDEEM") return getAppUiText("autoJs.k0190", "兑换码入账");
+  if (normalized === "ADMIN_ADJUST") return getAppUiText("autoJs.k0191", "管理员调整");
+  return normalized || getAppUiText("autoJs.k0192", "未知变动");
 }
 
 function renderWalletLedger(entries) {
@@ -3551,7 +3566,7 @@ function renderWalletLedger(entries) {
   }
   elements.walletLedgerList.innerHTML = "";
   if (!entries || entries.length === 0) {
-    elements.walletLedgerList.appendChild(createEl("div", "empty-state", "暂无最近变动记录。"));
+    elements.walletLedgerList.appendChild(createEl("div", "empty-state", getAppUiText("autoJs.k0193", "暂无最近变动记录。")));
     return;
   }
   for (const entry of entries) {
@@ -3582,9 +3597,9 @@ async function loadWalletLedger(options = {}) {
   ensureToken();
   const payload = await api("/api/wallet/ledger?limit=20", { method: "GET" });
   renderWalletLedger(payload.entries || []);
-  setMetaText(elements.walletLedgerView, `最近变动：${(payload.entries || []).length} 条`, "info");
+  setMetaText(elements.walletLedgerView, getAppUiText("autoJs.k0194", "最近变动：{0} 条").replace("{0}", (payload.entries || []).length), "info");
   if (announce) {
-    notify(`最近变动已刷新：${(payload.entries || []).length} 条。`, "info");
+    notify(getAppUiText("autoJs.k0195", "最近变动已刷新：{0} 条。").replace("{0}", (payload.entries || []).length), "info");
   }
 }
 
@@ -3878,6 +3893,57 @@ function stopRechargeExpireCountdown() {
   }
 }
 
+function setRechargeQrHintText(text) {
+  if (!elements.rechargeQrEmpty) {
+    return;
+  }
+  elements.rechargeQrEmpty.textContent = text;
+}
+
+function resetRechargeQrHintText() {
+  setRechargeQrHintText(
+    getAppPageText("rechargePaymentNoQr") || "No QR code was returned for this payment method."
+  );
+}
+
+function setRechargeQrExpiredVisible() {
+  setRechargeQrHintText(
+    getAppPageText("rechargePaymentExpiredQr") || "This order has expired. Please create a new payment order."
+  );
+  setRechargeQrVisible(false);
+}
+
+function isRechargeExpiredByTime(expireTime) {
+  const expireTimestamp = parseDateTimeValue(expireTime);
+  if (Number.isNaN(expireTimestamp)) {
+    return false;
+  }
+  return Date.now() >= expireTimestamp;
+}
+
+function markRechargeExpiredByCountdown() {
+  if (!state.recharge.currentPayment) {
+    return;
+  }
+  if (normalizeRechargeStatus(state.recharge.currentPayment.status) === "EXPIRED") {
+    return;
+  }
+  state.recharge.currentPayment = {
+    ...state.recharge.currentPayment,
+    status: "EXPIRED",
+    payUrl: null,
+    qrCodeUrl: null,
+  };
+  stopRechargeStatusPolling();
+  stopRechargeExpireCountdown();
+  setRechargePaymentActionsEnabled(false);
+  setRechargeQrExpiredVisible();
+  updateRechargePaymentDialogStatus("EXPIRED", {
+    orderId: state.recharge.currentPayment.orderId || state.recharge.currentOrderId || "-",
+    status: "EXPIRED",
+  });
+}
+
 function updateRechargeExpireCountdown() {
   if (!elements.rechargePaymentDialogExpireAt || !elements.rechargePaymentDialogExpireCountdown) {
     return;
@@ -3891,6 +3957,9 @@ function updateRechargeExpireCountdown() {
   elements.rechargePaymentDialogExpireAt.textContent = formatDateTime(expireTime);
   const remaining = formatCountdown(expireTime);
   elements.rechargePaymentDialogExpireCountdown.textContent = remaining || "-";
+  if (isRechargeExpiredByTime(expireTime)) {
+    markRechargeExpiredByCountdown();
+  }
 }
 
 function startRechargeExpireCountdown() {
@@ -3947,6 +4016,10 @@ function updateRechargePaymentDialogStatus(status, payload = {}) {
   }
   if (["FAILED", "EXPIRED", "CLOSED"].includes(normalizedStatus)) {
     stopRechargeExpireCountdown();
+    setRechargePaymentActionsEnabled(false);
+    if (normalizedStatus === "EXPIRED") {
+      setRechargeQrExpiredVisible();
+    }
     setMetaText(
       elements.rechargePaymentDialogStatus,
       formatAppTemplate("rechargeOrderClosed", {
@@ -3980,6 +4053,7 @@ function showRechargePaymentDialog(payment) {
   updateRechargeExpireCountdown();
   const qrCodeUrl = String(data.qrCodeUrl || "").trim();
   setRechargePaymentSuccessVisible(false);
+  resetRechargeQrHintText();
   setRechargeQrVisible(true, qrCodeUrl);
   setRechargePaymentActionsEnabled(true);
   updateRechargePaymentDialogStatus(data.status || "PAYING", data);
@@ -4201,7 +4275,7 @@ function getLocalizedMaterialName(material, options = {}) {
   const key = normalizeMaterialKey(material);
   const aliasKey = aliasMaterialKey(key);
   if (!key) {
-    return localizeDisplayText("未知物品");
+    return localizeDisplayText(getAppUiText("autoJs.k0196", "未知物品"));
   }
   const includeGlobalOverride = options.includeGlobalOverride !== false
     && normalizeVisualPolicy(state.visualPolicy || {}).globalCustomNameEnabled !== false;
@@ -4469,7 +4543,7 @@ function populateMarketTagSelect(selectNode, includeAllOption) {
   if (includeAllOption) {
     const allOption = document.createElement("option");
     allOption.value = "";
-    allOption.textContent = "全部分类";
+    allOption.textContent = getAppUiText("autoJs.k0197", "全部分类");
     selectNode.appendChild(allOption);
   }
   (state.marketTags || []).forEach((tag) => {
@@ -4522,7 +4596,7 @@ async function ensureMarketTagsMeta() {
         });
       state.marketTagsReady = true;
       populateMarketTagSelect(elements.marketTag, true);
-      log(`市场标签已加载：${state.marketTags.length} 个。`);
+      log(getAppUiText("autoJs.k0198", "市场标签已加载：{0} 个。").replace("{0}", state.marketTags.length));
     })
     .catch((error) => {
       state.marketTags = [];
@@ -4701,7 +4775,7 @@ function resolveAlgorithmParamInitialValue(paramValues, schemaKey) {
 function renderAlgorithmParamEditors(host, paramSchemas, paramValues, options = {}) {
   const entries = [];
   const advancedOnly = Boolean(options.advancedOnly);
-  const emptyMessage = options.emptyMessage !== undefined ? options.emptyMessage : "当前算法无额外参数。";
+  const emptyMessage = options.emptyMessage !== undefined ? options.emptyMessage : getAppUiText("autoJs.k0199", "当前算法无额外参数。");
   const filteredSchemas = Array.isArray(paramSchemas)
     ? paramSchemas.filter((schema) => Boolean(schema?.advanced) === advancedOnly)
     : [];
@@ -5013,40 +5087,40 @@ function formatInBusinessTimeZone(timestamp) {
 function formatAge(isoText) {
   const timestamp = parseDateTimeValue(isoText);
   if (Number.isNaN(timestamp)) {
-    return "未知时间";
+    return getAppUiText("autoJs.k0200", "未知时间");
   }
 
   const diffMs = Date.now() - timestamp;
   const minutes = Math.max(0, Math.floor(diffMs / 60000));
   if (minutes < 1) {
-    return "刚刚";
+    return getAppUiText("autoJs.k0201", "刚刚");
   }
   if (minutes < 60) {
-    return `${minutes} 分钟前`;
+    return getAppUiText("autoJs.k0202", "{0} 分钟前").replace("{0}", minutes);
   }
 
   const hours = Math.floor(minutes / 60);
   if (hours < 24) {
-    return `${hours} 小时前`;
+    return getAppUiText("autoJs.k0203", "{0} 小时前").replace("{0}", hours);
   }
 
   const days = Math.floor(hours / 24);
-  return `${days} 天前`;
+  return getAppUiText("autoJs.k0204", "{0} 天前").replace("{0}", days);
 }
 
 function formatListingStatus(status) {
   const normalized = String(status || "").toUpperCase();
   switch (normalized) {
     case "ACTIVE":
-      return localizeDisplayText("在售");
+      return localizeDisplayText(getAppUiText("autoJs.k0205", "在售"));
     case "SUPPLY_EMPTY":
-      return localizeDisplayText("待补货");
+      return localizeDisplayText(getAppUiText("autoJs.k0206", "待补货"));
     case "PAUSED":
-      return localizeDisplayText("已停用");
+      return localizeDisplayText(getAppUiText("autoJs.k0207", "已停用"));
     case "UNLISTED":
-      return localizeDisplayText("已退回");
+      return localizeDisplayText(getAppUiText("autoJs.k0208", "已退回"));
     case "SOLD":
-      return localizeDisplayText("已售");
+      return localizeDisplayText(getAppUiText("autoJs.k0209", "已售"));
     default:
       return localizeDisplayText(normalized || "--");
   }
@@ -5055,14 +5129,14 @@ function formatListingStatus(status) {
 function formatDateTime(isoText) {
   const timestamp = parseDateTimeValue(isoText);
   if (Number.isNaN(timestamp)) {
-    return localizeDisplayText("未知时间");
+    return localizeDisplayText(getAppUiText("autoJs.k0210", "未知时间"));
   }
   return formatInBusinessTimeZone(timestamp);
 }
 
 function formatSupplyLoadedAt(isoText) {
   if (!isoText) {
-    return localizeDisplayText("未补货");
+    return localizeDisplayText(getAppUiText("autoJs.k0211", "未补货"));
   }
   return formatDateTime(isoText);
 }
@@ -5075,26 +5149,26 @@ function formatCountdown(deadlineIso) {
   const diff = Math.max(0, deadline - Date.now());
   const seconds = Math.ceil(diff / 1000);
   if (seconds <= 0) {
-    return localizeDisplayText("已结束");
+    return localizeDisplayText(getAppUiText("autoJs.k0212", "已结束"));
   }
   if (seconds < 60) {
-    return `${seconds} 秒`;
+    return getAppUiText("autoJs.k0213", "{0} 秒").replace("{0}", seconds);
   }
   const minutes = Math.floor(seconds / 60);
   const remain = seconds % 60;
-  return `${minutes} 分 ${remain} 秒`;
+  return getAppUiText("autoJs.k0214", "{0} 分 {1} 秒").replace("{0}", minutes).replace("{1}", remain);
 }
 
 function orderStatusMeta(status) {
   const key = String(status || "").toUpperCase();
-  const meta = ORDER_STATUS_LABELS[key] || { label: key || "未知", tone: "pending" };
+  const meta = ORDER_STATUS_LABELS[key] || { label: key || getAppUiText("autoJs.k0215", "未知"), tone: "pending" };
   return { ...meta, label: localizeDisplayText(meta.label) };
 }
 
 function enchantLabel(key) {
   const normalized = String(key || "").replace(/^minecraft:/, "").trim().toLowerCase();
   if (!normalized) {
-    return localizeDisplayText("未知附魔");
+    return localizeDisplayText(getAppUiText("autoJs.k0216", "未知附魔"));
   }
   if (I18N && !I18N.isChineseLocale()) {
     return I18N.humanizeEnum(normalized);
@@ -5225,7 +5299,7 @@ function createQuantitySelector({
   inputs.appendChild(rangeInput);
   wrap.appendChild(inputs);
 
-  const total = createEl("p", totalClassName, `总价：${formatCurrency(unitPrice, currency)}`);
+  const total = createEl("p", totalClassName, getAppUiText("autoJs.k0217", "总价：{0}").replace("{0}", formatCurrency(unitPrice, currency)));
   wrap.appendChild(total);
 
   const sync = (rawValue) => {
@@ -5234,7 +5308,7 @@ function createQuantitySelector({
     const clamped = Math.min(normalizedMax, Math.max(1, normalized));
     numberInput.value = String(clamped);
     rangeInput.value = String(clamped);
-    setNodeText(total, `总价：${formatCurrency(unitPrice * clamped, currency)}`);
+    setNodeText(total, getAppUiText("autoJs.k0218", "总价：{0}").replace("{0}", formatCurrency(unitPrice * clamped, currency)));
     return clamped;
   };
 
@@ -5252,7 +5326,7 @@ function createQuantitySelector({
     }
     const clamped = Math.min(normalizedMax, Math.max(1, Math.floor(parsed)));
     rangeInput.value = String(clamped);
-    setNodeText(total, `总价：${formatCurrency(unitPrice * clamped, currency)}`);
+    setNodeText(total, getAppUiText("autoJs.k0219", "总价：{0}").replace("{0}", formatCurrency(unitPrice * clamped, currency)));
   });
   numberInput.addEventListener("blur", () => {
     sync(numberInput.value || 1);
@@ -5308,7 +5382,7 @@ function resolveErrorMessage(error, scene) {
     .toLowerCase();
   const raw = String(error && error.message ? error.message : "").trim();
   if (/failed to fetch|networkerror/i.test(raw)) {
-    return "无法连接到商城服务，请确认服务器和内置 Web 已正常运行。";
+    return getAppUiText("autoJs.k0220", "无法连接到商城服务，请确认服务器和内置 Web 已正常运行。");
   }
 
   const scoped = ERROR_TIPS_BY_SCENE[scene];
@@ -5321,7 +5395,7 @@ function resolveErrorMessage(error, scene) {
   if (raw) {
     return raw;
   }
-  return "操作失败，请稍后重试。";
+  return getAppUiText("autoJs.k0221", "操作失败，请稍后重试。");
 }
 
 function redeemStatusTip(status) {
@@ -5331,7 +5405,7 @@ function redeemStatusTip(status) {
   }
   return {
     tone: "warn",
-    text: `兑换状态未知：${key}`,
+    text: getAppUiText("autoJs.k0222", "兑换状态未知：{0}").replace("{0}", key),
   };
 }
 
@@ -5430,7 +5504,7 @@ async function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("读取图片失败"));
+    reader.onerror = () => reject(new Error(getAppUiText("autoJs.k0223", "读取图片失败")));
     reader.readAsDataURL(file);
   });
 }
@@ -5439,7 +5513,7 @@ async function loadImageFromDataUrl(dataUrl) {
   return new Promise((resolve, reject) => {
     const node = new Image();
     node.onload = () => resolve(node);
-    node.onerror = () => reject(new Error("解析图片失败"));
+    node.onerror = () => reject(new Error(getAppUiText("autoJs.k0224", "解析图片失败")));
     node.src = dataUrl;
   });
 }
@@ -5454,7 +5528,7 @@ async function cropImageFileToSquarePngAuto(file, size = 128) {
   const width = Number(image.width || 0);
   const height = Number(image.height || 0);
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    throw new Error("图片尺寸无效");
+    throw new Error(getAppUiText("autoJs.k0225", "图片尺寸无效"));
   }
   const side = Math.min(width, height);
   const sx = Math.floor((width - side) / 2);
@@ -5464,7 +5538,7 @@ async function cropImageFileToSquarePngAuto(file, size = 128) {
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   if (!ctx) {
-    throw new Error("无法创建图片画布");
+    throw new Error(getAppUiText("autoJs.k0226", "无法创建图片画布"));
   }
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
@@ -5473,7 +5547,7 @@ async function cropImageFileToSquarePngAuto(file, size = 128) {
     canvas.toBlob(resolve, "image/png", 1.0);
   });
   if (!blob) {
-    throw new Error("图片裁剪失败");
+    throw new Error(getAppUiText("autoJs.k0227", "图片裁剪失败"));
   }
   return new File([blob], fileNameWithExtension(input.name, "png"), { type: "image/png" });
 }
@@ -5631,7 +5705,7 @@ function resetMaterialCropViewport() {
   const imageWidth = Number(materialCropState.image.width || 0);
   const imageHeight = Number(materialCropState.image.height || 0);
   if (!Number.isFinite(imageWidth) || !Number.isFinite(imageHeight) || imageWidth <= 0 || imageHeight <= 0) {
-    throw new Error("图片尺寸无效");
+    throw new Error(getAppUiText("autoJs.k0228", "图片尺寸无效"));
   }
   const minScale = Math.max(frame.size / imageWidth, frame.size / imageHeight);
   materialCropState.minScale = minScale;
@@ -5665,7 +5739,7 @@ function closeMaterialCropDialog(resultFile = null) {
 async function exportMaterialCropAsPngFile() {
   const metrics = getMaterialCropCanvasContext();
   if (!metrics || !materialCropState.image) {
-    throw new Error("裁剪器未准备好");
+    throw new Error(getAppUiText("autoJs.k0229", "裁剪器未准备好"));
   }
   const frame = getMaterialCropFrameRect(metrics);
   const outputSize = Math.max(32, Math.min(1024, Number(materialCropState.exportSize || 128)));
@@ -5683,7 +5757,7 @@ async function exportMaterialCropAsPngFile() {
   outputCanvas.height = outputSize;
   const outputCtx = outputCanvas.getContext("2d");
   if (!outputCtx) {
-    throw new Error("无法创建输出画布");
+    throw new Error(getAppUiText("autoJs.k0230", "无法创建输出画布"));
   }
   outputCtx.imageSmoothingEnabled = true;
   outputCtx.imageSmoothingQuality = "high";
@@ -5702,7 +5776,7 @@ async function exportMaterialCropAsPngFile() {
     outputCanvas.toBlob(resolve, "image/png", 1.0);
   });
   if (!blob) {
-    throw new Error("图片裁剪失败");
+    throw new Error(getAppUiText("autoJs.k0231", "图片裁剪失败"));
   }
   return new File([blob], fileNameWithExtension(materialCropState.sourceFileName, "png"), { type: "image/png" });
 }
@@ -5777,7 +5851,7 @@ function initializeMaterialCropDialog() {
         const file = await exportMaterialCropAsPngFile();
         closeMaterialCropDialog(file);
       } catch (error) {
-        notify(error.message || "裁剪失败，请重试。", "error");
+        notify(error.message || getAppUiText("autoJs.k0232", "裁剪失败，请重试。"), "error");
       }
     });
   }
@@ -5901,7 +5975,7 @@ async function cropImageFileToSquarePng(file, size = 128) {
 function ensureToken() {
   if (!state.token) {
     switchTab("auth");
-    throw new Error("请先登录后再操作。");
+    throw new Error(getAppUiText("autoJs.k0233", "请先登录后再操作。"));
   }
 }
 
@@ -5920,13 +5994,13 @@ function updateAuthLayout() {
   }
 
   if (!loggedIn) {
-    setStatus("未登录", "offline");
+    setStatus(getAppUiText("autoJs.k0234", "未登录"), "offline");
     updateNotificationBadge();
     updateAccountBackButtonVisibility();
     return;
   }
 
-  setStatus(`已登录：${state.username || "-"}`, "online");
+  setStatus(getAppUiText("autoJs.k0235", "已登录：{0}").replace("{0}", state.username || "-"), "online");
   updateNotificationBadge();
   updateAccountBackButtonVisibility();
   renderProfile();
@@ -5934,7 +6008,7 @@ function updateAuthLayout() {
 
 function renderProfile() {
   elements.profileName.textContent = state.username || "-";
-  setNodeText(elements.profileUuid, state.boundUuid || "未绑定");
+  setNodeText(elements.profileUuid, state.boundUuid || getAppUiText("autoJs.k0236", "未绑定"));
 
   const avatarKey = state.username || state.boundUuid;
   if (!avatarKey) {
@@ -5969,7 +6043,7 @@ function setSession(payload) {
   }
   applyUserVisualPermission(user.visualPermission || payload.visualPermission || {});
 
-  // 保存会话到本地存储
+  // ${getAppUiText("autoJs.k0237", "保存会话到本地存储")}
   const sessionData = {
     token: state.token,
     username: state.username,
@@ -6003,7 +6077,7 @@ function clearSession() {
     customNameAllowed: true,
     customUploadAllowed: true,
   };
-  // 移除本地存储的会话
+  // ${getAppUiText("autoJs.k0238", "移除本地存储的会话")}
   window.localStorage.removeItem(SESSION_STORAGE_KEY);
   renderOrders(state.orders);
   renderNotifications(state.notifications);
@@ -6024,25 +6098,25 @@ async function restoreSession() {
     if (!sessionData.token) {
       return;
     }
-    // 临时设置token来验证
+    // ${getAppUiText("autoJs.k0239", "临时设置token")}来验证
     const originalToken = state.token;
     state.token = sessionData.token;
-    // 尝试刷新钱包来验证token
+    // ${getAppUiText("autoJs.k0240", "尝试刷新钱包来验证token")}
     await refreshWallet();
-    // 如果成功，恢复完整会话
+    // 如果成功，${getAppUiText("autoJs.k0241", "恢复完整会话")}
     state.username = sessionData.username;
     state.boundUuid = sessionData.boundUuid;
     updateAuthLayout();
     await loadOrders();
     await refreshNotificationUnreadCount();
     startRealtimeSync();
-    log("会话已恢复。", "SUCCESS");
+    log(getAppUiText("autoJs.k0242", "会话已恢复。"), "SUCCESS");
   } catch (error) {
-    // token无效，清除存储
+    // token无效，${getAppUiText("autoJs.k0243", "清除存储")}
     state.token = null;
     window.localStorage.removeItem(SESSION_STORAGE_KEY);
     stopRealtimeSync();
-    log("会话恢复失败，已清除。", "WARN");
+    log(getAppUiText("autoJs.k0244", "会话恢复失败，已清除。"), "WARN");
   }
 }
 
@@ -6072,7 +6146,7 @@ async function pollRealtimeSync() {
           if (deltaGame !== 0) {
             parts.push(formatCurrency(deltaGame, "GAME_COIN"));
           }
-          notify(`余额变动：${parts.join(" / ")}`, deltaShop + deltaGame >= 0 ? "success" : "warn");
+          notify(getAppUiText("autoJs.k0245", "余额变动：{0}").replace("{0}", parts.join(" / ")), deltaShop + deltaGame >= 0 ? "success" : "warn");
         }
       }
       notifyOrderTransitions(state.realtime.orderDigest, ordersPayload.orders || []);
@@ -6081,7 +6155,7 @@ async function pollRealtimeSync() {
       const currentUnread = Math.max(0, Number(notificationPayload.unreadCount || 0));
       if (currentUnread > previousUnread) {
         const delta = currentUnread - previousUnread;
-        notify(`你有 ${delta} 条新通知。`, "info");
+        notify(getAppUiText("autoJs.k0246", "你有 {0} 条新通知。").replace("{0}", delta), "info");
       }
     }
 
@@ -6111,7 +6185,7 @@ async function pollRealtimeSync() {
     if ((state.activeTab === "market" || state.activeTab === "auction") && state.marketMode === "mine") {
       state.listings = filterListingsByTradeScope(listingsPayload.listings || [], state.marketTradeScope);
       renderListings(state.listings);
-      setMetaText(elements.marketView, `${getMarketModeLabel("mine")}：${state.listings.length} 条`, "info");
+      setMetaText(elements.marketView, getAppUiText("autoJs.k0247", "{0}：{1} 条").replace("{0}", getMarketModeLabel("mine")).replace("{1}", state.listings.length), "info");
     }
   } catch (error) {
     if (String(error?.message || "").toLowerCase().includes("auth")) {
@@ -6199,7 +6273,7 @@ function renderProducts(products) {
   elements.productList.innerHTML = "";
 
   if (!filteredProducts || filteredProducts.length === 0) {
-    const empty = createEl("div", "empty-state", "暂无商品，请联系管理员在后台添加。 ");
+    const empty = createEl("div", "empty-state", getAppUiText("autoJs.k0248", "暂无商品，请联系管理员在后台添加。 "));
     elements.productList.appendChild(empty);
     return;
   }
@@ -6207,7 +6281,7 @@ function renderProducts(products) {
   for (const product of filteredProducts) {
     const card = createEl("article", "product-card official-card");
     const visual = resolveProductDisplayVisual(product);
-    const productTitle = visual.title || product.title || product.sku || "未知商品";
+    const productTitle = visual.title || product.title || product.sku || getAppUiText("autoJs.k0249", "未知商品");
     const isGroupBuyVoucher = String(product.productType || "").toUpperCase() === "GROUP_BUY_VOUCHER";
     const isRecycleItem = String(product.productType || "").toUpperCase() === "RECYCLE_ITEM";
     const dynamicEnabled = !!product.dynamicPricingEnabled;
@@ -6229,14 +6303,14 @@ function renderProducts(products) {
     infoMain.appendChild(title);
 
     const currencyLabel = (CURRENCY_META[product.currency] || { label: product.currency }).label;
-    const metaParts = [productTypeLabel(product.productType), `币种 ${currencyLabel}`];
+    const metaParts = [productTypeLabel(product.productType), getAppUiText("autoJs.k0250", "币种 {0}").replace("{0}", currencyLabel)];
     if (dynamicEnabled) {
-      metaParts.push("动态价格");
+      metaParts.push(getAppUiText("autoJs.k0251", "动态价格"));
     }
     if (stock.hasPerUserLimit) {
-      metaParts.push(`限购 x${stock.perUserLimit}`);
+      metaParts.push(getAppUiText("autoJs.k0252", "限购 x{0}").replace("{0}", stock.perUserLimit));
       if (stock.hasPersonalLimitRemaining) {
-        metaParts.push(`可购 x${stock.personalLimitRemaining}`);
+        metaParts.push(getAppUiText("autoJs.k0253", "可购 x{0}").replace("{0}", stock.personalLimitRemaining));
       }
     }
 
@@ -6253,9 +6327,9 @@ function renderProducts(products) {
       ? createProgressIndicator(
           stock.remainingStock,
           stock.totalStock,
-          (current, total) => `剩余 ${current}`
+          (current, total) => getAppUiText("autoJs.k0254", "剩余 {0}").replace("{0}", current)
         )
-      : createProgressIndicator(1, 1, () => "长期供应");
+      : createProgressIndicator(1, 1, () => getAppUiText("autoJs.k0255", "长期供应"));
     stockProgress.wrap.classList.add("product-stock-row");
     card.appendChild(stockProgress.wrap);
 
@@ -6277,16 +6351,16 @@ function renderProducts(products) {
 
     const actionRow = createEl("div", "product-action-row");
     if (stock.isPersonalLimitReached) {
-      actionRow.appendChild(createEl("p", "product-state-tip", "你已达到该商品的限购上限"));
+      actionRow.appendChild(createEl("p", "product-state-tip", getAppUiText("autoJs.k0256", "你已达到该商品的限购上限")));
     } else if (isGroupBuyVoucher) {
-      actionRow.appendChild(createEl("p", "product-state-tip", "购买后生成团购兑换码，需由管理员核销"));
+      actionRow.appendChild(createEl("p", "product-state-tip", getAppUiText("autoJs.k0257", "购买后生成团购兑换码，需由管理员核销")));
     }
     actionRow.appendChild(quantitySelector.total);
 
     const buyBtn = createEl(
       "button",
       "product-buy-btn",
-      isSoldOut ? (stock.isPersonalLimitReached ? "已达限购" : "已售罄") : (isRecycleItem ? "立即回收" : "立即购买")
+      isSoldOut ? (stock.isPersonalLimitReached ? getAppUiText("autoJs.k0258", "已达限购") : getAppUiText("autoJs.k0259", "已售罄")) : (isRecycleItem ? getAppUiText("autoJs.k0260", "立即回收") : getAppUiText("autoJs.k0261", "立即购买"))
     );
     buyBtn.type = "button";
     buyBtn.dataset.action = "buy-product";
@@ -6435,7 +6509,7 @@ function renderListings(listings, container = elements.marketList) {
         top.appendChild(createEl("span", "market-chip", getMarketTagDisplayName(listing.tag)));
       }
       if (isSupply) {
-        top.appendChild(createEl("span", "market-chip official", "自动补货"));
+        top.appendChild(createEl("span", "market-chip official", getAppUiText("autoJs.k0262", "自动补货")));
       }
       top.appendChild(createEl("span", "market-time", formatAge(listing.createdAt)));
       card.appendChild(top);
@@ -6456,7 +6530,7 @@ function renderListings(listings, container = elements.marketList) {
       if (listing.remark) {
         compactRemarkParts.push(String(listing.remark));
       }
-      compactRemarkParts.push(`${isBuySide ? "发布者" : "卖家"}：${listing.sellerName}`);
+      compactRemarkParts.push(getAppUiText("autoJs.k0263", "{0}：{1}").replace("{0}", isBuySide ? "发布者" : "卖家").replace("{1}", listing.sellerName));
       infoMain.appendChild(createEl("p", "product-remark", compactRemarkParts.join(" ")));
       infoRow.appendChild(infoMain);
       card.appendChild(infoRow);
@@ -6464,13 +6538,13 @@ function renderListings(listings, container = elements.marketList) {
       const stockProgress = createProgressIndicator(
         Number(listing.quantity || 0),
         quantityTotal > 0 ? quantityTotal : Math.max(1, Number(listing.quantity || 0)),
-        (current, total) => `剩余${current}`
+        (current, total) => getAppUiText("autoJs.k0264", "剩余{0}").replace("{0}", current)
       );
       stockProgress.wrap.classList.add("product-stock-row");
       card.appendChild(stockProgress.wrap);
 
       const priceRow = createEl("div", "market-price-row");
-      priceRow.appendChild(createEl("p", "market-price-label", "单价"));
+      priceRow.appendChild(createEl("p", "market-price-label", getAppUiText("autoJs.k0265", "单价")));
       priceRow.appendChild(createEl("p", "market-price", formatCurrency(Number(listing.price || 0), listing.currency)));
       card.appendChild(priceRow);
 
@@ -6491,14 +6565,14 @@ function renderListings(listings, container = elements.marketList) {
 
       const actionRow = createEl("div", "product-action-row");
       if (!isActive) {
-        actionRow.appendChild(createEl("p", "product-state-tip", `状态：${formatListingStatus(displayStatus)}`));
+        actionRow.appendChild(createEl("p", "product-state-tip", getAppUiText("autoJs.k0266", "状态：{0}").replace("{0}", formatListingStatus(displayStatus))));
       }
       actionRow.appendChild(quantitySelector.total);
 
       const buyBtn = createEl(
         "button",
         "market-action-btn product-buy-btn",
-        isActive ? (isBuySide ? "卖给收购单" : "立即购买") : "不可购买"
+        isActive ? (isBuySide ? getAppUiText("autoJs.k0267", "卖给收购单") : getAppUiText("autoJs.k0268", "立即购买")) : getAppUiText("autoJs.k0269", "不可购买")
       );
       buyBtn.type = "button";
       buyBtn.disabled = !isActive;
@@ -6527,10 +6601,10 @@ function renderListings(listings, container = elements.marketList) {
       top.appendChild(createEl("span", "market-chip", getMarketTagDisplayName(listing.tag)));
     }
     if (isSupply) {
-      top.appendChild(createEl("span", "market-chip official", "自动补货"));
+      top.appendChild(createEl("span", "market-chip official", getAppUiText("autoJs.k0270", "自动补货")));
     }
     if (isAuction) {
-      top.appendChild(createEl("span", "market-chip", "拍卖"));
+      top.appendChild(createEl("span", "market-chip", getAppUiText("autoJs.k0271", "拍卖")));
     }
     top.appendChild(createEl("span", "market-time", formatAge(listing.createdAt)));
     card.appendChild(top);
@@ -6554,14 +6628,14 @@ function renderListings(listings, container = elements.marketList) {
       detail.appendChild(createEl("p", "market-remark", listing.remark));
     }
     if (listing.tag) {
-      detail.appendChild(createEl("p", "market-sub", `分类：${getMarketTagDisplayName(listing.tag)} (${listing.tag})`));
+      detail.appendChild(createEl("p", "market-sub", getAppUiText("autoJs.k0272", "分类：{0} ({1})").replace("{0}", getMarketTagDisplayName(listing.tag)).replace("{1}", listing.tag)));
     }
     if (isBuySide) {
       detail.appendChild(
         createEl(
           "p",
           "market-sub",
-          `冻结金额：${formatCurrency(Number(listing.escrowRemaining || 0), listing.currency)} / ${formatCurrency(Number(listing.escrowTotal || 0), listing.currency)}`
+          getAppUiText("autoJs.k0273", "冻结金额：{0} / {1}").replace("{0}", formatCurrency(Number(listing.escrowRemaining || 0), listing.currency)).replace("{1}", formatCurrency(Number(listing.escrowTotal || 0), listing.currency))
         )
       );
     }
@@ -6571,21 +6645,21 @@ function renderListings(listings, container = elements.marketList) {
           createEl(
             "p",
             "market-sub",
-            `供货模式：单次提取 x${Number(listing.supplyBatchSize || 0)} / 中转上限 x${Number(listing.supplyMaxStock || quantityTotal || 0)}`
+            getAppUiText("autoJs.k0274", "供货模式：单次提取 x{0} / 中转上限 x{1}").replace("{0}", Number(listing.supplyBatchSize || 0)).replace("{1}", Number(listing.supplyMaxStock || quantityTotal || 0))
           )
         );
         detail.appendChild(
           createEl(
             "p",
             "market-sub",
-            `累计提取 x${Number(listing.supplyLoadedTotal || 0)} / 累计售出 x${Number(listing.supplySoldTotal || 0)}`
+            getAppUiText("autoJs.k0275", "累计提取 x{0} / 累计售出 x{1}").replace("{0}", Number(listing.supplyLoadedTotal || 0)).replace("{1}", Number(listing.supplySoldTotal || 0))
           )
         );
         detail.appendChild(
           createEl(
             "p",
             "market-sub",
-            `最近补货：${formatSupplyLoadedAt(listing.supplyLastLoadedAt)}`
+            getAppUiText("autoJs.k0276", "最近补货：{0}").replace("{0}", formatSupplyLoadedAt(listing.supplyLastLoadedAt))
           )
         );
       } else {
@@ -6593,7 +6667,7 @@ function renderListings(listings, container = elements.marketList) {
           createEl(
             "p",
             "market-sub",
-            `供货模式：累计售出 x${Number(listing.supplySoldTotal || 0)}`
+            getAppUiText("autoJs.k0277", "供货模式：累计售出 x{0}").replace("{0}", Number(listing.supplySoldTotal || 0))
           )
         );
       }
@@ -6604,7 +6678,7 @@ function renderListings(listings, container = elements.marketList) {
         createEl(
           "p",
           "market-sub",
-          `拍卖算法：${getAlgorithmLabel("auction", auctionAlgorithm)}`
+          getAppUiText("autoJs.k0278", "拍卖算法：{0}").replace("{0}", getAlgorithmLabel("auction", auctionAlgorithm))
         )
       );
       if (isDutchAuction) {
@@ -6613,14 +6687,14 @@ function renderListings(listings, container = elements.marketList) {
           createEl(
             "p",
             "market-sub",
-            `当前买断价：${formatCurrency(Number(listing.price || listing.auctionStartPrice || 0), listing.currency)}`
+            getAppUiText("autoJs.k0279", "当前买断价：{0}").replace("{0}", formatCurrency(Number(listing.price || listing.auctionStartPrice || 0), listing.currency))
           )
         );
         detail.appendChild(
           createEl(
             "p",
             "market-sub",
-            `底价：${floorPrice > 0 ? formatCurrency(floorPrice, listing.currency) : "--"}`
+            getAppUiText("autoJs.k0280", "底价：{0}").replace("{0}", floorPrice > 0 ? formatCurrency(floorPrice, listing.currency) : "--")
           )
         );
       } else if (isVickreyAuction) {
@@ -6629,14 +6703,14 @@ function renderListings(listings, container = elements.marketList) {
           createEl(
             "p",
             "market-sub",
-            `起拍价：${formatCurrency(Number(listing.auctionStartPrice || listing.price || 0), listing.currency)}`
+            getAppUiText("autoJs.k0281", "起拍价：{0}").replace("{0}", formatCurrency(Number(listing.auctionStartPrice || listing.price || 0), listing.currency))
           )
         );
         detail.appendChild(
           createEl(
             "p",
             "market-sub",
-            `保留价：${reservePrice > 0 ? formatCurrency(reservePrice, listing.currency) : "未设置"}`
+            getAppUiText("autoJs.k0282", "保留价：{0}").replace("{0}", reservePrice > 0 ? formatCurrency(reservePrice, listing.currency) : "未设置")
           )
         );
       } else {
@@ -6648,14 +6722,14 @@ function renderListings(listings, container = elements.marketList) {
           createEl(
             "p",
             "market-sub",
-            `当前${hasHighestBid ? "最高出价" : "起拍价"}：${formatCurrency(currentBidAmount, listing.currency)}`
+            getAppUiText("autoJs.k0283", "当前{0}：{1}").replace("{0}", hasHighestBid ? "最高出价" : "起拍价").replace("{1}", formatCurrency(currentBidAmount, listing.currency))
           )
         );
         detail.appendChild(
           createEl(
             "p",
             "market-sub",
-            `最小加价：${formatCurrency(Math.max(1, Number(listing.auctionMinIncrement || 1)), listing.currency)}`
+            getAppUiText("autoJs.k0284", "最小加价：{0}").replace("{0}", formatCurrency(Math.max(1, Number(listing.auctionMinIncrement || 1)), listing.currency))
           )
         );
       }
@@ -6663,7 +6737,7 @@ function renderListings(listings, container = elements.marketList) {
         createEl(
           "p",
           "market-sub",
-          `结束时间：${listing.auctionEndAt ? formatDateTime(listing.auctionEndAt) : "未设置"}`
+          getAppUiText("autoJs.k0285", "结束时间：{0}").replace("{0}", listing.auctionEndAt ? formatDateTime(listing.auctionEndAt) : "未设置")
         )
       );
     } else if (listing.dynamicPricingEnabled) {
@@ -6673,21 +6747,21 @@ function renderListings(listings, container = elements.marketList) {
         createEl(
           "p",
           "market-sub",
-          `动态算法：${getAlgorithmLabel("dynamic", listing.dynamicAlgorithm || "LINEAR_DEMAND_V1")}`
+          getAppUiText("autoJs.k0286", "动态算法：{0}").replace("{0}", getAlgorithmLabel("dynamic", listing.dynamicAlgorithm || "LINEAR_DEMAND_V1"))
         )
       );
       detail.appendChild(
         createEl(
           "p",
           "market-sub",
-          `动态定价：需求分 ${Number(listing.dynamicDemandScore || 0)}，波动步长 ${Number(listing.dynamicPriceStep || 1)}`
+          getAppUiText("autoJs.k0287", "动态定价：需求分 {0}，波动步长 {1}").replace("{0}", Number(listing.dynamicDemandScore || 0)).replace("{1}", Number(listing.dynamicPriceStep || 1))
         )
       );
       detail.appendChild(
         createEl(
           "p",
           "market-sub",
-          `地板价 ${floorText} / 封顶价 ${capText}`
+          getAppUiText("autoJs.k0288", "地板价 {0} / 封顶价 {1}").replace("{0}", floorText).replace("{1}", capText)
         )
       );
     }
@@ -6697,7 +6771,7 @@ function renderListings(listings, container = elements.marketList) {
     const stockProgress = createProgressIndicator(
       Number(listing.quantity || 0),
       quantityTotal > 0 ? quantityTotal : Math.max(1, Number(listing.quantity || 0)),
-      (current, total) => `剩余 ${current}`
+      (current, total) => getAppUiText("autoJs.k0289", "剩余 {0}").replace("{0}", current)
     );
     card.appendChild(stockProgress.wrap);
 
@@ -6713,7 +6787,7 @@ function renderListings(listings, container = elements.marketList) {
     }
 
     const priceRow = createEl("div", "market-price-row");
-    const priceLabel = isAuction ? (isDutchAuction ? "当前买断价" : "当前竞价") : "价格";
+    const priceLabel = isAuction ? (isDutchAuction ? getAppUiText("autoJs.k0290", "当前买断价") : getAppUiText("autoJs.k0291", "当前竞价")) : getAppUiText("autoJs.k0292", "价格");
     const displayPrice = isAuction
       ? (isDutchAuction
         ? Number(listing.price || listing.auctionStartPrice || 0)
@@ -6727,13 +6801,13 @@ function renderListings(listings, container = elements.marketList) {
 
     const footer = createEl("div", "market-footer");
     const seller = createEl("div", "market-seller");
-    seller.appendChild(createEl("span", "", `${isBuySide ? "发布者" : "卖家"}：${listing.sellerName}`));
-    seller.appendChild(createEl("span", "", isOwner ? "我的上架" : "公开市场"));
+    seller.appendChild(createEl("span", "", getAppUiText("autoJs.k0293", "{0}：{1}").replace("{0}", isBuySide ? "发布者" : "卖家").replace("{1}", listing.sellerName)));
+    seller.appendChild(createEl("span", "", isOwner ? getAppUiText("autoJs.k0294", "我的上架") : getAppUiText("autoJs.k0295", "公开市场")));
     footer.appendChild(seller);
 
     const actions = createEl("div", "market-actions-row");
     if (isOwner) {
-      const editBtn = createEl("button", "market-action-btn btn-tonal", "编辑");
+      const editBtn = createEl("button", "market-action-btn btn-tonal", getAppUiText("autoJs.k0296", "编辑"));
       editBtn.type = "button";
       editBtn.dataset.action = "edit";
       editBtn.dataset.listingId = String(listing.id);
@@ -6764,7 +6838,7 @@ function renderListings(listings, container = elements.marketList) {
       actions.appendChild(editBtn);
 
       if (isSupply && normalizedStatus !== "UNLISTED" && normalizedStatus !== "SOLD") {
-        const refreshBtn = createEl("button", "market-action-btn sale", "强制刷新");
+        const refreshBtn = createEl("button", "market-action-btn sale", getAppUiText("autoJs.k0297", "强制刷新"));
         refreshBtn.type = "button";
         refreshBtn.dataset.action = "refreshSupply";
         refreshBtn.dataset.listingId = String(listing.id);
@@ -6772,12 +6846,12 @@ function renderListings(listings, container = elements.marketList) {
       }
 
       if (isActive) {
-        const pauseBtn = createEl("button", "market-action-btn", "临时下架");
+        const pauseBtn = createEl("button", "market-action-btn", getAppUiText("autoJs.k0298", "临时下架"));
         pauseBtn.type = "button";
         pauseBtn.dataset.action = "pause";
         pauseBtn.dataset.listingId = String(listing.id);
 
-        const unlistBtn = createEl("button", "market-action-btn unlist", "下架退回");
+        const unlistBtn = createEl("button", "market-action-btn unlist", getAppUiText("autoJs.k0299", "下架退回"));
         unlistBtn.type = "button";
         unlistBtn.dataset.action = "unlist";
         unlistBtn.dataset.listingId = String(listing.id);
@@ -6785,12 +6859,12 @@ function renderListings(listings, container = elements.marketList) {
         actions.appendChild(pauseBtn);
         actions.appendChild(unlistBtn);
       } else if (isPaused) {
-        const resumeBtn = createEl("button", "market-action-btn sale", "恢复上架");
+        const resumeBtn = createEl("button", "market-action-btn sale", getAppUiText("autoJs.k0300", "恢复上架"));
         resumeBtn.type = "button";
         resumeBtn.dataset.action = "resume";
         resumeBtn.dataset.listingId = String(listing.id);
 
-        const unlistBtn = createEl("button", "market-action-btn unlist", "下架退回");
+        const unlistBtn = createEl("button", "market-action-btn unlist", getAppUiText("autoJs.k0301", "下架退回"));
         unlistBtn.type = "button";
         unlistBtn.dataset.action = "unlist";
         unlistBtn.dataset.listingId = String(listing.id);
@@ -6798,7 +6872,7 @@ function renderListings(listings, container = elements.marketList) {
         actions.appendChild(resumeBtn);
         actions.appendChild(unlistBtn);
       } else {
-        const disabledBtn = createEl("button", "market-action-btn", "不可操作");
+        const disabledBtn = createEl("button", "market-action-btn", getAppUiText("autoJs.k0302", "不可操作"));
         disabledBtn.type = "button";
         disabledBtn.disabled = true;
         actions.appendChild(disabledBtn);
@@ -6806,7 +6880,7 @@ function renderListings(listings, container = elements.marketList) {
     } else if (isActive) {
       if (isAuction) {
         if (isDutchAuction) {
-          const buyBtn = createEl("button", "market-action-btn sale", "立即买断");
+          const buyBtn = createEl("button", "market-action-btn sale", getAppUiText("autoJs.k0303", "立即买断"));
           buyBtn.type = "button";
           buyBtn.dataset.action = "buy";
           buyBtn.dataset.listingId = String(listing.id);
@@ -6832,7 +6906,7 @@ function renderListings(listings, container = elements.marketList) {
           bidInput.value = String(minBid);
           bidWrap.appendChild(bidInput);
 
-          const bidBtn = createEl("button", "market-action-btn sale", isVickreyAuction ? "提交密封出价" : "出价竞拍");
+          const bidBtn = createEl("button", "market-action-btn sale", isVickreyAuction ? getAppUiText("autoJs.k0304", "提交密封出价") : getAppUiText("autoJs.k0305", "出价竞拍"));
           bidBtn.type = "button";
           bidBtn.dataset.action = "bid";
           bidBtn.dataset.listingId = String(listing.id);
@@ -6852,7 +6926,7 @@ function renderListings(listings, container = elements.marketList) {
           totalClassName: "market-total",
         });
 
-        const buyBtn = createEl("button", "market-action-btn", isBuySide ? "卖给收购单" : "立即购买");
+        const buyBtn = createEl("button", "market-action-btn", isBuySide ? getAppUiText("autoJs.k0306", "卖给收购单") : getAppUiText("autoJs.k0307", "立即购买"));
         buyBtn.type = "button";
         buyBtn.dataset.action = isBuySide ? "sellToBuy" : "buy";
         buyBtn.dataset.listingId = String(listing.id);
@@ -6865,12 +6939,12 @@ function renderListings(listings, container = elements.marketList) {
         actions.appendChild(buyWrap);
       }
     } else {
-      const disabledBtn = createEl("button", "market-action-btn", isAuction ? "拍卖已结束" : "不可购买");
+      const disabledBtn = createEl("button", "market-action-btn", isAuction ? getAppUiText("autoJs.k0308", "拍卖已结束") : getAppUiText("autoJs.k0309", "不可购买"));
       disabledBtn.disabled = true;
       actions.appendChild(disabledBtn);
     }
     if (!isOwner && isSupply && state.token && Number(listing.quantity || 0) <= 0 && normalizedStatus !== "UNLISTED" && normalizedStatus !== "SOLD") {
-      const refreshBtn = createEl("button", "market-action-btn sale", "刷新补货");
+      const refreshBtn = createEl("button", "market-action-btn sale", getAppUiText("autoJs.k0310", "刷新补货"));
       refreshBtn.type = "button";
       refreshBtn.dataset.action = "refreshSupply";
       refreshBtn.dataset.listingId = String(listing.id);
@@ -6923,30 +6997,30 @@ function renderStorefronts(listings) {
     .forEach(([key, store]) => {
       const card = createEl("article", "store-card");
       const head = createEl("div", "store-head");
-      head.appendChild(buildAvatarImage(store.sellerName || store.sellerUuid, `${store.sellerName} 头像`));
+      head.appendChild(buildAvatarImage(store.sellerName || store.sellerUuid, getAppUiText("autoJs.k0311", "{0} 头像").replace("{0}", store.sellerName)));
       const text = createEl("div", "store-head-text");
-      text.appendChild(createEl("h3", "store-title", `${store.sellerName}的小店`));
-      text.appendChild(createEl("p", "store-subtitle", `店主：${store.sellerName}`));
+      text.appendChild(createEl("h3", "store-title", getAppUiText("autoJs.k0312", "{0}的小店").replace("{0}", store.sellerName)));
+      text.appendChild(createEl("p", "store-subtitle", getAppUiText("autoJs.k0313", "店主：{0}").replace("{0}", store.sellerName)));
       head.appendChild(text);
       card.appendChild(head);
 
       const stats = createEl("div", "store-stats");
-      stats.appendChild(createEl("div", "store-stat", `在售商品 ${store.count} 件`));
-      stats.appendChild(createEl("div", "store-stat", `库存总量 x${store.totalQuantity}`));
+      stats.appendChild(createEl("div", "store-stat", getAppUiText("autoJs.k0314", "在售商品 {0} 件").replace("{0}", store.count)));
+      stats.appendChild(createEl("div", "store-stat", getAppUiText("autoJs.k0315", "库存总量 x{0}").replace("{0}", store.totalQuantity)));
       if (Number.isFinite(store.minPrice)) {
-        stats.appendChild(createEl("div", "store-stat", `起售价 ${formatCurrency(store.minPrice, store.minCurrency)}`));
+        stats.appendChild(createEl("div", "store-stat", getAppUiText("autoJs.k0316", "起售价 {0}").replace("{0}", formatCurrency(store.minPrice, store.minCurrency))));
       }
       card.appendChild(stats);
-      card.appendChild(createEl("p", "store-subtitle", `最近上架：${formatAge(store.latestAt)}`));
+      card.appendChild(createEl("p", "store-subtitle", getAppUiText("autoJs.k0317", "最近上架：{0}").replace("{0}", formatAge(store.latestAt))));
 
-      const button = createEl("button", "btn-tonal", "进入店铺");
+      const button = createEl("button", "btn-tonal", getAppUiText("autoJs.k0318", "进入店铺"));
       button.type = "button";
       button.addEventListener("click", () => {
         state.marketStore.sellerKey = key;
         state.marketStore.sellerName = store.sellerName;
         state.marketStore.sellerUuid = store.sellerUuid;
         renderSelectedStore(listings);
-        setMetaText(elements.marketView, `${store.sellerName} 的店铺：${store.count} 条`, "info");
+        setMetaText(elements.marketView, getAppUiText("autoJs.k0319", "{0} 的店铺：{1} 条").replace("{0}", store.sellerName).replace("{1}", store.count), "info");
       });
       card.appendChild(button);
       elements.marketList.appendChild(card);
@@ -6969,17 +7043,17 @@ function renderSelectedStore(listings) {
   top.appendChild(
     buildAvatarImage(
       state.marketStore.sellerName || state.marketStore.sellerUuid,
-      `${state.marketStore.sellerName} 头像`
+      getAppUiText("autoJs.k0320", "{0} 头像").replace("{0}", state.marketStore.sellerName)
     )
   );
   const text = createEl("div", "store-head-text");
-  text.appendChild(createEl("h3", "store-title", `${state.marketStore.sellerName}的小店`));
-  text.appendChild(createEl("p", "store-subtitle", `店主：${state.marketStore.sellerName}`));
+  text.appendChild(createEl("h3", "store-title", getAppUiText("autoJs.k0321", "{0}的小店").replace("{0}", state.marketStore.sellerName)));
+  text.appendChild(createEl("p", "store-subtitle", getAppUiText("autoJs.k0322", "店主：{0}").replace("{0}", state.marketStore.sellerName)));
   top.appendChild(text);
   header.appendChild(top);
-  header.appendChild(createEl("p", "store-subtitle", `当前在售：${sellerListings.length} 件商品`));
+  header.appendChild(createEl("p", "store-subtitle", getAppUiText("autoJs.k0323", "当前在售：{0} 件商品").replace("{0}", sellerListings.length)));
 
-  const backBtn = createEl("button", "btn-tonal", "返回店铺列表");
+  const backBtn = createEl("button", "btn-tonal", getAppUiText("autoJs.k0324", "返回店铺列表"));
   backBtn.type = "button";
   backBtn.addEventListener("click", () => {
     resetStoreDetail();
@@ -7000,9 +7074,9 @@ async function loadProducts(options = {}) {
     state.products = payload.products || [];
     renderProducts(state.products);
     state.hasLoadedProducts = true;
-    log(`官方商品已加载：${state.products.length} 个。`);
+    log(getAppUiText("autoJs.k0325", "官方商品已加载：{0} 个。").replace("{0}", state.products.length));
     if (announce) {
-      notify(`官方商品已刷新，共 ${state.products.length} 个。`, "info");
+      notify(getAppUiText("autoJs.k0326", "官方商品已刷新，共 {0} 个。").replace("{0}", state.products.length), "info");
     }
   } catch (error) {
     const message = resolveErrorMessage(error, "products_load");
@@ -7085,11 +7159,11 @@ async function loadMarket(mode, options = {}) {
     if (normalizedMode === "stores") {
       if (state.marketStore.sellerKey) {
         renderSelectedStore(state.listings);
-        setMetaText(elements.marketView, `${state.marketStore.sellerName} 的店铺：${state.listings.filter((listing) => createStoreKey(listing) === state.marketStore.sellerKey).length} 条`, "info");
+        setMetaText(elements.marketView, getAppUiText("autoJs.k0327", "{0} 的店铺：{1} 条").replace("{0}", state.marketStore.sellerName).replace("{1}", state.listings.filter((listing) => createStoreKey(listing) === state.marketStore.sellerKey).length), "info");
       } else {
         renderStorefronts(state.listings);
         const storeCount = new Set(state.listings.filter((listing) => listing.status === "ACTIVE").map(createStoreKey)).size;
-        setMetaText(elements.marketView, `${getMarketModeLabel("stores")}：${storeCount} 家`, "info");
+        setMetaText(elements.marketView, getAppUiText("autoJs.k0328", "{0}：{1} 家").replace("{0}", getMarketModeLabel("stores")).replace("{1}", storeCount), "info");
       }
     } else {
       renderListings(state.listings);
@@ -7097,17 +7171,17 @@ async function loadMarket(mode, options = {}) {
       const visibleCount = normalizedMode === "public"
         ? state.listings.filter((listing) => !shouldHideListingInPublic(listing)).length
         : state.listings.length;
-      setMetaText(elements.marketView, `${label}：${visibleCount} 条`, "info");
+      setMetaText(elements.marketView, getAppUiText("autoJs.k0329", "{0}：{1} 条").replace("{0}", label).replace("{1}", visibleCount), "info");
     }
 
     const label = getMarketModeLabel(normalizedMode);
     const displayCount = normalizedMode === "stores"
       ? new Set(state.listings.filter((listing) => listing.status === "ACTIVE").map(createStoreKey)).size
       : state.listings.length;
-    const displayUnit = normalizedMode === "stores" ? "家" : "条";
-    log(`${label}已加载：${displayCount} ${displayUnit}。`);
+    const displayUnit = normalizedMode === "stores" ? getAppUiText("autoJs.k0330", "家") : getAppUiText("autoJs.k0331", "条");
+    log(getAppUiText("autoJs.k0332", "{0}已加载：{1} {2}。").replace("{0}", label).replace("{1}", displayCount).replace("{2}", displayUnit));
     if (announce) {
-      notify(`${label}已刷新：${displayCount} ${displayUnit}。`, "info");
+      notify(getAppUiText("autoJs.k0333", "{0}已刷新：{1} {2}。").replace("{0}", label).replace("{1}", displayCount).replace("{2}", displayUnit), "info");
     }
   } catch (error) {
     const message = resolveErrorMessage(error, "market_load");
@@ -7152,9 +7226,9 @@ function renderOrders(orders) {
   elements.orderList.innerHTML = "";
 
   if (!orders || orders.length === 0) {
-    const empty = createEl("div", "empty-state", "暂无订单记录。");
+    const empty = createEl("div", "empty-state", getAppUiText("autoJs.k0334", "暂无订单记录。"));
     elements.orderList.appendChild(empty);
-    setMetaText(elements.orderView, "暂无订单", "info");
+    setMetaText(elements.orderView, getAppUiText("autoJs.k0335", "暂无订单"), "info");
     return;
   }
 
@@ -7164,15 +7238,15 @@ function renderOrders(orders) {
     const header = createEl("div", "order-header");
 
     const isMarket = String(order.productType || "").toUpperCase() === "MARKET";
-    const sourceLabel = isMarket ? "玩家市场" : "官方商城";
-    const codeLabel = isMarket ? "交易号" : "订单号";
-    const skuLabel = isMarket ? "上架ID" : "SKU";
+    const sourceLabel = isMarket ? getAppUiText("autoJs.k0336", "玩家市场") : getAppUiText("autoJs.k0337", "官方商城");
+    const codeLabel = isMarket ? getAppUiText("autoJs.k0338", "交易号") : getAppUiText("autoJs.k0339", "订单号");
+    const skuLabel = isMarket ? getAppUiText("autoJs.k0340", "上架ID") : "SKU";
     let title = order.productTitle || "";
     if (isMarket && order.itemMaterial) {
       title = getLocalizedMaterialName(order.itemMaterial);
     }
     if (!title) {
-      title = "未知商品";
+      title = getAppUiText("autoJs.k0341", "未知商品");
     }
 
     const titleWrap = createEl("div");
@@ -7181,7 +7255,7 @@ function renderOrders(orders) {
       createEl(
         "p",
         "order-sub",
-        `${codeLabel} ${order.orderNo} | ${skuLabel} ${order.sku || "--"} | 来源 ${sourceLabel}`
+        getAppUiText("autoJs.k0342", "{0} {1} | {2} {3} | 来源 {4}").replace("{0}", codeLabel).replace("{1}", order.orderNo).replace("{2}", skuLabel).replace("{3}", order.sku || "--").replace("{4}", sourceLabel)
       )
     );
     header.appendChild(titleWrap);
@@ -7193,30 +7267,30 @@ function renderOrders(orders) {
     card.appendChild(createEl("div", "order-price", formatCurrency(order.totalAmount, order.currency)));
 
     const meta = createEl("div", "order-meta");
-    meta.appendChild(createEl("div", "", `数量：x${order.quantity}`));
+    meta.appendChild(createEl("div", "", getAppUiText("autoJs.k0343", "数量：x{0}").replace("{0}", order.quantity)));
     if (order.productRemark) {
-      meta.appendChild(createEl("div", "", `备注：${order.productRemark}`));
+      meta.appendChild(createEl("div", "", getAppUiText("autoJs.k0344", "备注：{0}").replace("{0}", order.productRemark)));
     }
-    const createdLabel = isMarket ? "交易时间" : "下单时间";
+    const createdLabel = isMarket ? getAppUiText("autoJs.k0345", "交易时间") : getAppUiText("autoJs.k0346", "下单时间");
     meta.appendChild(createEl("div", "", `${createdLabel}：${formatDateTime(order.createdAt)}`));
     if (order.deliveredAt) {
-      meta.appendChild(createEl("div", "", `发放时间：${formatDateTime(order.deliveredAt)}`));
+      meta.appendChild(createEl("div", "", getAppUiText("autoJs.k0347", "发放时间：{0}").replace("{0}", formatDateTime(order.deliveredAt))));
     }
     if (order.refundedAt) {
-      meta.appendChild(createEl("div", "", `退款时间：${formatDateTime(order.refundedAt)}`));
+      meta.appendChild(createEl("div", "", getAppUiText("autoJs.k0348", "退款时间：{0}").replace("{0}", formatDateTime(order.refundedAt))));
     }
     if (order.refundDeadline) {
       const remain = formatCountdown(order.refundDeadline);
       if (remain) {
-        // meta.appendChild(createEl("div", "", `冷静期剩余：${remain}`));
+        // meta.appendChild(createEl("div", "", getAppUiText("autoJs.k0349", "冷静期剩余：{0}").replace("{0}", remain)));
       }
     }
     if (order.groupBuyVoucherCode) {
       const voucherStatus = order.groupBuyVoucherStatus || "ISSUED";
-      meta.appendChild(createEl("div", "", `团购兑换码：${order.groupBuyVoucherCode}`));
-      meta.appendChild(createEl("div", "", `团购兑换状态：${voucherStatus}`));
+      meta.appendChild(createEl("div", "", getAppUiText("autoJs.k0350", "团购兑换码：{0}").replace("{0}", order.groupBuyVoucherCode)));
+      meta.appendChild(createEl("div", "", getAppUiText("autoJs.k0351", "团购兑换状态：{0}").replace("{0}", voucherStatus)));
       if (order.groupBuyVoucherConsumedAt) {
-        meta.appendChild(createEl("div", "", `核销时间：${formatDateTime(order.groupBuyVoucherConsumedAt)}`));
+        meta.appendChild(createEl("div", "", getAppUiText("autoJs.k0352", "核销时间：{0}").replace("{0}", formatDateTime(order.groupBuyVoucherConsumedAt))));
       }
     }
     card.appendChild(meta);
@@ -7225,9 +7299,9 @@ function renderOrders(orders) {
     if (isWaitClaim && order.claimToken) {
       const claimBox = createEl("div", "claim-command");
       const command = `/ws claim ${order.claimToken}`;
-      const label = createEl("div", "claim-command__label", "领取命令");
+      const label = createEl("div", "claim-command__label", getAppUiText("autoJs.k0353", "领取命令"));
       const commandNode = createEl("code", "claim-command__code", command);
-      const copyBtn = createEl("button", "btn-tonal", "复制命令");
+      const copyBtn = createEl("button", "btn-tonal", getAppUiText("autoJs.k0354", "复制命令"));
       copyBtn.type = "button";
       copyBtn.dataset.action = "copyClaim";
       copyBtn.dataset.command = command;
@@ -7235,8 +7309,8 @@ function renderOrders(orders) {
       claimBox.appendChild(label);
       claimBox.appendChild(copyBtn);
       const hintText = state.orderPolicy.sharedClaimAllowed
-        ? "已允许非本人在游戏内输入该命令代领，请谨慎分享。"
-        : "命令仅限订单本人输入生效，分享给他人也无法领取。";
+        ? getAppUiText("autoJs.k0355", "已允许非本人在游戏内输入该命令代领，请谨慎分享。")
+        : getAppUiText("autoJs.k0356", "命令仅限订单本人输入生效，分享给他人也无法领取。");
       claimBox.appendChild(createEl("p", "claim-command__hint", hintText));
       card.appendChild(claimBox);
     }
@@ -7246,7 +7320,7 @@ function renderOrders(orders) {
     let actions = null;
     if (order.groupBuyVoucherCode) {
       actions = createEl("div", "order-actions");
-      const copyVoucherBtn = createEl("button", "btn-tonal", "复制团购码");
+      const copyVoucherBtn = createEl("button", "btn-tonal", getAppUiText("autoJs.k0357", "复制团购码"));
       copyVoucherBtn.type = "button";
       copyVoucherBtn.dataset.action = "copyVoucher";
       copyVoucherBtn.dataset.code = order.groupBuyVoucherCode;
@@ -7256,7 +7330,7 @@ function renderOrders(orders) {
       if (!actions) {
         actions = createEl("div", "order-actions");
       }
-      const refundBtn = createEl("button", "btn-tonal", "申请退款");
+      const refundBtn = createEl("button", "btn-tonal", getAppUiText("autoJs.k0358", "申请退款"));
       refundBtn.type = "button";
       refundBtn.dataset.action = "refund";
       refundBtn.dataset.orderNo = order.orderNo;
@@ -7271,7 +7345,7 @@ function renderOrders(orders) {
     elements.orderList.appendChild(card);
   }
 
-  setMetaText(elements.orderView, `订单记录：${orders.length} 条`, "info");
+  setMetaText(elements.orderView, getAppUiText("autoJs.k0359", "订单记录：{0} 条").replace("{0}", orders.length), "info");
 }
 
 function notificationTypeLabel(type) {
@@ -7292,7 +7366,7 @@ function renderNotifications(notifications) {
   }
   elements.notificationsList.innerHTML = "";
   if (!notifications || notifications.length === 0) {
-    const empty = createEl("div", "notification-card", "当前没有通知。");
+    const empty = createEl("div", "notification-card", getAppUiText("autoJs.k0360", "当前没有通知。"));
     elements.notificationsList.appendChild(empty);
     return;
   }
@@ -7303,7 +7377,7 @@ function renderNotifications(notifications) {
 
     const head = createEl("div", "notification-head");
     const headMain = createEl("div", "notification-head-main");
-    headMain.appendChild(createEl("h3", "notification-title", row.title || "系统通知"));
+    headMain.appendChild(createEl("h3", "notification-title", row.title || getAppUiText("autoJs.k0361", "系统通知")));
     headMain.appendChild(createEl("span", "notification-type", notificationTypeLabel(row.type)));
     head.appendChild(headMain);
     head.appendChild(createEl("p", "notification-time", formatDateTime(row.createdAt)));
@@ -7313,10 +7387,10 @@ function renderNotifications(notifications) {
 
     const actions = createEl("div", "notification-actions");
     actions.appendChild(
-      createEl("span", `notification-state ${isRead ? "read" : "unread"}`, isRead ? "已读" : "未读")
+      createEl("span", `notification-state ${isRead ? "read" : "unread"}`, isRead ? getAppUiText("autoJs.k0362", "已读") : getAppUiText("autoJs.k0363", "未读"))
     );
     if (!isRead) {
-      const markBtn = createEl("button", "btn-tonal", "标记已读");
+      const markBtn = createEl("button", "btn-tonal", getAppUiText("autoJs.k0364", "标记已读"));
       markBtn.type = "button";
       markBtn.dataset.action = "markRead";
       markBtn.dataset.notificationId = String(row.id || "");
@@ -7362,9 +7436,9 @@ async function loadNotifications(options = {}) {
     }
     updateNotificationBadge();
     renderNotifications(state.notifications);
-    setMetaText(elements.notificationsView, `通知中心：${state.notifications.length} 条`, "info");
+    setMetaText(elements.notificationsView, getAppUiText("autoJs.k0365", "通知中心：{0} 条").replace("{0}", state.notifications.length), "info");
     if (announce && !silent) {
-      notify(`通知已刷新：${state.notifications.length} 条。`, "info");
+      notify(getAppUiText("autoJs.k0366", "通知已刷新：{0} 条。").replace("{0}", state.notifications.length), "info");
     }
   } catch (error) {
     const message = resolveErrorMessage(error, "notifications_load");
@@ -7382,7 +7456,7 @@ async function markNotificationRead(notificationId) {
   ensureToken();
   const targetId = Number(notificationId || 0);
   if (!Number.isFinite(targetId) || targetId <= 0) {
-    throw new Error("通知 ID 无效。");
+    throw new Error(getAppUiText("autoJs.k0367", "通知 ID 无效。"));
   }
   const payload = await api("/api/notifications/mark-read", {
     method: "POST",
@@ -7402,7 +7476,7 @@ async function markNotificationRead(notificationId) {
   }
   updateNotificationBadge();
   renderNotifications(state.notifications);
-  setMetaText(elements.notificationsView, `通知中心：${state.notifications.length} 条`, "info");
+  setMetaText(elements.notificationsView, getAppUiText("autoJs.k0368", "通知中心：{0} 条").replace("{0}", state.notifications.length), "info");
 }
 
 async function markAllNotificationsRead() {
@@ -7425,7 +7499,7 @@ async function markAllNotificationsRead() {
   }
   updateNotificationBadge();
   renderNotifications(state.notifications);
-  setMetaText(elements.notificationsView, `通知中心：${state.notifications.length} 条`, "info");
+  setMetaText(elements.notificationsView, getAppUiText("autoJs.k0369", "通知中心：{0} 条").replace("{0}", state.notifications.length), "info");
 }
 
 async function loadOrders(options = {}) {
@@ -7447,9 +7521,9 @@ async function loadOrders(options = {}) {
         state.orderPolicy.sharedClaimAllowed = !!payload.sharedClaimAllowed;
       }
     }
-    log(`订单记录已加载：${state.orders.length} 条。`);
+    log(getAppUiText("autoJs.k0370", "订单记录已加载：{0} 条。").replace("{0}", state.orders.length));
     if (announce) {
-      notify(`订单记录已刷新：${state.orders.length} 条。`, "info");
+      notify(getAppUiText("autoJs.k0371", "订单记录已刷新：{0} 条。").replace("{0}", state.orders.length), "info");
     }
   } catch (error) {
     const message = resolveErrorMessage(error, "orders_load");
@@ -7463,7 +7537,7 @@ async function loadOrders(options = {}) {
 
 async function confirmPurchase(product, quantity) {
   const productVisual = resolveProductDisplayVisual(product);
-  const displayTitle = productVisual.title || product.title || product.sku || "未知商品";
+  const displayTitle = productVisual.title || product.title || product.sku || getAppUiText("autoJs.k0372", "未知商品");
   const qty = Number(quantity || 1);
   const productType = String(product.productType || "").toUpperCase();
   const isRecycle = productType === "RECYCLE_ITEM";
@@ -7473,42 +7547,42 @@ async function confirmPurchase(product, quantity) {
   const allowClaim = !isRecycle && productType !== "GROUP_BUY_VOUCHER";
   const currentBalance = getWalletBalanceForCurrency(product.currency);
   const details = [
-    `商品：${displayTitle}`,
+    getAppUiText("autoJs.k0373", "商品：{0}").replace("{0}", displayTitle),
     `SKU：${product.sku}`,
-    `数量：x${qty}`,
-    `${isRecycle ? "回收单价" : "单价"}：${formatCurrency(unitPrice, product.currency)}`,
+    getAppUiText("autoJs.k0374", "数量：x{0}").replace("{0}", qty),
+    getAppUiText("autoJs.k0375", "{0}：{1}").replace("{0}", isRecycle ? "回收单价" : "单价").replace("{1}", formatCurrency(unitPrice, product.currency)),
   ];
   const perUserLimit = Number(product?.perUserLimit);
   const personalRemaining = Number(product?.personalLimitRemaining);
   if (Number.isFinite(perUserLimit) && perUserLimit > 0) {
-    details.push(`单人限购：x${Math.floor(perUserLimit)}`);
+    details.push(getAppUiText("autoJs.k0376", "单人限购：x{0}").replace("{0}", Math.floor(perUserLimit)));
     if (Number.isFinite(personalRemaining)) {
-      details.push(`当前可购买剩余：x${Math.max(0, Math.floor(personalRemaining))}`);
+      details.push(getAppUiText("autoJs.k0377", "当前可购买剩余：x{0}").replace("{0}", Math.max(0, Math.floor(personalRemaining))));
     }
   }
   if (product.remark) {
-    details.push(`备注：${product.remark}`);
+    details.push(getAppUiText("autoJs.k0378", "备注：{0}").replace("{0}", product.remark));
   }
   if (productType === "GROUP_BUY_VOUCHER") {
-    details.push("该商品会生成团购兑换码，需由管理员在后台核销。");
+    details.push(getAppUiText("autoJs.k0379", "该商品会生成团购兑换码，需由管理员在后台核销。"));
   }
   if (isRecycle) {
-    details.push("回收说明：系统将从背包扣除对应物品并入账。");
-    details.push("退款说明：回收订单即时结算，不支持退款。");
+    details.push(getAppUiText("autoJs.k0380", "回收说明：系统将从背包扣除对应物品并入账。"));
+    details.push(getAppUiText("autoJs.k0381", "退款说明：回收订单即时结算，不支持退款。"));
   } else if (state.orderPolicy.refundUndeliveredEnabled) {
-    details.push("退款说明：未发放前可退款。");
+    details.push(getAppUiText("autoJs.k0382", "退款说明：未发放前可退款。"));
   } else if (cooldown > 0) {
-    details.push(`冷静期：${cooldown} 秒（仅冷静期内可退款）`);
+    details.push(getAppUiText("autoJs.k0383", "冷静期：{0} 秒（仅冷静期内可退款）").replace("{0}", cooldown));
   } else {
-    details.push("退款说明：当前不支持未发放退款。");
+    details.push(getAppUiText("autoJs.k0384", "退款说明：当前不支持未发放退款。"));
   }
   return openDeliveryConfirmDialog({
-    title: isRecycle ? "确认回收" : "确认下单",
+    title: isRecycle ? getAppUiText("autoJs.k0385", "确认回收") : getAppUiText("autoJs.k0386", "确认下单"),
     message: isRecycle
-      ? "请确认以下回收信息，确认后将立即入账。"
-      : "请确认以下订单信息，确认后将立即扣除余额。",
+      ? getAppUiText("autoJs.k0387", "请确认以下回收信息，确认后将立即入账。")
+      : getAppUiText("autoJs.k0388", "请确认以下订单信息，确认后将立即扣除余额。"),
     details,
-    confirmText: isRecycle ? "确认回收" : "确认下单",
+    confirmText: isRecycle ? getAppUiText("autoJs.k0389", "确认回收") : getAppUiText("autoJs.k0390", "确认下单"),
     initialValue: defaultDeliveryModeForProduct(product),
     allowClaim,
     summary: {
@@ -7516,14 +7590,14 @@ async function confirmPurchase(product, quantity) {
       subtotal: subtotalAmount,
       taxAmount: 0,
       feeAmount: 0,
-      taxLabel: "税额（买家承担）",
-      feeLabel: "手续费（卖家承担）",
-      finalLabel: isRecycle ? "预计入账" : "最终扣款",
+      taxLabel: getAppUiText("autoJs.k0391", "税额（买家承担）"),
+      feeLabel: getAppUiText("autoJs.k0392", "手续费（卖家承担）"),
+      finalLabel: isRecycle ? getAppUiText("autoJs.k0393", "预计入账") : getAppUiText("autoJs.k0394", "最终扣款"),
       finalAmount: subtotalAmount,
       currentBalance,
       remainingBalance: isRecycle ? currentBalance + subtotalAmount : currentBalance - subtotalAmount,
       isCredit: isRecycle,
-      noteText: isRecycle ? "确认后将按照以上金额入账。" : undefined,
+      noteText: isRecycle ? getAppUiText("autoJs.k0395", "确认后将按照以上金额入账。") : undefined,
     },
   });
 }
@@ -7542,26 +7616,26 @@ async function confirmMarketBuy(listing, buyQuantity) {
   const finalAmount = subtotalAmount + taxAmount;
   const currentBalance = getWalletBalanceForCurrency(listing.currency);
   const details = [
-    `物品：${localizedName}`,
-    `数量：x${qty}`,
-    `单价：${formatCurrency(listing.price, listing.currency)}`,
-    `卖家：${listing.sellerName}`,
+    getAppUiText("autoJs.k0396", "物品：{0}").replace("{0}", localizedName),
+    getAppUiText("autoJs.k0397", "数量：x{0}").replace("{0}", qty),
+    getAppUiText("autoJs.k0398", "单价：{0}").replace("{0}", formatCurrency(listing.price, listing.currency)),
+    getAppUiText("autoJs.k0399", "卖家：{0}").replace("{0}", listing.sellerName),
   ];
   if (listing.remark) {
-    details.push(`备注：${listing.remark}`);
+    details.push(getAppUiText("autoJs.k0400", "备注：{0}").replace("{0}", listing.remark));
   }
   if (state.orderPolicy.refundUndeliveredEnabled) {
-    details.push("退款说明：未发放前可退款。");
+    details.push(getAppUiText("autoJs.k0401", "退款说明：未发放前可退款。"));
   } else if (cooldown > 0) {
-    details.push(`冷静期：${cooldown} 秒（仅冷静期内可退款）`);
+    details.push(getAppUiText("autoJs.k0402", "冷静期：{0} 秒（仅冷静期内可退款）").replace("{0}", cooldown));
   } else {
-    details.push("退款说明：当前不支持未发放退款。");
+    details.push(getAppUiText("autoJs.k0403", "退款说明：当前不支持未发放退款。"));
   }
   return openDeliveryConfirmDialog({
-    title: "确认购买",
-    message: "请确认以下交易信息，确认后将立即扣除余额。",
+    title: getAppUiText("autoJs.k0404", "确认购买"),
+    message: getAppUiText("autoJs.k0405", "请确认以下交易信息，确认后将立即扣除余额。"),
     details,
-    confirmText: "确认购买",
+    confirmText: getAppUiText("autoJs.k0406", "确认购买"),
     initialValue: "IMMEDIATE",
     allowClaim: true,
     summary: {
@@ -7569,8 +7643,8 @@ async function confirmMarketBuy(listing, buyQuantity) {
       subtotal: subtotalAmount,
       taxAmount,
       feeAmount,
-      taxLabel: `税额（买家承担，${state.orderPolicy.marketTaxPercent}%）`,
-      feeLabel: `手续费（卖家承担，${state.orderPolicy.marketFeePercent}%）`,
+      taxLabel: getAppUiText("autoJs.k0407", "税额（买家承担，{0}%）").replace("{0}", state.orderPolicy.marketTaxPercent),
+      feeLabel: getAppUiText("autoJs.k0408", "手续费（卖家承担，{0}%）").replace("{0}", state.orderPolicy.marketFeePercent),
       finalAmount,
       currentBalance,
       remainingBalance: currentBalance - finalAmount,
@@ -7590,20 +7664,20 @@ async function confirmSellToBuy(listing, sellQuantity) {
   const feeAmount = calculatePercentAmount(subtotalAmount, state.orderPolicy.marketFeePercent);
   const sellerReceive = Math.max(0, subtotalAmount - feeAmount);
   const details = [
-    `物品：${localizedName}`,
-    `数量：x${qty}`,
-    `收购单价：${formatCurrency(listing.price, listing.currency)}`,
-    `发布者：${listing.sellerName}`,
-    "你交货后会直接获得货款，物品会进入对方收货队列。",
+    getAppUiText("autoJs.k0409", "物品：{0}").replace("{0}", localizedName),
+    getAppUiText("autoJs.k0410", "数量：x{0}").replace("{0}", qty),
+    getAppUiText("autoJs.k0411", "收购单价：{0}").replace("{0}", formatCurrency(listing.price, listing.currency)),
+    getAppUiText("autoJs.k0412", "发布者：{0}").replace("{0}", listing.sellerName),
+    getAppUiText("autoJs.k0413", "你交货后会直接获得货款，物品会进入对方收货队列。"),
   ];
   if (listing.remark) {
-    details.push(`备注：${listing.remark}`);
+    details.push(getAppUiText("autoJs.k0414", "备注：{0}").replace("{0}", listing.remark));
   }
   return openDeliveryConfirmDialog({
-    title: "确认卖给收购单",
-    message: "请确认交货信息，确认后将立即从你背包扣除对应物品。",
+    title: getAppUiText("autoJs.k0415", "确认卖给收购单"),
+    message: getAppUiText("autoJs.k0416", "请确认交货信息，确认后将立即从你背包扣除对应物品。"),
     details,
-    confirmText: "确认交货",
+    confirmText: getAppUiText("autoJs.k0417", "确认交货"),
     initialValue: "IMMEDIATE",
     allowClaim: true,
     summary: {
@@ -7611,12 +7685,12 @@ async function confirmSellToBuy(listing, sellQuantity) {
       subtotal: subtotalAmount,
       taxAmount,
       feeAmount,
-      taxLabel: `税额（买家承担，${state.orderPolicy.marketTaxPercent}%）`,
-      feeLabel: `手续费（卖家承担，${state.orderPolicy.marketFeePercent}%）`,
-      finalLabel: "预计入账",
+      taxLabel: getAppUiText("autoJs.k0418", "税额（买家承担，{0}%）").replace("{0}", state.orderPolicy.marketTaxPercent),
+      feeLabel: getAppUiText("autoJs.k0419", "手续费（卖家承担，{0}%）").replace("{0}", state.orderPolicy.marketFeePercent),
+      finalLabel: getAppUiText("autoJs.k0420", "预计入账"),
       finalAmount: sellerReceive,
       isCredit: true,
-      noteText: "本次成交会扣减收购单冻结金额，剩余冻结金额会在收购单结束后退回发布者。",
+      noteText: getAppUiText("autoJs.k0421", "本次成交会扣减收购单冻结金额，剩余冻结金额会在收购单结束后退回发布者。"),
     },
   });
 }
@@ -7638,28 +7712,28 @@ async function confirmMarketBid(listing, bidAmount) {
     : (hasHighestBid ? visibleBid + minIncrement : Math.max(1, currentBid));
   const currentBalance = getWalletBalanceForCurrency(listing.currency);
   const details = [
-    `物品：${localizedName}`,
-    `卖家：${listing.sellerName}`,
-    `算法：${getAlgorithmLabel("auction", auctionAlgorithm)}`,
-    `起拍价：${formatCurrency(currentBid, listing.currency)}`,
+    getAppUiText("autoJs.k0422", "物品：{0}").replace("{0}", localizedName),
+    getAppUiText("autoJs.k0423", "卖家：{0}").replace("{0}", listing.sellerName),
+    getAppUiText("autoJs.k0424", "算法：{0}").replace("{0}", getAlgorithmLabel("auction", auctionAlgorithm)),
+    getAppUiText("autoJs.k0425", "起拍价：{0}").replace("{0}", formatCurrency(currentBid, listing.currency)),
   ];
   if (!isSealedBid) {
-    details.push(`当前${hasHighestBid ? "最高出价" : "可出价"}：${formatCurrency(visibleBid, listing.currency)}`);
-    details.push(`最小加价幅度：${formatCurrency(minIncrement, listing.currency)}`);
+    details.push(getAppUiText("autoJs.k0426", "当前{0}：{1}").replace("{0}", hasHighestBid ? "最高出价" : "可出价").replace("{1}", formatCurrency(visibleBid, listing.currency)));
+    details.push(getAppUiText("autoJs.k0427", "最小加价幅度：{0}").replace("{0}", formatCurrency(minIncrement, listing.currency)));
   }
-  details.push(`本次出价：${formatCurrency(bidAmount, listing.currency)}`);
-  details.push(`最低有效出价：${formatCurrency(requiredBid, listing.currency)}`);
-  details.push(`当前余额：${formatCurrency(currentBalance, listing.currency)}`);
-  details.push(`预计出价后余额：${formatCurrency(currentBalance - bidAmount, listing.currency)}`);
-  details.push(`拍卖截止：${listing.auctionEndAt ? formatDateTime(listing.auctionEndAt) : "未设置"}`);
+  details.push(getAppUiText("autoJs.k0428", "本次出价：{0}").replace("{0}", formatCurrency(bidAmount, listing.currency)));
+  details.push(getAppUiText("autoJs.k0429", "最低有效出价：{0}").replace("{0}", formatCurrency(requiredBid, listing.currency)));
+  details.push(getAppUiText("autoJs.k0430", "当前余额：{0}").replace("{0}", formatCurrency(currentBalance, listing.currency)));
+  details.push(getAppUiText("autoJs.k0431", "预计出价后余额：{0}").replace("{0}", formatCurrency(currentBalance - bidAmount, listing.currency)));
+  details.push(getAppUiText("autoJs.k0432", "拍卖截止：{0}").replace("{0}", listing.auctionEndAt ? formatDateTime(listing.auctionEndAt) : "未设置"));
 
   return openConfirmDialog({
-    title: "确认竞拍出价",
+    title: getAppUiText("autoJs.k0433", "确认竞拍出价"),
     message: isSealedBid
-      ? "此算法为密封出价，其他玩家与前端不会显示你的出价金额。"
-      : "出价后将先冻结该金额，若被超价系统会自动退回。",
+      ? getAppUiText("autoJs.k0434", "此算法为密封出价，其他玩家与前端不会显示你的出价金额。")
+      : getAppUiText("autoJs.k0435", "出价后将先冻结该金额，若被超价系统会自动退回。"),
     details,
-    confirmText: isSealedBid ? "提交密封出价" : "确认出价",
+    confirmText: isSealedBid ? getAppUiText("autoJs.k0436", "提交密封出价") : getAppUiText("autoJs.k0437", "确认出价"),
   });
 }
 
@@ -7670,7 +7744,7 @@ async function refundOrder(orderNo) {
     body: JSON.stringify({ orderNo }),
   });
   updateWalletView(payload);
-  notify(`退款成功：${payload.orderNo}`, "success");
+  notify(getAppUiText("autoJs.k0438", "退款成功：{0}").replace("{0}", payload.orderNo), "success");
   await loadOrders();
   await loadProducts();
 }
@@ -7681,13 +7755,13 @@ async function createOrder(productId, quantity, deliveryMode, productTitle, prod
   const pid = Number(productId);
   const qty = Number(quantity || 1);
   const isRecycle = String(productType || "").toUpperCase() === "RECYCLE_ITEM";
-  const actionVerb = isRecycle ? "回收" : "下单";
-  const actionSuccess = isRecycle ? "回收成功" : "下单成功";
+  const actionVerb = isRecycle ? getAppUiText("autoJs.k0439", "回收") : getAppUiText("autoJs.k0440", "下单");
+  const actionSuccess = isRecycle ? getAppUiText("autoJs.k0441", "回收成功") : getAppUiText("autoJs.k0442", "下单成功");
   if (!Number.isFinite(pid) || pid <= 0) {
-    throw new Error("商品 ID 无效。");
+    throw new Error(getAppUiText("autoJs.k0443", "商品 ID 无效。"));
   }
   if (!Number.isFinite(qty) || qty <= 0) {
-    throw new Error("购买数量无效。");
+    throw new Error(getAppUiText("autoJs.k0444", "购买数量无效。"));
   }
 
   const payload = await api("/api/orders", {
@@ -7703,20 +7777,20 @@ async function createOrder(productId, quantity, deliveryMode, productTitle, prod
   const isExisting = String(payload.state || "").toUpperCase() === "EXISTING";
   const orderStatus = payload.orderStatus || payload.state;
   const groupBuyVoucherCode = payload.groupBuyVoucherCode || null;
-  const itemText = productTitle ? `${productTitle} x${qty}` : `数量 x${qty}`;
-  const summary = `订单 ${payload.orderNo} | ${itemText} | 总额 ${formatCurrency(payload.totalAmount, payload.currency)} | ${orderStatus}`;
+  const itemText = productTitle ? `${productTitle} x${qty}` : getAppUiText("autoJs.k0445", "数量 x{0}").replace("{0}", qty);
+  const summary = getAppUiText("autoJs.k0446", "订单 {0} | {1} | 总额 {2} | {3}").replace("{0}", payload.orderNo).replace("{1}", itemText).replace("{2}", formatCurrency(payload.totalAmount, payload.currency)).replace("{3}", orderStatus);
   setMetaText(elements.orderView, summary, isExisting ? "warn" : "success");
   if (isExisting) {
-    log(`${actionVerb}请求去重，返回历史订单：${summary}`, "WARN");
-    notify(`订单已存在：${payload.orderNo}，${itemText}，总额 ${formatCurrency(payload.totalAmount, payload.currency)}。`, "warn");
+    log(getAppUiText("autoJs.k0447", "{0}请求去重，返回历史订单：{1}").replace("{0}", actionVerb).replace("{1}", summary), "WARN");
+    notify(getAppUiText("autoJs.k0448", "订单已存在：{0}，{1}，总额 {2}。").replace("{0}", payload.orderNo).replace("{1}", itemText).replace("{2}", formatCurrency(payload.totalAmount, payload.currency)), "warn");
   } else {
     log(`${actionSuccess}：${summary}`, "SUCCESS");
-    const claimTip = orderStatus === "WAIT_CLAIM" ? "，请在游戏内使用 /ws claim 领取。" : "";
+    const claimTip = orderStatus === "WAIT_CLAIM" ? getAppUiText("autoJs.k0449", "，请在游戏内使用 /ws claim 领取。") : "";
     notify(`${actionSuccess}：${summary}${claimTip}`, "success");
   }
   if (groupBuyVoucherCode) {
-    notify(`已生成团购兑换码：${groupBuyVoucherCode}`, "success", 5200);
-    log(`团购兑换码已生成：${groupBuyVoucherCode}`, "SUCCESS");
+    notify(getAppUiText("autoJs.k0450", "已生成团购兑换码：{0}").replace("{0}", groupBuyVoucherCode), "success", 5200);
+    log(getAppUiText("autoJs.k0451", "团购兑换码已生成：{0}").replace("{0}", groupBuyVoucherCode), "SUCCESS");
   }
 
   try {
@@ -7746,16 +7820,16 @@ async function openCreateBuyListingDialog() {
   await ensureMarketTagsMeta();
   const preferredCurrency = String(elements.marketCurrency?.value || "GAME_COIN").trim().toUpperCase();
   return openMarketParamDialog({
-    title: "发布收购单",
-    hint: "在网页直接发布收购单。出售单仍需在游戏内创建。",
-    confirmText: "发布收购单",
+    title: getAppUiText("autoJs.k0452", "发布收购单"),
+    hint: getAppUiText("autoJs.k0453", "在网页直接发布收购单。出售单仍需在游戏内创建。"),
+    confirmText: getAppUiText("autoJs.k0454", "发布收购单"),
     setupForm: (container) => {
       container.innerHTML = "";
 
       const materialField = createEl("label", "field");
       const materialInput = document.createElement("input");
       materialInput.id = "marketCreateBuyMaterialInput";
-      materialInput.placeholder = "请从预选材质中选择";
+      materialInput.placeholder = getAppUiText("autoJs.k0455", "请从预选材质中选择");
       materialInput.setAttribute("list", "materialSuggestList");
       materialInput.autocomplete = "off";
       materialInput.addEventListener("blur", () => {
@@ -7768,10 +7842,10 @@ async function openCreateBuyListingDialog() {
           materialInput.value = resolved;
           return;
         }
-        notify("该材质不在可选列表内，请从预选建议中选择。", "warn");
+        notify(getAppUiText("autoJs.k0456", "该材质不在可选列表内，请从预选建议中选择。"), "warn");
       });
       materialField.appendChild(materialInput);
-      materialField.appendChild(createEl("span", "field-label", "收购物品"));
+      materialField.appendChild(createEl("span", "field-label", getAppUiText("autoJs.k0457", "收购物品")));
       container.appendChild(materialField);
 
       const row = createEl("div", "field-grid three-col field-grid-smart");
@@ -7784,7 +7858,7 @@ async function openCreateBuyListingDialog() {
       priceInput.step = "1";
       priceInput.value = "1";
       priceField.appendChild(priceInput);
-      priceField.appendChild(createEl("span", "field-label", "单价"));
+      priceField.appendChild(createEl("span", "field-label", getAppUiText("autoJs.k0458", "单价")));
       row.appendChild(priceField);
 
       const quantityField = createEl("label", "field");
@@ -7796,7 +7870,7 @@ async function openCreateBuyListingDialog() {
       quantityInput.step = "1";
       quantityInput.value = "1";
       quantityField.appendChild(quantityInput);
-      quantityField.appendChild(createEl("span", "field-label", "数量"));
+      quantityField.appendChild(createEl("span", "field-label", getAppUiText("autoJs.k0459", "数量")));
       row.appendChild(quantityField);
 
       const currencyField = createEl("label", "field field-select");
@@ -7812,7 +7886,7 @@ async function openCreateBuyListingDialog() {
         ? preferredCurrency
         : "GAME_COIN";
       currencyField.appendChild(currencySelect);
-      currencyField.appendChild(createEl("span", "field-label", "币种"));
+      currencyField.appendChild(createEl("span", "field-label", getAppUiText("autoJs.k0460", "币种")));
       row.appendChild(currencyField);
 
       container.appendChild(row);
@@ -7820,7 +7894,7 @@ async function openCreateBuyListingDialog() {
       const tagField = createEl("label", "field field-select");
       const tagSelect = document.createElement("select");
       tagSelect.id = "marketCreateBuyTagSelect";
-      tagSelect.innerHTML = "<option value=\"\">自动分类</option>";
+      tagSelect.innerHTML = getAppUiText("autoJs.k0461", "<option value=\"\">自动分类</option>");
       (state.marketTags || [])
         .filter((tag) => tag.enabled !== false)
         .forEach((tag) => {
@@ -7830,10 +7904,10 @@ async function openCreateBuyListingDialog() {
           tagSelect.appendChild(option);
         });
       tagField.appendChild(tagSelect);
-      tagField.appendChild(createEl("span", "field-label", "分类标签（可选）"));
+      tagField.appendChild(createEl("span", "field-label", getAppUiText("autoJs.k0462", "分类标签（可选）")));
       container.appendChild(tagField);
 
-      const tip = createEl("p", "meta", "提示：发布后其他玩家可直接“卖给收购单”，你的冻结金额会随成交递减。");
+      const tip = createEl("p", "meta", getAppUiText("autoJs.k0463", "提示：发布后其他玩家可直接“卖给收购单”，你的冻结金额会随成交递减。"));
       container.appendChild(tip);
       materialInput.focus();
       return container;
@@ -7852,19 +7926,19 @@ async function openCreateBuyListingDialog() {
       const tag = normalizeTagCode(tagSelect ? tagSelect.value : "");
 
       if (!itemMaterial) {
-        notify("请从预选材质中选择一个有效物品。", "warn");
+        notify(getAppUiText("autoJs.k0464", "请从预选材质中选择一个有效物品。"), "warn");
         return undefined;
       }
       if (!Number.isFinite(price) || price <= 0) {
-        notify("单价必须大于 0。", "warn");
+        notify(getAppUiText("autoJs.k0465", "单价必须大于 0。"), "warn");
         return undefined;
       }
       if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 64) {
-        notify("数量需在 1-64 之间。", "warn");
+        notify(getAppUiText("autoJs.k0466", "数量需在 1-64 之间。"), "warn");
         return undefined;
       }
       if (currency !== "SHOP_COIN" && currency !== "GAME_COIN") {
-        notify("币种无效，请重新选择。", "warn");
+        notify(getAppUiText("autoJs.k0467", "币种无效，请重新选择。"), "warn");
         return undefined;
       }
       return {
@@ -7884,19 +7958,19 @@ async function confirmCreateBuyListing(params) {
   const taxAmount = calculatePercentAmount(subtotal, state.orderPolicy.marketTaxPercent);
   const escrowAmount = subtotal + taxAmount;
   const details = [
-    `收购物品：${materialName} (${params.itemMaterial})`,
-    `数量：x${params.quantity}`,
-    `单价：${formatCurrency(params.price, params.currency)}`,
-    `小计：${formatCurrency(subtotal, params.currency)}`,
-    `税额（买家承担，${state.orderPolicy.marketTaxPercent}%）：${formatCurrency(taxAmount, params.currency)}`,
-    `预计冻结：${formatCurrency(escrowAmount, params.currency)}`,
-    `分类：${params.tag ? `${getMarketTagDisplayName(params.tag)} (${params.tag})` : "自动分类"}`,
+    getAppUiText("autoJs.k0468", "收购物品：{0} ({1})").replace("{0}", materialName).replace("{1}", params.itemMaterial),
+    getAppUiText("autoJs.k0469", "数量：x{0}").replace("{0}", params.quantity),
+    getAppUiText("autoJs.k0470", "单价：{0}").replace("{0}", formatCurrency(params.price, params.currency)),
+    getAppUiText("autoJs.k0471", "小计：{0}").replace("{0}", formatCurrency(subtotal, params.currency)),
+    getAppUiText("autoJs.k0472", "税额（买家承担，{0}%）：{1}").replace("{0}", state.orderPolicy.marketTaxPercent).replace("{1}", formatCurrency(taxAmount, params.currency)),
+    getAppUiText("autoJs.k0473", "预计冻结：{0}").replace("{0}", formatCurrency(escrowAmount, params.currency)),
+    getAppUiText("autoJs.k0474", "分类：${params.tag ? ")${getMarketTagDisplayName(params.tag)} (${params.tag})getAppUiText("autoJs.k0475", " : "自动分类"}"),
   ];
   return openConfirmDialog({
-    title: "确认发布收购单",
-    message: "确认后会立即创建收购单并冻结对应金额。",
+    title: getAppUiText("autoJs.k0476", "确认发布收购单"),
+    message: getAppUiText("autoJs.k0477", "确认后会立即创建收购单并冻结对应金额。"),
     details,
-    confirmText: "确认发布",
+    confirmText: getAppUiText("autoJs.k0478", "确认发布"),
   });
 }
 
@@ -7917,9 +7991,9 @@ async function createBuyListing(params) {
   const priceText = formatCurrency(payload.price || params.price, payload.currency || params.currency);
   const quantity = Number(payload.quantity || params.quantity || 0);
   const tagCode = normalizeTagCode(payload.tag || params.tag);
-  const tagText = tagCode ? `，分类 ${getMarketTagDisplayName(tagCode)}` : "";
-  log(`收购单发布成功：listingId=${payload.listingId} material=${payload.material || params.itemMaterial} qty=${quantity}`, "SUCCESS");
-  notify(`收购单发布成功：#${payload.listingId}，${params.itemMaterial} x${quantity}，单价 ${priceText}${tagText}。`, "success");
+  const tagText = tagCode ? getAppUiText("autoJs.k0479", "，分类 {0}").replace("{0}", getMarketTagDisplayName(tagCode)) : "";
+  log(getAppUiText("autoJs.k0480", "收购单发布成功：listingId={0} material={1} qty={2}").replace("{0}", payload.listingId).replace("{1}", payload.material || params.itemMaterial).replace("{2}", quantity), "SUCCESS");
+  notify(getAppUiText("autoJs.k0481", "收购单发布成功：#{0}，{1} x{2}，单价 {3}{4}。").replace("{0}", payload.listingId).replace("{1}", params.itemMaterial).replace("{2}", quantity).replace("{3}", priceText).replace("{4}", tagText), "success");
   try {
     await refreshWallet();
   } catch (refreshError) {
@@ -7934,7 +8008,7 @@ async function buyListing(listingId, buyQuantity, deliveryMode) {
   ensureToken();
   const qty = Number(buyQuantity || 1);
   if (!Number.isFinite(qty) || qty <= 0 || qty > 64) {
-    throw new Error("购买数量需在 1-64 之间。");
+    throw new Error(getAppUiText("autoJs.k0482", "购买数量需在 1-64 之间。"));
   }
   const payload = await api("/api/market/buy", {
     method: "POST",
@@ -7955,26 +8029,26 @@ async function buyListing(listingId, buyQuantity, deliveryMode) {
       state.orderPolicy.refundUndeliveredEnabled || cooldownSeconds > 0;
   }
   const statusText = payload.orderStatus || "PENDING";
-  const refundDeadlineText = payload.refundDeadline ? `，退款截止 ${formatDateTime(payload.refundDeadline)}` : "";
+  const refundDeadlineText = payload.refundDeadline ? getAppUiText("autoJs.k0483", "，退款截止 {0}").replace("{0}", formatDateTime(payload.refundDeadline)) : "";
   if (isExisting) {
-    log(`市场购买请求去重：tradeId=${payload.tradeId}，listingId=${payload.listingId}`, "WARN");
-    notify(`该交易已处理过，返回历史结果（交易号 ${payload.tradeId}）。`, "warn");
+    log(getAppUiText("autoJs.k0484", "市场购买请求去重：tradeId={0}，listingId={1}").replace("{0}", payload.tradeId).replace("{1}", payload.listingId), "WARN");
+    notify(getAppUiText("autoJs.k0485", "该交易已处理过，返回历史结果（交易号 {0}）。").replace("{0}", payload.tradeId), "warn");
   } else {
     log(
-      `购买成功：tradeId=${payload.tradeId}，listingId=${payload.listingId}，qty=${payload.quantity || qty}`,
+      getAppUiText("autoJs.k0486", "购买成功：tradeId={0}，listingId={1}，qty={2}").replace("{0}", payload.tradeId).replace("{1}", payload.listingId).replace("{2}", payload.quantity || qty),
       "SUCCESS"
     );
     const feeAmount = Number(payload.feeAmount || 0) + Number(payload.taxAmount || 0);
     if (feeAmount > 0) {
-      const claimTip = statusText === "WAIT_CLAIM" ? " 请在游戏内使用 /ws claim 领取。" : "";
+      const claimTip = statusText === "WAIT_CLAIM" ? getAppUiText("autoJs.k0487", " 请在游戏内使用 /ws claim 领取。") : "";
       notify(
-        `购买成功，数量 x${payload.quantity || qty}，实付 ${amountText}（含手续费/税收 ${formatCurrency(feeAmount, payload.currency)}），状态 ${statusText}${refundDeadlineText}。${claimTip}`,
+        getAppUiText("autoJs.k0488", "购买成功，数量 x{0}，实付 {1}（含手续费/税收 {2}），状态 {3}{4}。{5}").replace("{0}", payload.quantity || qty).replace("{1}", amountText).replace("{2}", formatCurrency(feeAmount, payload.currency)).replace("{3}", statusText).replace("{4}", refundDeadlineText).replace("{5}", claimTip),
         "success"
       );
     } else {
-      const claimTip = statusText === "WAIT_CLAIM" ? " 请在游戏内使用 /ws claim 领取。" : "";
+      const claimTip = statusText === "WAIT_CLAIM" ? getAppUiText("autoJs.k0489", " 请在游戏内使用 /ws claim 领取。") : "";
       notify(
-        `购买成功，数量 x${payload.quantity || qty}，成交金额 ${amountText}，状态 ${statusText}${refundDeadlineText}。${claimTip}`,
+        getAppUiText("autoJs.k0490", "购买成功，数量 x{0}，成交金额 {1}，状态 {2}{3}。{4}").replace("{0}", payload.quantity || qty).replace("{1}", amountText).replace("{2}", statusText).replace("{3}", refundDeadlineText).replace("{4}", claimTip),
         "success"
       );
     }
@@ -7996,7 +8070,7 @@ async function sellToBuyListing(listingId, sellQuantity, deliveryMode) {
   ensureToken();
   const qty = Number(sellQuantity || 1);
   if (!Number.isFinite(qty) || qty <= 0 || qty > 64) {
-    throw new Error("交货数量需在 1-64 之间。");
+    throw new Error(getAppUiText("autoJs.k0491", "交货数量需在 1-64 之间。"));
   }
   const payload = await api("/api/market/sell-to-buy", {
     method: "POST",
@@ -8012,16 +8086,16 @@ async function sellToBuyListing(listingId, sellQuantity, deliveryMode) {
   const amountText = formatCurrency(receiveAmount, payload.currency);
   const statusText = payload.orderStatus || "PENDING";
   if (isExisting) {
-    log(`收购单交货请求去重：tradeId=${payload.tradeId}，listingId=${payload.listingId}`, "WARN");
-    notify(`该交货请求已处理过，返回历史结果（交易号 ${payload.tradeId}）。`, "warn");
+    log(getAppUiText("autoJs.k0492", "收购单交货请求去重：tradeId={0}，listingId={1}").replace("{0}", payload.tradeId).replace("{1}", payload.listingId), "WARN");
+    notify(getAppUiText("autoJs.k0493", "该交货请求已处理过，返回历史结果（交易号 {0}）。").replace("{0}", payload.tradeId), "warn");
   } else {
     log(
-      `收购单交货成功：tradeId=${payload.tradeId}，listingId=${payload.listingId}，qty=${payload.quantity || qty}`,
+      getAppUiText("autoJs.k0494", "收购单交货成功：tradeId={0}，listingId={1}，qty={2}").replace("{0}", payload.tradeId).replace("{1}", payload.listingId).replace("{2}", payload.quantity || qty),
       "SUCCESS"
     );
-    const claimTip = statusText === "WAIT_CLAIM" ? " 对方需在游戏内使用 /ws claim 领取。" : "";
+    const claimTip = statusText === "WAIT_CLAIM" ? getAppUiText("autoJs.k0495", " 对方需在游戏内使用 /ws claim 领取。") : "";
     notify(
-      `交货成功，数量 x${payload.quantity || qty}，预计入账 ${amountText}，状态 ${statusText}。${claimTip}`,
+      getAppUiText("autoJs.k0496", "交货成功，数量 x{0}，预计入账 {1}，状态 {2}。{3}").replace("{0}", payload.quantity || qty).replace("{1}", amountText).replace("{2}", statusText).replace("{3}", claimTip),
       "success"
     );
   }
@@ -8042,7 +8116,7 @@ async function bidListing(listingId, bidAmount) {
   ensureToken();
   const amount = Number(bidAmount || 0);
   if (!Number.isFinite(amount) || amount <= 0) {
-    throw new Error("出价金额必须大于 0。 ");
+    throw new Error(getAppUiText("autoJs.k0497", "出价金额必须大于 0。 "));
   }
   const payload = await api("/api/market/bid", {
     method: "POST",
@@ -8055,25 +8129,25 @@ async function bidListing(listingId, bidAmount) {
   const isExisting = String(payload.state || "").toUpperCase() === "EXISTING";
   const isSealedBid = Boolean(payload.sealedBid);
   if (isExisting) {
-    notify(`已识别为重复请求，沿用历史出价（#${payload.bidId}）。`, "warn");
+    notify(getAppUiText("autoJs.k0498", "已识别为重复请求，沿用历史出价（#{0}）。").replace("{0}", payload.bidId), "warn");
   } else {
     if (isSealedBid) {
       const requiredHint = payload.minimumRequiredBid
-        ? `，最低门槛 ${formatCurrency(payload.minimumRequiredBid, payload.currency)}`
+        ? getAppUiText("autoJs.k0499", "，最低门槛 {0}").replace("{0}", formatCurrency(payload.minimumRequiredBid, payload.currency))
         : "";
       notify(
-        `密封出价已提交：${formatCurrency(payload.bidAmount, payload.currency)}${requiredHint}。`,
+        getAppUiText("autoJs.k0500", "密封出价已提交：{0}{1}。").replace("{0}", formatCurrency(payload.bidAmount, payload.currency)).replace("{1}", requiredHint),
         "success"
       );
     } else {
       notify(
-        `出价成功：${formatCurrency(payload.bidAmount, payload.currency)}，当前最高价 ${formatCurrency(payload.currentHighestBid, payload.currency)}。`,
+        getAppUiText("autoJs.k0501", "出价成功：{0}，当前最高价 {1}。").replace("{0}", formatCurrency(payload.bidAmount, payload.currency)).replace("{1}", formatCurrency(payload.currentHighestBid, payload.currency)),
         "success"
       );
     }
   }
   log(
-    `竞拍出价完成：listingId=${payload.listingId} bidId=${payload.bidId} amount=${payload.bidAmount}`,
+    getAppUiText("autoJs.k0502", "竞拍出价完成：listingId={0} bidId={1} amount={2}").replace("{0}", payload.listingId).replace("{1}", payload.bidId).replace("{2}", payload.bidAmount),
     isExisting ? "WARN" : "SUCCESS"
   );
   try {
@@ -8091,8 +8165,8 @@ async function unlistListing(listingId) {
     method: "POST",
     body: JSON.stringify({ listingId }),
   });
-  log(`下架成功：listingId=${payload.listingId}`, "SUCCESS");
-  notify(`下架成功：上架 ${payload.listingId} 已加入退回队列。`, "success");
+  log(getAppUiText("autoJs.k0503", "下架成功：listingId={0}").replace("{0}", payload.listingId), "SUCCESS");
+  notify(getAppUiText("autoJs.k0504", "下架成功：上架 {0} 已加入退回队列。").replace("{0}", payload.listingId), "success");
   await loadMarket(state.marketMode);
 }
 
@@ -8105,19 +8179,19 @@ async function refreshSupplyListing(listingId, options = {}) {
   if (!options.silent) {
     if (Number(payload.loadedAmount || 0) > 0) {
       notify(
-        `补货完成：本次提取 x${payload.loadedAmount}，当前中转 x${payload.currentStock} / x${payload.maxStock}，累计提取 x${payload.loadedTotal}。`,
+        getAppUiText("autoJs.k0505", "补货完成：本次提取 x{0}，当前中转 x{1} / x{2}，累计提取 x{3}。").replace("{0}", payload.loadedAmount).replace("{1}", payload.currentStock).replace("{2}", payload.maxStock).replace("{3}", payload.loadedTotal),
         "success"
       );
-      log(`供货刷新成功：listingId=${payload.listingId} loaded=${payload.loadedAmount}`, "SUCCESS");
+      log(getAppUiText("autoJs.k0506", "供货刷新成功：listingId={0} loaded={1}").replace("{0}", payload.listingId).replace("{1}", payload.loadedAmount), "SUCCESS");
     } else {
       const isFull = Number(payload.currentStock || 0) >= Number(payload.maxStock || 0);
       notify(
         isFull
-          ? `中转库存已满：当前中转 x${payload.currentStock} / x${payload.maxStock}，累计提取 x${payload.loadedTotal}。`
-          : `未检测到可补货库存：当前中转 x${payload.currentStock} / x${payload.maxStock}，累计提取 x${payload.loadedTotal}。`,
+          ? getAppUiText("autoJs.k0507", "中转库存已满：当前中转 x{0} / x{1}，累计提取 x{2}。").replace("{0}", payload.currentStock).replace("{1}", payload.maxStock).replace("{2}", payload.loadedTotal)
+          : getAppUiText("autoJs.k0508", "未检测到可补货库存：当前中转 x{0} / x{1}，累计提取 x{2}。").replace("{0}", payload.currentStock).replace("{1}", payload.maxStock).replace("{2}", payload.loadedTotal),
         isFull ? "info" : "warn"
       );
-      log(`供货刷新未补货：listingId=${payload.listingId} current=${payload.currentStock}`, "WARN");
+      log(getAppUiText("autoJs.k0509", "供货刷新未补货：listingId={0} current={1}").replace("{0}", payload.listingId).replace("{1}", payload.currentStock), "WARN");
     }
   }
   await loadMarket(state.marketMode);
@@ -8130,8 +8204,8 @@ async function pauseListing(listingId) {
     method: "POST",
     body: JSON.stringify({ listingId }),
   });
-  log(`暂停上架：listingId=${payload.listingId}`, "INFO");
-  notify("已暂时停用该上架，物品保留在市场后台，可随时重新上架。", "info");
+  log(getAppUiText("autoJs.k0510", "暂停上架：listingId={0}").replace("{0}", payload.listingId), "INFO");
+  notify(getAppUiText("autoJs.k0511", "已暂时停用该上架，物品保留在市场后台，可随时重新上架。"), "info");
   await loadMarket(state.marketMode);
 }
 
@@ -8141,8 +8215,8 @@ async function resumeListing(listingId) {
     method: "POST",
     body: JSON.stringify({ listingId }),
   });
-  log(`重新上架：listingId=${payload.listingId}`, "SUCCESS");
-  notify("上架已恢复，其他玩家可以再次购买。", "success");
+  log(getAppUiText("autoJs.k0512", "重新上架：listingId={0}").replace("{0}", payload.listingId), "SUCCESS");
+  notify(getAppUiText("autoJs.k0513", "上架已恢复，其他玩家可以再次购买。"), "success");
   await loadMarket(state.marketMode);
 }
 
@@ -8152,8 +8226,8 @@ async function updateListingPrice(listingId, price) {
     method: "POST",
     body: JSON.stringify({ listingId, price }),
   });
-  log(`改价成功：listingId=${payload.listingId} price=${payload.price}`, "SUCCESS");
-  notify(`改价成功：新价格 ${formatCurrency(payload.price, payload.currency)}。`, "success");
+  log(getAppUiText("autoJs.k0514", "改价成功：listingId={0} price={1}").replace("{0}", payload.listingId).replace("{1}", payload.price), "SUCCESS");
+  notify(getAppUiText("autoJs.k0515", "改价成功：新价格 {0}。").replace("{0}", formatCurrency(payload.price, payload.currency)), "success");
   await loadMarket(state.marketMode);
 }
 
@@ -8163,9 +8237,9 @@ async function updateListingRemark(listingId, remark) {
     method: "POST",
     body: JSON.stringify({ listingId, remark }),
   });
-  const remarkText = payload.remark ? payload.remark : "（空）";
-  log(`备注更新成功：listingId=${payload.listingId}`, "SUCCESS");
-  notify(`备注已更新：${remarkText}`, "success");
+  const remarkText = payload.remark ? payload.remark : getAppUiText("autoJs.k0516", "（空）");
+  log(getAppUiText("autoJs.k0517", "备注更新成功：listingId={0}").replace("{0}", payload.listingId), "SUCCESS");
+  notify(getAppUiText("autoJs.k0518", "备注已更新：{0}").replace("{0}", remarkText), "success");
   await loadMarket(state.marketMode);
 }
 
@@ -8221,8 +8295,8 @@ async function updateListing(
       auctionEndAt,
     }),
   });
-  log(`修改成功：listingId=${listingId} price=${payload.price} mode=${payload.tradeMode}`, "SUCCESS");
-  notify("修改成功：上架参数已更新。", "success");
+  log(getAppUiText("autoJs.k0519", "修改成功：listingId={0} price={1} mode={2}").replace("{0}", listingId).replace("{1}", payload.price).replace("{2}", payload.tradeMode), "SUCCESS");
+  notify(getAppUiText("autoJs.k0520", "修改成功：上架参数已更新。"), "success");
   await loadMarket(state.marketMode);
 }
 
@@ -8232,10 +8306,10 @@ if (elements.loginBtn) {
     const identifier = elements.loginIdentifier.value.trim();
     const password = elements.loginPassword.value.trim();
     if (!identifier) {
-      throw new Error("请输入用户名。");
+      throw new Error(getAppUiText("autoJs.k0521", "请输入用户名。"));
     }
     if (!password) {
-      throw new Error("请输入密码。");
+      throw new Error(getAppUiText("autoJs.k0522", "请输入密码。"));
     }
     const payload = await api("/api/auth/login", {
       method: "POST",
@@ -8253,8 +8327,8 @@ if (elements.loginBtn) {
       const productMessage = resolveErrorMessage(productError, "products_load");
       log(formatAppTemplate("postLoginProductsRefreshFailed", { message: productMessage }), "WARN");
     }
-    log("登录成功。", "SUCCESS");
-    notify("登录成功。", "success");
+    log(getAppUiText("autoJs.k0523", "登录成功。"), "SUCCESS");
+    notify(getAppUiText("autoJs.k0524", "登录成功。"), "success");
   } catch (error) {
     const message = resolveErrorMessage(error, "login");
     log(formatAppTemplate("loginFailed", { message }), "ERROR");
@@ -8278,8 +8352,8 @@ elements.logoutBtn.addEventListener("click", async () => {
       log(formatAppTemplate("postLogoutProductsRefreshFailed", { message: productMessage }), "WARN");
     }
     switchTab("auth");
-    log("已退出登录。", "SUCCESS");
-    notify("已退出登录。", "success");
+    log(getAppUiText("autoJs.k0525", "已退出登录。"), "SUCCESS");
+    notify(getAppUiText("autoJs.k0526", "已退出登录。"), "success");
   } catch (error) {
     const message = resolveErrorMessage(error, "logout");
     log(formatAppTemplate("logoutFailed", { message }), "ERROR");
@@ -8291,8 +8365,8 @@ document.getElementById("walletBtn").addEventListener("click", async () => {
   try {
     await refreshWallet();
     await loadWalletLedger();
-    log("钱包余额已刷新。", "SUCCESS");
-    notify("钱包余额已刷新。", "success");
+    log(getAppUiText("autoJs.k0527", "钱包余额已刷新。"), "SUCCESS");
+    notify(getAppUiText("autoJs.k0528", "钱包余额已刷新。"), "success");
   } catch (error) {
     const message = resolveErrorMessage(error, "wallet_refresh");
     log(formatAppTemplate("walletRefreshFailed", { message }), "ERROR");
@@ -8421,7 +8495,7 @@ document.getElementById("redeemBtn").addEventListener("click", async () => {
     ensureToken();
     const code = document.getElementById("redeemCode").value.trim();
     if (!code) {
-      throw new Error("请输入兑换码后再提交。");
+      throw new Error(getAppUiText("autoJs.k0529", "请输入兑换码后再提交。"));
     }
     const previousWallet = {
       shopCoin: state.walletBalance.shopCoin,
@@ -8438,10 +8512,10 @@ document.getElementById("redeemBtn").addEventListener("click", async () => {
     const deltaText = summarizeWalletDelta(payload, previousWallet);
     const balanceText = formatWalletInline(payload.shopCoin, payload.gameCoin);
     const detailText = tip.tone === "success"
-      ? `${tip.text}${deltaText ? ` 本次入账：${deltaText}。` : " "}当前余额：${balanceText}。`
+      ? `${tip.text}${deltaText ? ` 本次入账：${deltaText}。getAppUiText("autoJs.k0530", " : " "}当前余额：{0}。").replace("{0}", balanceText)
       : tip.text;
     setMetaText(elements.redeemView, detailText, tip.tone);
-    log(`兑换结果：${detailText}`, tip.tone === "success" ? "SUCCESS" : "WARN");
+    log(getAppUiText("autoJs.k0531", "兑换结果：{0}").replace("{0}", detailText), tip.tone === "success" ? "SUCCESS" : "WARN");
     notify(detailText, tip.tone);
   } catch (error) {
     const message = resolveErrorMessage(error, "redeem");
@@ -8460,10 +8534,10 @@ document.getElementById("exchangeBtn").addEventListener("click", async () => {
     const amount = Number(String(elements.exchangeAmount?.value || "").trim());
 
     if (!Number.isFinite(amount) || amount <= 0) {
-      throw new Error("兑换数量必须大于 0。");
+      throw new Error(getAppUiText("autoJs.k0532", "兑换数量必须大于 0。"));
     }
     if (fromCurrency === toCurrency) {
-      throw new Error("兑换方向不能相同。");
+      throw new Error(getAppUiText("autoJs.k0533", "兑换方向不能相同。"));
     }
 
     if (!state.exchangeMetaLoaded) {
@@ -8471,15 +8545,15 @@ document.getElementById("exchangeBtn").addEventListener("click", async () => {
     }
     const direction = resolveExchangeDirectionSettings(fromCurrency, toCurrency);
     if (!direction) {
-      throw new Error("兑换方向无效，请重新选择。");
+      throw new Error(getAppUiText("autoJs.k0534", "兑换方向无效，请重新选择。"));
     }
     if (!direction.enabled) {
-      throw new Error("当前服务器未开放该兑换方向。");
+      throw new Error(getAppUiText("autoJs.k0535", "当前服务器未开放该兑换方向。"));
     }
 
     const convertedAmount = Math.floor(amount * Number(direction.ratio || 0));
     if (!Number.isFinite(convertedAmount) || convertedAmount <= 0) {
-      throw new Error("兑换比例导致结果为 0，请增大兑换数量。");
+      throw new Error(getAppUiText("autoJs.k0536", "兑换比例导致结果为 0，请增大兑换数量。"));
     }
 
     const fromBalance = getWalletBalanceForCurrency(fromCurrency);
@@ -8494,7 +8568,7 @@ document.getElementById("exchangeBtn").addEventListener("click", async () => {
       toBalance,
     });
     if (!confirmed) {
-      setMetaText(elements.exchangeView, "已取消兑换。", "warn");
+      setMetaText(elements.exchangeView, getAppUiText("autoJs.k0537", "已取消兑换。"), "warn");
       return;
     }
 
@@ -8516,7 +8590,7 @@ document.getElementById("exchangeBtn").addEventListener("click", async () => {
     await loadWalletLedger();
     const deltaText = summarizeWalletDelta(payload, previousWallet);
     const balanceText = formatWalletInline(payload.shopCoin, payload.gameCoin);
-    const successText = `兑换成功：${formatCurrency(amount, fromCurrency)} -> ${formatCurrency(convertedAmount, toCurrency)}${deltaText ? `，余额变动 ${deltaText}` : ""}。当前余额：${balanceText}。`;
+    const successText = getAppUiText("autoJs.k0538", "兑换成功：{0} -> {1}${deltaText ? ").replace("{0}", formatCurrency(amount, fromCurrency)).replace("{1}", formatCurrency(convertedAmount, toCurrency))，余额变动 ${deltaText}getAppUiText("autoJs.k0539", " : ""}。当前余额：{0}。").replace("{0}", balanceText);
     setMetaText(
       elements.exchangeView,
       successText,
@@ -8603,11 +8677,11 @@ if (elements.notificationsMarkAllBtn) {
   elements.notificationsMarkAllBtn.addEventListener("click", async () => {
     try {
       if (state.unreadNotificationCount <= 0) {
-        notify("当前没有未读通知。", "info");
+        notify(getAppUiText("autoJs.k0540", "当前没有未读通知。"), "info");
         return;
       }
       await markAllNotificationsRead();
-      notify("已全部标记为已读。", "success");
+      notify(getAppUiText("autoJs.k0541", "已全部标记为已读。"), "success");
     } catch (error) {
       const message = resolveErrorMessage(error, "notifications_mark_read");
       notify(formatAppTemplate("markAllReadFailed", { message }), "error");
@@ -8717,16 +8791,16 @@ if (elements.marketCreateBuyBtn) {
       ensureToken();
       const params = await openCreateBuyListingDialog();
       if (!params) {
-        notify("已取消发布收购单。", "info");
+        notify(getAppUiText("autoJs.k0542", "已取消发布收购单。"), "info");
         return;
       }
       const confirmed = await confirmCreateBuyListing(params);
       if (!confirmed) {
-        notify("已取消发布收购单。", "info");
+        notify(getAppUiText("autoJs.k0543", "已取消发布收购单。"), "info");
         return;
       }
       elements.marketCreateBuyBtn.disabled = true;
-      setNodeText(elements.marketCreateBuyBtn, "发布中...");
+      setNodeText(elements.marketCreateBuyBtn, getAppUiText("autoJs.k0544", "发布中..."));
       await createBuyListing(params);
     } catch (error) {
       const message = resolveErrorMessage(error, "market_create");
@@ -8734,7 +8808,7 @@ if (elements.marketCreateBuyBtn) {
       log(formatAppTemplate("buyOrderCreateFailed", { message }), "ERROR");
     } finally {
       elements.marketCreateBuyBtn.disabled = false;
-      setNodeText(elements.marketCreateBuyBtn, "发布收购单");
+      setNodeText(elements.marketCreateBuyBtn, getAppUiText("autoJs.k0545", "发布收购单"));
     }
   });
 }
@@ -8742,7 +8816,7 @@ if (elements.marketCreateBuyBtn) {
 if (elements.leaderboardRefreshBtn) {
   elements.leaderboardRefreshBtn.addEventListener("click", () => {
     loadLeaderboard().then(() => {
-      notify("排行榜已刷新。", "success");
+      notify(getAppUiText("autoJs.k0546", "排行榜已刷新。"), "success");
     }).catch((error) => {
       const message = resolveErrorMessage(error, "leaderboard");
       notify(formatAppTemplate("loadFailed", { message }), "error");
@@ -8792,38 +8866,38 @@ elements.productList.addEventListener("click", async (event) => {
   const productId = Number(button.dataset.productId);
   const product = state.products.find((item) => Number(item.id) === productId);
   if (!product) {
-    notify("商品信息异常，请刷新商品列表。", "warn");
+    notify(getAppUiText("autoJs.k0547", "商品信息异常，请刷新商品列表。"), "warn");
     return;
   }
   const isRecycle = String(product.productType || "").toUpperCase() === "RECYCLE_ITEM";
   const stock = resolveOfficialProductStock(product);
   const maxQuantity = stock.maxQuantity;
   if (maxQuantity <= 0) {
-    notify("该商品已售罄，请刷新后查看。", "warn");
+    notify(getAppUiText("autoJs.k0548", "该商品已售罄，请刷新后查看。"), "warn");
     return;
   }
   const qtyValue = Number(quantity || 1);
   if (!Number.isFinite(qtyValue) || qtyValue < 1 || qtyValue > maxQuantity) {
-    notify(`购买数量需在 1-${maxQuantity} 之间。`, "warn");
+    notify(getAppUiText("autoJs.k0549", "购买数量需在 1-{0} 之间。").replace("{0}", maxQuantity), "warn");
     return;
   }
 
   ensureToken();
   const deliveryMode = await confirmPurchase(product, qtyValue);
   if (!deliveryMode) {
-    notify(isRecycle ? "已取消回收。" : "已取消下单。", "info");
+    notify(isRecycle ? getAppUiText("autoJs.k0550", "已取消回收。") : getAppUiText("autoJs.k0551", "已取消下单。"), "info");
     return;
   }
 
   const originalText = button.textContent;
   button.disabled = true;
-  setNodeText(button, isRecycle ? "回收中..." : "下单中...");
+  setNodeText(button, isRecycle ? getAppUiText("autoJs.k0552", "回收中...") : getAppUiText("autoJs.k0553", "下单中..."));
   try {
     const productDisplayTitle = resolveProductDisplayVisual(product).title || product.title;
     await createOrder(productId, qtyValue, deliveryMode, productDisplayTitle, product.productType);
   } catch (error) {
     const message = resolveErrorMessage(error, "order_create");
-    const failPrefix = isRecycle ? "回收失败" : "下单失败";
+    const failPrefix = isRecycle ? getAppUiText("autoJs.k0554", "回收失败") : getAppUiText("autoJs.k0555", "下单失败");
     setMetaText(elements.orderView, `${failPrefix}：${message}`, "error");
     log(`${failPrefix}：${message}`, "ERROR");
     notify(`${failPrefix}：${message}`, "error");
@@ -8842,18 +8916,18 @@ if (elements.orderList) {
     if (button.dataset.action === "copyVoucher") {
       try {
         await copyTextToClipboard(button.dataset.code || "");
-        notify("团购兑换码已复制。", "success");
+        notify(getAppUiText("autoJs.k0556", "团购兑换码已复制。"), "success");
       } catch (error) {
-        notify(error.message || "复制失败，请手动复制。", "error");
+        notify(error.message || getAppUiText("autoJs.k0557", "复制失败，请手动复制。"), "error");
       }
       return;
     }
     if (button.dataset.action === "copyClaim") {
       try {
         await copyTextToClipboard(button.dataset.command || "");
-        notify("领取命令已复制，可以在游戏内直接粘贴。", "success");
+        notify(getAppUiText("autoJs.k0558", "领取命令已复制，可以在游戏内直接粘贴。"), "success");
       } catch (error) {
-        notify(error.message || "复制失败，请手动复制领取命令。", "error");
+        notify(error.message || getAppUiText("autoJs.k0559", "复制失败，请手动复制领取命令。"), "error");
       }
       return;
     }
@@ -8864,20 +8938,20 @@ if (elements.orderList) {
     const amount = Number(button.dataset.amount || 0);
     const currency = button.dataset.currency || "SHOP_COIN";
     const confirmed = await openConfirmDialog({
-      title: "确认退款",
-      message: "确认后将撤销发放并退回余额。",
+      title: getAppUiText("autoJs.k0560", "确认退款"),
+      message: getAppUiText("autoJs.k0561", "确认后将撤销发放并退回余额。"),
       details: [
-        `订单号：${orderNo}`,
-        `退款金额：${formatCurrency(amount, currency)}`,
+        getAppUiText("autoJs.k0562", "订单号：{0}").replace("{0}", orderNo),
+        getAppUiText("autoJs.k0563", "退款金额：{0}").replace("{0}", formatCurrency(amount, currency)),
       ],
-      confirmText: "确认退款",
+      confirmText: getAppUiText("autoJs.k0564", "确认退款"),
     });
     if (!confirmed) {
-      notify("已取消退款操作。", "info");
+      notify(getAppUiText("autoJs.k0565", "已取消退款操作。"), "info");
       return;
     }
     button.disabled = true;
-    setNodeText(button, "退款中...");
+    setNodeText(button, getAppUiText("autoJs.k0566", "退款中..."));
     try {
       await refundOrder(orderNo);
     } catch (error) {
@@ -8886,7 +8960,7 @@ if (elements.orderList) {
       notify(formatAppTemplate("refundFailed", { message }), "error");
     } finally {
       button.disabled = false;
-      setNodeText(button, "申请退款");
+      setNodeText(button, getAppUiText("autoJs.k0567", "申请退款"));
     }
   });
 }
@@ -8909,7 +8983,7 @@ elements.marketList.addEventListener("click", async (event) => {
 
   const originalText = button.textContent;
   button.disabled = true;
-  setNodeText(button, "处理中...");
+  setNodeText(button, getAppUiText("autoJs.k0568", "处理中..."));
   try {
     if (button.dataset.action === "buy" || button.dataset.action === "sellToBuy") {
       let listing = state.listings.find((item) => Number(item.id) === listingId);
@@ -8919,7 +8993,7 @@ elements.marketList.addEventListener("click", async (event) => {
       const buyQty = Number(rawQty || 1);
       const maxQty = Number(button.dataset.maxQuantity || 64);
       if (!Number.isFinite(buyQty) || buyQty <= 0 || buyQty > Math.max(1, maxQty)) {
-        throw new Error(`购买数量需在 1-${Math.max(1, maxQty)} 之间。`);
+        throw new Error(getAppUiText("autoJs.k0569", "购买数量需在 1-{0} 之间。").replace("{0}", Math.max(1, maxQty)));
       }
       ensureToken();
       const isSupply = String(listing?.sourceMode || "").toUpperCase() === "SUPPLY";
@@ -8936,13 +9010,13 @@ elements.marketList.addEventListener("click", async (event) => {
             ? await confirmSellToBuy(listing, buyQty)
             : await confirmMarketBuy(listing, buyQty))
         : await openConfirmDialog({
-            title: isSellToBuy ? "确认卖给收购单" : "确认购买",
-            message: isSellToBuy ? "确认后将立即扣除交货物品。" : "确认后将立即扣除余额。",
-            details: [`上架ID：${listingId}`, `数量：x${buyQty}`],
-            confirmText: isSellToBuy ? "确认交货" : "确认购买",
+            title: isSellToBuy ? getAppUiText("autoJs.k0570", "确认卖给收购单") : getAppUiText("autoJs.k0571", "确认购买"),
+            message: isSellToBuy ? getAppUiText("autoJs.k0572", "确认后将立即扣除交货物品。") : getAppUiText("autoJs.k0573", "确认后将立即扣除余额。"),
+            details: [getAppUiText("autoJs.k0574", "上架ID：{0}").replace("{0}", listingId), getAppUiText("autoJs.k0575", "数量：x{0}").replace("{0}", buyQty)],
+            confirmText: isSellToBuy ? getAppUiText("autoJs.k0576", "确认交货") : getAppUiText("autoJs.k0577", "确认购买"),
           });
       if (!confirmed) {
-        notify(isSellToBuy ? "已取消交货。" : "已取消购买。", "info");
+        notify(isSellToBuy ? getAppUiText("autoJs.k0578", "已取消交货。") : getAppUiText("autoJs.k0579", "已取消购买。"), "info");
         return;
       }
       const selectedMode = typeof confirmed === "string" ? confirmed : "IMMEDIATE";
@@ -8960,19 +9034,19 @@ elements.marketList.addEventListener("click", async (event) => {
       const bidAmount = bidInput ? Number(bidInput.value || 0) : 0;
       const minBid = Number(button.dataset.minBid || 1);
       if (!Number.isFinite(bidAmount) || bidAmount < Math.max(1, minBid)) {
-        throw new Error(`出价必须大于等于 ${formatCurrency(Math.max(1, minBid), button.dataset.currency || "GAME_COIN")}。`);
+        throw new Error(getAppUiText("autoJs.k0580", "出价必须大于等于 {0}。").replace("{0}", formatCurrency(Math.max(1, minBid), button.dataset.currency || "GAME_COIN")));
       }
       ensureToken();
       const confirmed = listing
         ? await confirmMarketBid(listing, bidAmount)
         : await openConfirmDialog({
-          title: "确认竞拍出价",
-          message: "确认后将冻结本次出价金额。",
-          details: [`上架ID：${listingId}`, `出价：${formatCurrency(bidAmount, button.dataset.currency || "GAME_COIN")}`],
-          confirmText: "确认出价",
+          title: getAppUiText("autoJs.k0581", "确认竞拍出价"),
+          message: getAppUiText("autoJs.k0582", "确认后将冻结本次出价金额。"),
+          details: [getAppUiText("autoJs.k0583", "上架ID：{0}").replace("{0}", listingId), getAppUiText("autoJs.k0584", "出价：{0}").replace("{0}", formatCurrency(bidAmount, button.dataset.currency || "GAME_COIN"))],
+          confirmText: getAppUiText("autoJs.k0585", "确认出价"),
         });
       if (!confirmed) {
-        notify("已取消出价。", "info");
+        notify(getAppUiText("autoJs.k0586", "已取消出价。"), "info");
         return;
       }
       await bidListing(listingId, bidAmount);
@@ -9026,7 +9100,7 @@ elements.marketList.addEventListener("click", async (event) => {
         currentFallbackTitle: button.dataset.currentFallbackTitle || "",
       });
       if (!result) {
-        notify("已取消修改。", "info");
+        notify(getAppUiText("autoJs.k0587", "已取消修改。"), "info");
         return;
       }
       let displayIconPath = result.displayIconPath || null;
@@ -9170,7 +9244,7 @@ if (elements.marketHideOwnToggle) {
     if (state.marketMode === "public") {
       renderListings(state.listings);
       const visibleCount = state.listings.filter((listing) => !shouldHideListingInPublic(listing)).length;
-      setMetaText(elements.marketView, `${getMarketModeLabel("public")}：${visibleCount} 条`, "info");
+      setMetaText(elements.marketView, getAppUiText("autoJs.k0588", "{0}：{1} 条").replace("{0}", getMarketModeLabel("public")).replace("{1}", visibleCount), "info");
     }
   });
 }
@@ -9207,5 +9281,5 @@ loadCurrencyMeta().finally(() => {
   loadProducts();
   loadMarket("public");
 });
-// 尝试恢复会话
+// ${getAppUiText("autoJs.k0589", "尝试恢复会话")}
 restoreSession();

@@ -212,7 +212,6 @@
     const status = (urlParams.get('status') || 'success').toLowerCase();
     const orderId = urlParams.get('orderId') || '';
     const errorMsg = urlParams.get('message') || '';
-    const localeFromQuery = (urlParams.get('locale') || '').trim();
 
     // Elements
     const iconContainer = document.getElementById('statusIconContainer');
@@ -226,18 +225,18 @@
     
     let countdownInterval = null;
     let resultText = {
-      page_title: '支付结果 - WebShopX',
-      success_title: '支付成功',
-      success_desc: '您的订单已支付成功，感谢您的支持。',
-      cancel_title: '支付已取消',
-      cancel_desc: '您已取消本次支付，如有需要可以重新发起订单。',
-      error_title: '支付处理异常',
-      error_desc: '系统处理支付时遇到错误，请联系管理员。',
-      order_number: '订单号：',
-      copy_btn: '复制',
-      copy_success: '复制成功！',
-      back_to_home: '返回主商店',
-      redirecting: '{seconds} 秒后将自动跳转回主页...'
+      page_title: 'Payment Result - WebShopX',
+      success_title: 'Payment Successful',
+      success_desc: 'Your order has been paid successfully! Thank you.',
+      cancel_title: 'Payment Cancelled',
+      cancel_desc: 'You have cancelled the checkout process. You can place a new order anytime.',
+      error_title: 'Payment Error',
+      error_desc: 'An error occurred while processing your payment. Please contact support.',
+      order_number: 'Order ID: ',
+      copy_btn: 'Copy',
+      copy_success: 'Copied!',
+      back_to_home: 'Back to Store',
+      redirecting: 'Redirecting to store in {seconds} seconds...'
     };
 
     function template(text, params = {}) {
@@ -245,6 +244,23 @@
         const value = params[key];
         return value == null ? '' : String(value);
       });
+    }
+
+    function detectBrowserLocaleForResult() {
+      const candidates = Array.isArray(navigator.languages) && navigator.languages.length > 0
+        ? navigator.languages
+        : [navigator.language];
+      for (const raw of candidates) {
+        const value = String(raw || '').trim().toLowerCase().replace(/_/g, '-');
+        if (!value) continue;
+        if (value === 'zh' || value.startsWith('zh-')) {
+          return 'zh-CN';
+        }
+        if (value === 'en' || value.startsWith('en-')) {
+          return 'en-US';
+        }
+      }
+      return 'en-US';
     }
 
     function initI18n() {
@@ -255,10 +271,11 @@
         backToHomeBtn.textContent = resultText.back_to_home;
         return;
       }
-      if (localeFromQuery && typeof window.WebShopXI18n.setLocale === 'function') {
-        window.WebShopXI18n.setLocale(localeFromQuery);
-      }
-      const bundle = window.WebShopXI18n.loadBundleSync('app');
+      const browserLocale = detectBrowserLocaleForResult();
+      const bundle = window.WebShopXI18n.loadBundleSync('app', {
+        locale: browserLocale,
+        fallbackLocale: 'en-US',
+      });
       const candidate = bundle && typeof bundle === 'object' ? bundle.result : null;
       if (candidate && typeof candidate === 'object') {
         resultText = { ...resultText, ...candidate };
@@ -267,12 +284,6 @@
       copyBtn.textContent = resultText.copy_btn;
       copyBtn.setAttribute('aria-label', resultText.copy_btn);
       backToHomeBtn.textContent = resultText.back_to_home;
-      const activeLocale = typeof window.WebShopXI18n.getLocale === 'function'
-        ? window.WebShopXI18n.getLocale()
-        : localeFromQuery;
-      if (activeLocale) {
-        backToHomeBtn.href = `/index.html?locale=${encodeURIComponent(activeLocale)}`;
-      }
     }
 
     // Configure status page UI

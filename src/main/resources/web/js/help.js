@@ -718,14 +718,14 @@
     }
 
     if (requestedCategory === "dynamic") {
-      const dynamicId = findLooseId("dynamic-algorithms") || findLooseId("动态算法总览");
+      const dynamicId = findLooseId("dynamic-algorithms") || findLooseId(getHelpRuntimeText("dynamicAlgTitle", "动态算法总览"));
       if (dynamicId) {
         return dynamicId;
       }
     }
 
     if (requestedCategory === "auction") {
-      const auctionId = findLooseId("market-auction") || findLooseId("拍卖模式说明");
+      const auctionId = findLooseId("market-auction") || findLooseId(getHelpRuntimeText("auctionTitle", "拍卖模式说明"));
       if (auctionId) {
         return auctionId;
       }
