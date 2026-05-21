@@ -622,7 +622,7 @@ class RuntimeConfigService {
         continue;
       }
       JsonObject item = element.getAsJsonObject();
-      PaymentMethod method = PluginSettings.parsePaymentMethod(readString(item, "method", "AUTO"));
+      PaymentMethod method = PluginSettings.parsePaymentMethod(readString(item, "method", "ALIPAY"));
       String currency = readString(item, "currency", "");
       long coinsPerUnit = readLong(item, "coinsPerUnit", 0L);
       if (method != null && coinsPerUnit > 0L) {

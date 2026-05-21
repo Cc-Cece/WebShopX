@@ -56,10 +56,11 @@
       "ruleSaveFailed": "Rule save failed: {message}"
     },
     "paymentMethodLabels": {
-      "AUTO": "Auto",
       "ALIPAY": "Alipay",
       "WECHAT": "WeChat Pay",
       "PAYPAL": "PayPal",
+      "MERCADOPAGO": "MercadoPago",
+      "STRIPE": "Stripe",
       "CUSTOM": "Custom"
     },
     "page": {

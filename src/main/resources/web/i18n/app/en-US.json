@@ -78,10 +78,11 @@
       "MAILBOX_PENDING": "Mailbox Pending"
     },
     "paymentMethodLabels": {
-      "AUTO": "Auto",
       "ALIPAY": "Alipay",
       "WECHAT": "WeChat Pay",
       "PAYPAL": "PayPal",
+      "MERCADOPAGO": "MercadoPago",
+      "STRIPE": "Stripe",
       "CUSTOM": "Custom"
     },
     "templates": {
@@ -213,6 +214,8 @@
       "rechargeCreateBtn": "Create Payment",
       "rechargeStatusBtn": "Check Status",
       "rechargeOpenPayBtn": "View Payment",
+      "rechargeComboUnavailableTip": "This payment method and currency combination is not available. Please change your selection.",
+      "rechargeCreditUnavailable": "-",
       "rechargePaymentDialogTitle": "Complete Payment",
       "rechargePaymentDialogDesc": "Scan the QR code on mobile or open the payment page.",
       "rechargePaymentOrderLabel": "Order",
@@ -1187,5 +1190,19 @@
     "density": "Dense",
     "breach": "Armor Penetration",
     "wind_burst": "Wind Explosion"
+  },
+  "result": {
+    "page_title": "Payment Result - WebShopX",
+    "success_title": "Payment Successful",
+    "success_desc": "Your order has been paid successfully! Thank you.",
+    "cancel_title": "Payment Cancelled",
+    "cancel_desc": "You have cancelled the checkout process. You can place a new order anytime.",
+    "error_title": "Payment Error",
+    "error_desc": "An error occurred while processing your payment. Please contact support.",
+    "order_number": "Order ID: ",
+    "copy_btn": "Copy",
+    "copy_success": "Copied!",
+    "back_to_home": "Back to Store",
+    "redirecting": "Redirecting to store in {seconds} seconds..."
   }
 }

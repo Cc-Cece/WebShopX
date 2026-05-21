@@ -56,10 +56,11 @@
       "ruleSaveFailed": "规则保存失败：{message}"
     },
     "paymentMethodLabels": {
-      "AUTO": "自动选择",
       "ALIPAY": "支付宝",
       "WECHAT": "微信支付",
       "PAYPAL": "PayPal",
+      "MERCADOPAGO": "MercadoPago",
+      "STRIPE": "Stripe",
       "CUSTOM": "自定义"
     },
     "page": {

@@ -1,4 +1,4 @@
-﻿const state = {
+const state = {
   token: null,
   admin: null,
   activeMajor: "overview",
@@ -665,10 +665,11 @@ const elements = {
   rechargePaymentAllowedDialog: document.getElementById("rechargePaymentAllowedDialog"),
   rechargePaymentAllowedList: document.getElementById("rechargePaymentAllowedList"),
   rechargePaymentAllowedDialogCloseBtn: document.getElementById("rechargePaymentAllowedDialogCloseBtn"),
-  rechargeMethodAuto: document.getElementById("rechargeMethodAuto"),
   rechargeMethodAlipay: document.getElementById("rechargeMethodAlipay"),
   rechargeMethodWechat: document.getElementById("rechargeMethodWechat"),
   rechargeMethodPaypal: document.getElementById("rechargeMethodPaypal"),
+  rechargeMethodMercadopago: document.getElementById("rechargeMethodMercadopago"),
+  rechargeMethodStripe: document.getElementById("rechargeMethodStripe"),
   rechargeMethodCustom: document.getElementById("rechargeMethodCustom"),
   rechargePaymentSaveBtn: document.getElementById("rechargePaymentSaveBtn"),
   rechargePaymentStatusView: document.getElementById("rechargePaymentStatusView"),
@@ -8270,17 +8271,18 @@ async function saveCurrencyDisplaySettings() {
 
 function rechargeMethodInputs() {
   return [
-    elements.rechargeMethodAuto,
     elements.rechargeMethodAlipay,
     elements.rechargeMethodWechat,
     elements.rechargeMethodPaypal,
+    elements.rechargeMethodMercadopago,
+    elements.rechargeMethodStripe,
     elements.rechargeMethodCustom,
   ].filter(Boolean);
 }
 
 function normalizePaymentMethod(value) {
   const normalized = String(value || "").trim().toUpperCase().replace(/-/g, "_");
-  return ["AUTO", "ALIPAY", "WECHAT", "PAYPAL", "CUSTOM"].includes(normalized) ? normalized : "";
+  return ["ALIPAY", "WECHAT", "PAYPAL", "MERCADOPAGO", "STRIPE", "CUSTOM"].includes(normalized) ? normalized : "";
 }
 
 function normalizePaymentCurrency(value) {
@@ -8395,7 +8397,7 @@ function applyRechargePaymentSettings(settings, provider) {
   }
 
   const configuredMethods = new Set(
-    (Array.isArray(settings.methods) ? settings.methods : ["AUTO"])
+    (Array.isArray(settings.methods) ? settings.methods : ["ALIPAY"])
       .map(normalizePaymentMethod)
       .filter(Boolean)
   );

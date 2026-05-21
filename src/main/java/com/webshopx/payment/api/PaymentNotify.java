@@ -10,7 +10,7 @@ public class PaymentNotify {
   private PaymentStatus status = PaymentStatus.UNKNOWN;
   private long amountMinor;
   private String currency;
-  private PaymentMethod method = PaymentMethod.AUTO;
+  private PaymentMethod method;
   private String methodCode;
   private Instant paidAt;
   private String rawEventId;
@@ -61,7 +61,7 @@ public class PaymentNotify {
   }
 
   public void setMethod(PaymentMethod method) {
-    this.method = method == null ? PaymentMethod.AUTO : method;
+    this.method = method;
   }
 
   public String getMethodCode() {

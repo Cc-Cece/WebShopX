@@ -13,7 +13,7 @@ public class PaymentCreateRequest {
   private String currency;
   private String subject;
   private String description;
-  private PaymentMethod preferredMethod = PaymentMethod.AUTO;
+  private PaymentMethod preferredMethod;
   private String methodCode;
   private String returnUrl;
   private String notifyUrl;
@@ -81,7 +81,7 @@ public class PaymentCreateRequest {
   }
 
   public void setPreferredMethod(PaymentMethod preferredMethod) {
-    this.preferredMethod = preferredMethod == null ? PaymentMethod.AUTO : preferredMethod;
+    this.preferredMethod = preferredMethod;
   }
 
   public String getMethodCode() {

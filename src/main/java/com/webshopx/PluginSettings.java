@@ -320,7 +320,7 @@ record PluginSettings(
       }
     }
     if (normalized.isEmpty()) {
-      normalized.add(PaymentMethod.AUTO);
+      normalized.add(PaymentMethod.ALIPAY);
     }
     return Collections.unmodifiableList(new ArrayList<>(normalized));
   }
@@ -531,23 +531,25 @@ record PluginSettings(
     }
 
     boolean isMethodAllowed(PaymentMethod method) {
-      PaymentMethod normalized = method == null ? PaymentMethod.AUTO : method;
-      return rechargeMethods.contains(normalized);
+      if (method == null) {
+        PaymentMethod fallback = rechargeMethods.isEmpty() ? PaymentMethod.ALIPAY : rechargeMethods.get(0);
+        return rechargeMethods.contains(fallback);
+      }
+      return rechargeMethods.contains(method);
     }
 
     RechargeRate rechargeRate(PaymentMethod method, String currency) {
-      PaymentMethod normalizedMethod = method == null ? PaymentMethod.AUTO : method;
       String normalizedCurrency = currency == null ? "" : currency.trim().toUpperCase(Locale.ROOT);
-      for (RechargeRate rate : rechargeRates) {
-        if (rate.method() == normalizedMethod && rate.currency().equals(normalizedCurrency)) {
-          return rate;
-        }
-      }
-      if (normalizedMethod != PaymentMethod.AUTO) {
+      if (method != null) {
         for (RechargeRate rate : rechargeRates) {
-          if (rate.method() == PaymentMethod.AUTO && rate.currency().equals(normalizedCurrency)) {
+          if (rate.method() == method && rate.currency().equals(normalizedCurrency)) {
             return rate;
           }
+        }
+      }
+      for (RechargeRate rate : rechargeRates) {
+        if (rate.currency().equals(normalizedCurrency)) {
+          return rate;
         }
       }
       return null;
@@ -569,7 +571,7 @@ record PluginSettings(
 
   record RechargeRate(PaymentMethod method, String currency, long coinsPerUnit) {
     RechargeRate {
-      method = method == null ? PaymentMethod.AUTO : method;
+      method = method == null ? PaymentMethod.ALIPAY : method;
       currency = currency == null ? "" : currency.trim().toUpperCase(Locale.ROOT);
       coinsPerUnit = Math.max(1L, coinsPerUnit);
     }

@@ -2,8 +2,10 @@ package com.webshopx;
 
 import com.google.gson.Gson;
 import com.webshopx.payment.api.PaymentMethod;
+import java.net.URLEncoder;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -78,6 +80,18 @@ class RechargeService {
       return null;
     });
 
+    String dynamicReturnUrl = null;
+    if (normalized.baseUrl() != null && !normalized.baseUrl().isBlank()) {
+      String locale = normalizeLocaleTag(normalized.locale());
+      if (locale == null) {
+        dynamicReturnUrl = normalized.baseUrl() + "/result.html?orderId=" + orderId;
+      } else {
+        dynamicReturnUrl = normalized.baseUrl()
+            + "/result.html?orderId=" + orderId
+            + "&locale=" + URLEncoder.encode(locale, StandardCharsets.UTF_8);
+      }
+    }
+
     WebShopXPaymentBridge.CreatePaymentResultData payResult;
     try {
       payResult = paymentBridge.createPayment(new WebShopXPaymentBridge.CreatePaymentRequestData(
@@ -90,7 +104,7 @@ class RechargeService {
           "Recharge " + normalized.coinAmount() + " ShopCoin via " + normalized.source(),
           normalized.preferredMethod(),
           normalized.methodCode(),
-          null,
+          dynamicReturnUrl,
           null,
           requestedExpiresAt,
           metadata));
@@ -247,10 +261,11 @@ class RechargeService {
 
   long amountToCoinAmount(long amountMinor) {
     PluginSettings.PaymentSettings paymentSettings = settingsSupplier.get().paymentSettings();
+    PaymentMethod defaultMethod = paymentSettings.rechargeMethods().isEmpty() ? PaymentMethod.ALIPAY : paymentSettings.rechargeMethods().get(0);
     return calculateCoinAmount(
         amountMinor,
         paymentSettings.primaryRechargeCurrency(),
-        PaymentMethod.AUTO);
+        defaultMethod);
   }
 
   long calculateCoinAmount(long amountMinor, String currency, PaymentMethod method) {
@@ -320,7 +335,9 @@ class RechargeService {
         coinAmount,
         preferredMethod,
         blankToNull(request.methodCode()),
-        source);
+        source,
+        request.baseUrl(),
+        normalizeLocaleTag(request.locale()));
   }
 
   private Instant resolveRechargeOrderExpiresAt() {
@@ -353,8 +370,12 @@ class RechargeService {
   }
 
   private PaymentMethod normalizePaymentMethod(PaymentMethod method) {
-    PaymentMethod normalized = method == null ? PaymentMethod.AUTO : method;
-    if (!settingsSupplier.get().paymentSettings().isMethodAllowed(normalized)) {
+    PluginSettings.PaymentSettings paymentSettings = settingsSupplier.get().paymentSettings();
+    PaymentMethod normalized = method;
+    if (normalized == null) {
+      normalized = paymentSettings.rechargeMethods().isEmpty() ? PaymentMethod.ALIPAY : paymentSettings.rechargeMethods().get(0);
+    }
+    if (!paymentSettings.isMethodAllowed(normalized)) {
       throw new ServiceException("METHOD_UNSUPPORTED", "Unsupported payment method: " + normalized.name());
     }
     return normalized;
@@ -366,6 +387,17 @@ class RechargeService {
       throw new ServiceException("bad_request", "Invalid recharge source");
     }
     return normalized;
+  }
+
+  private String normalizeLocaleTag(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return null;
+    }
+    String text = raw.trim().replace('_', '-');
+    if (!text.matches("^[A-Za-z]{2,8}(-[A-Za-z0-9]{2,8})*$")) {
+      return null;
+    }
+    return text;
   }
 
   private String normalizeOrderId(String orderId) {
@@ -687,7 +719,9 @@ class RechargeService {
       long coinAmount,
       PaymentMethod preferredMethod,
       String methodCode,
-      String source) {
+      String source,
+      String baseUrl,
+      String locale) {
   }
 
   record RechargeCreateResult(

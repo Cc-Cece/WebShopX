@@ -1,4 +1,4 @@
-﻿const state = {
+const state = {
   token: null,
   username: null,
   boundUuid: null,
@@ -93,9 +93,10 @@
   recharge: {
     currentOrderId: null,
     currentPayment: null,
+    comboUnavailable: false,
     currencies: ["CNY"],
-    methods: ["AUTO"],
-    rates: [{ method: "AUTO", currency: "CNY", coinsPerUnit: 100 }],
+    methods: ["ALIPAY"],
+    rates: [{ method: "ALIPAY", currency: "CNY", coinsPerUnit: 100 }],
     provider: null,
     statusPollTimer: null,
     statusPollBusy: false,
@@ -3594,7 +3595,7 @@ function normalizeRechargeCurrency(value) {
 
 function normalizeRechargeMethod(value) {
   const normalized = String(value || "").trim().toUpperCase().replace(/-/g, "_");
-  return ["AUTO", "ALIPAY", "WECHAT", "PAYPAL", "CUSTOM"].includes(normalized) ? normalized : "";
+  return ["ALIPAY", "WECHAT", "PAYPAL", "MERCADOPAGO", "STRIPE", "CUSTOM"].includes(normalized) ? normalized : "";
 }
 
 function paymentMethodLabel(method) {
@@ -3643,12 +3644,12 @@ function applyRechargePaymentMeta(settings, provider) {
     methods = methods.filter((method) => methodAllow.has(method));
   }
   if (methods.length === 0) {
-    methods = (providerMethods.length ? providerMethods : ["AUTO"])
+    methods = (providerMethods.length ? providerMethods : ["ALIPAY"])
       .map(normalizeRechargeMethod)
       .filter(Boolean);
   }
   if (methods.length === 0) {
-    methods = ["AUTO"];
+    methods = ["ALIPAY"];
   }
 
   state.recharge.currencies = Array.from(new Set(currencies));
@@ -3706,6 +3707,10 @@ function updateRechargeCoinPreview() {
   if (!elements.rechargeCoinPreview) {
     return;
   }
+  const comboAvailable = updateRechargeComboAvailabilityState();
+  if (!comboAvailable) {
+    return;
+  }
   try {
     const amountMinor = parseRechargeAmountMinor();
     const coinAmount = calculateRechargeCoinAmount(amountMinor, currentRechargeCurrency(), currentRechargeMethod());
@@ -3729,17 +3734,54 @@ function normalizeRechargeRate(rate) {
 }
 
 function currentRechargeMethod() {
-  return normalizeRechargeMethod(elements.rechargePaymentMethod?.value) || state.recharge.methods[0] || "AUTO";
+  return normalizeRechargeMethod(elements.rechargePaymentMethod?.value) || state.recharge.methods[0] || "ALIPAY";
 }
 
 function resolveRechargeRate(currency, method) {
   const normalizedCurrency = normalizeRechargeCurrency(currency);
-  const normalizedMethod = normalizeRechargeMethod(method) || "AUTO";
+  const normalizedMethod = normalizeRechargeMethod(method) || state.recharge.methods[0] || "ALIPAY";
   return state.recharge.rates.find((rate) =>
     rate.method === normalizedMethod && rate.currency === normalizedCurrency
   ) || state.recharge.rates.find((rate) =>
-    rate.method === "AUTO" && rate.currency === normalizedCurrency
+    rate.currency === normalizedCurrency
   ) || null;
+}
+
+function hasRechargeRateForCombo(currency, method) {
+  const normalizedCurrency = normalizeRechargeCurrency(currency);
+  const normalizedMethod = normalizeRechargeMethod(method);
+  if (!normalizedCurrency || !normalizedMethod) {
+    return false;
+  }
+  return state.recharge.rates.some((rate) => rate.currency === normalizedCurrency && rate.method === normalizedMethod);
+}
+
+function updateRechargeComboAvailabilityState() {
+  const currency = currentRechargeCurrency();
+  const method = currentRechargeMethod();
+  const available = hasRechargeRateForCombo(currency, method);
+  const creditField = elements.rechargeCoinPreview?.closest(".field");
+  state.recharge.comboUnavailable = !available;
+
+  if (creditField) {
+    creditField.classList.toggle("hidden", !available);
+  }
+  if (elements.rechargeBtn) {
+    elements.rechargeBtn.disabled = !available;
+    elements.rechargeBtn.setAttribute("aria-disabled", available ? "false" : "true");
+  }
+  if (!available) {
+    if (elements.rechargeCoinPreview) {
+      elements.rechargeCoinPreview.value = getAppPageText("rechargeCreditUnavailable", "-");
+    }
+    setMetaText(
+      elements.rechargeView,
+      getAppPageText("rechargeComboUnavailableTip", APP_UI_TEXT.initMeta.rechargeView || ""),
+      "info"
+    );
+    return false;
+  }
+  return true;
 }
 
 function calculateRechargeCoinAmount(amountMinor, currency, method) {
@@ -8313,6 +8355,14 @@ if (elements.rechargeBtn) {
       const amountMinor = parseRechargeAmountMinor();
       const currency = currentRechargeCurrency();
       const paymentMethod = currentRechargeMethod();
+      if (!hasRechargeRateForCombo(currency, paymentMethod)) {
+        setMetaText(
+          elements.rechargeView,
+          getAppPageText("rechargeComboUnavailableTip", APP_UI_TEXT.initMeta.rechargeView || ""),
+          "info"
+        );
+        return;
+      }
       setMetaText(elements.rechargeView, formatAppTemplate("rechargeCreating"), "info");
       setRechargePayLink(null);
       state.recharge.currentPayment = null;
@@ -8322,6 +8372,7 @@ if (elements.rechargeBtn) {
           amountMinor,
           currency,
           paymentMethod,
+          locale: I18N ? I18N.getLocale() : "zh-CN",
         }),
       });
       state.recharge.currentOrderId = payload.orderId;

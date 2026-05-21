@@ -9,7 +9,7 @@ public class PaymentCreateResult {
   private String merchantOrderId;
   private String providerOrderId;
   private PaymentStatus status = PaymentStatus.UNKNOWN;
-  private PaymentMethod method = PaymentMethod.AUTO;
+  private PaymentMethod method;
   private String methodCode;
   private String payUrl;
   private String qrCodeUrl;
@@ -55,7 +55,7 @@ public class PaymentCreateResult {
   }
 
   public void setMethod(PaymentMethod method) {
-    this.method = method == null ? PaymentMethod.AUTO : method;
+    this.method = method;
   }
 
   public String getMethodCode() {

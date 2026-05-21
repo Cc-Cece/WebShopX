@@ -78,10 +78,11 @@
       "MAILBOX_PENDING": "信箱待领取"
     },
     "paymentMethodLabels": {
-      "AUTO": "自动选择",
       "ALIPAY": "支付宝",
       "WECHAT": "微信支付",
       "PAYPAL": "PayPal",
+      "MERCADOPAGO": "MercadoPago",
+      "STRIPE": "Stripe",
       "CUSTOM": "自定义"
     },
     "templates": {
@@ -213,6 +214,8 @@
       "rechargeCreateBtn": "创建支付单",
       "rechargeStatusBtn": "查询状态",
       "rechargeOpenPayBtn": "查看支付单",
+      "rechargeComboUnavailableTip": "当前支付方式与支付币种组合不可用，请更换后重试。",
+      "rechargeCreditUnavailable": "-",
       "rechargePaymentDialogTitle": "完成支付",
       "rechargePaymentDialogDesc": "可使用手机扫码支付，也可以打开支付页面继续。",
       "rechargePaymentOrderLabel": "订单号",
@@ -1187,5 +1190,19 @@
     "density": "致密",
     "breach": "破甲",
     "wind_burst": "风爆"
+  },
+  "result": {
+    "page_title": "支付结果 - WebShopX",
+    "success_title": "支付成功",
+    "success_desc": "您的订单已支付成功，感谢您的支持！",
+    "cancel_title": "支付已取消",
+    "cancel_desc": "您已取消了本次支付，如果需要可以重新发起订单。",
+    "error_title": "支付处理异常",
+    "error_desc": "抱歉，系统在处理支付时遇到错误，请联系管理员。",
+    "order_number": "订单号：",
+    "copy_btn": "复制",
+    "copy_success": "复制成功！",
+    "back_to_home": "返回主商店",
+    "redirecting": "{seconds} 秒后将自动跳转回主页..."
   }
 }

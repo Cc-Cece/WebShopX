@@ -434,11 +434,15 @@ class ShopCommand implements CommandExecutor, TabCompleter {
               () -> { });
           return;
         }
-        String currency = settingsSupplier.get().paymentSettings().primaryRechargeCurrency();
+        var paymentSettings = settingsSupplier.get().paymentSettings();
+        String currency = paymentSettings.primaryRechargeCurrency();
+        com.webshopx.payment.api.PaymentMethod defaultMethod = paymentSettings.rechargeMethods().isEmpty()
+            ? com.webshopx.payment.api.PaymentMethod.ALIPAY
+            : paymentSettings.rechargeMethods().get(0);
         long coinAmount = rechargeService.calculateCoinAmount(
             amountMinor,
             currency,
-            com.webshopx.payment.api.PaymentMethod.AUTO);
+            defaultMethod);
         RechargeService.RechargeCreateResult result = rechargeService.createRechargeOrder(
             new RechargeService.RechargeCreateRequest(
                 binding.userId(),
@@ -446,9 +450,11 @@ class ShopCommand implements CommandExecutor, TabCompleter {
                 amountMinor,
                 currency,
                 0L,
-                com.webshopx.payment.api.PaymentMethod.AUTO,
                 null,
-                "MINECRAFT"));
+                null,
+                "MINECRAFT",
+                null,
+                null));
         schedulerBridge.runPlayer(
             playerUuid,
             target -> sendRechargeCreated(target, result, amountMinor, currency, coinAmount),

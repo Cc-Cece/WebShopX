@@ -79,7 +79,7 @@ final class WebShopXPaymentBridge {
       return new PaymentProviderInfo(false, null, null, Set.of(), Set.of());
     }
     if (handle.kind() == ProviderKind.LEGACY_YUPAY) {
-      return new PaymentProviderInfo(true, LEGACY_PROVIDER_ID, "YuPay", Set.of(PaymentMethod.AUTO), Set.of("CNY"));
+      return new PaymentProviderInfo(true, LEGACY_PROVIDER_ID, "YuPay", Set.of(PaymentMethod.ALIPAY, PaymentMethod.WECHAT), Set.of("CNY"));
     }
     Set<PaymentMethod> methods = new LinkedHashSet<>();
     Set<String> currencies = new LinkedHashSet<>();
@@ -375,7 +375,7 @@ final class WebShopXPaymentBridge {
     if (!isBlank(methodCode)) {
       return methodCode.trim();
     }
-    if (method == null || method == PaymentMethod.AUTO) {
+    if (method == null) {
       return null;
     }
     return method.name();

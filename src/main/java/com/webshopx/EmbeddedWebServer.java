@@ -100,6 +100,8 @@ class EmbeddedWebServer {
   private final LocaleCenterService localeCenterService;
   private final ThemeCenterService themeCenterService;
 
+  private static final Map<String, RedirectEntry> redirectMap = new java.util.concurrent.ConcurrentHashMap<>();
+
   private HttpServer server;
   private ExecutorService executorService;
   private Path staticRoot;
@@ -177,6 +179,7 @@ class EmbeddedWebServer {
     server.createContext("/api/recharge/create", this::handleRechargeCreate);
     server.createContext("/api/recharge/cancel", this::handleRechargeCancel);
     server.createContext("/api/recharge/status", this::handleRechargeStatus);
+    server.createContext("/api/recharge/redirect", this::handleRechargeRedirect);
     server.createContext("/api/redeem/use", this::handleRedeemUse);
     server.createContext("/api/products", this::handleProducts);
     server.createContext("/api/orders", this::handleOrders);
@@ -421,11 +424,13 @@ class EmbeddedWebServer {
           : rechargeService.yuanToAmountMinor(getString(payload, "amount"));
       String currency = getOptionalString(payload, "currency")
           .orElse(settingsSupplier.get().paymentSettings().primaryRechargeCurrency());
-      PaymentMethod preferredMethod = parsePaymentMethod(
-          getOptionalString(payload, "paymentMethod")
-              .or(() -> getOptionalString(payload, "preferredMethod"))
-              .orElse("AUTO"));
+      PaymentMethod preferredMethod = getOptionalString(payload, "paymentMethod")
+          .or(() -> getOptionalString(payload, "preferredMethod"))
+          .map(this::parsePaymentMethod)
+          .orElse(null);
       String methodCode = getOptionalString(payload, "methodCode").orElse(null);
+      String locale = getOptionalString(payload, "locale").orElse(null);
+      String baseUrl = resolveBaseUrl(exchange);
       RechargeService.RechargeCreateResult result = rechargeService.createRechargeOrder(
           new RechargeService.RechargeCreateRequest(
               user.id(),
@@ -435,8 +440,10 @@ class EmbeddedWebServer {
               0L,
               preferredMethod,
               methodCode,
-              "WEB"));
-      JsonObject response = rechargeCreateResultJson(result);
+              "WEB",
+              baseUrl,
+              locale));
+      JsonObject response = rechargeCreateResultJson(exchange, result);
       sendJson(exchange, result.success() ? 200 : 400, response);
     });
   }
@@ -477,8 +484,30 @@ class EmbeddedWebServer {
       if (order == null) {
         throw new ServiceException("ORDER_NOT_FOUND", "Recharge order not found");
       }
-      sendJson(exchange, 200, rechargeOrderJson(order));
+      sendJson(exchange, 200, rechargeOrderJson(exchange, order));
     });
+  }
+
+  private void handleRechargeRedirect(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    String id = parseQuery(exchange).get("id");
+    if (id == null || id.isBlank()) {
+      sendJson(exchange, 400, errorJson("BAD_REQUEST", "Missing redirect ID"));
+      return;
+    }
+    RedirectEntry entry = redirectMap.get(id);
+    if (entry == null || System.currentTimeMillis() - entry.createdAt > 900000L) {
+      sendJson(exchange, 404, errorJson("NOT_FOUND", "Redirect link expired or not found"));
+      return;
+    }
+    exchange.getResponseHeaders().set("Location", entry.url);
+    exchange.sendResponseHeaders(302, -1);
+    exchange.close();
   }
 
   private void handleExchange(HttpExchange exchange) throws IOException {
@@ -4814,20 +4843,20 @@ class EmbeddedWebServer {
     return response;
   }
 
-  private JsonObject rechargeCreateResultJson(RechargeService.RechargeCreateResult result) {
+  private JsonObject rechargeCreateResultJson(HttpExchange exchange, RechargeService.RechargeCreateResult result) {
     JsonObject response = new JsonObject();
     response.addProperty("success", result.success());
     response.addProperty("orderId", result.orderId());
     addNullableString(response, "providerOrderId", result.providerOrderId());
     addNullableString(response, "payUrl", result.payUrl());
-    addNullableString(response, "qrCodeUrl", result.qrCodeUrl());
+    addNullableString(response, "qrCodeUrl", processQrCodeUrl(exchange, result.qrCodeUrl()));
     addNullableInstant(response, "expireTime", result.expireTime());
     addNullableString(response, "errorCode", result.errorCode());
     addNullableString(response, "message", result.message());
     return response;
   }
 
-  private JsonObject rechargeOrderJson(RechargeService.RechargeOrder order) {
+  private JsonObject rechargeOrderJson(HttpExchange exchange, RechargeService.RechargeOrder order) {
     JsonObject response = new JsonObject();
     response.addProperty("orderId", order.orderId());
     response.addProperty("userId", order.userId());
@@ -4839,7 +4868,7 @@ class EmbeddedWebServer {
     addNullableString(response, "provider", order.provider());
     addNullableString(response, "providerOrderId", order.providerOrderId());
     addNullableString(response, "payUrl", order.payUrl());
-    addNullableString(response, "qrCodeUrl", order.qrCodeUrl());
+    addNullableString(response, "qrCodeUrl", processQrCodeUrl(exchange, order.qrCodeUrl()));
     addNullableInstant(response, "expireTime", order.expireTime());
     addNullableInstant(response, "paidTime", order.paidTime());
     addNullableInstant(response, "creditedTime", order.creditedTime());
@@ -6152,6 +6181,152 @@ class EmbeddedWebServer {
   @FunctionalInterface
   private interface CheckedPathSupplier {
     Path get() throws Exception;
+  }
+
+  private static class RedirectEntry {
+    final String url;
+    final long createdAt;
+
+    RedirectEntry(String url, long createdAt) {
+      this.url = url;
+      this.createdAt = createdAt;
+    }
+  }
+
+  private String getOrCreateShortRedirect(String payUrl) {
+    if (payUrl == null || payUrl.isBlank()) {
+      return "";
+    }
+    cleanExpiredRedirects();
+    for (Map.Entry<String, RedirectEntry> entry : redirectMap.entrySet()) {
+      if (payUrl.equals(entry.getValue().url)) {
+        return entry.getKey();
+      }
+    }
+    String shortId = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    redirectMap.put(shortId, new RedirectEntry(payUrl, System.currentTimeMillis()));
+    return shortId;
+  }
+
+  private void cleanExpiredRedirects() {
+    long now = System.currentTimeMillis();
+    redirectMap.entrySet().removeIf(entry -> now - entry.getValue().createdAt > 900000L);
+  }
+
+  private String resolveBaseUrl(HttpExchange exchange) {
+    if (exchange == null) {
+      return "";
+    }
+    String proto = exchange.getRequestHeaders().getFirst("X-Forwarded-Proto");
+    if (proto == null || proto.isBlank()) {
+      proto = "http";
+    }
+    String host = exchange.getRequestHeaders().getFirst("Host");
+    if (host == null || host.isBlank()) {
+      InetSocketAddress local = exchange.getLocalAddress();
+      if (local != null) {
+        host = local.getHostString() + ":" + local.getPort();
+      } else {
+        host = "localhost";
+      }
+    }
+    return proto + "://" + host;
+  }
+
+  private String processQrCodeUrl(HttpExchange exchange, String qrUrl) {
+    if (qrUrl == null || qrUrl.isBlank()) {
+      return null;
+    }
+    if (qrUrl.startsWith("data:")) {
+      return qrUrl;
+    }
+    if (qrUrl.startsWith("http://") || qrUrl.startsWith("https://")) {
+      String shortId = getOrCreateShortRedirect(qrUrl);
+      String baseUrl = resolveBaseUrl(exchange);
+      String shortUrl = baseUrl + "/api/recharge/redirect?id=" + shortId;
+      String svgBase64 = tryGenerateQrCodeSvg(shortUrl);
+      if (svgBase64 != null) {
+        return svgBase64;
+      } else {
+        return null;
+      }
+    }
+    return qrUrl;
+  }
+
+  private static String tryGenerateQrCodeSvg(String content) {
+    if (content == null || content.isBlank()) {
+      return null;
+    }
+    try {
+      Class<?> qrCodeClass = null;
+      Class<?> ecClass = null;
+      Object ecLevel = null;
+
+      try {
+        qrCodeClass = Class.forName("top.mrxiaom.qrcode.QRCode");
+        ecClass = Class.forName("top.mrxiaom.qrcode.enums.ErrorCorrectionLevel");
+        for (Object constant : ecClass.getEnumConstants()) {
+          if ("M".equals(((Enum<?>) constant).name())) {
+            ecLevel = constant;
+            break;
+          }
+        }
+      } catch (ClassNotFoundException e1) {
+        try {
+          qrCodeClass = Class.forName("com.webshopx.payments.libs.qrcode.QRCode");
+          ecClass = Class.forName("com.webshopx.payments.libs.qrcode.enums.ErrorCorrectionLevel");
+          for (Object constant : ecClass.getEnumConstants()) {
+            if ("M".equals(((Enum<?>) constant).name())) {
+              ecLevel = constant;
+              break;
+            }
+          }
+        } catch (ClassNotFoundException e2) {
+          return null;
+        }
+      }
+
+      if (qrCodeClass == null || ecLevel == null) {
+        return null;
+      }
+
+      java.lang.reflect.Method createMethod = qrCodeClass.getMethod("create", String.class, ecClass);
+      Object qrCodeInstance = createMethod.invoke(null, content, ecLevel);
+
+      java.lang.reflect.Method getModuleCountMethod = qrCodeClass.getMethod("getModuleCount");
+      int modules = (Integer) getModuleCountMethod.invoke(qrCodeInstance);
+
+      java.lang.reflect.Method isDarkMethod = qrCodeClass.getMethod("isDark", int.class, int.class);
+
+      int quiet = 4;
+      int size = modules + quiet * 2;
+      StringBuilder svg = new StringBuilder(4096);
+      svg.append("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 ")
+          .append(size)
+          .append(' ')
+          .append(size)
+          .append("\" shape-rendering=\"crispEdges\">")
+          .append("<rect width=\"100%\" height=\"100%\" fill=\"#fff\"/>")
+          .append("<path fill=\"#000\" d=\"");
+      for (int row = 0; row < modules; row++) {
+        for (int col = 0; col < modules; col++) {
+          boolean isDark = (Boolean) isDarkMethod.invoke(qrCodeInstance, row, col);
+          if (isDark) {
+            svg.append('M')
+                .append(col + quiet)
+                .append(' ')
+                .append(row + quiet)
+                .append("h1v1h-1z");
+          }
+        }
+      }
+      svg.append("\"/></svg>");
+      String encoded = java.util.Base64.getEncoder().encodeToString(svg.toString().getBytes(StandardCharsets.UTF_8));
+      return "data:image/svg+xml;base64," + encoded;
+    } catch (Throwable ignored) {
+      return null;
+    }
   }
 }
 

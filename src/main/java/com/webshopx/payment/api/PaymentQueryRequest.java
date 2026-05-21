@@ -3,7 +3,7 @@ package com.webshopx.payment.api;
 public class PaymentQueryRequest {
   private String merchantOrderId;
   private String providerOrderId;
-  private PaymentMethod method = PaymentMethod.AUTO;
+  private PaymentMethod method;
   private String methodCode;
 
   public String getMerchantOrderId() {
@@ -27,7 +27,7 @@ public class PaymentQueryRequest {
   }
 
   public void setMethod(PaymentMethod method) {
-    this.method = method == null ? PaymentMethod.AUTO : method;
+    this.method = method;
   }
 
   public String getMethodCode() {
