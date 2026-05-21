@@ -3382,6 +3382,37 @@ pre {
   object-fit: contain;
 }
 
+.payment-success-panel {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: 22px;
+  border: 1px solid var(--app-success-border);
+  border-radius: var(--radius-small);
+  background: var(--app-success-bg);
+  color: var(--app-success-fg);
+}
+
+.payment-success-mark {
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--app-success-border);
+  background: var(--md-sys-color-surface-container-lowest);
+  color: var(--app-success-fg);
+  font-size: 56px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.payment-success-panel strong {
+  font-size: 18px;
+  color: var(--app-success-fg);
+}
+
 .page-index .price-dialog-field {
   min-height: 0;
 }

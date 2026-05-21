@@ -2,6 +2,8 @@ package com.webshopx;
 
 import com.google.gson.Gson;
 import com.webshopx.payment.api.PaymentMethod;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -241,7 +243,32 @@ class RechargeService {
   }
 
   long amountToCoinAmount(long amountMinor) {
-    return amountMinor;
+    PluginSettings.PaymentSettings paymentSettings = settingsSupplier.get().paymentSettings();
+    return calculateCoinAmount(
+        amountMinor,
+        paymentSettings.primaryRechargeCurrency(),
+        PaymentMethod.AUTO);
+  }
+
+  long calculateCoinAmount(long amountMinor, String currency, PaymentMethod method) {
+    if (amountMinor <= 0L) {
+      throw new ServiceException("invalid_amount", "Recharge amount must be positive");
+    }
+    PluginSettings.PaymentSettings paymentSettings = settingsSupplier.get().paymentSettings();
+    PluginSettings.RechargeRate rate = paymentSettings.rechargeRate(method, currency);
+    if (rate == null) {
+      throw new ServiceException(
+          "UNSUPPORTED_RECHARGE_RATE",
+          "Recharge rate is not configured for " + method + " " + currency);
+    }
+    try {
+      return BigDecimal.valueOf(amountMinor)
+          .multiply(BigDecimal.valueOf(rate.coinsPerUnit()))
+          .divide(BigDecimal.valueOf(100L), 0, RoundingMode.HALF_UP)
+          .longValueExact();
+    } catch (ArithmeticException exception) {
+      throw new ServiceException("invalid_amount", "Recharge coin amount is out of range");
+    }
   }
 
   long yuanToAmountMinor(String rawAmount) {
@@ -275,10 +302,9 @@ class RechargeService {
     if (amountMinor <= 0L) {
       throw new ServiceException("INVALID_AMOUNT", "amountMinor must be greater than 0");
     }
-    long coinAmount = request.coinAmount();
-    if (coinAmount <= 0L) {
-      throw new ServiceException("invalid_amount", "coinAmount must be greater than 0");
-    }
+    String currency = normalizeCurrency(request.currency());
+    PaymentMethod preferredMethod = normalizePaymentMethod(request.preferredMethod());
+    long coinAmount = calculateCoinAmount(amountMinor, currency, preferredMethod);
     String source = normalizeSource(request.source());
     if ("MINECRAFT".equals(source) && request.playerUuid() == null) {
       throw new ServiceException("bad_request", "playerUuid is required for Minecraft recharge");
@@ -287,9 +313,9 @@ class RechargeService {
         userId,
         request.playerUuid(),
         amountMinor,
-        normalizeCurrency(request.currency()),
+        currency,
         coinAmount,
-        normalizePaymentMethod(request.preferredMethod()),
+        preferredMethod,
         blankToNull(request.methodCode()),
         source);
   }

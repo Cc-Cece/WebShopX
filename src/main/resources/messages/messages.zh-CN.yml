@@ -421,6 +421,7 @@ error:
     invalid_amount: "充值金额必须为正数，且最多保留两位小数。"
     unsupported_currency: "不支持的充值币种。"
     unsupported_method: "当前支付方式不可用。"
+    unsupported_rate: "当前支付方式与币种没有配置 ShopCoin 比例。"
     order_not_found: "未找到充值订单。"
     provider_order_mismatch: "支付服务订单号不一致。"
     amount_mismatch: "支付金额不一致。"

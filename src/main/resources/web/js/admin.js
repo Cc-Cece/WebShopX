@@ -118,6 +118,7 @@
     fetching: false,
     downloading: false,
   },
+  rechargePaymentProviderInfo: null,
   manifestSource: {
     locale: {
       githubProxy: "auto",
@@ -658,8 +659,12 @@ const elements = {
   currencyGameCoinShort: document.getElementById("currencyGameCoinShort"),
   currencySaveBtn: document.getElementById("currencySaveBtn"),
   currencyStatusView: document.getElementById("currencyStatusView"),
-  rechargePaymentCurrencies: document.getElementById("rechargePaymentCurrencies"),
+  rechargePaymentRates: document.getElementById("rechargePaymentRates"),
   rechargePaymentProvider: document.getElementById("rechargePaymentProvider"),
+  rechargePaymentAllowedCombosBtn: document.getElementById("rechargePaymentAllowedCombosBtn"),
+  rechargePaymentAllowedDialog: document.getElementById("rechargePaymentAllowedDialog"),
+  rechargePaymentAllowedList: document.getElementById("rechargePaymentAllowedList"),
+  rechargePaymentAllowedDialogCloseBtn: document.getElementById("rechargePaymentAllowedDialogCloseBtn"),
   rechargeMethodAuto: document.getElementById("rechargeMethodAuto"),
   rechargeMethodAlipay: document.getElementById("rechargeMethodAlipay"),
   rechargeMethodWechat: document.getElementById("rechargeMethodWechat"),
@@ -8279,12 +8284,110 @@ function normalizePaymentCurrency(value) {
   return /^[A-Z]{3,8}$/.test(normalized) ? normalized : "";
 }
 
+function currenciesFromRechargeRates(rates) {
+  return Array.from(new Set(
+    (Array.isArray(rates) ? rates : [])
+      .map((rate) => normalizePaymentCurrency(rate.currency))
+      .filter(Boolean)
+  ));
+}
+
+function normalizeRechargeRate(rate) {
+  if (!rate || typeof rate !== "object") {
+    return null;
+  }
+  const method = normalizePaymentMethod(rate.method);
+  const currency = normalizePaymentCurrency(rate.currency);
+  const coinsPerUnit = Number(rate.coinsPerUnit);
+  if (!method || !currency || !Number.isSafeInteger(coinsPerUnit) || coinsPerUnit <= 0) {
+    return null;
+  }
+  return { method, currency, coinsPerUnit };
+}
+
+function formatRechargeRates(rates) {
+  const normalized = Array.isArray(rates)
+    ? rates.map(normalizeRechargeRate).filter(Boolean)
+    : [];
+  return normalized
+    .map((rate) => `${rate.method},${rate.currency},${rate.coinsPerUnit}`)
+    .join("\n");
+}
+
+function parseRechargeRatesText(value) {
+  const rates = [];
+  const lines = String(value || "").split(/\r?\n/);
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return;
+    }
+    const parts = trimmed.split(/[\s,;]+/).filter(Boolean);
+    if (parts.length !== 3) {
+      throw new Error(getAdminUiText("page.rechargePaymentRateInvalid").replace("{line}", String(index + 1)));
+    }
+    const rate = normalizeRechargeRate({
+      method: parts[0],
+      currency: parts[1],
+      coinsPerUnit: Number(parts[2]),
+    });
+    if (!rate) {
+      throw new Error(getAdminUiText("page.rechargePaymentRateInvalid").replace("{line}", String(index + 1)));
+    }
+    rates.push(rate);
+  });
+  return rates;
+}
+
+function setRechargePaymentAllowedDialogVisible(visible) {
+  if (!elements.rechargePaymentAllowedDialog) {
+    return;
+  }
+  elements.rechargePaymentAllowedDialog.classList.toggle("show", visible);
+  elements.rechargePaymentAllowedDialog.setAttribute("aria-hidden", visible ? "false" : "true");
+}
+
+function renderRechargePaymentAllowedCombinations() {
+  if (!elements.rechargePaymentAllowedList) {
+    return;
+  }
+  const provider = state.rechargePaymentProviderInfo || {};
+  const methods = (Array.isArray(provider.supportedMethods) ? provider.supportedMethods : [])
+    .map(normalizePaymentMethod)
+    .filter(Boolean);
+  const currencies = (Array.isArray(provider.supportedCurrencies) ? provider.supportedCurrencies : [])
+    .map(normalizePaymentCurrency)
+    .filter(Boolean);
+  elements.rechargePaymentAllowedList.replaceChildren();
+  if (provider.available === false || methods.length === 0 || currencies.length === 0) {
+    elements.rechargePaymentAllowedList.textContent = getAdminUiText("page.rechargePaymentAllowedEmpty");
+    return;
+  }
+  const list = document.createElement("div");
+  list.className = "admin-tag-list";
+  methods.forEach((method) => {
+    currencies.forEach((currency) => {
+      const item = document.createElement("span");
+      item.className = "admin-tag success";
+      item.textContent = `${method} / ${currency}`;
+      list.appendChild(item);
+    });
+  });
+  elements.rechargePaymentAllowedList.appendChild(list);
+}
+
+function openRechargePaymentAllowedDialog() {
+  renderRechargePaymentAllowedCombinations();
+  setRechargePaymentAllowedDialogVisible(true);
+}
+
 function applyRechargePaymentSettings(settings, provider) {
+  state.rechargePaymentProviderInfo = provider || null;
   const currencies = Array.isArray(settings.currencies)
     ? settings.currencies.map(normalizePaymentCurrency).filter(Boolean)
     : ["CNY"];
-  if (elements.rechargePaymentCurrencies) {
-    elements.rechargePaymentCurrencies.value = Array.from(new Set(currencies))[0] || "CNY";
+  if (elements.rechargePaymentRates) {
+    elements.rechargePaymentRates.value = formatRechargeRates(settings.rates);
   }
 
   const configuredMethods = new Set(
@@ -8315,23 +8418,29 @@ function applyRechargePaymentSettings(settings, provider) {
 
 async function saveRechargePaymentSettings() {
   ensureAdmin();
-  const currency = normalizePaymentCurrency(elements.rechargePaymentCurrencies?.value || "");
-  const currencies = currency ? [currency] : [];
   const methods = rechargeMethodInputs()
     .filter((input) => input.checked && !input.disabled)
     .map((input) => normalizePaymentMethod(input.value))
     .filter(Boolean);
+  const rates = parseRechargeRatesText(elements.rechargePaymentRates?.value || "");
+  const currencies = currenciesFromRechargeRates(rates);
   if (!currencies.length) {
     throw new Error(getAdminUiText("page.rechargePaymentCurrencyRequired"));
   }
   if (!methods.length) {
     throw new Error(getAdminUiText("page.rechargePaymentMethodRequired"));
   }
+  if (!rates.length) {
+    throw new Error(getAdminUiText("page.rechargePaymentRateRequired"));
+  }
   const payload = await apiAdmin("/api/admin/economy/recharge-payment", {
     method: "POST",
-    body: JSON.stringify({ currencies, methods }),
+    body: JSON.stringify({ currencies, methods, rates }),
   });
-  applyRechargePaymentSettings(payload.rechargePayment || { currencies, methods }, {});
+  applyRechargePaymentSettings(
+    payload.rechargePayment || { currencies, methods, rates },
+    state.rechargePaymentProviderInfo || {}
+  );
   setMetaText(elements.rechargePaymentStatusView, getAdminUiText("page.rechargePaymentSaved"), "success");
   notify(getAdminUiText("page.rechargePaymentSaved"), "success");
 }
@@ -9416,6 +9525,21 @@ if (elements.rechargePaymentSaveBtn) {
     } catch (error) {
       setMetaText(elements.rechargePaymentStatusView, formatAdminTemplate("saveFailed", { message: error.message }), "error");
       notify(formatAdminTemplate("saveFailed", { message: error.message }), "error");
+    }
+  });
+}
+if (elements.rechargePaymentAllowedCombosBtn) {
+  elements.rechargePaymentAllowedCombosBtn.addEventListener("click", openRechargePaymentAllowedDialog);
+}
+if (elements.rechargePaymentAllowedDialogCloseBtn) {
+  elements.rechargePaymentAllowedDialogCloseBtn.addEventListener("click", () => {
+    setRechargePaymentAllowedDialogVisible(false);
+  });
+}
+if (elements.rechargePaymentAllowedDialog) {
+  elements.rechargePaymentAllowedDialog.addEventListener("click", (event) => {
+    if (event.target === elements.rechargePaymentAllowedDialog) {
+      setRechargePaymentAllowedDialogVisible(false);
     }
   });
 }

@@ -95,7 +95,10 @@
     currentPayment: null,
     currencies: ["CNY"],
     methods: ["AUTO"],
+    rates: [{ method: "AUTO", currency: "CNY", coinsPerUnit: 100 }],
     provider: null,
+    statusPollTimer: null,
+    statusPollBusy: false,
   },
   leaderboard: {
     enabled: true,
@@ -240,6 +243,8 @@ const FALLBACK_APP_UI_TEXT = Object.freeze({
     rechargeCreating: "Creating payment order...",
     rechargeCreated: "Order {orderId} created. Complete payment, then check status.",
     rechargeStatus: "Order {orderId}: {status}, credit {coinAmount} ShopCoin",
+    rechargePaidDetected: "Payment confirmed for order {orderId}. Credited {coinAmount} ShopCoin.",
+    rechargeOrderClosed: "Order {orderId}: {status}.",
     rechargeFailed: "Recharge failed: {message}",
     rechargeStatusFailed: "Status check failed: {message}",
     rechargeNoPayLink: "Payment provider did not return a payment link.",
@@ -401,6 +406,7 @@ const FALLBACK_ERROR_TIPS_COMMON = {
   payment_create_failed: "支付订单创建失败，请稍后重试。",
   payment_query_failed: "支付订单查询失败，请稍后重试。",
   METHOD_UNSUPPORTED: "当前支付方式不可用，请选择其它支付方式。",
+  UNSUPPORTED_RECHARGE_RATE: "当前支付方式与币种没有配置 ShopCoin 比例。",
   ORDER_NOT_FOUND: "未找到充值订单。",
   INVALID_STATUS: "当前订单状态不允许该操作。",
   invalid_market_side: "上架方向无效，只支持 SELL 或 BUY。",
@@ -675,6 +681,7 @@ const elements = {
   walletLedgerList: document.getElementById("walletLedgerList"),
   rechargeAmount: document.getElementById("rechargeAmount"),
   rechargeAmountLabel: document.getElementById("rechargeAmountLabel"),
+  rechargePaymentCurrency: document.getElementById("rechargePaymentCurrency"),
   rechargePaymentMethod: document.getElementById("rechargePaymentMethod"),
   rechargeCoinPreview: document.getElementById("rechargeCoinPreview"),
   rechargeBtn: document.getElementById("rechargeBtn"),
@@ -684,9 +691,11 @@ const elements = {
   rechargePaymentDialog: document.getElementById("rechargePaymentDialog"),
   rechargePaymentDialogOrder: document.getElementById("rechargePaymentDialogOrder"),
   rechargePaymentDialogAmount: document.getElementById("rechargePaymentDialogAmount"),
+  rechargePaymentDialogStatus: document.getElementById("rechargePaymentDialogStatus"),
   rechargeQrPanel: document.getElementById("rechargeQrPanel"),
   rechargeQrImage: document.getElementById("rechargeQrImage"),
   rechargeQrEmpty: document.getElementById("rechargeQrEmpty"),
+  rechargePaymentSuccess: document.getElementById("rechargePaymentSuccess"),
   rechargePaymentDialogClose: document.getElementById("rechargePaymentDialogClose"),
   rechargePaymentDialogCancel: document.getElementById("rechargePaymentDialogCancel"),
   rechargePaymentDialogOpen: document.getElementById("rechargePaymentDialogOpen"),
@@ -3591,7 +3600,8 @@ function paymentMethodLabel(method) {
 }
 
 function currentRechargeCurrency() {
-  return state.recharge.currencies[0] || "CNY";
+  const selected = normalizeRechargeCurrency(elements.rechargePaymentCurrency?.value);
+  return selected || state.recharge.currencies[0] || "CNY";
 }
 
 function updateRechargeAmountLabel() {
@@ -3605,6 +3615,7 @@ function updateRechargeAmountLabel() {
 function applyRechargePaymentMeta(settings, provider) {
   const configuredCurrencies = Array.isArray(settings?.currencies) ? settings.currencies : [];
   const configuredMethods = Array.isArray(settings?.methods) ? settings.methods : [];
+  const configuredRates = Array.isArray(settings?.rates) ? settings.rates : [];
   const providerCurrencies = Array.isArray(provider?.supportedCurrencies) ? provider.supportedCurrencies : [];
   const providerMethods = Array.isArray(provider?.supportedMethods) ? provider.supportedMethods : [];
   const providerAvailable = provider?.available !== false;
@@ -3639,6 +3650,12 @@ function applyRechargePaymentMeta(settings, provider) {
 
   state.recharge.currencies = Array.from(new Set(currencies));
   state.recharge.methods = Array.from(new Set(methods));
+  state.recharge.rates = configuredRates.map(normalizeRechargeRate).filter(Boolean);
+  if (state.recharge.rates.length === 0) {
+    state.recharge.rates = state.recharge.methods.flatMap((method) =>
+      state.recharge.currencies.map((currency) => ({ method, currency, coinsPerUnit: 100 }))
+    );
+  }
   state.recharge.provider = provider || null;
   renderRechargeSelectors();
   updateRechargeAmountLabel();
@@ -3661,8 +3678,10 @@ function renderRechargeSelectors() {
       select.value = previous;
     }
   };
+  render(elements.rechargePaymentCurrency, state.recharge.currencies, (currency) => currency);
   render(elements.rechargePaymentMethod, state.recharge.methods, paymentMethodLabel);
   updateRechargeAmountLabel();
+  updateRechargeCoinPreview();
 }
 
 function parseRechargeAmountMinor() {
@@ -3686,10 +3705,50 @@ function updateRechargeCoinPreview() {
   }
   try {
     const amountMinor = parseRechargeAmountMinor();
-    elements.rechargeCoinPreview.value = `${amountMinor} ShopCoin`;
+    const coinAmount = calculateRechargeCoinAmount(amountMinor, currentRechargeCurrency(), currentRechargeMethod());
+    elements.rechargeCoinPreview.value = `${coinAmount} ShopCoin`;
   } catch (error) {
     elements.rechargeCoinPreview.value = "-";
   }
+}
+
+function normalizeRechargeRate(rate) {
+  if (!rate || typeof rate !== "object") {
+    return null;
+  }
+  const method = normalizeRechargeMethod(rate.method);
+  const currency = normalizeRechargeCurrency(rate.currency);
+  const coinsPerUnit = Number(rate.coinsPerUnit);
+  if (!method || !currency || !Number.isSafeInteger(coinsPerUnit) || coinsPerUnit <= 0) {
+    return null;
+  }
+  return { method, currency, coinsPerUnit };
+}
+
+function currentRechargeMethod() {
+  return normalizeRechargeMethod(elements.rechargePaymentMethod?.value) || state.recharge.methods[0] || "AUTO";
+}
+
+function resolveRechargeRate(currency, method) {
+  const normalizedCurrency = normalizeRechargeCurrency(currency);
+  const normalizedMethod = normalizeRechargeMethod(method) || "AUTO";
+  return state.recharge.rates.find((rate) =>
+    rate.method === normalizedMethod && rate.currency === normalizedCurrency
+  ) || state.recharge.rates.find((rate) =>
+    rate.method === "AUTO" && rate.currency === normalizedCurrency
+  ) || null;
+}
+
+function calculateRechargeCoinAmount(amountMinor, currency, method) {
+  const rate = resolveRechargeRate(currency, method);
+  if (!rate) {
+    throw new Error("Recharge rate is not configured.");
+  }
+  const coinAmount = Math.round((Number(amountMinor) * rate.coinsPerUnit) / 100);
+  if (!Number.isSafeInteger(coinAmount) || coinAmount <= 0) {
+    throw new Error("Recharge coin amount is invalid.");
+  }
+  return coinAmount;
 }
 
 function setRechargePayLink(url) {
@@ -3716,6 +3775,101 @@ function setRechargePaymentDialogVisible(visible) {
   elements.rechargePaymentDialog.setAttribute("aria-hidden", visible ? "false" : "true");
 }
 
+function normalizeRechargeStatus(status) {
+  return String(status || "").trim().toUpperCase();
+}
+
+function isRechargeTerminalStatus(status) {
+  return ["PAID", "FAILED", "EXPIRED", "CLOSED"].includes(normalizeRechargeStatus(status));
+}
+
+function stopRechargeStatusPolling() {
+  if (state.recharge.statusPollTimer) {
+    window.clearInterval(state.recharge.statusPollTimer);
+    state.recharge.statusPollTimer = null;
+  }
+  state.recharge.statusPollBusy = false;
+}
+
+function startRechargeStatusPolling() {
+  if (!state.recharge.currentOrderId || state.recharge.statusPollTimer) {
+    return;
+  }
+  state.recharge.statusPollTimer = window.setInterval(() => {
+    refreshRechargeStatus({ silent: true, fromPoll: true }).catch((error) => {
+      const message = resolveErrorMessage(error, "operation");
+      log(formatAppTemplate("rechargeStatusFailed", { message }), "WARN");
+    });
+  }, 3000);
+}
+
+function setRechargePaymentActionsEnabled(enabled) {
+  if (elements.rechargePaymentDialogOpen) {
+    elements.rechargePaymentDialogOpen.disabled = !enabled;
+    elements.rechargePaymentDialogOpen.classList.toggle("hidden", !enabled);
+  }
+  if (elements.rechargePaymentDialogCancel) {
+    elements.rechargePaymentDialogCancel.disabled = !enabled;
+    elements.rechargePaymentDialogCancel.classList.toggle("hidden", !enabled);
+  }
+}
+
+function setRechargeQrVisible(visible, qrCodeUrl = "") {
+  if (visible && qrCodeUrl && elements.rechargeQrImage && elements.rechargeQrPanel) {
+    elements.rechargeQrImage.src = qrCodeUrl;
+    elements.rechargeQrPanel.classList.remove("hidden");
+    elements.rechargeQrEmpty?.classList.add("hidden");
+    return;
+  }
+  if (elements.rechargeQrImage) {
+    elements.rechargeQrImage.removeAttribute("src");
+  }
+  elements.rechargeQrPanel?.classList.add("hidden");
+  elements.rechargeQrEmpty?.classList.toggle("hidden", !visible);
+}
+
+function setRechargePaymentSuccessVisible(visible) {
+  elements.rechargePaymentSuccess?.classList.toggle("hidden", !visible);
+  if (visible) {
+    setRechargeQrVisible(false);
+  }
+}
+
+function updateRechargePaymentDialogStatus(status, payload = {}) {
+  const normalizedStatus = normalizeRechargeStatus(status || payload.status);
+  if (!elements.rechargePaymentDialogStatus) {
+    return;
+  }
+  if (normalizedStatus === "PAID") {
+    setRechargePaymentSuccessVisible(true);
+    setMetaText(
+      elements.rechargePaymentDialogStatus,
+      formatAppTemplate("rechargePaidDetected", {
+        orderId: payload.orderId || state.recharge.currentOrderId || "-",
+        coinAmount: payload.coinAmount || "-",
+      }),
+      "success"
+    );
+    return;
+  }
+  if (["FAILED", "EXPIRED", "CLOSED"].includes(normalizedStatus)) {
+    setMetaText(
+      elements.rechargePaymentDialogStatus,
+      formatAppTemplate("rechargeOrderClosed", {
+        orderId: payload.orderId || state.recharge.currentOrderId || "-",
+        status: normalizedStatus,
+      }),
+      "warn"
+    );
+    return;
+  }
+  setMetaText(
+    elements.rechargePaymentDialogStatus,
+    getAppPageText("rechargePaymentDialogStatusPending") || "Waiting for payment confirmation",
+    "info"
+  );
+}
+
 function showRechargePaymentDialog(payment) {
   const data = payment || state.recharge.currentPayment;
   if (!data || !data.payUrl) {
@@ -3730,18 +3884,12 @@ function showRechargePaymentDialog(payment) {
     elements.rechargePaymentDialogAmount.textContent = formatPaymentAmountMinor(data.amountMinor, data.currency);
   }
   const qrCodeUrl = String(data.qrCodeUrl || "").trim();
-  if (qrCodeUrl && elements.rechargeQrImage && elements.rechargeQrPanel) {
-    elements.rechargeQrImage.src = qrCodeUrl;
-    elements.rechargeQrPanel.classList.remove("hidden");
-    elements.rechargeQrEmpty?.classList.add("hidden");
-  } else {
-    if (elements.rechargeQrImage) {
-      elements.rechargeQrImage.removeAttribute("src");
-    }
-    elements.rechargeQrPanel?.classList.add("hidden");
-    elements.rechargeQrEmpty?.classList.remove("hidden");
-  }
+  setRechargePaymentSuccessVisible(false);
+  setRechargeQrVisible(true, qrCodeUrl);
+  setRechargePaymentActionsEnabled(true);
+  updateRechargePaymentDialogStatus(data.status || "PAYING", data);
   setRechargePaymentDialogVisible(true);
+  startRechargeStatusPolling();
 }
 
 function openCurrentRechargePaymentPage() {
@@ -3764,6 +3912,7 @@ async function cancelCurrentRechargeOrder() {
     method: "POST",
     body: JSON.stringify({ orderId }),
   });
+  stopRechargeStatusPolling();
   state.recharge.currentPayment = null;
   state.recharge.currentOrderId = null;
   setRechargePayLink(null);
@@ -3773,41 +3922,76 @@ async function cancelCurrentRechargeOrder() {
   notify(message, "success");
 }
 
-async function refreshRechargeStatus() {
+async function refreshRechargeStatus(options = {}) {
   ensureToken();
   if (!state.recharge.currentOrderId) {
-    setMetaText(elements.rechargeView, formatAppTemplate("rechargeNoOrder"), "warn");
+    if (!options.silent) {
+      setMetaText(elements.rechargeView, formatAppTemplate("rechargeNoOrder"), "warn");
+    }
     return;
   }
-  const payload = await api(
-    `/api/recharge/status?orderId=${encodeURIComponent(state.recharge.currentOrderId)}`,
-    { method: "GET" }
-  );
-  if (payload.payUrl) {
-    state.recharge.currentPayment = {
-      orderId: payload.orderId,
-      payUrl: payload.payUrl,
-      qrCodeUrl: payload.qrCodeUrl,
-      amountMinor: payload.amountMinor,
-      currency: payload.currency,
-    };
-    setRechargePayLink(payload.payUrl);
+  if (options.fromPoll && state.recharge.statusPollBusy) {
+    return;
   }
-  if (payload.status && ["PAID", "FAILED", "EXPIRED", "CLOSED"].includes(String(payload.status).toUpperCase())) {
-    setRechargePayLink(payload.status === "PAID" ? payload.payUrl : null);
-  }
-  setMetaText(
-    elements.rechargeView,
-    formatAppTemplate("rechargeStatus", {
-      orderId: payload.orderId,
-      status: payload.status,
-      coinAmount: payload.coinAmount,
-    }),
-    payload.status === "PAID" ? "success" : "info"
-  );
-  if (payload.status === "PAID") {
-    await refreshWallet();
-    await loadWalletLedger();
+  state.recharge.statusPollBusy = true;
+  try {
+    const payload = await api(
+      `/api/recharge/status?orderId=${encodeURIComponent(state.recharge.currentOrderId)}`,
+      { method: "GET" }
+    );
+    const status = normalizeRechargeStatus(payload.status);
+    const terminal = isRechargeTerminalStatus(status);
+    if (payload.payUrl && !terminal) {
+      state.recharge.currentPayment = {
+        orderId: payload.orderId,
+        payUrl: payload.payUrl,
+        qrCodeUrl: payload.qrCodeUrl,
+        amountMinor: payload.amountMinor,
+        currency: payload.currency,
+        status,
+      };
+      setRechargePayLink(payload.payUrl);
+      if (elements.rechargePaymentDialog?.classList.contains("show")) {
+        showRechargePaymentDialog(state.recharge.currentPayment);
+      }
+    }
+    if (terminal) {
+      stopRechargeStatusPolling();
+      setRechargePayLink(null);
+      setRechargePaymentActionsEnabled(false);
+      setRechargeQrVisible(false);
+      updateRechargePaymentDialogStatus(status, payload);
+      if (state.recharge.currentPayment) {
+        state.recharge.currentPayment = {
+          ...state.recharge.currentPayment,
+          payUrl: null,
+          qrCodeUrl: null,
+          status,
+        };
+      }
+    } else {
+      updateRechargePaymentDialogStatus(status || "PAYING", payload);
+    }
+    setMetaText(
+      elements.rechargeView,
+      formatAppTemplate("rechargeStatus", {
+        orderId: payload.orderId,
+        status: payload.status,
+        coinAmount: payload.coinAmount,
+      }),
+      status === "PAID" ? "success" : "info"
+    );
+    if (status === "PAID") {
+      notify(formatAppTemplate("rechargePaidDetected", {
+        orderId: payload.orderId,
+        coinAmount: payload.coinAmount,
+      }), "success");
+      await refreshWallet();
+      await loadWalletLedger();
+    }
+    return payload;
+  } finally {
+    state.recharge.statusPollBusy = false;
   }
 }
 
@@ -5706,9 +5890,12 @@ function setSession(payload) {
 }
 
 function clearSession() {
+  stopRechargeStatusPolling();
   state.token = null;
   state.username = null;
   state.boundUuid = null;
+  state.recharge.currentOrderId = null;
+  state.recharge.currentPayment = null;
   state.orders = [];
   state.notifications = [];
   state.hasLoadedOrders = false;
@@ -5724,6 +5911,8 @@ function clearSession() {
   renderOrders(state.orders);
   renderNotifications(state.notifications);
   renderWalletLedger([]);
+  setRechargePayLink(null);
+  setRechargePaymentDialogVisible(false);
   updateAuthLayout();
   stopRealtimeSync();
 }
@@ -8017,6 +8206,15 @@ document.getElementById("walletBtn").addEventListener("click", async () => {
 if (elements.rechargeAmount) {
   elements.rechargeAmount.addEventListener("input", updateRechargeCoinPreview);
 }
+if (elements.rechargePaymentCurrency) {
+  elements.rechargePaymentCurrency.addEventListener("change", () => {
+    updateRechargeAmountLabel();
+    updateRechargeCoinPreview();
+  });
+}
+if (elements.rechargePaymentMethod) {
+  elements.rechargePaymentMethod.addEventListener("change", updateRechargeCoinPreview);
+}
 
 if (elements.rechargePayLink) {
   elements.rechargePayLink.addEventListener("click", () => {
@@ -8059,7 +8257,7 @@ if (elements.rechargeBtn) {
       ensureToken();
       const amountMinor = parseRechargeAmountMinor();
       const currency = currentRechargeCurrency();
-      const paymentMethod = normalizeRechargeMethod(elements.rechargePaymentMethod?.value) || "AUTO";
+      const paymentMethod = currentRechargeMethod();
       setMetaText(elements.rechargeView, formatAppTemplate("rechargeCreating"), "info");
       setRechargePayLink(null);
       state.recharge.currentPayment = null;
@@ -8069,7 +8267,6 @@ if (elements.rechargeBtn) {
           amountMinor,
           currency,
           paymentMethod,
-          coinAmount: amountMinor,
         }),
       });
       state.recharge.currentOrderId = payload.orderId;
@@ -8079,6 +8276,7 @@ if (elements.rechargeBtn) {
         qrCodeUrl: payload.qrCodeUrl,
         amountMinor,
         currency,
+        status: "PAYING",
       };
       setRechargePayLink(payload.payUrl);
       setMetaText(

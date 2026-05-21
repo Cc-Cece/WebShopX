@@ -419,10 +419,8 @@ class EmbeddedWebServer {
       long amountMinor = payload.has("amountMinor")
           ? getLong(payload, "amountMinor", 0L)
           : rechargeService.yuanToAmountMinor(getString(payload, "amount"));
-      long coinAmount = payload.has("coinAmount")
-          ? getLong(payload, "coinAmount", 0L)
-          : rechargeService.amountToCoinAmount(amountMinor);
-      String currency = settingsSupplier.get().paymentSettings().primaryRechargeCurrency();
+      String currency = getOptionalString(payload, "currency")
+          .orElse(settingsSupplier.get().paymentSettings().primaryRechargeCurrency());
       PaymentMethod preferredMethod = parsePaymentMethod(
           getOptionalString(payload, "paymentMethod")
               .or(() -> getOptionalString(payload, "preferredMethod"))
@@ -434,7 +432,7 @@ class EmbeddedWebServer {
               user.boundUuid(),
               amountMinor,
               currency,
-              coinAmount,
+              0L,
               preferredMethod,
               methodCode,
               "WEB"));
@@ -3134,19 +3132,18 @@ class EmbeddedWebServer {
       AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
       PluginSettings.PaymentSettings current = settingsSupplier.get().paymentSettings();
       List<String> currencies = getStringArray(payload, "currencies");
-      if (!currencies.isEmpty()) {
-        currencies = List.of(currencies.get(0));
-      }
       PluginSettings.PaymentSettings paymentSettings = new PluginSettings.PaymentSettings(
           current.provider(),
           currencies,
-          PluginSettings.normalizePaymentMethods(getStringArray(payload, "methods")));
+          PluginSettings.normalizePaymentMethods(getStringArray(payload, "methods")),
+          parseRechargeRates(payload));
       long version = runtimeConfigService.updatePaymentRecharge(paymentSettings);
       publishRuntimeConfigRefresh(version);
 
       JsonObject detail = new JsonObject();
       detail.add("currencies", stringArrayJson(paymentSettings.rechargeCurrencies()));
       detail.add("methods", paymentMethodArrayJson(paymentSettings.rechargeMethods()));
+      detail.add("rates", rechargeRateArrayJson(paymentSettings.rechargeRates()));
       adminAuditService.log(admin, "RECHARGE_PAYMENT_UPDATE", "payment", null, detail, clientIp(exchange));
 
       JsonObject response = new JsonObject();
@@ -4699,6 +4696,34 @@ class EmbeddedWebServer {
     return values;
   }
 
+  private List<PluginSettings.RechargeRate> parseRechargeRates(JsonObject payload) {
+    if (payload == null || !payload.has("rates") || payload.get("rates").isJsonNull()) {
+      return List.of();
+    }
+    JsonElement value = payload.get("rates");
+    if (!value.isJsonArray()) {
+      throw new ServiceException("bad_request", "Field must be an array: rates");
+    }
+    List<PluginSettings.RechargeRate> rates = new java.util.ArrayList<>();
+    for (JsonElement element : value.getAsJsonArray()) {
+      if (element == null || !element.isJsonObject()) {
+        continue;
+      }
+      JsonObject item = element.getAsJsonObject();
+      PaymentMethod method = parsePaymentMethod(getString(item, "method"));
+      String currency = getString(item, "currency");
+      if (!currency.trim().toUpperCase(Locale.ROOT).matches("^[A-Z]{3,8}$")) {
+        throw new ServiceException("bad_request", "Invalid rate currency: " + currency);
+      }
+      long coinsPerUnit = getLong(item, "coinsPerUnit", 0L);
+      if (coinsPerUnit <= 0L) {
+        throw new ServiceException("bad_request", "coinsPerUnit must be greater than 0");
+      }
+      rates.add(new PluginSettings.RechargeRate(method, currency, coinsPerUnit));
+    }
+    return rates;
+  }
+
   private String readHeaderToken(HttpExchange exchange) {
     String header = exchange.getRequestHeaders().getFirst("Authorization");
     if (header == null) {
@@ -4824,7 +4849,26 @@ class EmbeddedWebServer {
     JsonObject response = new JsonObject();
     response.add("currencies", stringArrayJson(settings.rechargeCurrencies()));
     response.add("methods", paymentMethodArrayJson(settings.rechargeMethods()));
+    response.add("rates", rechargeRateArrayJson(settings.rechargeRates()));
     return response;
+  }
+
+  private JsonArray rechargeRateArrayJson(List<PluginSettings.RechargeRate> rates) {
+    JsonArray array = new JsonArray();
+    if (rates == null) {
+      return array;
+    }
+    for (PluginSettings.RechargeRate rate : rates) {
+      if (rate == null) {
+        continue;
+      }
+      JsonObject item = new JsonObject();
+      item.addProperty("method", rate.method().name());
+      item.addProperty("currency", rate.currency());
+      item.addProperty("coinsPerUnit", rate.coinsPerUnit());
+      array.add(item);
+    }
+    return array;
   }
 
   private JsonObject paymentProviderInfoJson(WebShopXPaymentBridge.PaymentProviderInfo info) {

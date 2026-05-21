@@ -399,6 +399,7 @@ error:
     invalid_amount: "Recharge amount must be a positive number with at most 2 decimals."
     unsupported_currency: "Unsupported recharge currency."
     unsupported_method: "This payment method is unavailable."
+    unsupported_rate: "No ShopCoin rate is configured for this payment method and currency."
     order_not_found: "Recharge order not found."
     provider_order_mismatch: "Payment provider order id does not match."
     amount_mismatch: "Payment amount does not match."

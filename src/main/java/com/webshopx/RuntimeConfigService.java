@@ -574,8 +574,17 @@ class RuntimeConfigService {
     for (PaymentMethod method : settings.rechargeMethods()) {
       methods.add(method.name());
     }
+    JsonArray rates = new JsonArray();
+    for (PluginSettings.RechargeRate rate : settings.rechargeRates()) {
+      JsonObject rateJson = new JsonObject();
+      rateJson.addProperty("method", rate.method().name());
+      rateJson.addProperty("currency", rate.currency());
+      rateJson.addProperty("coinsPerUnit", rate.coinsPerUnit());
+      rates.add(rateJson);
+    }
     root.add("currencies", currencies);
     root.add("methods", methods);
+    root.add("rates", rates);
     return gson.toJson(root);
   }
 
@@ -590,10 +599,35 @@ class RuntimeConfigService {
       return new PluginSettings.PaymentSettings(
           fallback.provider(),
           readStringArray(root, "currencies", fallback.rechargeCurrencies()),
-          PluginSettings.normalizePaymentMethods(readStringArray(root, "methods", paymentMethodNames(fallback.rechargeMethods()))));
+          PluginSettings.normalizePaymentMethods(readStringArray(root, "methods", paymentMethodNames(fallback.rechargeMethods()))),
+          readRechargeRates(root));
     } catch (Exception exception) {
       return fallback;
     }
+  }
+
+  private List<PluginSettings.RechargeRate> readRechargeRates(JsonObject jsonObject) {
+    if (jsonObject == null || !jsonObject.has("rates") || jsonObject.get("rates").isJsonNull()) {
+      return List.of();
+    }
+    JsonElement value = jsonObject.get("rates");
+    if (!value.isJsonArray()) {
+      return List.of();
+    }
+    List<PluginSettings.RechargeRate> result = new ArrayList<>();
+    for (JsonElement element : value.getAsJsonArray()) {
+      if (element == null || !element.isJsonObject()) {
+        continue;
+      }
+      JsonObject item = element.getAsJsonObject();
+      PaymentMethod method = PluginSettings.parsePaymentMethod(readString(item, "method", "AUTO"));
+      String currency = readString(item, "currency", "");
+      long coinsPerUnit = readLong(item, "coinsPerUnit", 0L);
+      if (method != null && coinsPerUnit > 0L) {
+        result.add(new PluginSettings.RechargeRate(method, currency, coinsPerUnit));
+      }
+    }
+    return result;
   }
 
   private String serializeWebshopRuntime(PluginSettings settings) {

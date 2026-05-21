@@ -498,11 +498,20 @@ record PluginSettings(
   record EmbeddedWebSettings(String host, int port, String staticRoot) {
   }
 
-  record PaymentSettings(String provider, List<String> rechargeCurrencies, List<PaymentMethod> rechargeMethods) {
+  record PaymentSettings(
+      String provider,
+      List<String> rechargeCurrencies,
+      List<PaymentMethod> rechargeMethods,
+      List<RechargeRate> rechargeRates) {
+    PaymentSettings(String provider, List<String> rechargeCurrencies, List<PaymentMethod> rechargeMethods) {
+      this(provider, rechargeCurrencies, rechargeMethods, List.of());
+    }
+
     PaymentSettings {
       provider = normalizeProviderId(provider);
       rechargeCurrencies = normalizePaymentCurrencies(rechargeCurrencies);
       rechargeMethods = normalizePaymentMethods(paymentMethodNames(rechargeMethods));
+      rechargeRates = normalizeRechargeRates(rechargeRates, rechargeCurrencies, rechargeMethods);
     }
 
     boolean isCurrencyAllowed(String currency) {
@@ -521,6 +530,24 @@ record PluginSettings(
       return rechargeMethods.contains(normalized);
     }
 
+    RechargeRate rechargeRate(PaymentMethod method, String currency) {
+      PaymentMethod normalizedMethod = method == null ? PaymentMethod.AUTO : method;
+      String normalizedCurrency = currency == null ? "" : currency.trim().toUpperCase(Locale.ROOT);
+      for (RechargeRate rate : rechargeRates) {
+        if (rate.method() == normalizedMethod && rate.currency().equals(normalizedCurrency)) {
+          return rate;
+        }
+      }
+      if (normalizedMethod != PaymentMethod.AUTO) {
+        for (RechargeRate rate : rechargeRates) {
+          if (rate.method() == PaymentMethod.AUTO && rate.currency().equals(normalizedCurrency)) {
+            return rate;
+          }
+        }
+      }
+      return null;
+    }
+
     private static List<String> paymentMethodNames(List<PaymentMethod> methods) {
       if (methods == null) {
         return List.of();
@@ -533,6 +560,41 @@ record PluginSettings(
       }
       return names;
     }
+  }
+
+  record RechargeRate(PaymentMethod method, String currency, long coinsPerUnit) {
+    RechargeRate {
+      method = method == null ? PaymentMethod.AUTO : method;
+      currency = currency == null ? "" : currency.trim().toUpperCase(Locale.ROOT);
+      coinsPerUnit = Math.max(1L, coinsPerUnit);
+    }
+  }
+
+  static List<RechargeRate> normalizeRechargeRates(
+      List<RechargeRate> rawRates,
+      List<String> currencies,
+      List<PaymentMethod> methods) {
+    Map<String, RechargeRate> normalized = new java.util.LinkedHashMap<>();
+    if (rawRates != null) {
+      for (RechargeRate raw : rawRates) {
+        if (raw == null || raw.currency() == null || !raw.currency().matches("^[A-Z]{3,8}$")) {
+          continue;
+        }
+        RechargeRate rate = new RechargeRate(raw.method(), raw.currency(), raw.coinsPerUnit());
+        normalized.put(rate.method().name() + ":" + rate.currency(), rate);
+      }
+    }
+    if (normalized.isEmpty()) {
+      List<String> normalizedCurrencies = normalizePaymentCurrencies(currencies);
+      List<PaymentMethod> normalizedMethods = normalizePaymentMethods(PaymentSettings.paymentMethodNames(methods));
+      for (PaymentMethod method : normalizedMethods) {
+        for (String currency : normalizedCurrencies) {
+          RechargeRate rate = new RechargeRate(method, currency, 100L);
+          normalized.put(rate.method().name() + ":" + rate.currency(), rate);
+        }
+      }
+    }
+    return Collections.unmodifiableList(new ArrayList<>(normalized.values()));
   }
 
   record AdminBootstrapSettings(boolean enabled, String username, String password, String role) {

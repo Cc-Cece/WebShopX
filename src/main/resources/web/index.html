@@ -147,6 +147,10 @@
 <span class="field-label" data-i18n="uiText.page.rechargeAmountLabel" id="rechargeAmountLabel">Amount</span>
 </label>
 <label class="field field-select">
+<select id="rechargePaymentCurrency"></select>
+<span class="field-label" data-i18n="uiText.page.rechargeCurrencyLabel">Currency</span>
+</label>
+<label class="field field-select">
 <select id="rechargePaymentMethod"></select>
 <span class="field-label" data-i18n="uiText.page.rechargeMethodLabel">Payment Method</span>
 </label>
@@ -546,7 +550,12 @@
 <div class="payment-qr-panel hidden" id="rechargeQrPanel">
 <img alt="Payment QR code" data-i18n-alt="uiText.page.rechargePaymentQrAlt" id="rechargeQrImage"/>
 </div>
+<div class="payment-success-panel hidden" id="rechargePaymentSuccess">
+<div class="payment-success-mark" aria-hidden="true">✓</div>
+<strong data-i18n="uiText.page.rechargePaymentSuccessTitle">Payment confirmed</strong>
+</div>
 <p class="meta hidden" data-i18n="uiText.page.rechargePaymentNoQr" id="rechargeQrEmpty">No QR code was returned for this payment method.</p>
+<p class="meta" data-i18n="uiText.page.rechargePaymentDialogStatusPending" id="rechargePaymentDialogStatus">Waiting for payment confirmation</p>
 <div class="actions dialog-actions">
 <button class="btn-tonal" data-i18n="uiText.page.rechargePaymentCloseBtn" id="rechargePaymentDialogClose" type="button">Close</button>
 <button class="btn-tonal" data-i18n="uiText.page.rechargePaymentCancelBtn" id="rechargePaymentDialogCancel" type="button">Cancel Order</button>

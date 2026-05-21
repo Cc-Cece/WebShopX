@@ -572,14 +572,15 @@
 <p class="card-desc" data-i18n="uiText.page.rechargePaymentDesc">设置玩家充值时使用的支付币种与支付方式。</p>
 <div class="field-grid two-col">
 <label class="field">
-<span data-i18n="uiText.page.rechargePaymentCurrenciesLabel">支付币种</span>
-<input data-i18n-placeholder="uiText.page.rechargePaymentCurrenciesPlaceholder" id="rechargePaymentCurrencies" placeholder="CNY"/>
-</label>
-<label class="field">
 <span data-i18n="uiText.page.rechargePaymentProviderLabel">支付服务</span>
 <input id="rechargePaymentProvider" readonly=""/>
 </label>
 </div>
+<label class="field">
+<span data-i18n="uiText.page.rechargePaymentRatesLabel">ShopCoin 比例规则</span>
+<textarea data-i18n-placeholder="uiText.page.rechargePaymentRatesPlaceholder" id="rechargePaymentRates" placeholder="ALIPAY,CNY,100&#10;PAYPAL,USD,700" rows="5"></textarea>
+</label>
+<p class="meta" data-i18n="uiText.page.rechargePaymentRatesHint">每行：支付方式,币种,1单位支付币入账ShopCoin。</p>
 <div class="payment-method-grid">
 <label><input id="rechargeMethodAuto" type="checkbox" value="AUTO"/><span data-i18n="uiText.paymentMethodLabels.AUTO">自动选择</span></label>
 <label><input id="rechargeMethodAlipay" type="checkbox" value="ALIPAY"/><span data-i18n="uiText.paymentMethodLabels.ALIPAY">支付宝</span></label>
@@ -588,6 +589,7 @@
 <label><input id="rechargeMethodCustom" type="checkbox" value="CUSTOM"/><span data-i18n="uiText.paymentMethodLabels.CUSTOM">自定义</span></label>
 </div>
 <div class="actions">
+<button class="btn-tonal" data-i18n="uiText.page.rechargePaymentAllowedCombosBtn" id="rechargePaymentAllowedCombosBtn" type="button">查看后端允许组合</button>
 <button data-i18n="uiText.page.rechargePaymentSaveBtn" id="rechargePaymentSaveBtn" type="button">保存充值支付配置</button>
 </div>
 <p class="meta" data-i18n="uiText.page.rechargePaymentStatusView" id="rechargePaymentStatusView">等待操作</p>
@@ -1462,6 +1464,16 @@
 <div class="actions">
 <button class="btn-tonal" data-i18n="uiText.autoHtml.k0501" id="notificationTemplateCancelBtn" type="button">取消</button>
 <button data-i18n="uiText.autoHtml.k0502" id="notificationTemplateSaveBtn" type="button">保存模板</button>
+</div>
+</article>
+</div>
+<div aria-hidden="true" class="dialog-backdrop" id="rechargePaymentAllowedDialog">
+<article class="md-card dialog-card">
+<h3 data-i18n="uiText.page.rechargePaymentAllowedDialogTitle">后端允许组合</h3>
+<p data-i18n="uiText.page.rechargePaymentAllowedDialogDesc">这些支付方式和货币来自当前支付后端暴露的能力。</p>
+<div class="meta" id="rechargePaymentAllowedList">-</div>
+<div class="actions dialog-actions">
+<button class="btn-tonal" data-i18n="uiText.page.rechargePaymentAllowedDialogCloseBtn" id="rechargePaymentAllowedDialogCloseBtn" type="button">关闭</button>
 </div>
 </article>
 </div>
