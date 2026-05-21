@@ -9,7 +9,7 @@ commands:
     description: WebShopX unified command
     usage: "/webshopx <password|market|claim|mailbox|recharge|gamecoin|shopcoin|reload|redeem|help>"
     aliases: [ws]
-softdepend: [Vault, YuPay]
+softdepend: [Vault, WebShopX-Payments, YuPay]
 permissions:
   webshop.admin:
     description: Allows admin operations for WebShop

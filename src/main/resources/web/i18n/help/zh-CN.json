@@ -34,7 +34,9 @@
       "docFetchFailed": "无法加载 {file}",
       "docNotFound": "未找到可用文档。",
       "docLoading": "正在加载文档...",
-      "docLoadFailed": "文档加载失败：{message}"
+      "docLoadFailed": "文档加载失败：{message}",
+      "dynamicAlgTitle": "动态算法总览",
+      "auctionTitle": "拍卖模式说明"
     }
   }
 }

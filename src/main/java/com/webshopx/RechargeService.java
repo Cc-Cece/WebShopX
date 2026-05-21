@@ -1,6 +1,11 @@
 package com.webshopx;
 
 import com.google.gson.Gson;
+import com.webshopx.payment.api.PaymentMethod;
+import java.net.URLEncoder;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -21,14 +26,14 @@ import java.util.function.Supplier;
 
 class RechargeService {
   private static final DateTimeFormatter ORDER_DATE_FORMAT = DateTimeFormatter.BASIC_ISO_DATE;
-  private static final String PROVIDER_NAME = "YuPay";
-  private static final String LEDGER_BIZ_TYPE = "RECHARGE_YUPAY";
+  private static final String DEFAULT_PROVIDER_NAME = "payment";
+  private static final String LEDGER_BIZ_TYPE = "RECHARGE_PAYMENT";
   private static final String DEFAULT_CURRENCY = "CNY";
 
   private final DatabaseManager databaseManager;
   private final SqlProvider sqlProvider;
   private final WalletService walletService;
-  private final YuPayBridge yuPayBridge;
+  private final WebShopXPaymentBridge paymentBridge;
   private final Supplier<PluginSettings> settingsSupplier;
   private final SecureRandom secureRandom = new SecureRandom();
   private final Gson gson = new Gson();
@@ -36,30 +41,35 @@ class RechargeService {
   RechargeService(
       DatabaseManager databaseManager,
       WalletService walletService,
-      YuPayBridge yuPayBridge,
+      WebShopXPaymentBridge paymentBridge,
       Supplier<PluginSettings> settingsSupplier) {
     this.databaseManager = databaseManager;
     this.sqlProvider = databaseManager.sqlProvider();
     this.walletService = walletService;
-    this.yuPayBridge = yuPayBridge;
+    this.paymentBridge = paymentBridge;
     this.settingsSupplier = settingsSupplier;
   }
 
-  boolean isYuPayAvailable() {
-    return yuPayBridge.isAvailable();
+  boolean isPaymentAvailable() {
+    return paymentBridge.isAvailable();
   }
 
-  void registerYuPayListener() {
-    yuPayBridge.registerPaymentListener(this::handlePaymentNotify);
+  WebShopXPaymentBridge.PaymentProviderInfo paymentProviderInfo() {
+    return paymentBridge.providerInfo();
   }
 
-  void unregisterYuPayListener() {
-    yuPayBridge.unregisterPaymentListener();
+  void registerPaymentListener() {
+    paymentBridge.registerPaymentListener(this::handlePaymentNotify);
+  }
+
+  void unregisterPaymentListener() {
+    paymentBridge.unregisterPaymentListener();
   }
 
   RechargeCreateResult createRechargeOrder(RechargeCreateRequest request) {
     RechargeCreateRequest normalized = normalizeCreateRequest(request);
     String orderId = generateOrderId();
+    Instant requestedExpiresAt = resolveRechargeOrderExpiresAt();
     Map<String, String> metadata = new LinkedHashMap<>();
     metadata.put("source", normalized.source());
     metadata.put("coinAmount", String.valueOf(normalized.coinAmount()));
@@ -70,9 +80,21 @@ class RechargeService {
       return null;
     });
 
-    YuPayBridge.CreatePaymentResultData payResult;
+    String dynamicReturnUrl = null;
+    if (normalized.baseUrl() != null && !normalized.baseUrl().isBlank()) {
+      String locale = normalizeLocaleTag(normalized.locale());
+      if (locale == null) {
+        dynamicReturnUrl = normalized.baseUrl() + "/result.html?orderId=" + orderId;
+      } else {
+        dynamicReturnUrl = normalized.baseUrl()
+            + "/result.html?orderId=" + orderId
+            + "&locale=" + URLEncoder.encode(locale, StandardCharsets.UTF_8);
+      }
+    }
+
+    WebShopXPaymentBridge.CreatePaymentResultData payResult;
     try {
-      payResult = yuPayBridge.createPayment(new YuPayBridge.CreatePaymentRequestData(
+      payResult = paymentBridge.createPayment(new WebShopXPaymentBridge.CreatePaymentRequestData(
           orderId,
           String.valueOf(normalized.userId()),
           normalized.playerUuid(),
@@ -80,7 +102,11 @@ class RechargeService {
           normalized.currency(),
           "WebShopX Recharge " + normalized.coinAmount() + " ShopCoin",
           "Recharge " + normalized.coinAmount() + " ShopCoin via " + normalized.source(),
+          normalized.preferredMethod(),
+          normalized.methodCode(),
+          dynamicReturnUrl,
           null,
+          requestedExpiresAt,
           metadata));
     } catch (ServiceException exception) {
       markOrderFailed(orderId, exception.code(), exception.getMessage());
@@ -91,12 +117,14 @@ class RechargeService {
       markOrderFailed(orderId, payResult.errorCode(), payResult.message());
       return RechargeCreateResult.fail(
           orderId,
-          payResult.errorCode() == null ? "PROVIDER_UNAVAILABLE" : payResult.errorCode(),
-          payResult.message() == null ? "YuPay createPayment failed" : payResult.message());
+          payResult.errorCode() == null ? "payment_create_failed" : payResult.errorCode(),
+          payResult.message() == null ? "Payment provider createPayment failed" : payResult.message());
     }
 
+    Instant expireTime = mergeExpireTime(requestedExpiresAt, payResult.expireTime());
+
     databaseManager.inTransaction(connection -> {
-      updateOrderPaying(connection, orderId, payResult);
+      updateOrderPaying(connection, orderId, payResult, expireTime);
       return null;
     });
 
@@ -106,22 +134,44 @@ class RechargeService {
         payResult.providerOrderId(),
         payResult.payUrl(),
         payResult.qrCodeUrl(),
-        payResult.expireTime(),
+          expireTime,
         null,
         "success");
   }
 
-  YuPayBridge.NotifyResultData handlePaymentNotify(YuPayBridge.PaymentNotifyData notify) {
+  WebShopXPaymentBridge.NotifyResultData handlePaymentNotify(WebShopXPaymentBridge.PaymentNotifyData notify) {
     if (notify == null || isBlank(notify.merchantOrderId())) {
-      return YuPayBridge.NotifyResultData.fail("ORDER_NOT_FOUND", "missing merchantOrderId");
+      return WebShopXPaymentBridge.NotifyResultData.fail("payment_order_mismatch", "missing merchantOrderId");
     }
     try {
       return databaseManager.inTransaction(connection -> applyProviderResult(connection, notify));
     } catch (ServiceException exception) {
-      return YuPayBridge.NotifyResultData.fail(exception.code(), exception.getMessage());
+      return WebShopXPaymentBridge.NotifyResultData.fail(exception.code(), exception.getMessage());
     } catch (RuntimeException exception) {
-      return YuPayBridge.NotifyResultData.fail("INTERNAL_ERROR", exception.getMessage());
+      return WebShopXPaymentBridge.NotifyResultData.fail("internal_error", exception.getMessage());
     }
+  }
+
+  RechargeCancelResult cancelRechargeOrder(long userId, String orderId) {
+    String normalizedOrderId = normalizeOrderId(orderId);
+    return databaseManager.inTransaction(connection -> {
+      RechargeOrder order = readOrderForUpdate(connection, normalizedOrderId);
+      if (order == null || order.userId() != userId) {
+        return RechargeCancelResult.fail(normalizedOrderId, null, "ORDER_NOT_FOUND", "Recharge order not found");
+      }
+      if (order.status() == RechargeOrderStatus.PAID) {
+        return RechargeCancelResult.fail(
+            order.orderId(),
+            order.status().name(),
+            "INVALID_STATUS",
+            "Paid order cannot be cancelled");
+      }
+      if (order.status().isTerminal()) {
+        return new RechargeCancelResult(true, order.orderId(), order.status().name(), null, "order already closed");
+      }
+      markOrderTerminal(connection, order.orderId(), RechargeOrderStatus.CLOSED);
+      return new RechargeCancelResult(true, order.orderId(), RechargeOrderStatus.CLOSED.name(), null, "success");
+    });
   }
 
   FixRechargeResult fixRechargeOrder(String orderId) {
@@ -144,17 +194,19 @@ class RechargeService {
       return FixRechargeResult.fail(order.orderId(), null, "INVALID_STATUS", "providerOrderId is missing");
     }
 
-    YuPayBridge.QueryPaymentResultData query = yuPayBridge.queryPayment(order.providerOrderId());
+    WebShopXPaymentBridge.QueryPaymentResultData query =
+        paymentBridge.queryPayment(order.orderId(), order.providerOrderId());
     if (!query.success()) {
       return FixRechargeResult.fail(
           order.orderId(),
           order.providerOrderId(),
-          query.errorCode() == null ? "ORDER_NOT_FOUND" : query.errorCode(),
-          query.message() == null ? "YuPay queryPayment failed" : query.message());
+          query.errorCode() == null ? "payment_query_failed" : query.errorCode(),
+          query.message() == null ? "Payment provider queryPayment failed" : query.message());
     }
 
     RechargeOrder before = findOrder(normalizedOrderId);
-    YuPayBridge.NotifyResultData notifyResult = handlePaymentNotify(new YuPayBridge.PaymentNotifyData(
+    WebShopXPaymentBridge.NotifyResultData notifyResult = handlePaymentNotify(
+        new WebShopXPaymentBridge.PaymentNotifyData(
         query.merchantOrderId(),
         query.providerOrderId(),
         query.status(),
@@ -208,7 +260,33 @@ class RechargeService {
   }
 
   long amountToCoinAmount(long amountMinor) {
-    return amountMinor;
+    PluginSettings.PaymentSettings paymentSettings = settingsSupplier.get().paymentSettings();
+    PaymentMethod defaultMethod = paymentSettings.rechargeMethods().isEmpty() ? PaymentMethod.ALIPAY : paymentSettings.rechargeMethods().get(0);
+    return calculateCoinAmount(
+        amountMinor,
+        paymentSettings.primaryRechargeCurrency(),
+        defaultMethod);
+  }
+
+  long calculateCoinAmount(long amountMinor, String currency, PaymentMethod method) {
+    if (amountMinor <= 0L) {
+      throw new ServiceException("invalid_amount", "Recharge amount must be positive");
+    }
+    PluginSettings.PaymentSettings paymentSettings = settingsSupplier.get().paymentSettings();
+    PluginSettings.RechargeRate rate = paymentSettings.rechargeRate(method, currency);
+    if (rate == null) {
+      throw new ServiceException(
+          "UNSUPPORTED_RECHARGE_RATE",
+          "Recharge rate is not configured for " + method + " " + currency);
+    }
+    try {
+      return BigDecimal.valueOf(amountMinor)
+          .multiply(BigDecimal.valueOf(rate.coinsPerUnit()))
+          .divide(BigDecimal.valueOf(100L), 0, RoundingMode.HALF_UP)
+          .longValueExact();
+    } catch (ArithmeticException exception) {
+      throw new ServiceException("invalid_amount", "Recharge coin amount is out of range");
+    }
   }
 
   long yuanToAmountMinor(String rawAmount) {
@@ -242,10 +320,9 @@ class RechargeService {
     if (amountMinor <= 0L) {
       throw new ServiceException("INVALID_AMOUNT", "amountMinor must be greater than 0");
     }
-    long coinAmount = request.coinAmount();
-    if (coinAmount <= 0L) {
-      throw new ServiceException("invalid_amount", "coinAmount must be greater than 0");
-    }
+    String currency = normalizeCurrency(request.currency());
+    PaymentMethod preferredMethod = normalizePaymentMethod(request.preferredMethod());
+    long coinAmount = calculateCoinAmount(amountMinor, currency, preferredMethod);
     String source = normalizeSource(request.source());
     if ("MINECRAFT".equals(source) && request.playerUuid() == null) {
       throw new ServiceException("bad_request", "playerUuid is required for Minecraft recharge");
@@ -254,15 +331,52 @@ class RechargeService {
         userId,
         request.playerUuid(),
         amountMinor,
-        normalizeCurrency(request.currency()),
+        currency,
         coinAmount,
-        source);
+        preferredMethod,
+        blankToNull(request.methodCode()),
+        source,
+        request.baseUrl(),
+        normalizeLocaleTag(request.locale()));
+  }
+
+  private Instant resolveRechargeOrderExpiresAt() {
+    int expireMinutes = settingsSupplier.get().rechargeOrderExpireMinutes();
+    if (expireMinutes <= 0) {
+      return null;
+    }
+    return Instant.now().plusSeconds(expireMinutes * 60L);
+  }
+
+  private Instant mergeExpireTime(Instant requested, Instant upstream) {
+    if (requested == null) {
+      return upstream;
+    }
+    if (upstream == null) {
+      return requested;
+    }
+    return requested.isBefore(upstream) ? requested : upstream;
   }
 
   private String normalizeCurrency(String raw) {
     String normalized = raw == null || raw.isBlank() ? DEFAULT_CURRENCY : raw.trim().toUpperCase(Locale.ROOT);
     if (!normalized.matches("^[A-Z]{3,8}$")) {
       throw new ServiceException("UNSUPPORTED_CURRENCY", "Unsupported currency: " + raw);
+    }
+    if (!settingsSupplier.get().paymentSettings().isCurrencyAllowed(normalized)) {
+      throw new ServiceException("UNSUPPORTED_CURRENCY", "Unsupported currency: " + normalized);
+    }
+    return normalized;
+  }
+
+  private PaymentMethod normalizePaymentMethod(PaymentMethod method) {
+    PluginSettings.PaymentSettings paymentSettings = settingsSupplier.get().paymentSettings();
+    PaymentMethod normalized = method;
+    if (normalized == null) {
+      normalized = paymentSettings.rechargeMethods().isEmpty() ? PaymentMethod.ALIPAY : paymentSettings.rechargeMethods().get(0);
+    }
+    if (!paymentSettings.isMethodAllowed(normalized)) {
+      throw new ServiceException("METHOD_UNSUPPORTED", "Unsupported payment method: " + normalized.name());
     }
     return normalized;
   }
@@ -273,6 +387,17 @@ class RechargeService {
       throw new ServiceException("bad_request", "Invalid recharge source");
     }
     return normalized;
+  }
+
+  private String normalizeLocaleTag(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return null;
+    }
+    String text = raw.trim().replace('_', '-');
+    if (!text.matches("^[A-Za-z]{2,8}(-[A-Za-z0-9]{2,8})*$")) {
+      return null;
+    }
+    return text;
   }
 
   private String normalizeOrderId(String orderId) {
@@ -339,7 +464,7 @@ class RechargeService {
       statement.setString(5, request.currency());
       statement.setLong(6, request.coinAmount());
       statement.setString(7, RechargeOrderStatus.PENDING.name());
-      statement.setString(8, PROVIDER_NAME);
+      statement.setString(8, paymentBridge.configuredProviderId().orElse(DEFAULT_PROVIDER_NAME));
       statement.setString(9, metadataJson);
       statement.executeUpdate();
     }
@@ -348,7 +473,8 @@ class RechargeService {
   private void updateOrderPaying(
       Connection connection,
       String orderId,
-      YuPayBridge.CreatePaymentResultData payResult) throws SQLException {
+      WebShopXPaymentBridge.CreatePaymentResultData payResult,
+      Instant expireTime) throws SQLException {
     String sql = """
         UPDATE webshopx_recharge_order
         SET status = ?, provider = ?, provider_order_id = ?, pay_url = ?, qr_code_url = ?,
@@ -357,11 +483,11 @@ class RechargeService {
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, RechargeOrderStatus.PAYING.name());
-      statement.setString(2, PROVIDER_NAME);
+      statement.setString(2, payResult.providerId());
       statement.setString(3, payResult.providerOrderId());
       statement.setString(4, payResult.payUrl());
       statement.setString(5, payResult.qrCodeUrl());
-      setTimestamp(statement, 6, payResult.expireTime());
+      setTimestamp(statement, 6, expireTime);
       statement.setString(7, orderId);
       statement.setString(8, RechargeOrderStatus.PENDING.name());
       int updated = statement.executeUpdate();
@@ -389,9 +515,9 @@ class RechargeService {
     });
   }
 
-  private YuPayBridge.NotifyResultData applyProviderResult(
+  private WebShopXPaymentBridge.NotifyResultData applyProviderResult(
       Connection connection,
-      YuPayBridge.PaymentNotifyData notify) throws SQLException {
+      WebShopXPaymentBridge.PaymentNotifyData notify) throws SQLException {
     RechargeOrder order = readOrderForUpdate(connection, notify.merchantOrderId());
     if (order == null) {
       throw new ServiceException("ORDER_NOT_FOUND", "Recharge order not found");
@@ -399,18 +525,15 @@ class RechargeService {
 
     RechargeOrderStatus targetStatus = mapProviderStatus(notify.status());
     if (order.status() == RechargeOrderStatus.PAID) {
-      return YuPayBridge.NotifyResultData.ok("already processed");
+      return WebShopXPaymentBridge.NotifyResultData.ok("already processed");
     }
     if (order.status().isTerminal()) {
-      if (order.status() == targetStatus) {
-        return YuPayBridge.NotifyResultData.ok("already processed");
-      }
-      throw new ServiceException("ORDER_CLOSED", "Recharge order is already closed");
+      return WebShopXPaymentBridge.NotifyResultData.ok("ignored closed order");
     }
     if (!order.status().canReceiveProviderResult()) {
-      throw new ServiceException("INVALID_STATUS", "Recharge order status does not accept payment results");
+      throw new ServiceException("payment_notify_rejected", "Recharge order status does not accept payment results");
     }
-    validateNotify(order, notify);
+    validateNotify(order, notify, targetStatus);
 
     if (targetStatus == RechargeOrderStatus.PAID) {
       boolean credited = walletService.applyDelta(
@@ -422,23 +545,32 @@ class RechargeService {
           order.orderId(),
           false);
       markOrderPaid(connection, order, notify);
-      return YuPayBridge.NotifyResultData.ok(credited ? "success" : "already processed");
+      return WebShopXPaymentBridge.NotifyResultData.ok(credited ? "success" : "already processed");
     }
 
     markOrderTerminal(connection, order.orderId(), targetStatus);
-    return YuPayBridge.NotifyResultData.ok("success");
+    return WebShopXPaymentBridge.NotifyResultData.ok("success");
   }
 
-  private void validateNotify(RechargeOrder order, YuPayBridge.PaymentNotifyData notify) {
+  private void validateNotify(
+      RechargeOrder order,
+      WebShopXPaymentBridge.PaymentNotifyData notify,
+      RechargeOrderStatus targetStatus) {
     if (!isBlank(order.providerOrderId())
         && !String.valueOf(order.providerOrderId()).equals(String.valueOf(notify.providerOrderId()))) {
-      throw new ServiceException("PROVIDER_ORDER_MISMATCH", "providerOrderId mismatch");
+      throw new ServiceException("payment_provider_mismatch", "providerOrderId mismatch");
+    }
+    if (targetStatus != RechargeOrderStatus.PAID) {
+      return;
+    }
+    if (notify.amountMinor() <= 0L) {
+      throw new ServiceException("payment_amount_mismatch", "amountMinor must be greater than 0");
     }
     if (order.amountMinor() != notify.amountMinor()) {
-      throw new ServiceException("AMOUNT_MISMATCH", "amountMinor mismatch");
+      throw new ServiceException("payment_amount_mismatch", "amountMinor mismatch");
     }
     if (!order.currency().equalsIgnoreCase(String.valueOf(notify.currency()))) {
-      throw new ServiceException("CURRENCY_MISMATCH", "currency mismatch");
+      throw new ServiceException("payment_currency_mismatch", "currency mismatch");
     }
   }
 
@@ -448,14 +580,15 @@ class RechargeService {
       case "SUCCESS" -> RechargeOrderStatus.PAID;
       case "FAILED" -> RechargeOrderStatus.FAILED;
       case "EXPIRED" -> RechargeOrderStatus.EXPIRED;
-      default -> throw new ServiceException("INVALID_STATUS", "Unsupported payment status: " + status);
+      case "CANCELLED", "CANCELED", "CLOSED" -> RechargeOrderStatus.CLOSED;
+      default -> throw new ServiceException("payment_unknown_status", "Unsupported payment status: " + status);
     };
   }
 
   private void markOrderPaid(
       Connection connection,
       RechargeOrder order,
-      YuPayBridge.PaymentNotifyData notify) throws SQLException {
+      WebShopXPaymentBridge.PaymentNotifyData notify) throws SQLException {
     String sql = """
         UPDATE webshopx_recharge_order
         SET status = ?, provider_order_id = COALESCE(provider_order_id, ?),
@@ -584,7 +717,11 @@ class RechargeService {
       long amountMinor,
       String currency,
       long coinAmount,
-      String source) {
+      PaymentMethod preferredMethod,
+      String methodCode,
+      String source,
+      String baseUrl,
+      String locale) {
   }
 
   record RechargeCreateResult(
@@ -598,6 +735,17 @@ class RechargeService {
       String message) {
     static RechargeCreateResult fail(String orderId, String errorCode, String message) {
       return new RechargeCreateResult(false, orderId, null, null, null, null, errorCode, message);
+    }
+  }
+
+  record RechargeCancelResult(
+      boolean success,
+      String orderId,
+      String status,
+      String code,
+      String message) {
+    static RechargeCancelResult fail(String orderId, String status, String code, String message) {
+      return new RechargeCancelResult(false, orderId, status, code, message);
     }
   }
 

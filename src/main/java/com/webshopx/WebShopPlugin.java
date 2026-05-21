@@ -39,6 +39,7 @@ public class WebShopPlugin extends JavaPlugin {
   private WalletService walletService;
   private RechargeService rechargeService;
   private YuPayBridge yuPayBridge;
+  private WebShopXPaymentBridge paymentBridge;
   private MessageService messageService;
   private RedeemCodeService redeemCodeService;
   private ProductService productService;
@@ -111,7 +112,8 @@ public class WebShopPlugin extends JavaPlugin {
       authService = new AuthService(databaseManager, this::settings);
       walletService = new WalletService(this, databaseManager, this::settings, businessLedgerLogService);
       yuPayBridge = new YuPayBridge(this);
-      rechargeService = new RechargeService(databaseManager, walletService, yuPayBridge, this::settings);
+      paymentBridge = new WebShopXPaymentBridge(this, yuPayBridge, this::settings);
+      rechargeService = new RechargeService(databaseManager, walletService, paymentBridge, this::settings);
       redeemCodeService = new RedeemCodeService(databaseManager, walletService);
       productService = new ProductService(databaseManager);
       orderService = new OrderService(
@@ -182,7 +184,7 @@ public class WebShopPlugin extends JavaPlugin {
       adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());
 
       registerCommands();
-      registerYuPayListener();
+      registerPaymentListener();
       getServer().getPluginManager().registerEvents(
           new PlayerJoinListener(
               this,
@@ -228,7 +230,7 @@ public class WebShopPlugin extends JavaPlugin {
   @Override
   public void onDisable() {
     if (rechargeService != null) {
-      rechargeService.unregisterYuPayListener();
+      rechargeService.unregisterPaymentListener();
     }
     if (deliveryTask != null) {
       deliveryTask.cancel();
@@ -291,7 +293,7 @@ public class WebShopPlugin extends JavaPlugin {
       walletService.refreshVaultHook();
     }
     if (rechargeService != null) {
-      registerYuPayListener();
+      registerPaymentListener();
     }
     // Products are managed via admin backend; no seed import from config.
     if (adminService != null) {
@@ -377,20 +379,23 @@ public class WebShopPlugin extends JavaPlugin {
     rootCommand.setTabCompleter(shopCommandHandler);
   }
 
-  private void registerYuPayListener() {
+  private void registerPaymentListener() {
     if (rechargeService == null) {
       return;
     }
     try {
-      rechargeService.unregisterYuPayListener();
-      rechargeService.registerYuPayListener();
-      if (rechargeService.isYuPayAvailable()) {
-        getLogger().info("YuPay API detected; recharge listener registered.");
+      rechargeService.unregisterPaymentListener();
+      rechargeService.registerPaymentListener();
+      if (rechargeService.isPaymentAvailable()) {
+        String providerId = paymentBridge == null
+            ? "unknown"
+            : paymentBridge.activeProviderId().orElse("unknown");
+        getLogger().info("Payment provider detected; recharge listener registered: " + providerId);
       } else {
-        getLogger().info("YuPay API is not available; recharge entry points will report unavailable.");
+        getLogger().info("Payment provider is not available; recharge entry points will report unavailable.");
       }
     } catch (Exception exception) {
-      getLogger().log(Level.WARNING, "Failed to register YuPay payment listener.", exception);
+      getLogger().log(Level.WARNING, "Failed to register payment listener.", exception);
     }
   }
 

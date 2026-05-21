@@ -34,7 +34,9 @@
       "docFetchFailed": "Cannot load {file}",
       "docNotFound": "No available documents found.",
       "docLoading": "Loading document...",
-      "docLoadFailed": "Document load failed: {message}"
+      "docLoadFailed": "Document load failed: {message}",
+      "dynamicAlgTitle": "Overview of Dynamic Pricing Algorithms",
+      "auctionTitle": "Auction Mode Description"
     }
   }
 }

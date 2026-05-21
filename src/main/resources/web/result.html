@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title id="resultPageTitle">支付结果 - WebShopX</title>
+  
+  <!-- Flicker-free Theme Loading -->
+  <script>
+    (function () {
+      const savedTheme = localStorage.getItem("webshopx_theme") || "light";
+      document.documentElement.className = savedTheme === "dark" ? "dark" : "light";
+    })();
+  </script>
+
+  <!-- External Stylesheets -->
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/light.css">
+  <link rel="stylesheet" href="/css/dark.css">
+
+  <style>
+    /* Styling result landing layout strictly using existing MD3 variables */
+    body.result-body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      font-family: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--md-sys-color-background);
+      color: var(--md-sys-color-on-background);
+      transition: background-color 0.3s ease, color 0.3s ease;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    .result-container {
+      width: 100%;
+      max-width: 480px;
+      padding: 40px 30px;
+      text-align: center;
+      border-radius: 24px;
+      background-color: var(--md-sys-color-surface-container);
+      border: 1px solid var(--md-sys-color-outline-variant);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+      transform: translateY(0);
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+      box-sizing: border-box;
+    }
+
+    .result-container:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+    }
+
+    .icon-container {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 24px auto;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      border-radius: 50%;
+      transition: background-color 0.3s ease;
+    }
+
+    /* Icon tones aligned to MD3 system color variables */
+    .icon-container.success {
+      background-color: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+    }
+
+    .icon-container.cancel {
+      background-color: var(--md-sys-color-secondary-container);
+      color: var(--md-sys-color-on-secondary-container);
+    }
+
+    .icon-container.error {
+      background-color: var(--md-sys-color-error-container);
+      color: var(--md-sys-color-on-error-container);
+    }
+
+    .icon-svg {
+      width: 44px;
+      height: 44px;
+      fill: currentColor;
+    }
+
+    h1.status-title {
+      font-size: 28px;
+      font-weight: 700;
+      margin: 0 0 12px 0;
+      letter-spacing: -0.5px;
+    }
+
+    p.status-desc {
+      font-size: 16px;
+      line-height: 1.6;
+      margin: 0 0 24px 0;
+      color: var(--md-sys-color-on-surface-variant);
+    }
+
+    .order-box {
+      background-color: var(--md-sys-color-surface-container-high);
+      border: 1px solid var(--md-sys-color-outline-variant);
+      padding: 14px 20px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      font-size: 14px;
+    }
+
+    .order-label {
+      color: var(--md-sys-color-on-surface-variant);
+      font-weight: 500;
+    }
+
+    .order-id {
+      font-family: 'Fira Code', 'Courier New', Courier, monospace;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      user-select: all;
+    }
+
+    .copy-btn {
+      background: none;
+      border: none;
+      color: var(--md-sys-color-primary);
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      transition: background-color 0.2s ease;
+    }
+
+    .copy-btn:hover {
+      background-color: var(--md-sys-color-primary-container);
+    }
+
+    .countdown-text {
+      font-size: 14px;
+      color: var(--md-sys-color-outline);
+      margin-bottom: 30px;
+      font-style: italic;
+    }
+
+    .action-btn {
+      display: inline-block;
+      width: 100%;
+      padding: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      text-decoration: none;
+      border-radius: 14px;
+      background-color: var(--md-sys-color-primary);
+      color: var(--md-sys-color-on-primary);
+      box-shadow: 0 4px 12px rgba(65, 95, 145, 0.2);
+      transition: transform 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
+      box-sizing: border-box;
+    }
+
+    .action-btn:hover {
+      filter: brightness(1.08);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(65, 95, 145, 0.3);
+    }
+
+    .action-btn:active {
+      transform: translateY(1px);
+    }
+  </style>
+</head>
+<body class="result-body">
+  <div class="result-container" role="main">
+    <!-- Dynamic Icon container -->
+    <div id="statusIconContainer" class="icon-container success" aria-hidden="true"></div>
+
+    <h1 id="statusTitle" class="status-title">支付成功</h1>
+    <p id="statusDesc" class="status-desc">您的订单已支付成功，感谢您的支持。</p>
+
+    <!-- Order Details Box -->
+    <div id="orderBox" class="order-box" style="display: none;">
+      <div>
+        <span class="order-label">订单号：</span>
+        <span id="orderIdText" class="order-id"></span>
+      </div>
+      <button id="copyBtn" class="copy-btn" onclick="copyOrderId()" aria-label="复制订单号">复制</button>
+    </div>
+
+    <!-- Redirection message -->
+    <div id="countdownText" class="countdown-text" style="display: none;" aria-live="polite"></div>
+
+    <!-- Back to Store Action -->
+    <a href="/index.html" id="backToHomeBtn" class="action-btn">返回主商店</a>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="js/i18n.js"></script>
+  <script>
+    // SVG icons definitions
+    const ICONS = {
+      success: `<svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>`,
+      cancel: `<svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg>`,
+      error: `<svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>`
+    };
+
+    // Parse and sanitize URL params
+    const urlParams = new URLSearchParams(window.location.search);
+    const status = (urlParams.get('status') || 'success').toLowerCase();
+    const orderId = urlParams.get('orderId') || '';
+    const errorMsg = urlParams.get('message') || '';
+
+    // Elements
+    const iconContainer = document.getElementById('statusIconContainer');
+    const titleEl = document.getElementById('statusTitle');
+    const descEl = document.getElementById('statusDesc');
+    const orderBox = document.getElementById('orderBox');
+    const orderIdText = document.getElementById('orderIdText');
+    const copyBtn = document.getElementById('copyBtn');
+    const countdownText = document.getElementById('countdownText');
+    const backToHomeBtn = document.getElementById('backToHomeBtn');
+    
+    let countdownInterval = null;
+    let resultText = {
+      page_title: 'Payment Result - WebShopX',
+      success_title: 'Payment Successful',
+      success_desc: 'Your order has been paid successfully! Thank you.',
+      cancel_title: 'Payment Cancelled',
+      cancel_desc: 'You have cancelled the checkout process. You can place a new order anytime.',
+      error_title: 'Payment Error',
+      error_desc: 'An error occurred while processing your payment. Please contact support.',
+      order_number: 'Order ID: ',
+      copy_btn: 'Copy',
+      copy_success: 'Copied!',
+      back_to_home: 'Back to Store',
+      redirecting: 'Redirecting to store in {seconds} seconds...'
+    };
+
+    function template(text, params = {}) {
+      return String(text || '').replace(/\{(\w+)\}/g, (_, key) => {
+        const value = params[key];
+        return value == null ? '' : String(value);
+      });
+    }
+
+    function detectBrowserLocaleForResult() {
+      const candidates = Array.isArray(navigator.languages) && navigator.languages.length > 0
+        ? navigator.languages
+        : [navigator.language];
+      for (const raw of candidates) {
+        const value = String(raw || '').trim().toLowerCase().replace(/_/g, '-');
+        if (!value) continue;
+        if (value === 'zh' || value.startsWith('zh-')) {
+          return 'zh-CN';
+        }
+        if (value === 'en' || value.startsWith('en-')) {
+          return 'en-US';
+        }
+      }
+      return 'en-US';
+    }
+
+    function initI18n() {
+      if (!window.WebShopXI18n || typeof window.WebShopXI18n.loadBundleSync !== 'function') {
+        document.title = resultText.page_title;
+        copyBtn.textContent = resultText.copy_btn;
+        copyBtn.setAttribute('aria-label', resultText.copy_btn);
+        backToHomeBtn.textContent = resultText.back_to_home;
+        return;
+      }
+      const browserLocale = detectBrowserLocaleForResult();
+      const bundle = window.WebShopXI18n.loadBundleSync('app', {
+        locale: browserLocale,
+        fallbackLocale: 'en-US',
+      });
+      const candidate = bundle && typeof bundle === 'object' ? bundle.result : null;
+      if (candidate && typeof candidate === 'object') {
+        resultText = { ...resultText, ...candidate };
+      }
+      document.title = resultText.page_title;
+      copyBtn.textContent = resultText.copy_btn;
+      copyBtn.setAttribute('aria-label', resultText.copy_btn);
+      backToHomeBtn.textContent = resultText.back_to_home;
+    }
+
+    // Configure status page UI
+    function initUI() {
+      if (status === 'success') {
+        iconContainer.className = 'icon-container success';
+        iconContainer.innerHTML = ICONS.success;
+        titleEl.textContent = resultText.success_title;
+        descEl.textContent = resultText.success_desc;
+      } else if (status === 'cancel') {
+        iconContainer.className = 'icon-container cancel';
+        iconContainer.innerHTML = ICONS.cancel;
+        titleEl.textContent = resultText.cancel_title;
+        descEl.textContent = resultText.cancel_desc;
+      } else {
+        iconContainer.className = 'icon-container error';
+        iconContainer.innerHTML = ICONS.error;
+        titleEl.textContent = resultText.error_title;
+        descEl.textContent = errorMsg || resultText.error_desc;
+      }
+
+      if (orderId) {
+        orderIdText.textContent = orderId;
+        const label = orderBox.querySelector('.order-label');
+        if (label) {
+          label.textContent = resultText.order_number;
+        }
+        orderBox.style.display = 'flex';
+      }
+    }
+
+    // Initialize Countdown logic
+    function initLogic() {
+      // 5-second Auto Redirection for SUCCESS state
+      if (status === 'success') {
+        let count = 5;
+        countdownText.style.display = 'block';
+
+        const updateCountdown = () => {
+          countdownText.textContent = template(resultText.redirecting, { seconds: count });
+          if (count <= 0) {
+            clearInterval(countdownInterval);
+            const target = backToHomeBtn?.href || '/index.html';
+            window.location.href = target;
+          }
+          count--;
+        };
+
+        updateCountdown();
+        countdownInterval = setInterval(updateCountdown, 1000);
+      }
+    }
+
+    initI18n();
+    // Run UI binding immediately to prevent visual pop-in
+    initUI();
+
+    // Bind logic on load
+    if (document.readyState === 'loading') {
+      window.addEventListener('DOMContentLoaded', initLogic);
+    } else {
+      initLogic();
+    }
+
+    // Copy to clipboard with user feedback
+    function copyOrderId() {
+      if (!orderId) return;
+      navigator.clipboard.writeText(orderId).then(() => {
+        const originalText = copyBtn.textContent;
+        copyBtn.textContent = resultText.copy_success;
+        copyBtn.style.color = 'var(--md-sys-color-primary-fixed-dim, #151b2a)';
+        copyBtn.disabled = true;
+
+        setTimeout(() => {
+          copyBtn.textContent = originalText;
+          copyBtn.style.color = 'var(--md-sys-color-primary)';
+          copyBtn.disabled = false;
+        }, 1500);
+      }).catch(err => {
+        console.error('Could not copy text: ', err);
+      });
+    }
+  </script>
+</body>
+</html>

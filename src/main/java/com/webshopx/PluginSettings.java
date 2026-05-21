@@ -2,11 +2,13 @@ package com.webshopx;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.time.DateTimeException;
 import java.time.ZoneId;
+import com.webshopx.payment.api.PaymentMethod;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 
@@ -14,6 +16,7 @@ record PluginSettings(
     ServerMode serverMode,
     ClusterSettings clusterSettings,
     String apiBaseUrl,
+    PaymentSettings paymentSettings,
     String defaultLocale,
     int sessionExpireHours,
     int bindRequestExpireMinutes,
@@ -21,6 +24,7 @@ record PluginSettings(
     int deliveryBatchSize,
     int deliveryRetrySeconds,
     int orderCooldownSeconds,
+    int rechargeOrderExpireMinutes,
     boolean allowSharedClaimCommand,
     boolean refundUndeliveredEnabled,
     ZoneId timeZone,
@@ -148,6 +152,10 @@ record PluginSettings(
         mode,
         clusterSettings,
         normalizeApiBaseUrl(config.getString("webshop.api-base-url", "")),
+        new PaymentSettings(
+            normalizeProviderId(config.getString("payment.provider", "")),
+            normalizePaymentCurrencies(config.getStringList("payment.recharge.currencies")),
+            normalizePaymentMethods(config.getStringList("payment.recharge.methods"))),
         normalizeLocale(config.getString("webshop.default-locale", "zh-CN")),
         config.getInt("webshop.session-expire-hours", 72),
         config.getInt("webshop.bind-request-expire-minutes", 15),
@@ -155,6 +163,7 @@ record PluginSettings(
         config.getInt("webshop.delivery-batch-size", 20),
         config.getInt("webshop.delivery-retry-seconds", 30),
         config.getInt("webshop.order-cooldown-seconds", 15),
+        config.getInt("webshop.recharge-order-expire-minutes", 15),
         config.getBoolean("webshop.allow-shared-claim-command", false),
         config.getBoolean("webshop.refund-undelivered-enabled", true),
         parseZoneId(config.getString("webshop.time-zone", "Asia/Shanghai")),
@@ -183,6 +192,7 @@ record PluginSettings(
       int deliveryBatchSize,
       int deliveryRetrySeconds,
       int orderCooldownSeconds,
+      int rechargeOrderExpireMinutes,
       boolean allowSharedClaimCommand,
       boolean refundUndeliveredEnabled,
       ZoneId timeZone,
@@ -199,6 +209,7 @@ record PluginSettings(
         serverMode,
         clusterSettings,
         apiBaseUrl,
+        paymentSettings,
         defaultLocale,
         sessionExpireHours,
         bindRequestExpireMinutes,
@@ -206,6 +217,41 @@ record PluginSettings(
         deliveryBatchSize,
         deliveryRetrySeconds,
         orderCooldownSeconds,
+        rechargeOrderExpireMinutes,
+        allowSharedClaimCommand,
+        refundUndeliveredEnabled,
+        timeZone,
+        marketMaxActiveListings,
+        marketSupplySettings,
+        leaderboardSettings,
+        currencyDisplaySettings,
+        maintenanceSettings,
+        loggingSettings,
+        businessLedgerSettings,
+        broadcastSettings,
+        adminBootstrapSettings,
+        embeddedWebSettings,
+        databaseSettings,
+        exchangeSettings,
+        economySettings,
+        redisSettings,
+        productSeeds);
+  }
+
+  PluginSettings withPaymentSettings(PaymentSettings paymentSettings) {
+    return new PluginSettings(
+        serverMode,
+        clusterSettings,
+        apiBaseUrl,
+        paymentSettings == null ? this.paymentSettings : paymentSettings,
+        defaultLocale,
+        sessionExpireHours,
+        bindRequestExpireMinutes,
+        accessTokenLength,
+        deliveryBatchSize,
+        deliveryRetrySeconds,
+        orderCooldownSeconds,
+        rechargeOrderExpireMinutes,
         allowSharedClaimCommand,
         refundUndeliveredEnabled,
         timeZone,
@@ -235,6 +281,59 @@ record PluginSettings(
       normalized = normalized.substring(0, normalized.length() - 1);
     }
     return normalized;
+  }
+
+  private static String normalizeProviderId(String rawProviderId) {
+    if (rawProviderId == null || rawProviderId.isBlank()) {
+      return "";
+    }
+    return rawProviderId.trim().toLowerCase(Locale.ROOT);
+  }
+
+  static List<String> normalizePaymentCurrencies(List<String> rawCurrencies) {
+    LinkedHashSet<String> normalized = new LinkedHashSet<>();
+    if (rawCurrencies != null) {
+      for (String raw : rawCurrencies) {
+        if (raw == null) {
+          continue;
+        }
+        String value = raw.trim().toUpperCase(Locale.ROOT);
+        if (value.matches("^[A-Z]{3,8}$")) {
+          normalized.add(value);
+        }
+      }
+    }
+    if (normalized.isEmpty()) {
+      normalized.add("CNY");
+    }
+    return Collections.unmodifiableList(new ArrayList<>(normalized));
+  }
+
+  static List<PaymentMethod> normalizePaymentMethods(List<String> rawMethods) {
+    LinkedHashSet<PaymentMethod> normalized = new LinkedHashSet<>();
+    if (rawMethods != null) {
+      for (String raw : rawMethods) {
+        PaymentMethod method = parsePaymentMethod(raw);
+        if (method != null) {
+          normalized.add(method);
+        }
+      }
+    }
+    if (normalized.isEmpty()) {
+      normalized.add(PaymentMethod.ALIPAY);
+    }
+    return Collections.unmodifiableList(new ArrayList<>(normalized));
+  }
+
+  static PaymentMethod parsePaymentMethod(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return null;
+    }
+    try {
+      return PaymentMethod.valueOf(raw.trim().toUpperCase(Locale.ROOT).replace('-', '_'));
+    } catch (IllegalArgumentException exception) {
+      return null;
+    }
   }
 
   private static String normalizeLocale(String rawLocale) {
@@ -402,6 +501,107 @@ record PluginSettings(
   }
 
   record EmbeddedWebSettings(String host, int port, String staticRoot) {
+  }
+
+  record PaymentSettings(
+      String provider,
+      List<String> rechargeCurrencies,
+      List<PaymentMethod> rechargeMethods,
+      List<RechargeRate> rechargeRates) {
+    PaymentSettings(String provider, List<String> rechargeCurrencies, List<PaymentMethod> rechargeMethods) {
+      this(provider, rechargeCurrencies, rechargeMethods, List.of());
+    }
+
+    PaymentSettings {
+      provider = normalizeProviderId(provider);
+      rechargeCurrencies = normalizePaymentCurrencies(rechargeCurrencies);
+      rechargeMethods = normalizePaymentMethods(paymentMethodNames(rechargeMethods));
+      rechargeRates = normalizeRechargeRates(rechargeRates, rechargeCurrencies, rechargeMethods);
+    }
+
+    boolean isCurrencyAllowed(String currency) {
+      if (currency == null || currency.isBlank()) {
+        return false;
+      }
+      return rechargeCurrencies.contains(currency.trim().toUpperCase(Locale.ROOT));
+    }
+
+    String primaryRechargeCurrency() {
+      return rechargeCurrencies.isEmpty() ? "CNY" : rechargeCurrencies.get(0);
+    }
+
+    boolean isMethodAllowed(PaymentMethod method) {
+      if (method == null) {
+        PaymentMethod fallback = rechargeMethods.isEmpty() ? PaymentMethod.ALIPAY : rechargeMethods.get(0);
+        return rechargeMethods.contains(fallback);
+      }
+      return rechargeMethods.contains(method);
+    }
+
+    RechargeRate rechargeRate(PaymentMethod method, String currency) {
+      String normalizedCurrency = currency == null ? "" : currency.trim().toUpperCase(Locale.ROOT);
+      if (method != null) {
+        for (RechargeRate rate : rechargeRates) {
+          if (rate.method() == method && rate.currency().equals(normalizedCurrency)) {
+            return rate;
+          }
+        }
+      }
+      for (RechargeRate rate : rechargeRates) {
+        if (rate.currency().equals(normalizedCurrency)) {
+          return rate;
+        }
+      }
+      return null;
+    }
+
+    private static List<String> paymentMethodNames(List<PaymentMethod> methods) {
+      if (methods == null) {
+        return List.of();
+      }
+      List<String> names = new ArrayList<>();
+      for (PaymentMethod method : methods) {
+        if (method != null) {
+          names.add(method.name());
+        }
+      }
+      return names;
+    }
+  }
+
+  record RechargeRate(PaymentMethod method, String currency, long coinsPerUnit) {
+    RechargeRate {
+      method = method == null ? PaymentMethod.ALIPAY : method;
+      currency = currency == null ? "" : currency.trim().toUpperCase(Locale.ROOT);
+      coinsPerUnit = Math.max(1L, coinsPerUnit);
+    }
+  }
+
+  static List<RechargeRate> normalizeRechargeRates(
+      List<RechargeRate> rawRates,
+      List<String> currencies,
+      List<PaymentMethod> methods) {
+    Map<String, RechargeRate> normalized = new java.util.LinkedHashMap<>();
+    if (rawRates != null) {
+      for (RechargeRate raw : rawRates) {
+        if (raw == null || raw.currency() == null || !raw.currency().matches("^[A-Z]{3,8}$")) {
+          continue;
+        }
+        RechargeRate rate = new RechargeRate(raw.method(), raw.currency(), raw.coinsPerUnit());
+        normalized.put(rate.method().name() + ":" + rate.currency(), rate);
+      }
+    }
+    if (normalized.isEmpty()) {
+      List<String> normalizedCurrencies = normalizePaymentCurrencies(currencies);
+      List<PaymentMethod> normalizedMethods = normalizePaymentMethods(PaymentSettings.paymentMethodNames(methods));
+      for (PaymentMethod method : normalizedMethods) {
+        for (String currency : normalizedCurrencies) {
+          RechargeRate rate = new RechargeRate(method, currency, 100L);
+          normalized.put(rate.method().name() + ":" + rate.currency(), rate);
+        }
+      }
+    }
+    return Collections.unmodifiableList(new ArrayList<>(normalized.values()));
   }
 
   record AdminBootstrapSettings(boolean enabled, String username, String password, String role) {

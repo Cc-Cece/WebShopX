@@ -6,11 +6,14 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.webshopx.payment.api.PaymentMethod;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.time.ZoneId;
@@ -30,6 +33,7 @@ class RuntimeConfigService {
   private static final String KEY_LOGGING = "logging";
   private static final String KEY_BROADCAST = "broadcast";
   private static final String KEY_NOTIFICATION = "notification";
+  private static final String KEY_PAYMENT_RECHARGE = "payment_recharge";
 
   private final DatabaseManager databaseManager;
   private final SqlProvider sqlProvider;
@@ -67,6 +71,7 @@ class RuntimeConfigService {
       upsertConfig(connection, KEY_LOGGING, serializeLogging(settings.loggingSettings()));
       upsertConfig(connection, KEY_BROADCAST, serializeBroadcast(settings.broadcastSettings()));
       upsertConfig(connection, KEY_NOTIFICATION, serializeDefaultNotificationConfig());
+      upsertConfig(connection, KEY_PAYMENT_RECHARGE, serializePaymentRecharge(settings.paymentSettings()));
       writeMetaValue(connection, META_LEGACY_MIGRATED, "1");
       return true;
     });
@@ -100,6 +105,7 @@ class RuntimeConfigService {
       insertIfMissing(connection, KEY_LOGGING, serializeLogging(settings.loggingSettings()));
       insertIfMissing(connection, KEY_BROADCAST, serializeBroadcast(settings.broadcastSettings()));
       insertIfMissing(connection, KEY_NOTIFICATION, serializeDefaultNotificationConfig());
+      insertIfMissing(connection, KEY_PAYMENT_RECHARGE, serializePaymentRecharge(settings.paymentSettings()));
       return null;
     });
   }
@@ -133,7 +139,7 @@ class RuntimeConfigService {
 
   PluginSettings applyTo(PluginSettings defaults) {
     RuntimeSnapshot snapshot = loadSnapshot(defaults);
-    return defaults.withBusinessSettings(
+    return defaults.withPaymentSettings(snapshot.paymentSettings()).withBusinessSettings(
         snapshot.defaultLocale(),
         snapshot.sessionExpireHours(),
         snapshot.bindRequestExpireMinutes(),
@@ -141,6 +147,7 @@ class RuntimeConfigService {
         snapshot.deliveryBatchSize(),
         snapshot.deliveryRetrySeconds(),
         snapshot.orderCooldownSeconds(),
+      snapshot.rechargeOrderExpireMinutes(),
         snapshot.allowSharedClaimCommand(),
         snapshot.refundUndeliveredEnabled(),
         snapshot.timeZone(),
@@ -237,6 +244,11 @@ class RuntimeConfigService {
         updateConfig(connection, KEY_NOTIFICATION, serializeNotification(normalized)));
   }
 
+  long updatePaymentRecharge(PluginSettings.PaymentSettings paymentSettings) {
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_PAYMENT_RECHARGE, serializePaymentRecharge(paymentSettings)));
+  }
+
   private RuntimeSnapshot loadSnapshot(Connection connection, PluginSettings defaults) throws SQLException {
     Map<String, ConfigRow> rows = readConfigRows(connection);
 
@@ -263,6 +275,9 @@ class RuntimeConfigService {
     PluginSettings.BroadcastSettings broadcastSettings = parseBroadcast(
         rows.get(KEY_BROADCAST),
         defaults.broadcastSettings());
+    PluginSettings.PaymentSettings paymentSettings = parsePaymentRecharge(
+        rows.get(KEY_PAYMENT_RECHARGE),
+        defaults.paymentSettings());
 
     long maxVersion = 0L;
     for (ConfigRow row : rows.values()) {
@@ -279,6 +294,7 @@ class RuntimeConfigService {
         webshopRuntime.deliveryBatchSize(),
         webshopRuntime.deliveryRetrySeconds(),
         webshopRuntime.orderCooldownSeconds(),
+      webshopRuntime.rechargeOrderExpireMinutes(),
         webshopRuntime.allowSharedClaimCommand(),
         webshopRuntime.refundUndeliveredEnabled(),
         webshopRuntime.timeZone(),
@@ -291,6 +307,7 @@ class RuntimeConfigService {
         maintenanceSettings,
         loggingSettings,
         broadcastSettings,
+        paymentSettings,
         maxVersion);
   }
 
@@ -388,7 +405,7 @@ class RuntimeConfigService {
     String sql = """
         SELECT config_key, config_value, version
         FROM runtime_config
-        WHERE config_key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        WHERE config_key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, KEY_EXCHANGE);
@@ -402,6 +419,7 @@ class RuntimeConfigService {
       statement.setString(9, KEY_MAINTENANCE);
       statement.setString(10, KEY_LOGGING);
       statement.setString(11, KEY_BROADCAST);
+      statement.setString(12, KEY_PAYMENT_RECHARGE);
       try (ResultSet resultSet = statement.executeQuery()) {
         Map<String, ConfigRow> rows = new HashMap<>();
         while (resultSet.next()) {
@@ -548,6 +566,72 @@ class RuntimeConfigService {
     }
   }
 
+  private String serializePaymentRecharge(PluginSettings.PaymentSettings settings) {
+    JsonObject root = new JsonObject();
+    JsonArray currencies = new JsonArray();
+    for (String currency : settings.rechargeCurrencies()) {
+      currencies.add(currency);
+    }
+    JsonArray methods = new JsonArray();
+    for (PaymentMethod method : settings.rechargeMethods()) {
+      methods.add(method.name());
+    }
+    JsonArray rates = new JsonArray();
+    for (PluginSettings.RechargeRate rate : settings.rechargeRates()) {
+      JsonObject rateJson = new JsonObject();
+      rateJson.addProperty("method", rate.method().name());
+      rateJson.addProperty("currency", rate.currency());
+      rateJson.addProperty("coinsPerUnit", rate.coinsPerUnit());
+      rates.add(rateJson);
+    }
+    root.add("currencies", currencies);
+    root.add("methods", methods);
+    root.add("rates", rates);
+    return gson.toJson(root);
+  }
+
+  private PluginSettings.PaymentSettings parsePaymentRecharge(
+      ConfigRow row,
+      PluginSettings.PaymentSettings fallback) {
+    if (row == null || row.configValue() == null || row.configValue().isBlank()) {
+      return fallback;
+    }
+    try {
+      JsonObject root = JsonParser.parseString(row.configValue()).getAsJsonObject();
+      return new PluginSettings.PaymentSettings(
+          fallback.provider(),
+          readStringArray(root, "currencies", fallback.rechargeCurrencies()),
+          PluginSettings.normalizePaymentMethods(readStringArray(root, "methods", paymentMethodNames(fallback.rechargeMethods()))),
+          readRechargeRates(root));
+    } catch (Exception exception) {
+      return fallback;
+    }
+  }
+
+  private List<PluginSettings.RechargeRate> readRechargeRates(JsonObject jsonObject) {
+    if (jsonObject == null || !jsonObject.has("rates") || jsonObject.get("rates").isJsonNull()) {
+      return List.of();
+    }
+    JsonElement value = jsonObject.get("rates");
+    if (!value.isJsonArray()) {
+      return List.of();
+    }
+    List<PluginSettings.RechargeRate> result = new ArrayList<>();
+    for (JsonElement element : value.getAsJsonArray()) {
+      if (element == null || !element.isJsonObject()) {
+        continue;
+      }
+      JsonObject item = element.getAsJsonObject();
+      PaymentMethod method = PluginSettings.parsePaymentMethod(readString(item, "method", "ALIPAY"));
+      String currency = readString(item, "currency", "");
+      long coinsPerUnit = readLong(item, "coinsPerUnit", 0L);
+      if (method != null && coinsPerUnit > 0L) {
+        result.add(new PluginSettings.RechargeRate(method, currency, coinsPerUnit));
+      }
+    }
+    return result;
+  }
+
   private String serializeWebshopRuntime(PluginSettings settings) {
     RuntimeSettingsUpdate update = new RuntimeSettingsUpdate(
         settings.defaultLocale(),
@@ -557,6 +641,7 @@ class RuntimeConfigService {
         settings.deliveryBatchSize(),
         settings.deliveryRetrySeconds(),
         settings.orderCooldownSeconds(),
+      settings.rechargeOrderExpireMinutes(),
         settings.allowSharedClaimCommand(),
         settings.refundUndeliveredEnabled(),
         settings.timeZone());
@@ -572,6 +657,7 @@ class RuntimeConfigService {
     root.addProperty("deliveryBatchSize", update.deliveryBatchSize());
     root.addProperty("deliveryRetrySeconds", update.deliveryRetrySeconds());
     root.addProperty("orderCooldownSeconds", update.orderCooldownSeconds());
+    root.addProperty("rechargeOrderExpireMinutes", update.rechargeOrderExpireMinutes());
     root.addProperty("allowSharedClaimCommand", update.allowSharedClaimCommand());
     root.addProperty("refundUndeliveredEnabled", update.refundUndeliveredEnabled());
     root.addProperty("timeZone", update.timeZone().getId());
@@ -588,6 +674,7 @@ class RuntimeConfigService {
           fallback.deliveryBatchSize(),
           fallback.deliveryRetrySeconds(),
           fallback.orderCooldownSeconds(),
+          fallback.rechargeOrderExpireMinutes(),
           fallback.allowSharedClaimCommand(),
           fallback.refundUndeliveredEnabled(),
           fallback.timeZone());
@@ -602,6 +689,7 @@ class RuntimeConfigService {
           readInt(root, "deliveryBatchSize", fallback.deliveryBatchSize()),
           readInt(root, "deliveryRetrySeconds", fallback.deliveryRetrySeconds()),
           readInt(root, "orderCooldownSeconds", fallback.orderCooldownSeconds()),
+          readInt(root, "rechargeOrderExpireMinutes", fallback.rechargeOrderExpireMinutes()),
           readBoolean(root, "allowSharedClaimCommand", fallback.allowSharedClaimCommand()),
           readBoolean(root, "refundUndeliveredEnabled", fallback.refundUndeliveredEnabled()),
           readZoneId(root, "timeZone", fallback.timeZone()));
@@ -614,6 +702,7 @@ class RuntimeConfigService {
           fallback.deliveryBatchSize(),
           fallback.deliveryRetrySeconds(),
           fallback.orderCooldownSeconds(),
+          fallback.rechargeOrderExpireMinutes(),
           fallback.allowSharedClaimCommand(),
           fallback.refundUndeliveredEnabled(),
           fallback.timeZone());
@@ -896,6 +985,41 @@ class RuntimeConfigService {
     }
   }
 
+  private List<String> readStringArray(JsonObject jsonObject, String field, List<String> fallback) {
+    if (jsonObject == null || !jsonObject.has(field) || jsonObject.get(field).isJsonNull()) {
+      return fallback;
+    }
+    JsonElement value = jsonObject.get(field);
+    if (!value.isJsonArray()) {
+      return fallback;
+    }
+    List<String> result = new ArrayList<>();
+    for (JsonElement element : value.getAsJsonArray()) {
+      if (element == null || element.isJsonNull()) {
+        continue;
+      }
+      try {
+        result.add(element.getAsString());
+      } catch (Exception ignored) {
+        // Skip malformed array values.
+      }
+    }
+    return result.isEmpty() ? fallback : result;
+  }
+
+  private List<String> paymentMethodNames(List<PaymentMethod> methods) {
+    if (methods == null) {
+      return List.of();
+    }
+    List<String> names = new ArrayList<>();
+    for (PaymentMethod method : methods) {
+      if (method != null) {
+        names.add(method.name());
+      }
+    }
+    return names;
+  }
+
   private ZoneId readZoneId(JsonObject jsonObject, String field, ZoneId fallback) {
     String raw = readString(jsonObject, field, fallback.getId());
     try {
@@ -977,6 +1101,7 @@ class RuntimeConfigService {
       int deliveryBatchSize,
       int deliveryRetrySeconds,
       int orderCooldownSeconds,
+      int rechargeOrderExpireMinutes,
       boolean allowSharedClaimCommand,
       boolean refundUndeliveredEnabled,
       ZoneId timeZone,
@@ -989,6 +1114,7 @@ class RuntimeConfigService {
       PluginSettings.MaintenanceSettings maintenanceSettings,
       PluginSettings.LoggingSettings loggingSettings,
       PluginSettings.BroadcastSettings broadcastSettings,
+      PluginSettings.PaymentSettings paymentSettings,
       long maxVersion) {
   }
 
@@ -1000,6 +1126,7 @@ class RuntimeConfigService {
       int deliveryBatchSize,
       int deliveryRetrySeconds,
       int orderCooldownSeconds,
+      int rechargeOrderExpireMinutes,
       boolean allowSharedClaimCommand,
       boolean refundUndeliveredEnabled,
       ZoneId timeZone) {

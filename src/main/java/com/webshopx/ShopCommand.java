@@ -434,17 +434,30 @@ class ShopCommand implements CommandExecutor, TabCompleter {
               () -> { });
           return;
         }
+        var paymentSettings = settingsSupplier.get().paymentSettings();
+        String currency = paymentSettings.primaryRechargeCurrency();
+        com.webshopx.payment.api.PaymentMethod defaultMethod = paymentSettings.rechargeMethods().isEmpty()
+            ? com.webshopx.payment.api.PaymentMethod.ALIPAY
+            : paymentSettings.rechargeMethods().get(0);
+        long coinAmount = rechargeService.calculateCoinAmount(
+            amountMinor,
+            currency,
+            defaultMethod);
         RechargeService.RechargeCreateResult result = rechargeService.createRechargeOrder(
             new RechargeService.RechargeCreateRequest(
                 binding.userId(),
                 playerUuid,
                 amountMinor,
-                "CNY",
-                rechargeService.amountToCoinAmount(amountMinor),
-                "MINECRAFT"));
+                currency,
+                0L,
+                null,
+                null,
+                "MINECRAFT",
+                null,
+                null));
         schedulerBridge.runPlayer(
             playerUuid,
-            target -> sendRechargeCreated(target, result, amountMinor),
+            target -> sendRechargeCreated(target, result, amountMinor, currency, coinAmount),
             () -> { });
       } catch (ServiceException exception) {
         schedulerBridge.runPlayer(
@@ -498,7 +511,9 @@ class ShopCommand implements CommandExecutor, TabCompleter {
   private void sendRechargeCreated(
       Player player,
       RechargeService.RechargeCreateResult result,
-      long amountMinor) {
+      long amountMinor,
+      String currency,
+      long coinAmount) {
     if (!result.success()) {
       player.sendMessage(msg(player, "command.recharge.failed",
           Map.of("reason", result.message())));
@@ -506,9 +521,9 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     }
     player.sendMessage(msg(player, "command.recharge.created"));
     player.sendMessage(msg(player, "command.recharge.amount",
-        Map.of("amount", formatMinorCurrency(amountMinor), "currency", "CNY")));
+        Map.of("amount", formatMinorCurrency(amountMinor), "currency", currency)));
     player.sendMessage(msg(player, "command.recharge.coins",
-        Map.of("coins", rechargeService.amountToCoinAmount(amountMinor))));
+        Map.of("coins", coinAmount)));
     if (result.expireTime() != null) {
       player.sendMessage(msg(player, "command.recharge.expires",
           Map.of("time", result.expireTime())));
@@ -703,11 +718,25 @@ class ShopCommand implements CommandExecutor, TabCompleter {
 
   private String humanizeRechargeError(CommandSender sender, ServiceException exception) {
     return switch (exception.code()) {
+      case "payment_unavailable" -> messageService.get(sender, "error.recharge.payment_unavailable");
+      case "payment_provider_not_found" -> messageService.get(sender, "error.recharge.payment_provider_not_found");
+      case "payment_api_mismatch" -> messageService.get(sender, "error.recharge.payment_api_mismatch");
+      case "payment_api_error" -> messageService.get(sender, "error.recharge.payment_api_error");
+      case "payment_create_failed" -> messageService.get(sender, "error.recharge.payment_create_failed");
+      case "payment_query_failed" -> messageService.get(sender, "error.recharge.payment_query_failed");
+      case "payment_notify_rejected" -> messageService.get(sender, "error.recharge.payment_notify_rejected");
+      case "payment_amount_mismatch" -> messageService.get(sender, "error.recharge.payment_amount_mismatch");
+      case "payment_currency_mismatch" -> messageService.get(sender, "error.recharge.payment_currency_mismatch");
+      case "payment_provider_mismatch" -> messageService.get(sender, "error.recharge.payment_provider_mismatch");
+      case "payment_order_mismatch" -> messageService.get(sender, "error.recharge.payment_order_mismatch");
+      case "payment_unknown_status" -> messageService.get(sender, "error.recharge.payment_unknown_status");
       case "yupay_unavailable" -> messageService.get(sender, "error.recharge.yupay_unavailable");
       case "yupay_api_mismatch" -> messageService.get(sender, "error.recharge.yupay_api_mismatch");
       case "yupay_api_error" -> messageService.get(sender, "error.recharge.yupay_api_error");
       case "invalid_amount", "INVALID_AMOUNT" -> messageService.get(sender, "error.recharge.invalid_amount");
       case "UNSUPPORTED_CURRENCY" -> messageService.get(sender, "error.recharge.unsupported_currency");
+      case "METHOD_UNSUPPORTED" -> messageService.get(sender, "error.recharge.unsupported_method");
+      case "UNSUPPORTED_RECHARGE_RATE" -> messageService.get(sender, "error.recharge.unsupported_rate");
       case "ORDER_NOT_FOUND" -> messageService.get(sender, "error.recharge.order_not_found");
       case "PROVIDER_ORDER_MISMATCH" -> messageService.get(sender, "error.recharge.provider_order_mismatch");
       case "AMOUNT_MISMATCH" -> messageService.get(sender, "error.recharge.amount_mismatch");

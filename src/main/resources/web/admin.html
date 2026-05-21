@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 
 <html class="light" lang="zh-CN">
 <head>
@@ -568,6 +568,34 @@
 <p class="meta" data-i18n="uiText.autoHtml.k0202" id="currencyStatusView">等待操作</p>
 </article>
 <article class="md-card section-card">
+<h2 data-i18n="uiText.page.rechargePaymentTitle">充值支付设置</h2>
+<p class="card-desc" data-i18n="uiText.page.rechargePaymentDesc">设置玩家充值时使用的支付币种与支付方式。</p>
+<div class="field-grid two-col">
+<label class="field">
+<span data-i18n="uiText.page.rechargePaymentProviderLabel">支付服务</span>
+<input id="rechargePaymentProvider" readonly=""/>
+</label>
+</div>
+<label class="field">
+<span data-i18n="uiText.page.rechargePaymentRatesLabel">ShopCoin 比例规则</span>
+<textarea data-i18n-placeholder="uiText.page.rechargePaymentRatesPlaceholder" id="rechargePaymentRates" placeholder="ALIPAY,CNY,100&#10;PAYPAL,USD,700" rows="5"></textarea>
+</label>
+<p class="meta" data-i18n="uiText.page.rechargePaymentRatesHint">每行：支付方式,币种,1单位支付币入账ShopCoin。</p>
+<div class="payment-method-grid">
+<label><input id="rechargeMethodAlipay" type="checkbox" value="ALIPAY"/><span data-i18n="uiText.paymentMethodLabels.ALIPAY">支付宝</span></label>
+<label><input id="rechargeMethodWechat" type="checkbox" value="WECHAT"/><span data-i18n="uiText.paymentMethodLabels.WECHAT">微信支付</span></label>
+<label><input id="rechargeMethodPaypal" type="checkbox" value="PAYPAL"/><span data-i18n="uiText.paymentMethodLabels.PAYPAL">PayPal</span></label>
+<label><input id="rechargeMethodMercadopago" type="checkbox" value="MERCADOPAGO"/><span data-i18n="uiText.paymentMethodLabels.MERCADOPAGO">MercadoPago</span></label>
+<label><input id="rechargeMethodStripe" type="checkbox" value="STRIPE"/><span data-i18n="uiText.paymentMethodLabels.STRIPE">Stripe</span></label>
+<label><input id="rechargeMethodCustom" type="checkbox" value="CUSTOM"/><span data-i18n="uiText.paymentMethodLabels.CUSTOM">自定义</span></label>
+</div>
+<div class="actions">
+<button class="btn-tonal" data-i18n="uiText.page.rechargePaymentAllowedCombosBtn" id="rechargePaymentAllowedCombosBtn" type="button">查看后端允许组合</button>
+<button data-i18n="uiText.page.rechargePaymentSaveBtn" id="rechargePaymentSaveBtn" type="button">保存充值支付配置</button>
+</div>
+<p class="meta" data-i18n="uiText.page.rechargePaymentStatusView" id="rechargePaymentStatusView">等待操作</p>
+</article>
+<article class="md-card section-card">
 <h2 data-i18n="uiText.autoHtml.k0203">Vault 对接状态</h2>
 <p class="card-desc" data-i18n-html="uiText.autoHtml.k0204"><span data-i18n="uiText.autoHtml.k0004" id="vaultGameCoinName">游戏币</span> 与 Vault 经济系统的连接状态。</p>
 <p class="meta" data-i18n="uiText.autoHtml.k0206" id="vaultStatusView">等待加载</p>
@@ -672,6 +700,10 @@
 <label class="field">
 <span data-i18n="uiText.autoHtml.k0239">订单冷却（秒）</span>
 <input id="runtimeOrderCooldownSeconds" min="0" step="1" type="number" value="15"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.autoHtml.k0901">充值订单有效期（分钟）</span>
+<input id="runtimeRechargeOrderExpireMinutes" min="1" step="1" type="number" value="15"/>
 </label>
 <label class="field">
 <span data-i18n="uiText.autoHtml.k0240">允许代领命令</span>
@@ -1437,6 +1469,16 @@
 <div class="actions">
 <button class="btn-tonal" data-i18n="uiText.autoHtml.k0501" id="notificationTemplateCancelBtn" type="button">取消</button>
 <button data-i18n="uiText.autoHtml.k0502" id="notificationTemplateSaveBtn" type="button">保存模板</button>
+</div>
+</article>
+</div>
+<div aria-hidden="true" class="dialog-backdrop" id="rechargePaymentAllowedDialog">
+<article class="md-card dialog-card">
+<h3 data-i18n="uiText.page.rechargePaymentAllowedDialogTitle">后端允许组合</h3>
+<p data-i18n="uiText.page.rechargePaymentAllowedDialogDesc">这些支付方式和货币来自当前支付后端暴露的能力。</p>
+<div class="meta" id="rechargePaymentAllowedList">-</div>
+<div class="actions dialog-actions">
+<button class="btn-tonal" data-i18n="uiText.page.rechargePaymentAllowedDialogCloseBtn" id="rechargePaymentAllowedDialogCloseBtn" type="button">关闭</button>
 </div>
 </article>
 </div>

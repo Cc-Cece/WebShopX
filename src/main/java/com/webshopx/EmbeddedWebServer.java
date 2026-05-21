@@ -9,6 +9,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.webshopx.payment.api.PaymentMethod;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -99,6 +100,8 @@ class EmbeddedWebServer {
   private final LocaleCenterService localeCenterService;
   private final ThemeCenterService themeCenterService;
 
+  private static final Map<String, RedirectEntry> redirectMap = new java.util.concurrent.ConcurrentHashMap<>();
+
   private HttpServer server;
   private ExecutorService executorService;
   private Path staticRoot;
@@ -174,7 +177,9 @@ class EmbeddedWebServer {
     server.createContext("/api/wallet/ledger", this::handleWalletLedger);
     server.createContext("/api/wallet/exchange", this::handleExchange);
     server.createContext("/api/recharge/create", this::handleRechargeCreate);
+    server.createContext("/api/recharge/cancel", this::handleRechargeCancel);
     server.createContext("/api/recharge/status", this::handleRechargeStatus);
+    server.createContext("/api/recharge/redirect", this::handleRechargeRedirect);
     server.createContext("/api/redeem/use", this::handleRedeemUse);
     server.createContext("/api/products", this::handleProducts);
     server.createContext("/api/orders", this::handleOrders);
@@ -233,6 +238,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/economy/market", this::handleAdminMarketEconomyUpdate);
     server.createContext("/api/admin/economy/leaderboard", this::handleAdminLeaderboardSettingsUpdate);
     server.createContext("/api/admin/economy/currency", this::handleAdminCurrencyDisplayUpdate);
+    server.createContext("/api/admin/economy/recharge-payment", this::handleAdminRechargePaymentUpdate);
     server.createContext("/api/admin/market/tags-config", this::handleAdminMarketTagsConfig);
     server.createContext("/api/admin/market/limitation-config", this::handleAdminMarketLimitationConfig);
     server.createContext("/api/admin/system/webshop", this::handleAdminWebshopRuntimeUpdate);
@@ -416,19 +422,50 @@ class EmbeddedWebServer {
       long amountMinor = payload.has("amountMinor")
           ? getLong(payload, "amountMinor", 0L)
           : rechargeService.yuanToAmountMinor(getString(payload, "amount"));
-      long coinAmount = payload.has("coinAmount")
-          ? getLong(payload, "coinAmount", 0L)
-          : rechargeService.amountToCoinAmount(amountMinor);
-      String currency = getOptionalString(payload, "currency").orElse("CNY");
+      String currency = getOptionalString(payload, "currency")
+          .orElse(settingsSupplier.get().paymentSettings().primaryRechargeCurrency());
+      PaymentMethod preferredMethod = getOptionalString(payload, "paymentMethod")
+          .or(() -> getOptionalString(payload, "preferredMethod"))
+          .map(this::parsePaymentMethod)
+          .orElse(null);
+      String methodCode = getOptionalString(payload, "methodCode").orElse(null);
+      String locale = getOptionalString(payload, "locale").orElse(null);
+      String baseUrl = resolveBaseUrl(exchange);
       RechargeService.RechargeCreateResult result = rechargeService.createRechargeOrder(
           new RechargeService.RechargeCreateRequest(
               user.id(),
               user.boundUuid(),
               amountMinor,
               currency,
-              coinAmount,
-              "WEB"));
-      JsonObject response = rechargeCreateResultJson(result);
+              0L,
+              preferredMethod,
+              methodCode,
+              "WEB",
+              baseUrl,
+              locale));
+      JsonObject response = rechargeCreateResultJson(exchange, result);
+      sendJson(exchange, result.success() ? 200 : 400, response);
+    });
+  }
+
+  private void handleRechargeCancel(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      String orderId = getString(payload, "orderId");
+      RechargeService.RechargeCancelResult result = rechargeService.cancelRechargeOrder(user.id(), orderId);
+      JsonObject response = new JsonObject();
+      response.addProperty("success", result.success());
+      response.addProperty("orderId", result.orderId());
+      response.addProperty("status", result.status());
+      addNullableString(response, "code", result.code());
+      addNullableString(response, "message", result.message());
       sendJson(exchange, result.success() ? 200 : 400, response);
     });
   }
@@ -447,8 +484,30 @@ class EmbeddedWebServer {
       if (order == null) {
         throw new ServiceException("ORDER_NOT_FOUND", "Recharge order not found");
       }
-      sendJson(exchange, 200, rechargeOrderJson(order));
+      sendJson(exchange, 200, rechargeOrderJson(exchange, order));
     });
+  }
+
+  private void handleRechargeRedirect(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    String id = parseQuery(exchange).get("id");
+    if (id == null || id.isBlank()) {
+      sendJson(exchange, 400, errorJson("BAD_REQUEST", "Missing redirect ID"));
+      return;
+    }
+    RedirectEntry entry = redirectMap.get(id);
+    if (entry == null || System.currentTimeMillis() - entry.createdAt > 900000L) {
+      sendJson(exchange, 404, errorJson("NOT_FOUND", "Redirect link expired or not found"));
+      return;
+    }
+    exchange.getResponseHeaders().set("Location", entry.url);
+    exchange.sendResponseHeaders(302, -1);
+    exchange.close();
   }
 
   private void handleExchange(HttpExchange exchange) throws IOException {
@@ -849,6 +908,8 @@ class EmbeddedWebServer {
       response.add("shopCoin", shop);
       response.add("gameCoin", game);
       response.add("exchange", buildExchangeMetaJson());
+      response.add("payment", rechargePaymentSettingsJson(settingsSupplier.get().paymentSettings()));
+      response.add("paymentProvider", paymentProviderInfoJson(rechargeService.paymentProviderInfo()));
       response.addProperty("timeZone", settingsSupplier.get().timeZone().getId());
       sendJson(exchange, 200, response);
     });
@@ -1038,6 +1099,7 @@ class EmbeddedWebServer {
     json.addProperty("deliveryBatchSize", settings.deliveryBatchSize());
     json.addProperty("deliveryRetrySeconds", settings.deliveryRetrySeconds());
     json.addProperty("orderCooldownSeconds", settings.orderCooldownSeconds());
+    json.addProperty("rechargeOrderExpireMinutes", settings.rechargeOrderExpireMinutes());
     json.addProperty("allowSharedClaimCommand", settings.allowSharedClaimCommand());
     json.addProperty("refundUndeliveredEnabled", settings.refundUndeliveredEnabled());
     json.addProperty("timeZone", settings.timeZone().getId());
@@ -2920,6 +2982,8 @@ class EmbeddedWebServer {
       response.add("marketLimitationConfig", runtimeConfigService.readMarketLimitationConfig().config());
       response.add("leaderboard", leaderboardSettingsJson(settings));
       response.add("webshopRuntime", webshopRuntimeJson(settings));
+      response.add("rechargePayment", rechargePaymentSettingsJson(settings.paymentSettings()));
+      response.add("paymentProvider", paymentProviderInfoJson(rechargeService.paymentProviderInfo()));
       response.add("marketRuntime", marketRuntimeJson(settings));
       response.add("maintenance", maintenanceSettingsJson(settings.maintenanceSettings()));
       response.add("logging", loggingSettingsJson(settings.loggingSettings()));
@@ -3086,6 +3150,39 @@ class EmbeddedWebServer {
     });
   }
 
+  private void handleAdminRechargePaymentUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      PluginSettings.PaymentSettings current = settingsSupplier.get().paymentSettings();
+      List<String> currencies = getStringArray(payload, "currencies");
+      PluginSettings.PaymentSettings paymentSettings = new PluginSettings.PaymentSettings(
+          current.provider(),
+          currencies,
+          PluginSettings.normalizePaymentMethods(getStringArray(payload, "methods")),
+          parseRechargeRates(payload));
+      long version = runtimeConfigService.updatePaymentRecharge(paymentSettings);
+      publishRuntimeConfigRefresh(version);
+
+      JsonObject detail = new JsonObject();
+      detail.add("currencies", stringArrayJson(paymentSettings.rechargeCurrencies()));
+      detail.add("methods", paymentMethodArrayJson(paymentSettings.rechargeMethods()));
+      detail.add("rates", rechargeRateArrayJson(paymentSettings.rechargeRates()));
+      adminAuditService.log(admin, "RECHARGE_PAYMENT_UPDATE", "payment", null, detail, clientIp(exchange));
+
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      response.add("rechargePayment", rechargePaymentSettingsJson(paymentSettings));
+      sendJson(exchange, 200, response);
+    });
+  }
+
   private void handleAdminMarketTagsConfig(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
       return;
@@ -3193,6 +3290,8 @@ class EmbeddedWebServer {
       int deliveryBatchSize = clampInt(getLong(payload, "deliveryBatchSize", 20L), 1, 1000, "deliveryBatchSize");
       int deliveryRetrySeconds = clampInt(getLong(payload, "deliveryRetrySeconds", 30L), 5, 86400, "deliveryRetrySeconds");
       int orderCooldownSeconds = clampInt(getLong(payload, "orderCooldownSeconds", 15L), 0, 86400, "orderCooldownSeconds");
+        int rechargeOrderExpireMinutes = clampInt(
+          getLong(payload, "rechargeOrderExpireMinutes", 15L), 1, 24 * 60 * 30, "rechargeOrderExpireMinutes");
       boolean allowSharedClaimCommand = getBoolean(payload, "allowSharedClaimCommand");
       boolean refundUndeliveredEnabled = getBoolean(payload, "refundUndeliveredEnabled");
       ZoneId timeZone = readTimeZoneField(getString(payload, "timeZone"), "timeZone");
@@ -3205,6 +3304,7 @@ class EmbeddedWebServer {
           deliveryBatchSize,
           deliveryRetrySeconds,
           orderCooldownSeconds,
+          rechargeOrderExpireMinutes,
           allowSharedClaimCommand,
           refundUndeliveredEnabled,
           timeZone);
@@ -3217,6 +3317,7 @@ class EmbeddedWebServer {
       detail.addProperty("deliveryBatchSize", deliveryBatchSize);
       detail.addProperty("deliveryRetrySeconds", deliveryRetrySeconds);
       detail.addProperty("orderCooldownSeconds", orderCooldownSeconds);
+      detail.addProperty("rechargeOrderExpireMinutes", rechargeOrderExpireMinutes);
       adminAuditService.log(admin, "WEBSHOP_RUNTIME_UPDATE", "webshop_runtime", null, detail, clientIp(exchange));
 
       JsonObject response = new JsonObject();
@@ -4629,6 +4730,34 @@ class EmbeddedWebServer {
     return values;
   }
 
+  private List<PluginSettings.RechargeRate> parseRechargeRates(JsonObject payload) {
+    if (payload == null || !payload.has("rates") || payload.get("rates").isJsonNull()) {
+      return List.of();
+    }
+    JsonElement value = payload.get("rates");
+    if (!value.isJsonArray()) {
+      throw new ServiceException("bad_request", "Field must be an array: rates");
+    }
+    List<PluginSettings.RechargeRate> rates = new java.util.ArrayList<>();
+    for (JsonElement element : value.getAsJsonArray()) {
+      if (element == null || !element.isJsonObject()) {
+        continue;
+      }
+      JsonObject item = element.getAsJsonObject();
+      PaymentMethod method = parsePaymentMethod(getString(item, "method"));
+      String currency = getString(item, "currency");
+      if (!currency.trim().toUpperCase(Locale.ROOT).matches("^[A-Z]{3,8}$")) {
+        throw new ServiceException("bad_request", "Invalid rate currency: " + currency);
+      }
+      long coinsPerUnit = getLong(item, "coinsPerUnit", 0L);
+      if (coinsPerUnit <= 0L) {
+        throw new ServiceException("bad_request", "coinsPerUnit must be greater than 0");
+      }
+      rates.add(new PluginSettings.RechargeRate(method, currency, coinsPerUnit));
+    }
+    return rates;
+  }
+
   private String readHeaderToken(HttpExchange exchange) {
     String header = exchange.getRequestHeaders().getFirst("Authorization");
     if (header == null) {
@@ -4714,20 +4843,20 @@ class EmbeddedWebServer {
     return response;
   }
 
-  private JsonObject rechargeCreateResultJson(RechargeService.RechargeCreateResult result) {
+  private JsonObject rechargeCreateResultJson(HttpExchange exchange, RechargeService.RechargeCreateResult result) {
     JsonObject response = new JsonObject();
     response.addProperty("success", result.success());
     response.addProperty("orderId", result.orderId());
     addNullableString(response, "providerOrderId", result.providerOrderId());
     addNullableString(response, "payUrl", result.payUrl());
-    addNullableString(response, "qrCodeUrl", result.qrCodeUrl());
+    addNullableString(response, "qrCodeUrl", processQrCodeUrl(exchange, result.qrCodeUrl()));
     addNullableInstant(response, "expireTime", result.expireTime());
     addNullableString(response, "errorCode", result.errorCode());
     addNullableString(response, "message", result.message());
     return response;
   }
 
-  private JsonObject rechargeOrderJson(RechargeService.RechargeOrder order) {
+  private JsonObject rechargeOrderJson(HttpExchange exchange, RechargeService.RechargeOrder order) {
     JsonObject response = new JsonObject();
     response.addProperty("orderId", order.orderId());
     response.addProperty("userId", order.userId());
@@ -4739,7 +4868,7 @@ class EmbeddedWebServer {
     addNullableString(response, "provider", order.provider());
     addNullableString(response, "providerOrderId", order.providerOrderId());
     addNullableString(response, "payUrl", order.payUrl());
-    addNullableString(response, "qrCodeUrl", order.qrCodeUrl());
+    addNullableString(response, "qrCodeUrl", processQrCodeUrl(exchange, order.qrCodeUrl()));
     addNullableInstant(response, "expireTime", order.expireTime());
     addNullableInstant(response, "paidTime", order.paidTime());
     addNullableInstant(response, "creditedTime", order.creditedTime());
@@ -4748,6 +4877,76 @@ class EmbeddedWebServer {
     addNullableString(response, "errorCode", order.errorCode());
     addNullableString(response, "errorMessage", order.errorMessage());
     return response;
+  }
+
+  private JsonObject rechargePaymentSettingsJson(PluginSettings.PaymentSettings settings) {
+    JsonObject response = new JsonObject();
+    response.add("currencies", stringArrayJson(settings.rechargeCurrencies()));
+    response.add("methods", paymentMethodArrayJson(settings.rechargeMethods()));
+    response.add("rates", rechargeRateArrayJson(settings.rechargeRates()));
+    return response;
+  }
+
+  private JsonArray rechargeRateArrayJson(List<PluginSettings.RechargeRate> rates) {
+    JsonArray array = new JsonArray();
+    if (rates == null) {
+      return array;
+    }
+    for (PluginSettings.RechargeRate rate : rates) {
+      if (rate == null) {
+        continue;
+      }
+      JsonObject item = new JsonObject();
+      item.addProperty("method", rate.method().name());
+      item.addProperty("currency", rate.currency());
+      item.addProperty("coinsPerUnit", rate.coinsPerUnit());
+      array.add(item);
+    }
+    return array;
+  }
+
+  private JsonObject paymentProviderInfoJson(WebShopXPaymentBridge.PaymentProviderInfo info) {
+    JsonObject response = new JsonObject();
+    if (info == null) {
+      response.addProperty("available", false);
+      response.add("providerId", JsonNull.INSTANCE);
+      response.add("displayName", JsonNull.INSTANCE);
+      response.add("supportedMethods", new JsonArray());
+      response.add("supportedCurrencies", new JsonArray());
+      return response;
+    }
+    response.addProperty("available", info.available());
+    addNullableString(response, "providerId", info.providerId());
+    addNullableString(response, "displayName", info.displayName());
+    response.add("supportedMethods", paymentMethodArrayJson(List.copyOf(info.supportedMethods())));
+    response.add("supportedCurrencies", stringArrayJson(List.copyOf(info.supportedCurrencies())));
+    return response;
+  }
+
+  private JsonArray stringArrayJson(List<String> values) {
+    JsonArray array = new JsonArray();
+    if (values == null) {
+      return array;
+    }
+    for (String value : values) {
+      if (value != null) {
+        array.add(value);
+      }
+    }
+    return array;
+  }
+
+  private JsonArray paymentMethodArrayJson(List<PaymentMethod> methods) {
+    JsonArray array = new JsonArray();
+    if (methods == null) {
+      return array;
+    }
+    for (PaymentMethod method : methods) {
+      if (method != null) {
+        array.add(method.name());
+      }
+    }
+    return array;
   }
 
   private void addNullableString(JsonObject object, String key, String value) {
@@ -4856,6 +5055,14 @@ class EmbeddedWebServer {
       return Optional.empty();
     }
     return Optional.of(text);
+  }
+
+  private PaymentMethod parsePaymentMethod(String raw) {
+    PaymentMethod method = PluginSettings.parsePaymentMethod(raw);
+    if (method == null) {
+      throw new ServiceException("METHOD_UNSUPPORTED", "Unsupported payment method: " + raw);
+    }
+    return method;
   }
 
   private java.time.LocalDateTime getOptionalDateTime(JsonObject payload, String key) {
@@ -5974,6 +6181,152 @@ class EmbeddedWebServer {
   @FunctionalInterface
   private interface CheckedPathSupplier {
     Path get() throws Exception;
+  }
+
+  private static class RedirectEntry {
+    final String url;
+    final long createdAt;
+
+    RedirectEntry(String url, long createdAt) {
+      this.url = url;
+      this.createdAt = createdAt;
+    }
+  }
+
+  private String getOrCreateShortRedirect(String payUrl) {
+    if (payUrl == null || payUrl.isBlank()) {
+      return "";
+    }
+    cleanExpiredRedirects();
+    for (Map.Entry<String, RedirectEntry> entry : redirectMap.entrySet()) {
+      if (payUrl.equals(entry.getValue().url)) {
+        return entry.getKey();
+      }
+    }
+    String shortId = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    redirectMap.put(shortId, new RedirectEntry(payUrl, System.currentTimeMillis()));
+    return shortId;
+  }
+
+  private void cleanExpiredRedirects() {
+    long now = System.currentTimeMillis();
+    redirectMap.entrySet().removeIf(entry -> now - entry.getValue().createdAt > 900000L);
+  }
+
+  private String resolveBaseUrl(HttpExchange exchange) {
+    if (exchange == null) {
+      return "";
+    }
+    String proto = exchange.getRequestHeaders().getFirst("X-Forwarded-Proto");
+    if (proto == null || proto.isBlank()) {
+      proto = "http";
+    }
+    String host = exchange.getRequestHeaders().getFirst("Host");
+    if (host == null || host.isBlank()) {
+      InetSocketAddress local = exchange.getLocalAddress();
+      if (local != null) {
+        host = local.getHostString() + ":" + local.getPort();
+      } else {
+        host = "localhost";
+      }
+    }
+    return proto + "://" + host;
+  }
+
+  private String processQrCodeUrl(HttpExchange exchange, String qrUrl) {
+    if (qrUrl == null || qrUrl.isBlank()) {
+      return null;
+    }
+    if (qrUrl.startsWith("data:")) {
+      return qrUrl;
+    }
+    if (qrUrl.startsWith("http://") || qrUrl.startsWith("https://")) {
+      String shortId = getOrCreateShortRedirect(qrUrl);
+      String baseUrl = resolveBaseUrl(exchange);
+      String shortUrl = baseUrl + "/api/recharge/redirect?id=" + shortId;
+      String svgBase64 = tryGenerateQrCodeSvg(shortUrl);
+      if (svgBase64 != null) {
+        return svgBase64;
+      } else {
+        return null;
+      }
+    }
+    return qrUrl;
+  }
+
+  private static String tryGenerateQrCodeSvg(String content) {
+    if (content == null || content.isBlank()) {
+      return null;
+    }
+    try {
+      Class<?> qrCodeClass = null;
+      Class<?> ecClass = null;
+      Object ecLevel = null;
+
+      try {
+        qrCodeClass = Class.forName("top.mrxiaom.qrcode.QRCode");
+        ecClass = Class.forName("top.mrxiaom.qrcode.enums.ErrorCorrectionLevel");
+        for (Object constant : ecClass.getEnumConstants()) {
+          if ("M".equals(((Enum<?>) constant).name())) {
+            ecLevel = constant;
+            break;
+          }
+        }
+      } catch (ClassNotFoundException e1) {
+        try {
+          qrCodeClass = Class.forName("com.webshopx.payments.libs.qrcode.QRCode");
+          ecClass = Class.forName("com.webshopx.payments.libs.qrcode.enums.ErrorCorrectionLevel");
+          for (Object constant : ecClass.getEnumConstants()) {
+            if ("M".equals(((Enum<?>) constant).name())) {
+              ecLevel = constant;
+              break;
+            }
+          }
+        } catch (ClassNotFoundException e2) {
+          return null;
+        }
+      }
+
+      if (qrCodeClass == null || ecLevel == null) {
+        return null;
+      }
+
+      java.lang.reflect.Method createMethod = qrCodeClass.getMethod("create", String.class, ecClass);
+      Object qrCodeInstance = createMethod.invoke(null, content, ecLevel);
+
+      java.lang.reflect.Method getModuleCountMethod = qrCodeClass.getMethod("getModuleCount");
+      int modules = (Integer) getModuleCountMethod.invoke(qrCodeInstance);
+
+      java.lang.reflect.Method isDarkMethod = qrCodeClass.getMethod("isDark", int.class, int.class);
+
+      int quiet = 4;
+      int size = modules + quiet * 2;
+      StringBuilder svg = new StringBuilder(4096);
+      svg.append("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 ")
+          .append(size)
+          .append(' ')
+          .append(size)
+          .append("\" shape-rendering=\"crispEdges\">")
+          .append("<rect width=\"100%\" height=\"100%\" fill=\"#fff\"/>")
+          .append("<path fill=\"#000\" d=\"");
+      for (int row = 0; row < modules; row++) {
+        for (int col = 0; col < modules; col++) {
+          boolean isDark = (Boolean) isDarkMethod.invoke(qrCodeInstance, row, col);
+          if (isDark) {
+            svg.append('M')
+                .append(col + quiet)
+                .append(' ')
+                .append(row + quiet)
+                .append("h1v1h-1z");
+          }
+        }
+      }
+      svg.append("\"/></svg>");
+      String encoded = java.util.Base64.getEncoder().encodeToString(svg.toString().getBytes(StandardCharsets.UTF_8));
+      return "data:image/svg+xml;base64," + encoded;
+    } catch (Throwable ignored) {
+      return null;
+    }
   }
 }
 
