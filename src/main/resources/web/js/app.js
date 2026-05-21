@@ -3820,6 +3820,15 @@ function setRechargePaymentActionsEnabled(enabled) {
   }
 }
 
+function setRechargeExpireVisible(visible) {
+  if (elements.rechargePaymentDialogExpireAt?.parentElement) {
+    elements.rechargePaymentDialogExpireAt.parentElement.classList.toggle("hidden", !visible);
+  }
+  if (elements.rechargePaymentDialogExpireCountdown?.parentElement) {
+    elements.rechargePaymentDialogExpireCountdown.parentElement.classList.toggle("hidden", !visible);
+  }
+}
+
 function stopRechargeExpireCountdown() {
   if (state.recharge.expireTimer) {
     window.clearInterval(state.recharge.expireTimer);
@@ -3880,6 +3889,7 @@ function updateRechargePaymentDialogStatus(status, payload = {}) {
   if (!elements.rechargePaymentDialogStatus) {
     return;
   }
+  setRechargeExpireVisible(!["PAID", "FAILED", "EXPIRED", "CLOSED"].includes(normalizedStatus));
   if (normalizedStatus === "PAID") {
     stopRechargeExpireCountdown();
     setRechargePaymentSuccessVisible(true);
