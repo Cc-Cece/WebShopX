@@ -15,7 +15,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -552,17 +551,11 @@ class DeliveryService {
         case COMMAND -> {
           if (usesQuantityPlaceholder(task.commandText())) {
             String command = renderCommand(task.commandText(), player.getName(), task.quantity(), task.orderNo());
-            boolean success = dispatchConsoleCommand(command);
-            if (!success) {
-              throw new IllegalStateException("Command execution returned false");
-            }
+            dispatchConsoleCommand(command);
           } else {
             for (int count = 0; count < Math.max(1, task.quantity()); count++) {
               String command = renderCommand(task.commandText(), player.getName(), 1, task.orderNo());
-              boolean success = dispatchConsoleCommand(command);
-              if (!success) {
-                throw new IllegalStateException("Command execution returned false");
-              }
+              dispatchConsoleCommand(command);
             }
           }
         }
@@ -1006,12 +999,17 @@ class DeliveryService {
     return rendered.trim();
   }
 
-  private boolean dispatchConsoleCommand(String command) {
+  private void dispatchConsoleCommand(String command) {
+    if (command == null || command.isBlank()) {
+      throw new IllegalStateException("Command template rendered blank");
+    }
     try {
-      return schedulerBridge
+      boolean handled = schedulerBridge
           .supplyGlobal(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command))
-          .orTimeout(3L, TimeUnit.SECONDS)
           .join();
+      if (!handled) {
+        plugin.getLogger().warning("Delivery command was not found: " + command);
+      }
     } catch (Exception exception) {
       throw new IllegalStateException("Command execution failed", exception);
     }

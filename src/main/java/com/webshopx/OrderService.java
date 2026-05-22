@@ -917,7 +917,6 @@ class OrderService {
     try {
       return schedulerBridge
           .supplyGlobal(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command))
-          .orTimeout(3L, TimeUnit.SECONDS)
           .join();
     } catch (Exception exception) {
       throw new ServiceException("recycle_command_failed", "Recycle command execution failed");

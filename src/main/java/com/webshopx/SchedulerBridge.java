@@ -108,12 +108,25 @@ final class SchedulerBridge {
 
   <T> CompletableFuture<T> supplyGlobal(Supplier<T> supplier) {
     CompletableFuture<T> future = new CompletableFuture<>();
-    if (!isFoliaRuntime() && Bukkit.isPrimaryThread()) {
+    if (isOnGlobalExecutionThread()) {
       complete(future, supplier);
       return future;
     }
     runGlobal(() -> complete(future, supplier));
     return future;
+  }
+
+  private boolean isOnGlobalExecutionThread() {
+    if (!isFoliaRuntime()) {
+      return Bukkit.isPrimaryThread();
+    }
+    try {
+      Method method = Bukkit.getServer().getClass().getMethod("isGlobalTickThread");
+      Object result = method.invoke(Bukkit.getServer());
+      return Boolean.TRUE.equals(result);
+    } catch (ReflectiveOperationException ignored) {
+      return false;
+    }
   }
 
   CompletableFuture<Void> runLocationFuture(Location location, Runnable runnable) {
