@@ -726,7 +726,7 @@ class SchemaManager {
       connection,
       "UPDATE products SET dynamic_pricing_enabled = FALSE "
         + "WHERE dynamic_pricing_enabled = TRUE "
-        + "AND product_type NOT IN ('GIVE_ITEM', 'RECYCLE_ITEM')");
+        + "AND product_type NOT IN ('GIVE_ITEM', 'RECYCLE_ITEM', 'RECYCLE_COMMAND_ITEM', 'RECYCLE_CUSTOM_ITEM')");
     execute(
       connection,
       "UPDATE products SET dynamic_base_price = price "

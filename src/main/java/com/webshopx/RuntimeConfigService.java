@@ -147,9 +147,10 @@ class RuntimeConfigService {
         snapshot.deliveryBatchSize(),
         snapshot.deliveryRetrySeconds(),
         snapshot.orderCooldownSeconds(),
-      snapshot.rechargeOrderExpireMinutes(),
+        snapshot.rechargeOrderExpireMinutes(),
         snapshot.allowSharedClaimCommand(),
         snapshot.refundUndeliveredEnabled(),
+        snapshot.advancedRecycleEnabled(),
         snapshot.timeZone(),
         snapshot.marketMaxActiveListings(),
         snapshot.marketSupplySettings(),
@@ -294,9 +295,10 @@ class RuntimeConfigService {
         webshopRuntime.deliveryBatchSize(),
         webshopRuntime.deliveryRetrySeconds(),
         webshopRuntime.orderCooldownSeconds(),
-      webshopRuntime.rechargeOrderExpireMinutes(),
+        webshopRuntime.rechargeOrderExpireMinutes(),
         webshopRuntime.allowSharedClaimCommand(),
         webshopRuntime.refundUndeliveredEnabled(),
+        webshopRuntime.advancedRecycleEnabled(),
         webshopRuntime.timeZone(),
         marketRuntime.marketMaxActiveListings(),
         marketRuntime.marketSupplySettings(),
@@ -641,9 +643,10 @@ class RuntimeConfigService {
         settings.deliveryBatchSize(),
         settings.deliveryRetrySeconds(),
         settings.orderCooldownSeconds(),
-      settings.rechargeOrderExpireMinutes(),
+        settings.rechargeOrderExpireMinutes(),
         settings.allowSharedClaimCommand(),
         settings.refundUndeliveredEnabled(),
+        settings.advancedRecycleEnabled(),
         settings.timeZone());
     return serializeWebshopRuntime(update);
   }
@@ -660,6 +663,7 @@ class RuntimeConfigService {
     root.addProperty("rechargeOrderExpireMinutes", update.rechargeOrderExpireMinutes());
     root.addProperty("allowSharedClaimCommand", update.allowSharedClaimCommand());
     root.addProperty("refundUndeliveredEnabled", update.refundUndeliveredEnabled());
+    root.addProperty("advancedRecycleEnabled", update.advancedRecycleEnabled());
     root.addProperty("timeZone", update.timeZone().getId());
     return gson.toJson(root);
   }
@@ -677,6 +681,7 @@ class RuntimeConfigService {
           fallback.rechargeOrderExpireMinutes(),
           fallback.allowSharedClaimCommand(),
           fallback.refundUndeliveredEnabled(),
+          fallback.advancedRecycleEnabled(),
           fallback.timeZone());
     }
     try {
@@ -692,6 +697,7 @@ class RuntimeConfigService {
           readInt(root, "rechargeOrderExpireMinutes", fallback.rechargeOrderExpireMinutes()),
           readBoolean(root, "allowSharedClaimCommand", fallback.allowSharedClaimCommand()),
           readBoolean(root, "refundUndeliveredEnabled", fallback.refundUndeliveredEnabled()),
+          readBoolean(root, "advancedRecycleEnabled", fallback.advancedRecycleEnabled()),
           readZoneId(root, "timeZone", fallback.timeZone()));
     } catch (Exception exception) {
       return new RuntimeSettingsUpdate(
@@ -705,6 +711,7 @@ class RuntimeConfigService {
           fallback.rechargeOrderExpireMinutes(),
           fallback.allowSharedClaimCommand(),
           fallback.refundUndeliveredEnabled(),
+          fallback.advancedRecycleEnabled(),
           fallback.timeZone());
     }
   }
@@ -1104,6 +1111,7 @@ class RuntimeConfigService {
       int rechargeOrderExpireMinutes,
       boolean allowSharedClaimCommand,
       boolean refundUndeliveredEnabled,
+      boolean advancedRecycleEnabled,
       ZoneId timeZone,
       int marketMaxActiveListings,
       PluginSettings.MarketSupplySettings marketSupplySettings,
@@ -1129,6 +1137,7 @@ class RuntimeConfigService {
       int rechargeOrderExpireMinutes,
       boolean allowSharedClaimCommand,
       boolean refundUndeliveredEnabled,
+      boolean advancedRecycleEnabled,
       ZoneId timeZone) {
   }
 

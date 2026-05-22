@@ -313,7 +313,8 @@ class WalletService {
         String title = resultSet.getString("title");
         int quantity = resultSet.getInt("quantity");
         String tradeType = "Official Shop";
-        if ("RECYCLE_ITEM".equalsIgnoreCase(productType) || bizType.startsWith("RECYCLE_")) {
+        if ((productType != null && productType.toUpperCase(java.util.Locale.ROOT).startsWith("RECYCLE_"))
+            || bizType.startsWith("RECYCLE_")) {
           tradeType = "Official Shop|Recycle";
         } else if ("GROUP_BUY_VOUCHER".equalsIgnoreCase(productType)) {
           tradeType = "Official Shop|Group Buy Voucher";

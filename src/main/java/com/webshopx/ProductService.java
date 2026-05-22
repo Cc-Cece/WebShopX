@@ -599,7 +599,7 @@ class ProductService {
     if (dynamicEnabled && !dynamicSupported) {
       throw new ServiceException(
           "invalid_dynamic_config",
-          "Dynamic pricing is only supported for GIVE_ITEM and RECYCLE_ITEM");
+          "Dynamic pricing is only supported for GIVE_ITEM and RECYCLE_*");
     }
     normalizeOptionalPositive(input.dynamicBasePrice(), "invalid_dynamic_base");
     Long floorPrice = normalizeOptionalPositive(input.dynamicFloorPrice(), "invalid_dynamic_floor");
@@ -630,13 +630,17 @@ class ProductService {
   }
 
   private String normalizeCommandTemplate(String commandTemplate, ProductType productType) {
-    if (productType != ProductType.COMMAND) {
+    if (!requiresCommandTemplate(productType)) {
       return "";
     }
     if (commandTemplate == null || commandTemplate.isBlank()) {
-      throw new ServiceException("invalid_product", "Command template is required for COMMAND type");
+      throw new ServiceException("invalid_product", "Command template is required for COMMAND/RECYCLE_COMMAND_ITEM/RECYCLE_CUSTOM_ITEM type");
     }
-    return commandTemplate.trim();
+    String normalized = commandTemplate.trim();
+    if (isAdvancedRecycleType(productType) && !usesQuantityPlaceholder(normalized)) {
+      throw new ServiceException("invalid_product", "Recycle command template must include %amount% or {amount}");
+    }
+    return normalized;
   }
 
   private String normalizeRemark(String remark) {
@@ -700,13 +704,18 @@ class ProductService {
   }
 
   private String normalizeItemMaterial(String itemMaterial, ProductType productType) {
-    if (productType != ProductType.GIVE_ITEM && productType != ProductType.RECYCLE_ITEM) {
+    if (productType != ProductType.GIVE_ITEM
+        && productType != ProductType.RECYCLE_ITEM
+        && !isAdvancedRecycleType(productType)) {
       return null;
     }
     if (itemMaterial == null || itemMaterial.isBlank()) {
       throw new ServiceException("invalid_product", "Item material is required");
     }
     String normalized = itemMaterial.trim();
+    if (isAdvancedRecycleType(productType)) {
+      return normalizeAdvancedRecycleMaterialKey(normalized);
+    }
     String key = normalized.toUpperCase(Locale.ROOT).replace("MINECRAFT:", "");
     Material material = Material.matchMaterial(key);
     if (material == null) {
@@ -836,7 +845,10 @@ class ProductService {
   }
 
   private boolean supportsDynamicPricing(ProductType productType) {
-    return productType == ProductType.GIVE_ITEM || productType == ProductType.RECYCLE_ITEM;
+    return productType == ProductType.GIVE_ITEM
+        || productType == ProductType.RECYCLE_ITEM
+        || productType == ProductType.RECYCLE_COMMAND_ITEM
+        || productType == ProductType.RECYCLE_CUSTOM_ITEM;
   }
 
   private boolean supportsDynamicPricing(ProductView product) {
@@ -889,7 +901,7 @@ class ProductService {
         FROM products
         WHERE active = TRUE
           AND dynamic_pricing_enabled = TRUE
-          AND product_type IN ('GIVE_ITEM', 'RECYCLE_ITEM')
+          AND product_type IN ('GIVE_ITEM', 'RECYCLE_ITEM', 'RECYCLE_COMMAND_ITEM', 'RECYCLE_CUSTOM_ITEM')
           AND dynamic_demand_score > 0
         %s
         """
@@ -1024,6 +1036,8 @@ class ProductService {
     GIVE_ITEM,
     POTION_EFFECT,
     RECYCLE_ITEM,
+    RECYCLE_COMMAND_ITEM,
+    RECYCLE_CUSTOM_ITEM,
     GROUP_BUY_VOUCHER;
 
     static ProductType fromRaw(String raw) {
@@ -1136,6 +1150,48 @@ class ProductService {
   enum DynamicPriceEvent {
     PURCHASE,
     RECYCLE
+  }
+
+  private boolean requiresCommandTemplate(ProductType productType) {
+    return productType == ProductType.COMMAND || isAdvancedRecycleType(productType);
+  }
+
+  private boolean isAdvancedRecycleType(ProductType productType) {
+    return productType == ProductType.RECYCLE_COMMAND_ITEM
+        || productType == ProductType.RECYCLE_CUSTOM_ITEM;
+  }
+
+  private boolean usesQuantityPlaceholder(String template) {
+    if (template == null || template.isBlank()) {
+      return false;
+    }
+    String normalized = template.toLowerCase(Locale.ROOT);
+    return normalized.contains("%amount%")
+        || normalized.contains("{amount}")
+        || normalized.contains("%quantity%")
+        || normalized.contains("{quantity}");
+  }
+
+  private String normalizeAdvancedRecycleMaterialKey(String raw) {
+    String text = raw.trim();
+    if (text.length() > 128) {
+      throw new ServiceException("invalid_product", "Item material is invalid");
+    }
+    if (text.contains(":")) {
+      String namespaced = text.toLowerCase(Locale.ROOT);
+      if (!namespaced.matches("^[a-z0-9._-]+:[a-z0-9._\\-/]+$")) {
+        throw new ServiceException("invalid_product", "Item material is invalid");
+      }
+      return namespaced;
+    }
+    String normalized = text.toUpperCase(Locale.ROOT)
+        .replace("MINECRAFT:", "")
+        .replaceAll("[^A-Z0-9_]+", "_")
+        .replaceAll("^_+|_+$", "");
+    if (normalized.isBlank() || normalized.length() > 64) {
+      throw new ServiceException("invalid_product", "Item material is invalid");
+    }
+    return normalized;
   }
 
   private record DynamicSettings(

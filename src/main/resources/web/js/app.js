@@ -316,6 +316,8 @@ const MATERIAL_TEXTURE_OVERRIDES = {
 const PRODUCT_TYPE_TEXTURE_MAP = {
   COMMAND: "COMMAND_BLOCK",
   POTION_EFFECT: "SPLASH_POTION",
+  RECYCLE_COMMAND_ITEM: "HOPPER",
+  RECYCLE_CUSTOM_ITEM: "HOPPER",
   GROUP_BUY_VOUCHER: "PAPER",
 };
 
@@ -429,6 +431,7 @@ const FALLBACK_ERROR_TIPS_BY_SCENE = {
     idempotency_too_long: "请求参数异常，请刷新后重试。",
     player_offline: "回收类商品需玩家在线且背包满足回收条件。",
     insufficient_item: "回收失败：背包物品不足。",
+    recycle_command_failed: "回收失败：回收指令执行失败。",
     invalid_product_type: "商品类型配置有误，请联系管理员。",
     invalid_product: "商品配置有误，请联系管理员。",
     sync_timeout: "回收操作超时，请稍后再试。",
@@ -3334,12 +3337,21 @@ function deliveryModeLabel(mode) {
 
 function productTypeLabel(type) {
   const key = String(type || "").toUpperCase();
-  if (key === "COMMAND") return "指令";
-  if (key === "GIVE_ITEM") return "出售物品";
-  if (key === "POTION_EFFECT") return "药水效果";
-  if (key === "RECYCLE_ITEM") return "回收物品";
-  if (key === "GROUP_BUY_VOUCHER") return "团购券";
-  return key || "未知类型";
+  if (key === "COMMAND") return getAppPageText("productTypeCommand", "指令");
+  if (key === "GIVE_ITEM") return getAppPageText("productTypeGiveItem", "出售物品");
+  if (key === "POTION_EFFECT") return getAppPageText("productTypePotionEffect", "药水效果");
+  if (key === "RECYCLE_ITEM") return getAppPageText("productTypeRecycleItem", "回收物品");
+  if (key === "RECYCLE_COMMAND_ITEM") return getAppPageText("productTypeRecycleCommand", "回收指令");
+  if (key === "RECYCLE_CUSTOM_ITEM") return getAppPageText("productTypeRecycleCustom", "回收自定义物品");
+  if (key === "GROUP_BUY_VOUCHER") return getAppPageText("productTypeGroupBuyVoucher", "团购券");
+  return key || getAppPageText("unknownTypeLabel", "未知类型");
+}
+
+function isRecycleProductType(type) {
+  const key = String(type || "").toUpperCase();
+  return key === "RECYCLE_ITEM"
+    || key === "RECYCLE_COMMAND_ITEM"
+    || key === "RECYCLE_CUSTOM_ITEM";
 }
 
 function buildOrderDigest(orders) {
@@ -6209,7 +6221,7 @@ function renderProducts(products) {
     const visual = resolveProductDisplayVisual(product);
     const productTitle = visual.title || product.title || product.sku || "未知商品";
     const isGroupBuyVoucher = String(product.productType || "").toUpperCase() === "GROUP_BUY_VOUCHER";
-    const isRecycleItem = String(product.productType || "").toUpperCase() === "RECYCLE_ITEM";
+    const isRecycleItem = isRecycleProductType(product.productType);
     const dynamicEnabled = !!product.dynamicPricingEnabled;
     const unitPrice = resolveOfficialProductUnitPrice(product);
     const stock = resolveOfficialProductStock(product);
@@ -7466,7 +7478,7 @@ async function confirmPurchase(product, quantity) {
   const displayTitle = productVisual.title || product.title || product.sku || "未知商品";
   const qty = Number(quantity || 1);
   const productType = String(product.productType || "").toUpperCase();
-  const isRecycle = productType === "RECYCLE_ITEM";
+  const isRecycle = isRecycleProductType(productType);
   const unitPrice = resolveOfficialProductUnitPrice(product);
   const subtotalAmount = unitPrice * qty;
   const cooldown = Number(state.orderPolicy.cooldownSeconds || 0);
@@ -7680,7 +7692,7 @@ async function createOrder(productId, quantity, deliveryMode, productTitle, prod
 
   const pid = Number(productId);
   const qty = Number(quantity || 1);
-  const isRecycle = String(productType || "").toUpperCase() === "RECYCLE_ITEM";
+  const isRecycle = isRecycleProductType(productType);
   const actionVerb = isRecycle ? "回收" : "下单";
   const actionSuccess = isRecycle ? "回收成功" : "下单成功";
   if (!Number.isFinite(pid) || pid <= 0) {
@@ -8795,7 +8807,7 @@ elements.productList.addEventListener("click", async (event) => {
     notify("商品信息异常，请刷新商品列表。", "warn");
     return;
   }
-  const isRecycle = String(product.productType || "").toUpperCase() === "RECYCLE_ITEM";
+  const isRecycle = isRecycleProductType(product.productType);
   const stock = resolveOfficialProductStock(product);
   const maxQuantity = stock.maxQuantity;
   if (maxQuantity <= 0) {

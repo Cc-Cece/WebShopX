@@ -57,7 +57,7 @@ class OrderService {
       String deliveryModeRaw) {
     ProductService.ProductView product = databaseManager.withConnection(
         connection -> productService.readActiveProduct(connection, productId, false));
-    if (product.productType() == ProductService.ProductType.RECYCLE_ITEM) {
+    if (isRecycleProductType(product.productType())) {
       int maxQuantity = resolveProductMaxQuantity(product);
       validatePurchaseQuantity(quantity, maxQuantity);
       return runOnPlayer(userId, () -> placeRecycleOrder(userId, product.id(), quantity, maxQuantity, idempotencyKey));
@@ -215,8 +215,12 @@ class OrderService {
       }
 
       ProductService.ProductView product = productService.readActiveProduct(connection, productId, true);
-      if (product.productType() != ProductService.ProductType.RECYCLE_ITEM) {
+      ProductService.ProductType recycleType = product.productType();
+      if (!isRecycleProductType(recycleType)) {
         throw new ServiceException("invalid_product_type", "Product type is not recyclable");
+      }
+      if (isAdvancedRecycleProductType(recycleType) && !settingsSupplier.get().advancedRecycleEnabled()) {
+        throw new ServiceException("feature_disabled", "Advanced recycle is disabled");
       }
       if (product.itemMaterial() == null) {
         throw new ServiceException("invalid_product", "Recycle material is missing");
@@ -235,20 +239,41 @@ class OrderService {
         throw new ServiceException("player_offline", "Player must be online for recycle orders");
       }
 
-      Material material = Material.matchMaterial(product.itemMaterial());
-      if (material == null || material == Material.AIR) {
-        throw new ServiceException("invalid_product", "Recycle material is invalid");
-      }
-      if (!hasEnoughItem(player, material, requiredAmount)) {
-        throw new ServiceException("insufficient_item", "Not enough items to recycle");
-      }
-
       String orderNo = newOrderNo();
       long unitPrice = productService.resolveOrderUnitPrice(product);
       long totalAmount = Math.multiplyExact(unitPrice, quantity);
-      boolean removed = removeItems(player, material, requiredAmount);
-      if (!removed) {
-        throw new ServiceException("insufficient_item", "Failed to remove recycle items");
+      Material material = resolveVanillaMaterial(product.itemMaterial());
+      int removedAmount = 0;
+      int materialCountBefore = material == null ? 0 : countItems(player, material);
+      if (recycleType == ProductService.ProductType.RECYCLE_ITEM) {
+        if (material == null || material == Material.AIR) {
+          throw new ServiceException("invalid_product", "Recycle material is invalid");
+        }
+        if (materialCountBefore < requiredAmount) {
+          throw new ServiceException("insufficient_item", "Not enough items to recycle");
+        }
+        boolean removed = removeItems(player, material, requiredAmount);
+        if (!removed) {
+          throw new ServiceException("insufficient_item", "Failed to remove recycle items");
+        }
+        removedAmount = requiredAmount;
+      } else {
+        String command = renderRecycleCommand(
+            product.commandTemplate(),
+            player.getName(),
+            requiredAmount,
+            orderNo);
+        if (!dispatchRecycleCommand(command)) {
+          throw new ServiceException("recycle_command_failed", "Recycle command execution returned false");
+        }
+        if (material != null && material != Material.AIR) {
+          int materialCountAfter = countItems(player, material);
+          int deducted = Math.max(0, materialCountBefore - materialCountAfter);
+          if (deducted < requiredAmount) {
+            throw new ServiceException("insufficient_item", "Recycle command did not remove enough items");
+          }
+          removedAmount = deducted;
+        }
       }
 
       try {
@@ -290,7 +315,9 @@ class OrderService {
             null,
             null);
       } catch (Exception exception) {
-        restoreItems(player, material, requiredAmount);
+        if (material != null && removedAmount > 0) {
+          restoreItems(player, material, removedAmount);
+        }
         throw exception;
       }
     });
@@ -522,7 +549,11 @@ class OrderService {
   private DeliveryMode defaultDeliveryMode(ProductService.ProductType productType) {
     return switch (productType) {
       case COMMAND, POTION_EFFECT -> DeliveryMode.CLAIM;
-      case GIVE_ITEM, RECYCLE_ITEM, GROUP_BUY_VOUCHER -> DeliveryMode.IMMEDIATE;
+      case GIVE_ITEM,
+          RECYCLE_ITEM,
+          RECYCLE_COMMAND_ITEM,
+          RECYCLE_CUSTOM_ITEM,
+          GROUP_BUY_VOUCHER -> DeliveryMode.IMMEDIATE;
     };
   }
 
@@ -826,6 +857,13 @@ class OrderService {
   }
 
   private boolean hasEnoughItem(Player player, Material material, int requiredAmount) {
+    return countItems(player, material) >= requiredAmount;
+  }
+
+  private int countItems(Player player, Material material) {
+    if (player == null || material == null || material == Material.AIR) {
+      return 0;
+    }
     int count = 0;
     ItemStack[] contents = player.getInventory().getContents();
     for (ItemStack itemStack : contents) {
@@ -833,11 +871,68 @@ class OrderService {
         continue;
       }
       count += itemStack.getAmount();
-      if (count >= requiredAmount) {
-        return true;
-      }
     }
-    return false;
+    return count;
+  }
+
+  private Material resolveVanillaMaterial(String rawMaterial) {
+    if (rawMaterial == null || rawMaterial.isBlank()) {
+      return null;
+    }
+    String normalized = rawMaterial.trim();
+    String key = normalized.toUpperCase(Locale.ROOT).replace("MINECRAFT:", "");
+    Material material = Material.matchMaterial(key);
+    if (material == null && key.startsWith("BLOCK_OF_") && key.length() > "BLOCK_OF_".length()) {
+      material = Material.matchMaterial(key.substring("BLOCK_OF_".length()) + "_BLOCK");
+    }
+    if (material == null) {
+      material = Material.matchMaterial(normalized.toLowerCase(Locale.ROOT));
+    }
+    return material;
+  }
+
+  private String renderRecycleCommand(
+      String template,
+      String playerName,
+      int quantity,
+      String orderNo) {
+    String rendered = String.valueOf(template == null ? "" : template)
+        .replace("{player}", playerName)
+        .replace("%player%", playerName)
+        .replace("%amount%", Integer.toString(quantity))
+        .replace("{amount}", Integer.toString(quantity))
+        .replace("{quantity}", Integer.toString(quantity))
+        .replace("%quantity%", Integer.toString(quantity))
+        .replace("%order%", orderNo);
+    if (rendered.startsWith("/")) {
+      rendered = rendered.substring(1);
+    }
+    return rendered.trim();
+  }
+
+  private boolean dispatchRecycleCommand(String command) {
+    if (command == null || command.isBlank()) {
+      return false;
+    }
+    try {
+      return schedulerBridge
+          .supplyGlobal(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command))
+          .orTimeout(3L, TimeUnit.SECONDS)
+          .join();
+    } catch (Exception exception) {
+      throw new ServiceException("recycle_command_failed", "Recycle command execution failed");
+    }
+  }
+
+  private boolean isRecycleProductType(ProductService.ProductType productType) {
+    return productType == ProductService.ProductType.RECYCLE_ITEM
+        || productType == ProductService.ProductType.RECYCLE_COMMAND_ITEM
+        || productType == ProductService.ProductType.RECYCLE_CUSTOM_ITEM;
+  }
+
+  private boolean isAdvancedRecycleProductType(ProductService.ProductType productType) {
+    return productType == ProductService.ProductType.RECYCLE_COMMAND_ITEM
+        || productType == ProductService.ProductType.RECYCLE_CUSTOM_ITEM;
   }
 
   private boolean removeItems(Player player, Material material, int requiredAmount) {

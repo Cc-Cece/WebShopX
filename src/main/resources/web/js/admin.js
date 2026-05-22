@@ -262,6 +262,8 @@ const MATERIAL_TEXTURE_OVERRIDES = {
 const PRODUCT_TYPE_TEXTURE_MAP = {
   COMMAND: "COMMAND_BLOCK",
   POTION_EFFECT: "SPLASH_POTION",
+  RECYCLE_COMMAND_ITEM: "HOPPER",
+  RECYCLE_CUSTOM_ITEM: "HOPPER",
   GROUP_BUY_VOUCHER: "PAPER",
 };
 const DEFAULT_TEXTURE_FALLBACK_MATERIAL = "BUNDLE";
@@ -684,6 +686,7 @@ const elements = {
   runtimeRechargeOrderExpireMinutes: document.getElementById("runtimeRechargeOrderExpireMinutes"),
   runtimeAllowSharedClaimCommand: document.getElementById("runtimeAllowSharedClaimCommand"),
   runtimeRefundUndeliveredEnabled: document.getElementById("runtimeRefundUndeliveredEnabled"),
+  runtimeAdvancedRecycleEnabled: document.getElementById("runtimeAdvancedRecycleEnabled"),
   runtimeWebshopSaveBtn: document.getElementById("runtimeWebshopSaveBtn"),
   runtimeWebshopStatusView: document.getElementById("runtimeWebshopStatusView"),
   runtimeMarketMaxActiveListings: document.getElementById("runtimeMarketMaxActiveListings"),
@@ -6539,6 +6542,17 @@ function resolveMaterialInputLoose(raw) {
   return normalizeMaterialKey(raw);
 }
 
+function normalizeAdvancedRecycleMaterialInput(raw) {
+  const text = String(raw || "").trim();
+  if (!text) {
+    return "";
+  }
+  if (text.includes(":")) {
+    return text.toLowerCase();
+  }
+  return normalizeMaterialKey(text);
+}
+
 function populateMaterialSuggest() {
   if (!elements.materialSuggestList) {
     return;
@@ -7078,10 +7092,11 @@ function updateProductTypeFieldsVisibility(typeRaw) {
   const type = String(typeRaw || elements.productType.value || "COMMAND")
     .trim()
     .toUpperCase();
-  const commandVisible = type === "COMMAND";
-  const itemVisible = type === "GIVE_ITEM" || type === "RECYCLE_ITEM";
+  const recycleByCommand = type === "RECYCLE_COMMAND_ITEM" || type === "RECYCLE_CUSTOM_ITEM";
+  const commandVisible = type === "COMMAND" || recycleByCommand;
+  const itemVisible = type === "GIVE_ITEM" || type === "RECYCLE_ITEM" || recycleByCommand;
   const effectVisible = type === "POTION_EFFECT";
-  const dynamicVisible = itemVisible;
+  const dynamicVisible = itemVisible && type !== "COMMAND";
   setProductFieldVisible(elements.productCommand, commandVisible);
   setProductFieldVisible(elements.productItemMaterial, itemVisible);
   setProductFieldVisible(elements.productDisplayMaterial, itemVisible);
@@ -7178,7 +7193,13 @@ function updateProductIconPreview() {
     return;
   }
   const draft = {
-    itemMaterial: resolveMaterialInputLoose(elements.productItemMaterial?.value || ""),
+    itemMaterial: (() => {
+      const currentType = String(elements.productType?.value || "COMMAND").trim().toUpperCase();
+      if (currentType === "RECYCLE_COMMAND_ITEM" || currentType === "RECYCLE_CUSTOM_ITEM") {
+        return normalizeAdvancedRecycleMaterialInput(elements.productItemMaterial?.value || "");
+      }
+      return resolveMaterialInputLoose(elements.productItemMaterial?.value || "");
+    })(),
     productType: String(elements.productType?.value || "COMMAND").trim().toUpperCase(),
     displayNameOverride: String(elements.productDisplayNameOverride?.value || "").trim() || null,
     displayMaterial: resolveMaterialInputLoose(elements.productDisplayMaterial?.value || ""),
@@ -7215,6 +7236,8 @@ function getProductInput() {
   const parsedPerUserLimit = rawPerUserLimit ? Number(rawPerUserLimit) : null;
   const dynamicEnabled = String(elements.productDynamicEnabled?.value || "false") === "true";
   const dynamicParamsJson = dynamicEnabled ? buildProductDynamicParamsJson() : null;
+  const productType = String(elements.productType.value || "COMMAND").trim().toUpperCase();
+  const allowUnknownMaterial = productType === "RECYCLE_COMMAND_ITEM" || productType === "RECYCLE_CUSTOM_ITEM";
   return {
     sku: elements.productSku.value.trim(),
     title: elements.productTitle.value.trim(),
@@ -7223,9 +7246,11 @@ function getProductInput() {
     price: Number(elements.productPrice.value || 0),
     publishAt: elements.productPublishAt.value ? elements.productPublishAt.value : null,
     unpublishAt: elements.productUnpublishAt.value ? elements.productUnpublishAt.value : null,
-    productType: elements.productType.value.trim(),
+    productType: productType,
     commandTemplate: elements.productCommand.value.trim(),
-    itemMaterial: resolveMaterialInput(elements.productItemMaterial.value),
+    itemMaterial: allowUnknownMaterial
+      ? normalizeAdvancedRecycleMaterialInput(elements.productItemMaterial.value)
+      : resolveMaterialInput(elements.productItemMaterial.value),
     displayNameOverride: String(elements.productDisplayNameOverride?.value || "").trim() || null,
     displayMaterial: resolveMaterialInputLoose(elements.productDisplayMaterial?.value || ""),
     displayIconPath: String(elements.productDisplayIconPath?.value || "").trim() || null,
@@ -7726,6 +7751,9 @@ async function loadEconomySettings() {
   }
   if (elements.runtimeRefundUndeliveredEnabled) {
     elements.runtimeRefundUndeliveredEnabled.value = String(webshopRuntime.refundUndeliveredEnabled !== false);
+  }
+  if (elements.runtimeAdvancedRecycleEnabled) {
+    elements.runtimeAdvancedRecycleEnabled.value = String(!!webshopRuntime.advancedRecycleEnabled);
   }
 
   const marketRuntime = payload.marketRuntime || {};
@@ -8501,6 +8529,7 @@ async function saveWebshopRuntimeSettings() {
       rechargeOrderExpireMinutes: Number(elements.runtimeRechargeOrderExpireMinutes?.value || 15),
       allowSharedClaimCommand: elements.runtimeAllowSharedClaimCommand?.value === "true",
       refundUndeliveredEnabled: elements.runtimeRefundUndeliveredEnabled?.value === "true",
+      advancedRecycleEnabled: elements.runtimeAdvancedRecycleEnabled?.value === "true",
     }),
   });
   setMetaText(elements.runtimeWebshopStatusView, getAdminUiText("autoJs.k0010"), "success");
@@ -10530,11 +10559,15 @@ if (elements.productDynamicParamAdvancedTabBtn) {
 }
 if (elements.productItemMaterial) {
   elements.productItemMaterial.addEventListener("blur", () => {
-    const resolved = resolveMaterialInput(elements.productItemMaterial.value);
+    const productType = String(elements.productType?.value || "COMMAND").trim().toUpperCase();
+    const allowUnknown = productType === "RECYCLE_COMMAND_ITEM" || productType === "RECYCLE_CUSTOM_ITEM";
+    const resolved = allowUnknown
+      ? normalizeAdvancedRecycleMaterialInput(elements.productItemMaterial.value)
+      : resolveMaterialInput(elements.productItemMaterial.value);
     if (resolved) {
       elements.productItemMaterial.value = resolved;
     } else if (String(elements.productItemMaterial.value || "").trim()) {
-      notify(getAdminUiText("autoJs.k0040"), "warn");
+      notify(getAdminUiText(allowUnknown ? "autoJs.k0044" : "autoJs.k0040"), "warn");
     }
     updateProductIconPreview();
   });

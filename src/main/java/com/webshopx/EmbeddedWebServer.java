@@ -1102,6 +1102,7 @@ class EmbeddedWebServer {
     json.addProperty("rechargeOrderExpireMinutes", settings.rechargeOrderExpireMinutes());
     json.addProperty("allowSharedClaimCommand", settings.allowSharedClaimCommand());
     json.addProperty("refundUndeliveredEnabled", settings.refundUndeliveredEnabled());
+    json.addProperty("advancedRecycleEnabled", settings.advancedRecycleEnabled());
     json.addProperty("timeZone", settings.timeZone().getId());
     return json;
   }
@@ -2725,13 +2726,20 @@ class EmbeddedWebServer {
       Long dynamicPriceStep = payload.has("dynamicPriceStep") && !payload.get("dynamicPriceStep").isJsonNull()
         ? getLong(payload, "dynamicPriceStep", 0L)
         : null;
+      String productTypeRaw = getOptionalString(payload, "productType").orElse("COMMAND");
+      String normalizedProductType = productTypeRaw.trim().toUpperCase(Locale.ROOT);
+      if (("RECYCLE_COMMAND_ITEM".equals(normalizedProductType)
+          || "RECYCLE_CUSTOM_ITEM".equals(normalizedProductType))
+          && !settingsSupplier.get().advancedRecycleEnabled()) {
+        throw new ServiceException("feature_disabled", "Advanced recycle is disabled");
+      }
       ProductService.AdminProductInput input = new ProductService.AdminProductInput(
           getString(payload, "sku"),
           getString(payload, "title"),
           getOptionalString(payload, "remark").orElse(null),
           CurrencyType.fromConfig(getString(payload, "currency")),
           getLong(payload, "price", 0L),
-          getOptionalString(payload, "productType").orElse("COMMAND"),
+          productTypeRaw,
           getOptionalString(payload, "commandTemplate").orElse(""),
           getOptionalString(payload, "itemMaterial").orElse(null),
           getOptionalString(payload, "displayNameOverride").orElse(null),
@@ -3294,6 +3302,7 @@ class EmbeddedWebServer {
           getLong(payload, "rechargeOrderExpireMinutes", 15L), 1, 24 * 60 * 30, "rechargeOrderExpireMinutes");
       boolean allowSharedClaimCommand = getBoolean(payload, "allowSharedClaimCommand");
       boolean refundUndeliveredEnabled = getBoolean(payload, "refundUndeliveredEnabled");
+      boolean advancedRecycleEnabled = getBoolean(payload, "advancedRecycleEnabled");
       ZoneId timeZone = readTimeZoneField(getString(payload, "timeZone"), "timeZone");
 
       RuntimeConfigService.RuntimeSettingsUpdate update = new RuntimeConfigService.RuntimeSettingsUpdate(
@@ -3307,6 +3316,7 @@ class EmbeddedWebServer {
           rechargeOrderExpireMinutes,
           allowSharedClaimCommand,
           refundUndeliveredEnabled,
+          advancedRecycleEnabled,
           timeZone);
       long version = runtimeConfigService.updateWebshopRuntime(update);
       publishRuntimeConfigRefresh(version);
@@ -3318,6 +3328,7 @@ class EmbeddedWebServer {
       detail.addProperty("deliveryRetrySeconds", deliveryRetrySeconds);
       detail.addProperty("orderCooldownSeconds", orderCooldownSeconds);
       detail.addProperty("rechargeOrderExpireMinutes", rechargeOrderExpireMinutes);
+      detail.addProperty("advancedRecycleEnabled", advancedRecycleEnabled);
       adminAuditService.log(admin, "WEBSHOP_RUNTIME_UPDATE", "webshop_runtime", null, detail, clientIp(exchange));
 
       JsonObject response = new JsonObject();
