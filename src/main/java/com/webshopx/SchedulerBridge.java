@@ -117,8 +117,11 @@ final class SchedulerBridge {
   }
 
   private boolean isOnGlobalExecutionThread() {
+    if (Bukkit.isPrimaryThread()) {
+      return true;
+    }
     if (!isFoliaRuntime()) {
-      return Bukkit.isPrimaryThread();
+      return false;
     }
     try {
       Method method = Bukkit.getServer().getClass().getMethod("isGlobalTickThread");

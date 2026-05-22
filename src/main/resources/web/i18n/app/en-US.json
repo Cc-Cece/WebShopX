@@ -135,6 +135,7 @@
       "title": "WebShopX - Minecraft Web Shop",
       "productTypeCommand": "Command",
       "productTypeGiveItem": "Sell item",
+      "productTypeGiveCustom": "Sell custom item",
       "productTypePotionEffect": "Potion effect",
       "productTypeRecycleItem": "Recycle item",
       "productTypeRecycleCommand": "Recycle command",

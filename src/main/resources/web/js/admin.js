@@ -261,6 +261,7 @@ const MATERIAL_TEXTURE_OVERRIDES = {
 };
 const PRODUCT_TYPE_TEXTURE_MAP = {
   COMMAND: "COMMAND_BLOCK",
+  GIVE_CUSTOM_ITEM: "CHEST",
   POTION_EFFECT: "SPLASH_POTION",
   RECYCLE_COMMAND_ITEM: "HOPPER",
   RECYCLE_CUSTOM_ITEM: "HOPPER",
@@ -580,6 +581,7 @@ const elements = {
   productPublishAt: document.getElementById("productPublishAt"),
   productUnpublishAt: document.getElementById("productUnpublishAt"),
   productType: document.getElementById("productType"),
+  productCustomItemMode: document.getElementById("productCustomItemMode"),
   productCommand: document.getElementById("productCommand"),
   productItemMaterial: document.getElementById("productItemMaterial"),
   productDisplayMaterial: document.getElementById("productDisplayMaterial"),
@@ -5744,7 +5746,7 @@ function renderOrderAdminCard(order) {
   const tags = document.createElement("div");
   tags.className = "admin-tag-row";
   tags.appendChild(createTag(currencyName(order.currency || "SHOP_COIN"), "accent"));
-  tags.appendChild(createTag(order.productType || "-", "neutral"));
+  tags.appendChild(createTag(formatAdminProductTypeLabel(order.productType), "neutral"));
   if (order.groupBuyVoucherStatus) {
     tags.appendChild(createTag(getAdminUiText("autoJs.k0166", "团购券 {status}").replace("{status}", order.groupBuyVoucherStatus), "info"));
   }
@@ -5825,7 +5827,7 @@ function renderProductAdminCard(product, actions = []) {
   const tags = document.createElement("div");
   tags.className = "admin-tag-row";
   tags.appendChild(createTag(currencyName(product.currency), "accent"));
-  tags.appendChild(createTag(product.productType || "-", "neutral"));
+  tags.appendChild(createTag(formatAdminProductTypeLabel(product.productType), "neutral"));
   tags.appendChild(
     createTag(
       (visual.material || product.itemMaterial)
@@ -7088,16 +7090,93 @@ function setProductFieldVisible(inputElement, visible) {
   field.classList.toggle("hidden", !visible);
 }
 
+function normalizeProductTypeForEditor(typeRaw) {
+  const type = String(typeRaw || "COMMAND").trim().toUpperCase();
+  if (type === "RECYCLE_CUSTOM_ITEM") {
+    return "RECYCLE_ITEM";
+  }
+  if (type === "GIVE_CUSTOM_ITEM") {
+    return "GIVE_ITEM";
+  }
+  return type;
+}
+
+function isCustomItemModeSupportedType(typeRaw) {
+  const type = normalizeProductTypeForEditor(typeRaw);
+  return type === "GIVE_ITEM" || type === "RECYCLE_ITEM" || type === "RECYCLE_COMMAND_ITEM";
+}
+
+function isCustomItemModeEnabled() {
+  return Boolean(elements.productCustomItemMode?.checked);
+}
+
+function allowUnknownMaterialForEditor(typeRaw, customModeRaw) {
+  const type = normalizeProductTypeForEditor(typeRaw);
+  const customMode = customModeRaw === undefined ? isCustomItemModeEnabled() : Boolean(customModeRaw);
+  if (customMode && isCustomItemModeSupportedType(type)) {
+    return true;
+  }
+  return type === "RECYCLE_COMMAND_ITEM";
+}
+
+function requiresCommandForEditor(typeRaw, customModeRaw) {
+  const type = normalizeProductTypeForEditor(typeRaw);
+  const customMode = customModeRaw === undefined ? isCustomItemModeEnabled() : Boolean(customModeRaw);
+  if (type === "COMMAND" || type === "RECYCLE_COMMAND_ITEM") {
+    return true;
+  }
+  return customMode && (type === "GIVE_ITEM" || type === "RECYCLE_ITEM");
+}
+
+function mapEditorTypeToSubmitType(typeRaw, customModeRaw) {
+  const type = normalizeProductTypeForEditor(typeRaw);
+  const customMode = customModeRaw === undefined ? isCustomItemModeEnabled() : Boolean(customModeRaw);
+  if (customMode && type === "GIVE_ITEM") {
+    return "GIVE_CUSTOM_ITEM";
+  }
+  if (customMode && type === "RECYCLE_ITEM") {
+    return "RECYCLE_CUSTOM_ITEM";
+  }
+  return type;
+}
+
+function inferCustomItemModeForProduct(product) {
+  const productType = String(product?.productType || "").trim().toUpperCase();
+  if (productType === "GIVE_CUSTOM_ITEM" || productType === "RECYCLE_CUSTOM_ITEM") {
+    return true;
+  }
+  if (productType === "RECYCLE_COMMAND_ITEM") {
+    return String(product?.itemMaterial || "").includes(":");
+  }
+  return false;
+}
+
+function formatAdminProductTypeLabel(typeRaw) {
+  const type = String(typeRaw || "").trim().toUpperCase();
+  if (type === "COMMAND") return getAdminUiText("autoHtml.k0068", "指令");
+  if (type === "GIVE_ITEM") return getAdminUiText("autoHtml.k0069", "出售物品");
+  if (type === "GIVE_CUSTOM_ITEM") return getAdminPageText("productTypeGiveCustom", "出售自定义物品");
+  if (type === "POTION_EFFECT") return getAdminUiText("autoHtml.k0070", "药水效果");
+  if (type === "RECYCLE_ITEM") return getAdminUiText("autoHtml.k0071", "回收物品");
+  if (type === "RECYCLE_COMMAND_ITEM") return getAdminPageText("productTypeRecycleCommand", "回收指令");
+  if (type === "RECYCLE_CUSTOM_ITEM") return getAdminPageText("productTypeRecycleCustom", "回收自定义物品");
+  if (type === "GROUP_BUY_VOUCHER") return getAdminUiText("autoHtml.k0072", "团购券（线下核销）");
+  return type || "-";
+}
+
 function updateProductTypeFieldsVisibility(typeRaw) {
-  const type = String(typeRaw || elements.productType.value || "COMMAND")
-    .trim()
-    .toUpperCase();
-  const recycleByCommand = type === "RECYCLE_COMMAND_ITEM" || type === "RECYCLE_CUSTOM_ITEM";
-  const commandVisible = type === "COMMAND" || recycleByCommand;
-  const itemVisible = type === "GIVE_ITEM" || type === "RECYCLE_ITEM" || recycleByCommand;
+  const type = normalizeProductTypeForEditor(typeRaw || elements.productType?.value || "COMMAND");
+  const customModeVisible = isCustomItemModeSupportedType(type);
+  if (!customModeVisible && elements.productCustomItemMode?.checked) {
+    elements.productCustomItemMode.checked = false;
+  }
+  const customMode = customModeVisible && isCustomItemModeEnabled();
+  const commandVisible = requiresCommandForEditor(type, customMode);
+  const itemVisible = type === "GIVE_ITEM" || type === "RECYCLE_ITEM" || type === "RECYCLE_COMMAND_ITEM";
   const effectVisible = type === "POTION_EFFECT";
-  const dynamicVisible = itemVisible && type !== "COMMAND";
+  const dynamicVisible = itemVisible;
   setProductFieldVisible(elements.productCommand, commandVisible);
+  setProductFieldVisible(elements.productCustomItemMode, customModeVisible);
   setProductFieldVisible(elements.productItemMaterial, itemVisible);
   setProductFieldVisible(elements.productDisplayMaterial, itemVisible);
   setProductFieldVisible(elements.productDisplayNameOverride, itemVisible);
@@ -7192,15 +7271,16 @@ function updateProductIconPreview() {
   if (!elements.productIconPreviewImage || !elements.productIconPreviewLabel) {
     return;
   }
+  const editorType = normalizeProductTypeForEditor(elements.productType?.value || "COMMAND");
+  const allowUnknownMaterial = allowUnknownMaterialForEditor(editorType, isCustomItemModeEnabled());
   const draft = {
     itemMaterial: (() => {
-      const currentType = String(elements.productType?.value || "COMMAND").trim().toUpperCase();
-      if (currentType === "RECYCLE_COMMAND_ITEM" || currentType === "RECYCLE_CUSTOM_ITEM") {
+      if (allowUnknownMaterial) {
         return normalizeAdvancedRecycleMaterialInput(elements.productItemMaterial?.value || "");
       }
       return resolveMaterialInputLoose(elements.productItemMaterial?.value || "");
     })(),
-    productType: String(elements.productType?.value || "COMMAND").trim().toUpperCase(),
+    productType: mapEditorTypeToSubmitType(editorType, isCustomItemModeEnabled()),
     displayNameOverride: String(elements.productDisplayNameOverride?.value || "").trim() || null,
     displayMaterial: resolveMaterialInputLoose(elements.productDisplayMaterial?.value || ""),
     displayIconPath: String(elements.productDisplayIconPath?.value || "").trim() || null,
@@ -7236,8 +7316,10 @@ function getProductInput() {
   const parsedPerUserLimit = rawPerUserLimit ? Number(rawPerUserLimit) : null;
   const dynamicEnabled = String(elements.productDynamicEnabled?.value || "false") === "true";
   const dynamicParamsJson = dynamicEnabled ? buildProductDynamicParamsJson() : null;
-  const productType = String(elements.productType.value || "COMMAND").trim().toUpperCase();
-  const allowUnknownMaterial = productType === "RECYCLE_COMMAND_ITEM" || productType === "RECYCLE_CUSTOM_ITEM";
+  const editorType = normalizeProductTypeForEditor(elements.productType?.value || "COMMAND");
+  const customItemMode = isCustomItemModeEnabled();
+  const productType = mapEditorTypeToSubmitType(editorType, customItemMode);
+  const allowUnknownMaterial = allowUnknownMaterialForEditor(editorType, customItemMode);
   return {
     sku: elements.productSku.value.trim(),
     title: elements.productTitle.value.trim(),
@@ -7246,7 +7328,7 @@ function getProductInput() {
     price: Number(elements.productPrice.value || 0),
     publishAt: elements.productPublishAt.value ? elements.productPublishAt.value : null,
     unpublishAt: elements.productUnpublishAt.value ? elements.productUnpublishAt.value : null,
-    productType: productType,
+    productType,
     commandTemplate: elements.productCommand.value.trim(),
     itemMaterial: allowUnknownMaterial
       ? normalizeAdvancedRecycleMaterialInput(elements.productItemMaterial.value)
@@ -7411,7 +7493,8 @@ function renderProducts() {
   const type = String(elements.productSearchType?.value || "").trim().toUpperCase();
   const active = String(elements.productSearchActive?.value || "").trim();
   const filtered = (state.products || []).filter((product) => {
-    if (type && String(product.productType || "").toUpperCase() !== type) {
+    const productType = normalizeProductTypeForEditor(product.productType || "");
+    if (type && productType !== type) {
       return false;
     }
     if (active && String(Boolean(product.active)) !== active) {
@@ -7438,6 +7521,7 @@ function renderProducts() {
       materialName,
       product.remark || "",
       product.productType || "",
+      productType,
     ]
       .join(" ")
       .toLowerCase();
@@ -7490,7 +7574,11 @@ function renderProducts() {
       }
       elements.productPublishAt.value = toLocalInput(product.publishAt);
       elements.productUnpublishAt.value = toLocalInput(product.unpublishAt);
-      elements.productType.value = product.productType;
+      const editorType = normalizeProductTypeForEditor(product.productType);
+      elements.productType.value = editorType;
+      if (elements.productCustomItemMode) {
+        elements.productCustomItemMode.checked = inferCustomItemModeForProduct(product);
+      }
       elements.productCommand.value = product.commandTemplate || "";
       elements.productItemMaterial.value = product.itemMaterial || "";
       if (elements.productDisplayMaterial) {
@@ -7517,7 +7605,7 @@ function renderProducts() {
       elements.productEffectAmplifier.value = product.effectAmplifier || 0;
       elements.productActive.value = product.active ? "true" : "false";
       renderProductDynamicParamEditors();
-      updateProductTypeFieldsVisibility(product.productType);
+      updateProductTypeFieldsVisibility(editorType);
       syncProductAmountSlider("input");
       updateProductIconPreview();
       setMetaText(elements.productIconStatus, getAdminUiText("autoJs.k0230", "已绑定到商品 #{id}").replace("#{id}", product.id), "info");
@@ -10518,6 +10606,12 @@ if (elements.productType) {
     updateProductIconPreview();
   });
 }
+if (elements.productCustomItemMode) {
+  elements.productCustomItemMode.addEventListener("change", () => {
+    updateProductTypeFieldsVisibility(elements.productType ? elements.productType.value : "COMMAND");
+    updateProductIconPreview();
+  });
+}
 if (elements.productDynamicEnabled) {
   elements.productDynamicEnabled.addEventListener("change", () => {
     updateProductTypeFieldsVisibility(elements.productType ? elements.productType.value : "COMMAND");
@@ -10559,8 +10653,8 @@ if (elements.productDynamicParamAdvancedTabBtn) {
 }
 if (elements.productItemMaterial) {
   elements.productItemMaterial.addEventListener("blur", () => {
-    const productType = String(elements.productType?.value || "COMMAND").trim().toUpperCase();
-    const allowUnknown = productType === "RECYCLE_COMMAND_ITEM" || productType === "RECYCLE_CUSTOM_ITEM";
+    const editorType = normalizeProductTypeForEditor(elements.productType?.value || "COMMAND");
+    const allowUnknown = allowUnknownMaterialForEditor(editorType, isCustomItemModeEnabled());
     const resolved = allowUnknown
       ? normalizeAdvancedRecycleMaterialInput(elements.productItemMaterial.value)
       : resolveMaterialInput(elements.productItemMaterial.value);

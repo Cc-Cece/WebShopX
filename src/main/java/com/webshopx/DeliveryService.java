@@ -1004,9 +1004,14 @@ class DeliveryService {
       throw new IllegalStateException("Command template rendered blank");
     }
     try {
-      boolean handled = schedulerBridge
-          .supplyGlobal(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command))
-          .join();
+      boolean handled;
+      if (Bukkit.isPrimaryThread()) {
+        handled = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
+      } else {
+        handled = schedulerBridge
+            .supplyGlobal(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command))
+            .join();
+      }
       if (!handled) {
         plugin.getLogger().warning("Delivery command was not found: " + command);
       }

@@ -348,6 +348,13 @@ class OrderService {
           payloadJson,
           totalAmount);
     }
+    if (productType == ProductService.ProductType.GIVE_CUSTOM_ITEM) {
+      return new DeliveryTaskSpec(
+          DeliveryKind.COMMAND,
+          product.commandTemplate(),
+          null,
+          quantity);
+    }
     if (productType == ProductService.ProductType.POTION_EFFECT) {
       if (product.effectType() == null) {
         throw new ServiceException("invalid_product", "Potion effect type is missing");
@@ -550,6 +557,7 @@ class OrderService {
     return switch (productType) {
       case COMMAND, POTION_EFFECT -> DeliveryMode.CLAIM;
       case GIVE_ITEM,
+          GIVE_CUSTOM_ITEM,
           RECYCLE_ITEM,
           RECYCLE_COMMAND_ITEM,
           RECYCLE_CUSTOM_ITEM,
@@ -915,6 +923,9 @@ class OrderService {
       return false;
     }
     try {
+      if (Bukkit.isPrimaryThread()) {
+        return Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
+      }
       return schedulerBridge
           .supplyGlobal(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command))
           .join();
@@ -1214,7 +1225,13 @@ class OrderService {
         clauses.add("o.currency = ?");
       }
       if (normalizedProductType != null && !normalizedProductType.isBlank()) {
-        clauses.add("p.product_type = ?");
+        if ("GIVE_ITEM".equalsIgnoreCase(normalizedProductType)) {
+          clauses.add("(p.product_type = ? OR p.product_type = 'GIVE_CUSTOM_ITEM')");
+        } else if ("RECYCLE_ITEM".equalsIgnoreCase(normalizedProductType)) {
+          clauses.add("(p.product_type = ? OR p.product_type = 'RECYCLE_CUSTOM_ITEM')");
+        } else {
+          clauses.add("p.product_type = ?");
+        }
       }
       if (cursor != null) {
         clauses.add("o.id < ?");

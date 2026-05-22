@@ -526,10 +526,10 @@ class ProductService {
     boolean dynamicPricingEnabled = resultSet.getBoolean("dynamic_pricing_enabled");
     String dynamicAlgorithm = resultSet.getString("dynamic_algorithm");
     String dynamicParamsJson = resultSet.getString("dynamic_params_json");
-    Long dynamicBasePrice = (Long) resultSet.getObject("dynamic_base_price");
-    Long dynamicFloorPrice = (Long) resultSet.getObject("dynamic_floor_price");
-    Long dynamicCapPrice = (Long) resultSet.getObject("dynamic_cap_price");
-    Long dynamicPriceStep = (Long) resultSet.getObject("dynamic_price_step");
+    Long dynamicBasePrice = getNullableLong(resultSet, "dynamic_base_price");
+    Long dynamicFloorPrice = getNullableLong(resultSet, "dynamic_floor_price");
+    Long dynamicCapPrice = getNullableLong(resultSet, "dynamic_cap_price");
+    Long dynamicPriceStep = getNullableLong(resultSet, "dynamic_price_step");
     long dynamicDemandScore = resultSet.getLong("dynamic_demand_score");
     LocalDateTime publishAtRaw = resultSet.getObject("publish_at", LocalDateTime.class);
     LocalDateTime unpublishAtRaw = resultSet.getObject("unpublish_at", LocalDateTime.class);
@@ -599,7 +599,7 @@ class ProductService {
     if (dynamicEnabled && !dynamicSupported) {
       throw new ServiceException(
           "invalid_dynamic_config",
-          "Dynamic pricing is only supported for GIVE_ITEM and RECYCLE_*");
+          "Dynamic pricing is only supported for GIVE_ITEM/GIVE_CUSTOM_ITEM and RECYCLE_*");
     }
     normalizeOptionalPositive(input.dynamicBasePrice(), "invalid_dynamic_base");
     Long floorPrice = normalizeOptionalPositive(input.dynamicFloorPrice(), "invalid_dynamic_floor");
@@ -634,7 +634,7 @@ class ProductService {
       return "";
     }
     if (commandTemplate == null || commandTemplate.isBlank()) {
-      throw new ServiceException("invalid_product", "Command template is required for COMMAND/RECYCLE_COMMAND_ITEM/RECYCLE_CUSTOM_ITEM type");
+      throw new ServiceException("invalid_product", "Command template is required for COMMAND/GIVE_CUSTOM_ITEM/RECYCLE_COMMAND_ITEM/RECYCLE_CUSTOM_ITEM type");
     }
     String normalized = commandTemplate.trim();
     if (isAdvancedRecycleType(productType) && !usesQuantityPlaceholder(normalized)) {
@@ -705,6 +705,7 @@ class ProductService {
 
   private String normalizeItemMaterial(String itemMaterial, ProductType productType) {
     if (productType != ProductType.GIVE_ITEM
+        && productType != ProductType.GIVE_CUSTOM_ITEM
         && productType != ProductType.RECYCLE_ITEM
         && !isAdvancedRecycleType(productType)) {
       return null;
@@ -713,7 +714,7 @@ class ProductService {
       throw new ServiceException("invalid_product", "Item material is required");
     }
     String normalized = itemMaterial.trim();
-    if (isAdvancedRecycleType(productType)) {
+    if (isAdvancedRecycleType(productType) || productType == ProductType.GIVE_CUSTOM_ITEM) {
       return normalizeAdvancedRecycleMaterialKey(normalized);
     }
     String key = normalized.toUpperCase(Locale.ROOT).replace("MINECRAFT:", "");
@@ -846,6 +847,7 @@ class ProductService {
 
   private boolean supportsDynamicPricing(ProductType productType) {
     return productType == ProductType.GIVE_ITEM
+        || productType == ProductType.GIVE_CUSTOM_ITEM
         || productType == ProductType.RECYCLE_ITEM
         || productType == ProductType.RECYCLE_COMMAND_ITEM
         || productType == ProductType.RECYCLE_CUSTOM_ITEM;
@@ -901,7 +903,7 @@ class ProductService {
         FROM products
         WHERE active = TRUE
           AND dynamic_pricing_enabled = TRUE
-          AND product_type IN ('GIVE_ITEM', 'RECYCLE_ITEM', 'RECYCLE_COMMAND_ITEM', 'RECYCLE_CUSTOM_ITEM')
+          AND product_type IN ('GIVE_ITEM', 'GIVE_CUSTOM_ITEM', 'RECYCLE_ITEM', 'RECYCLE_COMMAND_ITEM', 'RECYCLE_CUSTOM_ITEM')
           AND dynamic_demand_score > 0
         %s
         """
@@ -915,10 +917,10 @@ class ProductService {
             resultSet.getLong("price"),
             resultSet.getString("dynamic_algorithm"),
             resultSet.getString("dynamic_params_json"),
-            (Long) resultSet.getObject("dynamic_base_price"),
-            (Long) resultSet.getObject("dynamic_floor_price"),
-            (Long) resultSet.getObject("dynamic_cap_price"),
-            (Long) resultSet.getObject("dynamic_price_step"),
+            getNullableLong(resultSet, "dynamic_base_price"),
+            getNullableLong(resultSet, "dynamic_floor_price"),
+            getNullableLong(resultSet, "dynamic_cap_price"),
+            getNullableLong(resultSet, "dynamic_price_step"),
             resultSet.getLong("dynamic_demand_score")));
       }
     }
@@ -1034,6 +1036,7 @@ class ProductService {
   enum ProductType {
     COMMAND,
     GIVE_ITEM,
+    GIVE_CUSTOM_ITEM,
     POTION_EFFECT,
     RECYCLE_ITEM,
     RECYCLE_COMMAND_ITEM,
@@ -1147,13 +1150,26 @@ class ProductService {
     }
   }
 
+  private Long getNullableLong(ResultSet resultSet, String column) throws SQLException {
+    Object value = resultSet.getObject(column);
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof Number number) {
+      return number.longValue();
+    }
+    throw new SQLException("Column '" + column + "' is not numeric: " + value.getClass().getName());
+  }
+
   enum DynamicPriceEvent {
     PURCHASE,
     RECYCLE
   }
 
   private boolean requiresCommandTemplate(ProductType productType) {
-    return productType == ProductType.COMMAND || isAdvancedRecycleType(productType);
+    return productType == ProductType.COMMAND
+        || productType == ProductType.GIVE_CUSTOM_ITEM
+        || isAdvancedRecycleType(productType);
   }
 
   private boolean isAdvancedRecycleType(ProductType productType) {

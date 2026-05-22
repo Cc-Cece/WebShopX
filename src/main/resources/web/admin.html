@@ -273,7 +273,6 @@
 <option data-i18n="uiText.autoHtml.k0070" value="POTION_EFFECT">药水效果</option>
 <option data-i18n="uiText.autoHtml.k0071" value="RECYCLE_ITEM">回收物品</option>
 <option data-i18n="uiText.page.productTypeRecycleCommand" value="RECYCLE_COMMAND_ITEM">回收指令</option>
-<option data-i18n="uiText.page.productTypeRecycleCustom" value="RECYCLE_CUSTOM_ITEM">回收自定义物品</option>
 <option data-i18n="uiText.autoHtml.k0072" value="GROUP_BUY_VOUCHER">团购券（线下核销）</option>
 </select>
 </label>
@@ -287,6 +286,13 @@
 <label class="field">
 <span data-i18n="uiText.autoHtml.k0076">命令模板（指令类）</span>
 <input data-i18n-placeholder="uiText.autoHtml.k0077" id="productCommand" placeholder="例如 give %player% minecraft:diamond %amount%"/>
+</label>
+<label class="field">
+<span data-i18n="uiText.page.productCustomItemModeLabel">自定义物品模式（出售/回收）</span>
+<div>
+<input id="productCustomItemMode" type="checkbox"/>
+<span data-i18n="uiText.page.productCustomItemModeHint">允许使用非原版物品标识（如 namespace:item），并按命令模板处理。</span>
+</div>
 </label>
 <label class="field">
 <span data-i18n="uiText.autoHtml.k0078">物品材质（出售/回收）</span>
@@ -386,7 +392,6 @@
 <option data-i18n="uiText.autoHtml.k0116" value="POTION_EFFECT">药水效果</option>
 <option data-i18n="uiText.autoHtml.k0117" value="RECYCLE_ITEM">回收物品</option>
 <option data-i18n="uiText.page.productTypeRecycleCommand" value="RECYCLE_COMMAND_ITEM">回收指令</option>
-<option data-i18n="uiText.page.productTypeRecycleCustom" value="RECYCLE_CUSTOM_ITEM">回收自定义物品</option>
 <option data-i18n="uiText.autoHtml.k0118" value="GROUP_BUY_VOUCHER">团购券</option>
 </select>
 </label>
@@ -470,7 +475,6 @@
 <option data-i18n="uiText.autoHtml.k0152" value="POTION_EFFECT">药水效果</option>
 <option data-i18n="uiText.autoHtml.k0153" value="RECYCLE_ITEM">回收物品</option>
 <option data-i18n="uiText.page.productTypeRecycleCommand" value="RECYCLE_COMMAND_ITEM">回收指令</option>
-<option data-i18n="uiText.page.productTypeRecycleCustom" value="RECYCLE_CUSTOM_ITEM">回收自定义物品</option>
 <option data-i18n="uiText.autoHtml.k0154" value="GROUP_BUY_VOUCHER">团购券</option>
 <option data-i18n="uiText.autoHtml.k0155" value="MARKET">玩家市场</option>
 </select>

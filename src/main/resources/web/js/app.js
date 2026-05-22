@@ -315,6 +315,7 @@ const MATERIAL_TEXTURE_OVERRIDES = {
 
 const PRODUCT_TYPE_TEXTURE_MAP = {
   COMMAND: "COMMAND_BLOCK",
+  GIVE_CUSTOM_ITEM: "CHEST",
   POTION_EFFECT: "SPLASH_POTION",
   RECYCLE_COMMAND_ITEM: "HOPPER",
   RECYCLE_CUSTOM_ITEM: "HOPPER",
@@ -3339,6 +3340,7 @@ function productTypeLabel(type) {
   const key = String(type || "").toUpperCase();
   if (key === "COMMAND") return getAppPageText("productTypeCommand", "指令");
   if (key === "GIVE_ITEM") return getAppPageText("productTypeGiveItem", "出售物品");
+  if (key === "GIVE_CUSTOM_ITEM") return getAppPageText("productTypeGiveCustom", "出售自定义物品");
   if (key === "POTION_EFFECT") return getAppPageText("productTypePotionEffect", "药水效果");
   if (key === "RECYCLE_ITEM") return getAppPageText("productTypeRecycleItem", "回收物品");
   if (key === "RECYCLE_COMMAND_ITEM") return getAppPageText("productTypeRecycleCommand", "回收指令");
