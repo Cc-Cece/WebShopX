@@ -55,10 +55,18 @@ record PluginSettings(
         clusterServerId,
         Math.max(30, config.getInt("cluster.presence-ttl-seconds", 120)));
 
+    boolean corsEnabled = config.getBoolean("webshop.embedded-http.cors.enabled", false);
+    List<String> corsAllowedOrigins = config.getStringList("webshop.embedded-http.cors.allowed-origins");
+    if (corsAllowedOrigins == null || corsAllowedOrigins.isEmpty()) {
+      corsAllowedOrigins = List.of("*");
+    }
+
     EmbeddedWebSettings webSettings = new EmbeddedWebSettings(
         config.getString("webshop.embedded-http.host", "0.0.0.0"),
         config.getInt("webshop.embedded-http.port", 8819),
-        config.getString("webshop.embedded-http.static-root", "web"));
+        config.getString("webshop.embedded-http.static-root", "web"),
+        corsEnabled,
+        corsAllowedOrigins);
 
     DbType databaseType = DbType.fromRaw(config.getString("database.type", "sqlite"));
     DatabaseSettings databaseSettings = new DatabaseSettings(
@@ -505,7 +513,7 @@ record PluginSettings(
     }
   }
 
-  record EmbeddedWebSettings(String host, int port, String staticRoot) {
+  record EmbeddedWebSettings(String host, int port, String staticRoot, boolean corsEnabled, List<String> corsAllowedOrigins) {
   }
 
   record PaymentSettings(

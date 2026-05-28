@@ -23,6 +23,14 @@ webshop:
     host: 0.0.0.0
     port: 8819
     static-root: web
+    # CORS (跨源资源共享) 配置
+    # 允许第三方外置网页(如 webshopx-web)跨域访问。
+    cors:
+      # 默认关闭以确保安全。
+      enabled: false
+      # 允许跨域的域名列表。使用 "*" 允许所有域名跨域访问。
+      allowed-origins:
+        - "*"
   business-ledger:
     enabled: true
     directory: logs/business-ledger
