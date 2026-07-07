@@ -1375,6 +1375,7 @@ class OrderService {
         throw new ServiceException("already_refunded", "Order has already been refunded");
       }
       validateOfficialRefund(row);
+      claimOfficialRefund(connection, row);
 
       walletService.applyDelta(
           connection,
@@ -1385,15 +1386,6 @@ class OrderService {
           row.orderNo() + ":refund",
           false);
 
-      String updateOrderSql = """
-          UPDATE orders
-          SET status = 'REFUNDED', refunded_at = CURRENT_TIMESTAMP, claim_token = NULL
-          WHERE id = ?
-          """;
-      try (PreparedStatement statement = connection.prepareStatement(updateOrderSql)) {
-        statement.setLong(1, row.id());
-        statement.executeUpdate();
-      }
       restoreProductStock(connection, row.productId(), row.quantity());
       reducePersonalLimitUsage(connection, row.productId(), userId, row.quantity());
 
@@ -1549,6 +1541,7 @@ class OrderService {
         throw new ServiceException("already_refunded", "Order has already been refunded");
       }
       validateMarketRefund(row);
+      claimMarketRefund(connection, row);
 
       long refundAmount = row.buyerTotal() > 0 ? row.buyerTotal() : row.totalPrice();
       walletService.applyDelta(
@@ -1559,16 +1552,6 @@ class OrderService {
           "ORDER_REFUND",
           orderNo + ":refund",
           false);
-
-      String updateTradeSql = """
-          UPDATE market_trades
-          SET status = 'REFUNDED', refunded_at = CURRENT_TIMESTAMP, claim_token = NULL
-          WHERE id = ? AND status IN ('PENDING', 'WAIT_CLAIM')
-          """;
-      try (PreparedStatement statement = connection.prepareStatement(updateTradeSql)) {
-        statement.setLong(1, row.tradeId());
-        statement.executeUpdate();
-      }
 
       String cancelDeliverySql = """
           UPDATE market_item_deliveries
@@ -1605,6 +1588,40 @@ class OrderService {
 
     WalletService.WalletBalance balance = walletService.getBalance(userId);
     return new RefundResult(orderNo, balance);
+  }
+
+  private void claimOfficialRefund(Connection connection, OrderRow row) throws SQLException {
+    String updateOrderSql = """
+        UPDATE orders
+        SET status = 'REFUNDED', refunded_at = CURRENT_TIMESTAMP, claim_token = NULL
+        WHERE id = ?
+          AND status = ?
+          AND refunded_at IS NULL
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(updateOrderSql)) {
+      statement.setLong(1, row.id());
+      statement.setString(2, row.status());
+      if (statement.executeUpdate() == 0) {
+        throw new ServiceException("already_refunded", "Order has already been refunded");
+      }
+    }
+  }
+
+  private void claimMarketRefund(Connection connection, MarketOrderRow row) throws SQLException {
+    String updateTradeSql = """
+        UPDATE market_trades
+        SET status = 'REFUNDED', refunded_at = CURRENT_TIMESTAMP, claim_token = NULL
+        WHERE id = ?
+          AND status = ?
+          AND refunded_at IS NULL
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(updateTradeSql)) {
+      statement.setLong(1, row.tradeId());
+      statement.setString(2, row.status());
+      if (statement.executeUpdate() == 0) {
+        throw new ServiceException("already_refunded", "Order has already been refunded");
+      }
+    }
   }
 
   private long parseMarketTradeId(String orderNo) {

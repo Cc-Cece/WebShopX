@@ -192,7 +192,7 @@ class MarketGuiService {
     }
     long price;
     try {
-      price = Long.parseLong(trimmed);
+      price = parsePriceInput(trimmed);
     } catch (NumberFormatException exception) {
       player.sendMessage(msg(player, "chat.market.invalid_price_integer"));
       return;
@@ -243,6 +243,46 @@ class MarketGuiService {
           Map.of("reason", humanizeError(player, exception))));
       returnItems(player, creation.inventory());
     }
+  }
+
+  static long parsePriceInput(String raw) {
+    String normalized = normalizePriceInput(raw);
+    if (normalized.isEmpty()) {
+      throw new NumberFormatException("empty price");
+    }
+    return Long.parseLong(normalized);
+  }
+
+  private static String normalizePriceInput(String raw) {
+    if (raw == null) {
+      return "";
+    }
+    String stripped = raw.strip();
+    StringBuilder normalized = new StringBuilder(stripped.length());
+    boolean skipColorCode = false;
+    for (int offset = 0; offset < stripped.length(); ) {
+      int codePoint = stripped.codePointAt(offset);
+      offset += Character.charCount(codePoint);
+      if (skipColorCode) {
+        skipColorCode = false;
+        continue;
+      }
+      if (codePoint == '\u00a7') {
+        skipColorCode = true;
+        continue;
+      }
+      int type = Character.getType(codePoint);
+      if (type == Character.FORMAT || type == Character.CONTROL) {
+        continue;
+      }
+      int digit = Character.digit(codePoint, 10);
+      if (digit >= 0) {
+        normalized.append((char) ('0' + digit));
+        continue;
+      }
+      normalized.appendCodePoint(codePoint);
+    }
+    return normalized.toString();
   }
 
   boolean hasChatSession(UUID playerId) {

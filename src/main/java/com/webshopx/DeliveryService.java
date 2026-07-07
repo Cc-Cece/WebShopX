@@ -1450,7 +1450,7 @@ class DeliveryService {
       tasks.add(new MarketItemDeliveryTask(
           resultSet.getLong("id"),
           resultSet.getLong("listing_id"),
-          (Long) resultSet.getObject("trade_id"),
+          coerceNullableLong(resultSet.getObject("trade_id"), "trade_id"),
           resultSet.getLong("target_user_id"),
           UUID.fromString(resultSet.getString("target_uuid")),
           resultSet.getBytes("item_blob"),
@@ -1459,6 +1459,28 @@ class DeliveryService {
           resultSet.getInt("retry_count")));
     }
     return tasks;
+  }
+
+  static Long coerceNullableLong(Object value, String columnName) throws SQLException {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof Number number) {
+      return number.longValue();
+    }
+    if (value instanceof String text) {
+      String trimmed = text.trim();
+      if (trimmed.isEmpty()) {
+        return null;
+      }
+      try {
+        return Long.parseLong(trimmed);
+      } catch (NumberFormatException exception) {
+        throw new SQLException("Invalid long value for column " + columnName + ": " + text, exception);
+      }
+    }
+    throw new SQLException(
+        "Unsupported long value type for column " + columnName + ": " + value.getClass().getName());
   }
 
   private String truncate(String text, int maxLength) {
