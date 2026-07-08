@@ -571,6 +571,7 @@ class MarketService {
             null,
             null,
             null,
+            null,
         limit));
   }
 
@@ -697,6 +698,10 @@ class MarketService {
     if (query.side() != null) {
       sql.append(" AND ml.market_side = ?");
       params.add(query.side().name());
+    }
+    if (query.tradeMode() != null) {
+      sql.append(" AND ml.trade_mode = ?");
+      params.add(query.tradeMode().name());
     }
     if (query.tag() != null && !query.tag().isBlank()) {
       sql.append(" AND ml.tag_code = ?");
@@ -2918,10 +2923,10 @@ class MarketService {
             resultSet.getLong("price"),
             resultSet.getString("dynamic_algorithm"),
             resultSet.getString("dynamic_params_json"),
-            (Long) resultSet.getObject("dynamic_base_price"),
-            (Long) resultSet.getObject("dynamic_floor_price"),
-            (Long) resultSet.getObject("dynamic_cap_price"),
-            (Long) resultSet.getObject("dynamic_price_step"),
+            nullableLong(resultSet, "dynamic_base_price"),
+            nullableLong(resultSet, "dynamic_floor_price"),
+            nullableLong(resultSet, "dynamic_cap_price"),
+            nullableLong(resultSet, "dynamic_price_step"),
             resultSet.getLong("dynamic_demand_score")));
       }
     }
@@ -4341,9 +4346,9 @@ class MarketService {
            ResultSet resultSet = statement.executeQuery()) {
         while (resultSet.next()) {
           String world = resultSet.getString("supply_world");
-          Integer x = (Integer) resultSet.getObject("supply_x");
-          Integer y = (Integer) resultSet.getObject("supply_y");
-          Integer z = (Integer) resultSet.getObject("supply_z");
+          Integer x = nullableInt(resultSet, "supply_x");
+          Integer y = nullableInt(resultSet, "supply_y");
+          Integer z = nullableInt(resultSet, "supply_z");
           if (world == null || x == null || y == null || z == null) {
             continue;
           }
@@ -4894,6 +4899,36 @@ class MarketService {
     }
   }
 
+  private Integer nullableInt(ResultSet resultSet, String column) throws SQLException {
+    Object value = resultSet.getObject(column);
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof Number number) {
+      return number.intValue();
+    }
+    try {
+      return Integer.parseInt(value.toString());
+    } catch (NumberFormatException exception) {
+      throw new SQLException("Column " + column + " is not an integer: " + value, exception);
+    }
+  }
+
+  private Long nullableLong(ResultSet resultSet, String column) throws SQLException {
+    Object value = resultSet.getObject(column);
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof Number number) {
+      return number.longValue();
+    }
+    try {
+      return Long.parseLong(value.toString());
+    } catch (NumberFormatException exception) {
+      throw new SQLException("Column " + column + " is not a long: " + value, exception);
+    }
+  }
+
   private DeliveryMode resolveDeliveryMode(String rawMode) {
     if (rawMode == null || rawMode.isBlank()) {
       return DeliveryMode.IMMEDIATE;
@@ -4958,14 +4993,14 @@ class MarketService {
             resultSet.getString("status"),
             SupplyMode.fromRaw(resultSet.getString("source_mode")),
             resultSet.getString("supply_world"),
-            (Integer) resultSet.getObject("supply_x"),
-            (Integer) resultSet.getObject("supply_y"),
-            (Integer) resultSet.getObject("supply_z"),
-            (Integer) resultSet.getObject("supply_batch_size"),
-            (Integer) resultSet.getObject("supply_max_stock"),
+            nullableInt(resultSet, "supply_x"),
+            nullableInt(resultSet, "supply_y"),
+            nullableInt(resultSet, "supply_z"),
+            nullableInt(resultSet, "supply_batch_size"),
+            nullableInt(resultSet, "supply_max_stock"),
             resultSet.getLong("supply_loaded_total"),
             resultSet.getLong("supply_sold_total"),
-            (Integer) resultSet.getObject("supply_last_loaded_amount"),
+            nullableInt(resultSet, "supply_last_loaded_amount"),
             resultSet.getTimestamp("supply_last_loaded_at") == null
                 ? null
               : resultSet.getTimestamp("supply_last_loaded_at").toLocalDateTime(),
@@ -4973,15 +5008,15 @@ class MarketService {
             resultSet.getBoolean("dynamic_pricing_enabled"),
             resultSet.getString("dynamic_algorithm"),
             resultSet.getString("dynamic_params_json"),
-            (Long) resultSet.getObject("dynamic_base_price"),
-            (Long) resultSet.getObject("dynamic_floor_price"),
-            (Long) resultSet.getObject("dynamic_cap_price"),
-            (Long) resultSet.getObject("dynamic_price_step"),
+            nullableLong(resultSet, "dynamic_base_price"),
+            nullableLong(resultSet, "dynamic_floor_price"),
+            nullableLong(resultSet, "dynamic_cap_price"),
+            nullableLong(resultSet, "dynamic_price_step"),
             resultSet.getLong("dynamic_demand_score"),
             resultSet.getString("auction_algorithm"),
             resultSet.getString("auction_params_json"),
-            (Long) resultSet.getObject("auction_start_price"),
-            (Long) resultSet.getObject("auction_min_increment"),
+            nullableLong(resultSet, "auction_start_price"),
+            nullableLong(resultSet, "auction_min_increment"),
             resultSet.getTimestamp("auction_started_at") == null
               ? null
               : resultSet.getTimestamp("auction_started_at").toLocalDateTime(),
@@ -4991,12 +5026,12 @@ class MarketService {
             resultSet.getTimestamp("auction_end_at") == null
               ? null
               : resultSet.getTimestamp("auction_end_at").toLocalDateTime(),
-            (Long) resultSet.getObject("auction_highest_bid"),
-            (Long) resultSet.getObject("auction_highest_bidder_user_id"),
+            nullableLong(resultSet, "auction_highest_bid"),
+            nullableLong(resultSet, "auction_highest_bidder_user_id"),
             resultSet.getString("auction_highest_bidder_uuid") == null
               ? null
               : UUID.fromString(resultSet.getString("auction_highest_bidder_uuid")),
-            (Long) resultSet.getObject("auction_highest_bid_id"),
+            nullableLong(resultSet, "auction_highest_bid_id"),
             resultSet.getTimestamp("auction_last_bid_at") == null
               ? null
               : resultSet.getTimestamp("auction_last_bid_at").toLocalDateTime());
@@ -5011,7 +5046,7 @@ class MarketService {
       TradeMode tradeMode = TradeMode.fromRaw(resultSet.getString("trade_mode"));
       String auctionAlgorithm = resultSet.getString("auction_algorithm");
       String auctionParamsJson = resultSet.getString("auction_params_json");
-      Long auctionStartPrice = (Long) resultSet.getObject("auction_start_price");
+      Long auctionStartPrice = nullableLong(resultSet, "auction_start_price");
       LocalDateTime auctionStartedAt = resultSet.getTimestamp("auction_started_at") == null
           ? null
           : resultSet.getTimestamp("auction_started_at").toLocalDateTime();
@@ -5061,11 +5096,11 @@ class MarketService {
           status,
           resultSet.getTimestamp("created_at").toLocalDateTime(),
           SupplyMode.fromRaw(resultSet.getString("source_mode")),
-          (Integer) resultSet.getObject("supply_batch_size"),
-          (Integer) resultSet.getObject("supply_max_stock"),
+          nullableInt(resultSet, "supply_batch_size"),
+          nullableInt(resultSet, "supply_max_stock"),
           resultSet.getLong("supply_loaded_total"),
           resultSet.getLong("supply_sold_total"),
-          (Integer) resultSet.getObject("supply_last_loaded_amount"),
+          nullableInt(resultSet, "supply_last_loaded_amount"),
           resultSet.getTimestamp("supply_last_loaded_at") == null
               ? null
               : resultSet.getTimestamp("supply_last_loaded_at").toLocalDateTime(),
@@ -5073,24 +5108,24 @@ class MarketService {
             resultSet.getBoolean("dynamic_pricing_enabled"),
             resultSet.getString("dynamic_algorithm"),
             resultSet.getString("dynamic_params_json"),
-            (Long) resultSet.getObject("dynamic_base_price"),
-            (Long) resultSet.getObject("dynamic_floor_price"),
-            (Long) resultSet.getObject("dynamic_cap_price"),
-            (Long) resultSet.getObject("dynamic_price_step"),
+            nullableLong(resultSet, "dynamic_base_price"),
+            nullableLong(resultSet, "dynamic_floor_price"),
+            nullableLong(resultSet, "dynamic_cap_price"),
+            nullableLong(resultSet, "dynamic_price_step"),
             resultSet.getLong("dynamic_demand_score"),
             auctionAlgorithm,
             auctionParamsJson,
             auctionStartPrice,
-            (Long) resultSet.getObject("auction_min_increment"),
+            nullableLong(resultSet, "auction_min_increment"),
             auctionStartedAt,
             auctionPublicEndAt,
             auctionEndAt,
-            (Long) resultSet.getObject("auction_highest_bid"),
-            (Long) resultSet.getObject("auction_highest_bidder_user_id"),
+            nullableLong(resultSet, "auction_highest_bid"),
+            nullableLong(resultSet, "auction_highest_bidder_user_id"),
             resultSet.getString("auction_highest_bidder_uuid") == null
               ? null
               : UUID.fromString(resultSet.getString("auction_highest_bidder_uuid")),
-            (Long) resultSet.getObject("auction_highest_bid_id"),
+            nullableLong(resultSet, "auction_highest_bid_id"),
             resultSet.getTimestamp("auction_last_bid_at") == null
               ? null
               : resultSet.getTimestamp("auction_last_bid_at").toLocalDateTime()));
@@ -5135,11 +5170,11 @@ class MarketService {
               ? null
               : resultSet.getTimestamp("unlisted_at").toLocalDateTime(),
           SupplyMode.fromRaw(resultSet.getString("source_mode")),
-          (Integer) resultSet.getObject("supply_batch_size"),
-          (Integer) resultSet.getObject("supply_max_stock"),
+          nullableInt(resultSet, "supply_batch_size"),
+          nullableInt(resultSet, "supply_max_stock"),
           resultSet.getLong("supply_loaded_total"),
           resultSet.getLong("supply_sold_total"),
-          (Integer) resultSet.getObject("supply_last_loaded_amount"),
+          nullableInt(resultSet, "supply_last_loaded_amount"),
           resultSet.getTimestamp("supply_last_loaded_at") == null
               ? null
               : resultSet.getTimestamp("supply_last_loaded_at").toLocalDateTime()));
@@ -5558,6 +5593,7 @@ class MarketService {
       String material,
       String keyword,
       MarketSide side,
+      TradeMode tradeMode,
       String tag,
       List<String> tags,
       int limit) {

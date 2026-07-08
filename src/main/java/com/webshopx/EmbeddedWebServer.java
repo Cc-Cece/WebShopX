@@ -1271,6 +1271,11 @@ class EmbeddedWebServer {
       if (sideRaw != null && !sideRaw.isBlank()) {
         side = MarketSide.fromRaw(sideRaw);
       }
+      MarketService.TradeMode tradeMode = null;
+      String modeRaw = query.containsKey("mode") ? query.get("mode") : query.get("tradeMode");
+      if (modeRaw != null && !modeRaw.isBlank()) {
+        tradeMode = MarketService.TradeMode.fromRaw(modeRaw);
+      }
       String tag = null;
       String tagRaw = query.containsKey("tag") ? query.get("tag") : null;
       if (tagRaw != null && !tagRaw.isBlank()) {
@@ -1304,6 +1309,7 @@ class EmbeddedWebServer {
           material == null ? null : material.trim().toUpperCase(Locale.ROOT),
           keyword == null ? null : keyword.trim(),
           side,
+          tradeMode,
           tag,
           tags,
           limit);
