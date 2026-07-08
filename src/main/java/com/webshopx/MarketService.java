@@ -233,6 +233,17 @@ class MarketService {
       int quantity,
       String idempotencyKey,
       String deliveryModeRaw) {
+    return fulfillBuyOrder(sellerUserId, listingId, quantity, idempotencyKey, deliveryModeRaw, null, null);
+  }
+
+  TradeResult fulfillBuyOrder(
+      long sellerUserId,
+      long listingId,
+      int quantity,
+      String idempotencyKey,
+      String deliveryModeRaw,
+      Long expectedUnitPrice,
+      Long expectedBuyerTotal) {
     if (listingId <= 0L) {
       throw new ServiceException("invalid_listing", "Listing id must be positive");
     }
@@ -242,11 +253,13 @@ class MarketService {
     String normalizedIdempotency = normalizeIdempotencyKey(idempotencyKey);
     TradeResult result = databaseManager.inTransaction(connection -> fulfillBuyOrderInTransaction(
         connection,
-        sellerUserId,
-        listingId,
-        quantity,
-        normalizedIdempotency,
-        deliveryModeRaw));
+            sellerUserId,
+            listingId,
+            quantity,
+            normalizedIdempotency,
+            deliveryModeRaw,
+            expectedUnitPrice,
+            expectedBuyerTotal));
     if (result.state() == TradeState.CREATED) {
       publishTradeCreatedEvent(result.tradeId());
       plugin.getLogger()
@@ -268,6 +281,37 @@ class MarketService {
               result.unitPrice())));
     }
     return result;
+  }
+
+  PurchaseQuote quotePurchase(long actorUserId, long listingId, int quantity) {
+    if (listingId <= 0L) {
+      throw new ServiceException("invalid_listing", "Listing id must be positive");
+    }
+    if (quantity <= 0 || quantity > 64) {
+      throw new ServiceException("invalid_quantity", "Quantity must be between 1 and 64");
+    }
+    return databaseManager.inTransaction(connection -> {
+      MarketListing listing = readListingForUpdate(connection, listingId);
+      if (!"ACTIVE".equalsIgnoreCase(listing.status())) {
+        throw new ServiceException("listing_unavailable", "Listing is unavailable");
+      }
+      if (listing.isAuction()) {
+        throw new ServiceException("invalid_trade_mode", "Auction listings use the bidding quote flow");
+      }
+      if (quantity > listing.quantity()) {
+        throw new ServiceException("insufficient_quantity", "Listing does not have enough remaining quantity");
+      }
+      if (listing.marketSide() == MarketSide.BUY) {
+        if (listing.sellerUserId() == actorUserId) {
+          throw new ServiceException("cannot_fulfill_own_buy_order", "You cannot fulfill your own BUY listing");
+        }
+        return buildBuyOrderFulfillmentQuote(listing, quantity);
+      }
+      if (listing.sellerUserId() == actorUserId) {
+        throw new ServiceException("invalid_trade", "You cannot buy your own listing");
+      }
+      return buildDirectPurchaseQuote(listing, quantity);
+    });
   }
 
   List<MarketTagService.TagMeta> listMarketTagsMeta() {
@@ -807,6 +851,17 @@ class MarketService {
       int buyQuantity,
       String idempotencyKey,
       String deliveryModeRaw) {
+    return buyListing(buyerUserId, listingId, buyQuantity, idempotencyKey, deliveryModeRaw, null, null);
+  }
+
+  TradeResult buyListing(
+      long buyerUserId,
+      long listingId,
+      int buyQuantity,
+      String idempotencyKey,
+      String deliveryModeRaw,
+      Long expectedUnitPrice,
+      Long expectedBuyerTotal) {
     if (listingId <= 0L) {
       throw new ServiceException("invalid_listing", "Listing id must be positive");
     }
@@ -821,7 +876,9 @@ class MarketService {
             listingId,
             buyQuantity,
             normalizedIdempotency,
-            deliveryModeRaw));
+            deliveryModeRaw,
+            expectedUnitPrice,
+            expectedBuyerTotal));
     if (result.state() == TradeState.CREATED) {
       publishTradeCreatedEvent(result.tradeId());
     }
@@ -1542,7 +1599,9 @@ class MarketService {
       long listingId,
       int buyQuantity,
       String idempotencyKey,
-      String deliveryModeRaw) throws SQLException {
+      String deliveryModeRaw,
+      Long expectedUnitPrice,
+      Long expectedBuyerTotal) throws SQLException {
     int cooldownSeconds = normalizedOrderCooldownSeconds();
     ExistingTrade existingTrade = readExistingTrade(connection, buyerUserId, idempotencyKey);
     if (existingTrade != null) {
@@ -1605,12 +1664,14 @@ class MarketService {
     }
 
     BoundUser buyer = readBoundUserById(connection, buyerUserId, true);
-    PluginSettings.MarketEconomySettings marketEconomy = settingsSupplier.get().economySettings().marketSettings();
-    long tradeSubtotal = Math.multiplyExact(listing.price(), buyQuantity);
-    long fee = calculatePercent(tradeSubtotal, marketEconomy.tradeFeePercent());
-    long tax = calculatePercent(tradeSubtotal, marketEconomy.tradeTaxPercent());
-    long buyerTotal = Math.addExact(tradeSubtotal, tax);
-    long sellerReceive = Math.max(0L, tradeSubtotal - fee);
+    PurchaseQuote quote = buildDirectPurchaseQuote(listing, buyQuantity);
+    assertExpectedQuote(quote, expectedUnitPrice, expectedBuyerTotal);
+    long tradeUnitPrice = quote.unitPrice();
+    long tradeSubtotal = quote.totalPrice();
+    long fee = quote.feeAmount();
+    long tax = quote.taxAmount();
+    long buyerTotal = quote.buyerTotal();
+    long sellerReceive = quote.sellerReceive();
     LocalDateTime now = LocalDateTime.now();
     DeliveryMode deliveryMode = resolveDeliveryMode(deliveryModeRaw);
     LocalDateTime refundDeadline = deliveryMode == DeliveryMode.IMMEDIATE && cooldownSeconds > 0
@@ -1635,7 +1696,7 @@ class MarketService {
         buyer.userId(),
         listing.sellerUserId(),
         listing.currency(),
-        listing.price(),
+        tradeUnitPrice,
         buyQuantity,
         tradeSubtotal,
         buyerTotal,
@@ -1670,7 +1731,7 @@ class MarketService {
         tradeId,
         listing.id(),
         listing.currency(),
-        listing.price(),
+        tradeUnitPrice,
         buyQuantity,
         tradeSubtotal,
         buyerTotal,
@@ -1688,7 +1749,9 @@ class MarketService {
       long listingId,
       int fulfillQuantity,
       String idempotencyKey,
-      String deliveryModeRaw) throws SQLException {
+      String deliveryModeRaw,
+      Long expectedUnitPrice,
+      Long expectedBuyerTotal) throws SQLException {
     int cooldownSeconds = normalizedOrderCooldownSeconds();
     MarketListing listing = readListingForUpdate(connection, listingId);
     if (listing.marketSide() != MarketSide.BUY) {
@@ -1732,15 +1795,17 @@ class MarketService {
     BoundUser seller = readBoundUserById(connection, sellerUserId, true);
     BoundUser owner = readBoundUserById(connection, listing.sellerUserId(), true);
 
-    PluginSettings.MarketEconomySettings marketEconomy = settingsSupplier.get().economySettings().marketSettings();
-    long tradeSubtotal = Math.multiplyExact(listing.price(), fulfillQuantity);
-    long fee = calculatePercent(tradeSubtotal, marketEconomy.tradeFeePercent());
-    long tax = calculatePercent(tradeSubtotal, marketEconomy.tradeTaxPercent());
-    long buyerTotal = Math.addExact(tradeSubtotal, tax);
+    PurchaseQuote quote = buildBuyOrderFulfillmentQuote(listing, fulfillQuantity);
+    assertExpectedQuote(quote, expectedUnitPrice, expectedBuyerTotal);
+    long tradeUnitPrice = quote.unitPrice();
+    long tradeSubtotal = quote.totalPrice();
+    long fee = quote.feeAmount();
+    long tax = quote.taxAmount();
+    long buyerTotal = quote.buyerTotal();
     if (listing.escrowRemaining() < buyerTotal) {
       throw new ServiceException("buy_escrow_insufficient", "BUY escrow does not cover this fulfill amount");
     }
-    long sellerReceive = Math.max(0L, tradeSubtotal - fee);
+    long sellerReceive = quote.sellerReceive();
     LocalDateTime now = LocalDateTime.now();
     DeliveryMode deliveryMode = resolveDeliveryMode(deliveryModeRaw);
     LocalDateTime refundDeadline = deliveryMode == DeliveryMode.IMMEDIATE && cooldownSeconds > 0
@@ -1758,7 +1823,7 @@ class MarketService {
           owner.userId(),
           seller.userId(),
           listing.currency(),
-          listing.price(),
+          tradeUnitPrice,
           fulfillQuantity,
           tradeSubtotal,
           buyerTotal,
@@ -1811,7 +1876,7 @@ class MarketService {
           tradeId,
           listing.id(),
           listing.currency(),
-          listing.price(),
+          tradeUnitPrice,
           fulfillQuantity,
           tradeSubtotal,
           buyerTotal,
@@ -4504,6 +4569,90 @@ class MarketService {
     }
   }
 
+  private PurchaseQuote buildDirectPurchaseQuote(MarketListing listing, int quantity) {
+    long unitPrice = Math.max(1L, listing.price());
+    PluginSettings.MarketEconomySettings marketEconomy = settingsSupplier.get().economySettings().marketSettings();
+    long subtotal = Math.multiplyExact(unitPrice, quantity);
+    long fee = calculatePercent(subtotal, marketEconomy.tradeFeePercent());
+    long tax = calculatePercent(subtotal, marketEconomy.tradeTaxPercent());
+    long buyerTotal = Math.addExact(subtotal, tax);
+    long sellerReceive = Math.max(0L, subtotal - fee);
+    long currentDemandScore = Math.max(0L, listing.dynamicDemandScore());
+    long nextDemandScore = currentDemandScore;
+    long nextUnitPrice = unitPrice;
+
+    if (listing.tradeMode() == TradeMode.DIRECT && listing.dynamicPricingEnabled()) {
+      MarketAlgorithmRegistry.DynamicAlgorithmType algorithmType = MarketAlgorithmRegistry.DynamicAlgorithmType
+          .fromRaw(listing.dynamicAlgorithm());
+      JsonObject dynamicParams = MarketAlgorithmRegistry.parseParams(listing.dynamicParamsJson());
+      long basePrice = listing.dynamicBasePrice() == null ? unitPrice : listing.dynamicBasePrice();
+      long step = listing.dynamicPriceStep() == null ? 1L : Math.max(1L, listing.dynamicPriceStep());
+      nextDemandScore = MarketAlgorithmRegistry.computeDemandAfterPurchase(
+          algorithmType,
+          currentDemandScore,
+          quantity,
+          dynamicParams);
+      nextUnitPrice = MarketAlgorithmRegistry.computeDynamicPrice(
+          algorithmType,
+          Math.max(1L, basePrice),
+          nextDemandScore,
+          step,
+          listing.dynamicFloorPrice(),
+          listing.dynamicCapPrice(),
+          dynamicParams);
+    }
+
+    return new PurchaseQuote(
+        listing.id(),
+        listing.currency(),
+        listing.marketSide(),
+        unitPrice,
+        quantity,
+        subtotal,
+        buyerTotal,
+        sellerReceive,
+        fee,
+        tax,
+        listing.dynamicPricingEnabled(),
+        currentDemandScore,
+        nextDemandScore,
+        nextUnitPrice);
+  }
+
+  private PurchaseQuote buildBuyOrderFulfillmentQuote(MarketListing listing, int quantity) {
+    long unitPrice = Math.max(1L, listing.price());
+    PluginSettings.MarketEconomySettings marketEconomy = settingsSupplier.get().economySettings().marketSettings();
+    long subtotal = Math.multiplyExact(unitPrice, quantity);
+    long fee = calculatePercent(subtotal, marketEconomy.tradeFeePercent());
+    long tax = calculatePercent(subtotal, marketEconomy.tradeTaxPercent());
+    long buyerTotal = Math.addExact(subtotal, tax);
+    long sellerReceive = Math.max(0L, subtotal - fee);
+    return new PurchaseQuote(
+        listing.id(),
+        listing.currency(),
+        listing.marketSide(),
+        unitPrice,
+        quantity,
+        subtotal,
+        buyerTotal,
+        sellerReceive,
+        fee,
+        tax,
+        false,
+        0L,
+        0L,
+        unitPrice);
+  }
+
+  private void assertExpectedQuote(PurchaseQuote quote, Long expectedUnitPrice, Long expectedBuyerTotal) {
+    if (expectedUnitPrice != null && expectedUnitPrice > 0L && expectedUnitPrice != quote.unitPrice()) {
+      throw new ServiceException("price_changed", "Listing price changed, please refresh the quote");
+    }
+    if (expectedBuyerTotal != null && expectedBuyerTotal > 0L && expectedBuyerTotal != quote.buyerTotal()) {
+      throw new ServiceException("price_changed", "Listing price changed, please refresh the quote");
+    }
+  }
+
   private long insertTrade(
       Connection connection,
       long listingId,
@@ -5517,6 +5666,23 @@ class MarketService {
       String orderStatus,
       LocalDateTime refundDeadline,
       int cooldownSeconds) {
+  }
+
+  record PurchaseQuote(
+      long listingId,
+      CurrencyType currency,
+      MarketSide side,
+      long unitPrice,
+      int quantity,
+      long totalPrice,
+      long buyerTotal,
+      long sellerReceive,
+      long feeAmount,
+      long taxAmount,
+      boolean dynamicPricingEnabled,
+      long currentDemandScore,
+      long nextDemandScore,
+      long nextUnitPrice) {
   }
 
   record UnlistResult(long listingId, CurrencyType currency, long price, int quantity) {

@@ -199,6 +199,7 @@ class EmbeddedWebServer {
     server.createContext("/api/leaderboard/list", this::handleLeaderboardList);
     server.createContext("/api/market/listings", this::handleMarketListings);
     server.createContext("/api/market/listings/create", this::handleMarketListingsCreate);
+    server.createContext("/api/market/quote", this::handleMarketQuote);
     server.createContext("/api/market/buy", this::handleMarketBuy);
     server.createContext("/api/market/sell-to-buy", this::handleMarketSellToBuy);
     server.createContext("/api/market/bid", this::handleMarketBid);
@@ -1535,6 +1536,27 @@ class EmbeddedWebServer {
     });
   }
 
+  private void handleMarketQuote(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      long listingId = getLong(payload, "listingId", -1L);
+      int quantity = payload.has("buyQuantity")
+          ? (int) getLong(payload, "buyQuantity", 1L)
+          : payload.has("sellQuantity")
+              ? (int) getLong(payload, "sellQuantity", 1L)
+              : (int) getLong(payload, "quantity", 1L);
+      MarketService.PurchaseQuote quote = marketService.quotePurchase(user.id(), listingId, quantity);
+      sendJson(exchange, 200, toPurchaseQuoteJson(quote));
+    });
+  }
+
   private void handleMarketBuy(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
       return;
@@ -1550,8 +1572,17 @@ class EmbeddedWebServer {
       String deliveryMode = getOptionalString(payload, "deliveryMode").orElse(null);
       String idempotencyKey = getOptionalString(payload, "idempotencyKey")
           .orElse(UUID.randomUUID().toString());
+      Long expectedUnitPrice = getOptionalPositiveLong(payload, "expectedUnitPrice");
+      Long expectedBuyerTotal = getOptionalPositiveLong(payload, "expectedBuyerTotal");
       MarketService.TradeResult result =
-          marketService.buyListing(user.id(), listingId, buyQuantity, idempotencyKey, deliveryMode);
+          marketService.buyListing(
+              user.id(),
+              listingId,
+              buyQuantity,
+              idempotencyKey,
+              deliveryMode,
+              expectedUnitPrice,
+              expectedBuyerTotal);
       sendJson(exchange, 200, toTradeResultJson(result));
     });
   }
@@ -1575,14 +1606,37 @@ class EmbeddedWebServer {
       String deliveryMode = getOptionalString(payload, "deliveryMode").orElse(null);
       String idempotencyKey = getOptionalString(payload, "idempotencyKey")
           .orElse(UUID.randomUUID().toString());
+      Long expectedUnitPrice = getOptionalPositiveLong(payload, "expectedUnitPrice");
+      Long expectedBuyerTotal = getOptionalPositiveLong(payload, "expectedBuyerTotal");
       MarketService.TradeResult result = marketService.fulfillBuyOrder(
           user.id(),
           listingId,
           sellQuantity,
           idempotencyKey,
-          deliveryMode);
+          deliveryMode,
+          expectedUnitPrice,
+          expectedBuyerTotal);
       sendJson(exchange, 200, toTradeResultJson(result));
     });
+  }
+
+  private JsonObject toPurchaseQuoteJson(MarketService.PurchaseQuote quote) {
+    JsonObject response = new JsonObject();
+    response.addProperty("listingId", quote.listingId());
+    response.addProperty("currency", quote.currency().name());
+    response.addProperty("side", quote.side().name());
+    response.addProperty("unitPrice", quote.unitPrice());
+    response.addProperty("quantity", quote.quantity());
+    response.addProperty("totalPrice", quote.totalPrice());
+    response.addProperty("buyerTotal", quote.buyerTotal());
+    response.addProperty("sellerReceive", quote.sellerReceive());
+    response.addProperty("feeAmount", quote.feeAmount());
+    response.addProperty("taxAmount", quote.taxAmount());
+    response.addProperty("dynamicPricingEnabled", quote.dynamicPricingEnabled());
+    response.addProperty("currentDemandScore", quote.currentDemandScore());
+    response.addProperty("nextDemandScore", quote.nextDemandScore());
+    response.addProperty("nextUnitPrice", quote.nextUnitPrice());
+    return response;
   }
 
   private JsonObject toTradeResultJson(MarketService.TradeResult result) {
@@ -5109,6 +5163,14 @@ class EmbeddedWebServer {
     } catch (NumberFormatException exception) {
       throw new ServiceException("bad_request", "Invalid number: " + key);
     }
+  }
+
+  private Long getOptionalPositiveLong(JsonObject payload, String key) {
+    if (!payload.has(key) || payload.get(key) == null || payload.get(key).isJsonNull()) {
+      return null;
+    }
+    long value = getLong(payload, key, 0L);
+    return value > 0L ? value : null;
   }
 
   private boolean getBoolean(JsonObject payload, String key) {
