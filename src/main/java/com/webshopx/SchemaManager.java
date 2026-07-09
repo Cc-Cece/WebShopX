@@ -529,6 +529,7 @@ class SchemaManager {
           effect_amplifier INT NULL,
           dynamic_pricing_enabled BOOLEAN NOT NULL DEFAULT FALSE,
           dynamic_algorithm VARCHAR(64) NOT NULL DEFAULT 'LINEAR_DEMAND_V1',
+          dynamic_pricing_mode VARCHAR(32) NOT NULL DEFAULT 'ORDER_FIXED',
           dynamic_params_json JSON NULL,
           dynamic_base_price BIGINT NULL,
           dynamic_floor_price BIGINT NULL,
@@ -646,6 +647,12 @@ class SchemaManager {
           "ALTER TABLE products "
               + "ADD COLUMN dynamic_params_json JSON NULL AFTER dynamic_algorithm");
     }
+    if (!columnExists(connection, "products", "dynamic_pricing_mode")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN dynamic_pricing_mode VARCHAR(32) NOT NULL DEFAULT 'ORDER_FIXED' AFTER dynamic_algorithm");
+    }
     if (!columnExists(connection, "products", "dynamic_base_price")) {
       execute(
           connection,
@@ -696,6 +703,10 @@ class SchemaManager {
       connection,
       "UPDATE products SET dynamic_algorithm = 'LINEAR_DEMAND_V1' "
         + "WHERE dynamic_algorithm IS NULL OR dynamic_algorithm = ''");
+    execute(
+      connection,
+      "UPDATE products SET dynamic_pricing_mode = 'ORDER_FIXED' "
+        + "WHERE dynamic_pricing_mode IS NULL OR dynamic_pricing_mode = ''");
     execute(
       connection,
       "UPDATE products SET dynamic_demand_score = 0 "
@@ -943,6 +954,7 @@ class SchemaManager {
           market_side VARCHAR(8) NOT NULL DEFAULT 'SELL',
           dynamic_pricing_enabled BOOLEAN NOT NULL DEFAULT FALSE,
           dynamic_algorithm VARCHAR(64) NOT NULL DEFAULT 'LINEAR_DEMAND_V1',
+          dynamic_pricing_mode VARCHAR(32) NOT NULL DEFAULT 'ORDER_FIXED',
           dynamic_base_price BIGINT NULL,
           dynamic_floor_price BIGINT NULL,
           dynamic_cap_price BIGINT NULL,
@@ -1113,9 +1125,15 @@ class SchemaManager {
     }
     if (!columnExists(connection, "market_listings", "dynamic_base_price")) {
       execute(
-        connection,
-        "ALTER TABLE market_listings "
+          connection,
+          "ALTER TABLE market_listings "
           + "ADD COLUMN dynamic_base_price BIGINT NULL AFTER dynamic_algorithm");
+    }
+    if (!columnExists(connection, "market_listings", "dynamic_pricing_mode")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+          + "ADD COLUMN dynamic_pricing_mode VARCHAR(32) NOT NULL DEFAULT 'ORDER_FIXED' AFTER dynamic_algorithm");
     }
     if (!columnExists(connection, "market_listings", "dynamic_floor_price")) {
       execute(
@@ -1297,6 +1315,10 @@ class SchemaManager {
       connection,
       "UPDATE market_listings SET dynamic_algorithm = 'LINEAR_DEMAND_V1' "
         + "WHERE dynamic_algorithm IS NULL OR dynamic_algorithm = ''");
+    execute(
+      connection,
+      "UPDATE market_listings SET dynamic_pricing_mode = 'ORDER_FIXED' "
+        + "WHERE dynamic_pricing_mode IS NULL OR dynamic_pricing_mode = ''");
     execute(
       connection,
       "UPDATE market_listings SET dynamic_price_step = 1 "

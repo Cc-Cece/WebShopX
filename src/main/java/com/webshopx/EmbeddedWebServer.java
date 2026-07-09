@@ -204,6 +204,8 @@ class EmbeddedWebServer {
     server.createContext("/api/meta/themes", this::handleMetaThemes);
     server.createContext("/api/leaderboard/config", this::handleLeaderboardConfig);
     server.createContext("/api/leaderboard/list", this::handleLeaderboardList);
+    server.createContext("/api/products/quote", this::handleProductsQuote);
+    server.createContext("/api/products/price-trend", this::handleProductsPriceTrend);
     server.createContext("/api/market/listings", this::handleMarketListings);
     server.createContext("/api/market/listings/create", this::handleMarketListingsCreate);
     server.createContext("/api/market/price-trend", this::handleMarketPriceTrend);
@@ -584,6 +586,56 @@ class EmbeddedWebServer {
       }
       JsonObject response = new JsonObject();
       response.add("products", array);
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleProductsQuote(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      long productId = getLong(payload, "productId", -1L);
+      int quantity = (int) getLong(payload, "quantity", 1L);
+      ProductService.ProductPriceQuote quote = productService.quoteProduct(productId, quantity);
+      JsonObject response = productPriceQuoteJson(quote);
+      response.addProperty("productId", productId);
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleProductsPriceTrend(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      Map<String, String> query = parseQuery(exchange);
+      Long productIdRaw = parseLong(query.get("productId"));
+      if (productIdRaw == null || productIdRaw <= 0L) {
+        throw new ServiceException("bad_request", "Missing field: productId");
+      }
+      long productId = productIdRaw;
+      int limit = parseInt(query.get("limit"), 30);
+      List<ProductService.ProductPriceTrendPoint> points = productService.listPriceTrend(productId, limit);
+      JsonArray history = new JsonArray();
+      for (ProductService.ProductPriceTrendPoint point : points) {
+        JsonObject row = new JsonObject();
+        row.addProperty("orderItemId", point.orderItemId());
+        row.addProperty("price", point.price());
+        row.addProperty("quantity", point.quantity());
+        addBusinessDateTime(row, "createdAt", point.createdAt());
+        history.add(row);
+      }
+      JsonObject response = new JsonObject();
+      response.addProperty("productId", productId);
+      response.add("history", history);
       sendJson(exchange, 200, response);
     });
   }
@@ -1372,6 +1424,7 @@ class EmbeddedWebServer {
         row.addProperty("tradeMode", listing.tradeMode().name());
         row.addProperty("dynamicPricingEnabled", listing.dynamicPricingEnabled());
         row.addProperty("dynamicAlgorithm", listing.dynamicAlgorithm());
+        row.addProperty("dynamicPricingMode", listing.dynamicPricingMode());
         if (listing.dynamicParamsJson() == null) {
           row.add("dynamicParamsJson", JsonNull.INSTANCE);
         } else {
@@ -1673,6 +1726,9 @@ class EmbeddedWebServer {
     response.addProperty("currency", quote.currency().name());
     response.addProperty("side", quote.side().name());
     response.addProperty("unitPrice", quote.unitPrice());
+    response.addProperty("firstUnitPrice", quote.firstUnitPrice());
+    response.addProperty("lastUnitPrice", quote.lastUnitPrice());
+    response.addProperty("averageUnitPrice", quote.averageUnitPrice());
     response.addProperty("quantity", quote.quantity());
     response.addProperty("totalPrice", quote.totalPrice());
     response.addProperty("buyerTotal", quote.buyerTotal());
@@ -1680,9 +1736,26 @@ class EmbeddedWebServer {
     response.addProperty("feeAmount", quote.feeAmount());
     response.addProperty("taxAmount", quote.taxAmount());
     response.addProperty("dynamicPricingEnabled", quote.dynamicPricingEnabled());
+    response.addProperty("dynamicPricingMode", quote.dynamicPricingMode().name());
     response.addProperty("currentDemandScore", quote.currentDemandScore());
     response.addProperty("nextDemandScore", quote.nextDemandScore());
     response.addProperty("nextUnitPrice", quote.nextUnitPrice());
+    return response;
+  }
+
+  private JsonObject productPriceQuoteJson(ProductService.ProductPriceQuote quote) {
+    JsonObject response = new JsonObject();
+    response.addProperty("dynamicPricingMode", quote.pricingMode().name());
+    response.addProperty("firstUnitPrice", quote.firstUnitPrice());
+    response.addProperty("lastUnitPrice", quote.lastUnitPrice());
+    response.addProperty("averageUnitPrice", quote.averageUnitPrice());
+    response.addProperty("unitPrice", quote.averageUnitPrice());
+    response.addProperty("nextUnitPrice", quote.nextUnitPrice());
+    response.addProperty("quantity", quote.quantity());
+    response.addProperty("totalAmount", quote.totalAmount());
+    response.addProperty("totalPrice", quote.totalAmount());
+    response.addProperty("currentDemandScore", quote.currentDemandScore());
+    response.addProperty("nextDemandScore", quote.nextDemandScore());
     return response;
   }
 
@@ -1901,6 +1974,7 @@ class EmbeddedWebServer {
           ? payload.get("dynamicPricingEnabled").getAsBoolean()
           : null;
         String dynamicAlgorithm = getOptionalString(payload, "dynamicAlgorithm").orElse(null);
+        String dynamicPricingMode = getOptionalString(payload, "dynamicPricingMode").orElse(null);
         String dynamicParamsJson = null;
         if (payload.has("dynamicParamsJson") && !payload.get("dynamicParamsJson").isJsonNull()) {
           JsonElement dynamicParamsElement = payload.get("dynamicParamsJson");
@@ -1969,6 +2043,7 @@ class EmbeddedWebServer {
           tradeMode,
           dynamicPricingEnabled,
           dynamicAlgorithm,
+          dynamicPricingMode,
           dynamicParamsJson,
           dynamicBasePrice,
           dynamicFloorPrice,
@@ -2864,6 +2939,7 @@ class EmbeddedWebServer {
         ? payload.get("dynamicPricingEnabled").getAsBoolean()
         : null;
       String dynamicAlgorithm = getOptionalString(payload, "dynamicAlgorithm").orElse(null);
+      String dynamicPricingMode = getOptionalString(payload, "dynamicPricingMode").orElse(null);
       String dynamicParamsJson = null;
       if (payload.has("dynamicParamsJson") && !payload.get("dynamicParamsJson").isJsonNull()) {
       JsonElement dynamicParamsElement = payload.get("dynamicParamsJson");
@@ -2918,6 +2994,7 @@ class EmbeddedWebServer {
               : null,
             dynamicPricingEnabled,
             dynamicAlgorithm,
+            dynamicPricingMode,
             dynamicParamsJson,
             dynamicBasePrice,
             dynamicFloorPrice,
@@ -4793,6 +4870,7 @@ class EmbeddedWebServer {
     row.addProperty("productType", product.productType().name());
     row.addProperty("dynamicPricingEnabled", product.dynamicPricingEnabled());
     row.addProperty("dynamicAlgorithm", product.dynamicAlgorithm());
+    row.addProperty("dynamicPricingMode", product.dynamicPricingMode());
     if (product.dynamicParamsJson() == null) {
       row.add("dynamicParamsJson", JsonNull.INSTANCE);
     } else {

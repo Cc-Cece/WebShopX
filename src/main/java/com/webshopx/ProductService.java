@@ -83,7 +83,7 @@ class ProductService {
          item_material, display_name_override, display_material, display_icon_path,
          item_amount, stock_remaining, per_user_limit,
          effect_type, effect_seconds, effect_amplifier,
-         dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
+         dynamic_pricing_enabled, dynamic_algorithm, dynamic_pricing_mode, dynamic_params_json,
          dynamic_base_price, dynamic_floor_price, dynamic_cap_price,
          dynamic_price_step, dynamic_demand_score,
                publish_at, unpublish_at, active
@@ -152,12 +152,12 @@ class ProductService {
               item_material, display_name_override, display_material, display_icon_path,
               item_amount, stock_remaining, per_user_limit,
               effect_type, effect_seconds, effect_amplifier,
-              dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
+              dynamic_pricing_enabled, dynamic_algorithm, dynamic_pricing_mode, dynamic_params_json,
               dynamic_base_price, dynamic_floor_price, dynamic_cap_price,
               dynamic_price_step, dynamic_demand_score,
               publish_at, unpublish_at, active
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
         try (PreparedStatement statement = connection.prepareStatement(insertSql)) {
           statement.setString(1, normalizedSku);
@@ -196,39 +196,40 @@ class ProductService {
           }
           statement.setBoolean(18, dynamicSettings.enabled());
           statement.setString(19, dynamicSettings.algorithmType().name());
-          statement.setString(20, MarketAlgorithmRegistry.toJson(dynamicSettings.params()));
+          statement.setString(20, dynamicSettings.pricingMode().name());
+          statement.setString(21, MarketAlgorithmRegistry.toJson(dynamicSettings.params()));
           if (dynamicSettings.basePrice() == null) {
-            statement.setObject(21, null);
-          } else {
-            statement.setLong(21, dynamicSettings.basePrice());
-          }
-          if (dynamicSettings.floorPrice() == null) {
             statement.setObject(22, null);
           } else {
-            statement.setLong(22, dynamicSettings.floorPrice());
+            statement.setLong(22, dynamicSettings.basePrice());
           }
-          if (dynamicSettings.capPrice() == null) {
+          if (dynamicSettings.floorPrice() == null) {
             statement.setObject(23, null);
           } else {
-            statement.setLong(23, dynamicSettings.capPrice());
+            statement.setLong(23, dynamicSettings.floorPrice());
           }
-          if (dynamicSettings.priceStep() == null) {
+          if (dynamicSettings.capPrice() == null) {
             statement.setObject(24, null);
           } else {
-            statement.setLong(24, dynamicSettings.priceStep());
+            statement.setLong(24, dynamicSettings.capPrice());
           }
-          statement.setLong(25, dynamicSettings.demandScore());
-          if (input.publishAt() == null) {
-            statement.setObject(26, null);
+          if (dynamicSettings.priceStep() == null) {
+            statement.setObject(25, null);
           } else {
-            statement.setObject(26, input.publishAt());
+            statement.setLong(25, dynamicSettings.priceStep());
           }
-          if (input.unpublishAt() == null) {
+          statement.setLong(26, dynamicSettings.demandScore());
+          if (input.publishAt() == null) {
             statement.setObject(27, null);
           } else {
-            statement.setObject(27, input.unpublishAt());
+            statement.setObject(27, input.publishAt());
           }
-          statement.setBoolean(28, input.active());
+          if (input.unpublishAt() == null) {
+            statement.setObject(28, null);
+          } else {
+            statement.setObject(28, input.unpublishAt());
+          }
+          statement.setBoolean(29, input.active());
           statement.executeUpdate();
         }
       } else {
@@ -238,7 +239,7 @@ class ProductService {
                 item_material = ?, display_name_override = ?, display_material = ?, display_icon_path = ?,
                 item_amount = ?, stock_remaining = ?, per_user_limit = ?, effect_type = ?,
                 effect_seconds = ?, effect_amplifier = ?,
-                dynamic_pricing_enabled = ?, dynamic_algorithm = ?, dynamic_params_json = ?,
+                dynamic_pricing_enabled = ?, dynamic_algorithm = ?, dynamic_pricing_mode = ?, dynamic_params_json = ?,
                 dynamic_base_price = ?, dynamic_floor_price = ?, dynamic_cap_price = ?,
                 dynamic_price_step = ?, dynamic_demand_score = ?,
                 publish_at = ?, unpublish_at = ?, active = ?
@@ -280,40 +281,41 @@ class ProductService {
           }
           statement.setBoolean(17, dynamicSettings.enabled());
           statement.setString(18, dynamicSettings.algorithmType().name());
-          statement.setString(19, MarketAlgorithmRegistry.toJson(dynamicSettings.params()));
+          statement.setString(19, dynamicSettings.pricingMode().name());
+          statement.setString(20, MarketAlgorithmRegistry.toJson(dynamicSettings.params()));
           if (dynamicSettings.basePrice() == null) {
-            statement.setObject(20, null);
-          } else {
-            statement.setLong(20, dynamicSettings.basePrice());
-          }
-          if (dynamicSettings.floorPrice() == null) {
             statement.setObject(21, null);
           } else {
-            statement.setLong(21, dynamicSettings.floorPrice());
+            statement.setLong(21, dynamicSettings.basePrice());
           }
-          if (dynamicSettings.capPrice() == null) {
+          if (dynamicSettings.floorPrice() == null) {
             statement.setObject(22, null);
           } else {
-            statement.setLong(22, dynamicSettings.capPrice());
+            statement.setLong(22, dynamicSettings.floorPrice());
           }
-          if (dynamicSettings.priceStep() == null) {
+          if (dynamicSettings.capPrice() == null) {
             statement.setObject(23, null);
           } else {
-            statement.setLong(23, dynamicSettings.priceStep());
+            statement.setLong(23, dynamicSettings.capPrice());
           }
-          statement.setLong(24, dynamicSettings.demandScore());
-          if (input.publishAt() == null) {
-            statement.setObject(25, null);
+          if (dynamicSettings.priceStep() == null) {
+            statement.setObject(24, null);
           } else {
-            statement.setObject(25, input.publishAt());
+            statement.setLong(24, dynamicSettings.priceStep());
           }
-          if (input.unpublishAt() == null) {
+          statement.setLong(25, dynamicSettings.demandScore());
+          if (input.publishAt() == null) {
             statement.setObject(26, null);
           } else {
-            statement.setObject(26, input.unpublishAt());
+            statement.setObject(26, input.publishAt());
           }
-          statement.setBoolean(27, input.active());
-          statement.setLong(28, existing.id());
+          if (input.unpublishAt() == null) {
+            statement.setObject(27, null);
+          } else {
+            statement.setObject(27, input.unpublishAt());
+          }
+          statement.setBoolean(28, input.active());
+          statement.setLong(29, existing.id());
           statement.executeUpdate();
         }
       }
@@ -333,6 +335,50 @@ class ProductService {
         product.dynamicCapPrice(),
         product.dynamicPriceStep(),
         Math.max(0L, product.dynamicDemandScore()));
+  }
+
+  ProductPriceQuote quoteOrderPrice(ProductView product, int quantity) {
+    int normalizedQuantity = Math.max(1, quantity);
+    if (!supportsDynamicPricing(product)) {
+      long unitPrice = Math.max(0L, product.price());
+      long totalAmount = Math.multiplyExact(unitPrice, normalizedQuantity);
+      return new ProductPriceQuote(
+          MarketAlgorithmRegistry.DynamicPricingMode.ORDER_FIXED,
+          unitPrice,
+          unitPrice,
+          unitPrice,
+          unitPrice,
+          normalizedQuantity,
+          totalAmount,
+          Math.max(0L, product.dynamicDemandScore()),
+          Math.max(0L, product.dynamicDemandScore()));
+    }
+    MarketAlgorithmRegistry.DynamicAlgorithmType algorithmType =
+        MarketAlgorithmRegistry.DynamicAlgorithmType.fromRaw(product.dynamicAlgorithm());
+    MarketAlgorithmRegistry.DynamicPricingMode pricingMode =
+        MarketAlgorithmRegistry.DynamicPricingMode.fromRaw(product.dynamicPricingMode());
+    JsonObject params = MarketAlgorithmRegistry.parseParams(product.dynamicParamsJson());
+    long currentDemand = Math.max(0L, product.dynamicDemandScore());
+    MarketAlgorithmRegistry.DynamicPriceQuote quote = MarketAlgorithmRegistry.computeDynamicPriceQuote(
+        algorithmType,
+        pricingMode,
+        resolveDynamicBasePrice(product),
+        currentDemand,
+        normalizedQuantity,
+        product.dynamicPriceStep() == null ? 1L : Math.max(1L, product.dynamicPriceStep()),
+        product.dynamicFloorPrice(),
+        product.dynamicCapPrice(),
+        params);
+    return new ProductPriceQuote(
+        quote.pricingMode(),
+        quote.firstUnitPrice(),
+        quote.lastUnitPrice(),
+        quote.averageUnitPrice(),
+        quote.nextUnitPrice(),
+        normalizedQuantity,
+        quote.totalAmount(),
+        currentDemand,
+        quote.nextDemandScore());
   }
 
   ProductView applyDynamicPriceEvent(
@@ -423,7 +469,7 @@ class ProductService {
          item_material, display_name_override, display_material, display_icon_path,
          item_amount, stock_remaining, per_user_limit,
          effect_type, effect_seconds, effect_amplifier,
-         dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
+         dynamic_pricing_enabled, dynamic_algorithm, dynamic_pricing_mode, dynamic_params_json,
          dynamic_base_price, dynamic_floor_price, dynamic_cap_price,
          dynamic_price_step, dynamic_demand_score,
                publish_at, unpublish_at, active
@@ -451,7 +497,7 @@ class ProductService {
         item_material, display_name_override, display_material, display_icon_path,
         item_amount, stock_remaining, per_user_limit,
        effect_type, effect_seconds, effect_amplifier,
-       dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
+       dynamic_pricing_enabled, dynamic_algorithm, dynamic_pricing_mode, dynamic_params_json,
        dynamic_base_price, dynamic_floor_price, dynamic_cap_price,
        dynamic_price_step, dynamic_demand_score,
                publish_at, unpublish_at, active
@@ -488,7 +534,7 @@ class ProductService {
          item_material, display_name_override, display_material, display_icon_path,
          item_amount, stock_remaining, per_user_limit,
          effect_type, effect_seconds, effect_amplifier,
-         dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
+         dynamic_pricing_enabled, dynamic_algorithm, dynamic_pricing_mode, dynamic_params_json,
          dynamic_base_price, dynamic_floor_price, dynamic_cap_price,
          dynamic_price_step, dynamic_demand_score,
                publish_at, unpublish_at, active
@@ -538,6 +584,7 @@ class ProductService {
     Integer effectAmplifier = resultSet.wasNull() ? null : effectAmplifierValue;
     boolean dynamicPricingEnabled = resultSet.getBoolean("dynamic_pricing_enabled");
     String dynamicAlgorithm = resultSet.getString("dynamic_algorithm");
+    String dynamicPricingMode = resultSet.getString("dynamic_pricing_mode");
     String dynamicParamsJson = resultSet.getString("dynamic_params_json");
     Long dynamicBasePrice = getNullableLong(resultSet, "dynamic_base_price");
     Long dynamicFloorPrice = getNullableLong(resultSet, "dynamic_floor_price");
@@ -568,6 +615,7 @@ class ProductService {
         effectAmplifier,
           dynamicPricingEnabled,
           dynamicAlgorithm,
+          dynamicPricingMode,
           dynamicParamsJson,
           dynamicBasePrice,
           dynamicFloorPrice,
@@ -827,6 +875,7 @@ class ProductService {
       return new DynamicSettings(
           false,
           MarketAlgorithmRegistry.DynamicAlgorithmType.LINEAR_DEMAND_V1,
+          MarketAlgorithmRegistry.DynamicPricingMode.ORDER_FIXED,
           new JsonObject(),
           null,
           null,
@@ -837,6 +886,11 @@ class ProductService {
 
     MarketAlgorithmRegistry.DynamicAlgorithmType algorithmType = MarketAlgorithmRegistry.DynamicAlgorithmType
         .fromRaw(input.dynamicAlgorithm());
+    MarketAlgorithmRegistry.DynamicPricingMode pricingMode = input.dynamicPricingMode() == null
+        ? (existing == null
+            ? MarketAlgorithmRegistry.DynamicPricingMode.ORDER_FIXED
+            : MarketAlgorithmRegistry.DynamicPricingMode.fromRaw(existing.dynamicPricingMode()))
+        : MarketAlgorithmRegistry.DynamicPricingMode.fromRaw(input.dynamicPricingMode());
     JsonObject params = MarketAlgorithmRegistry.parseParams(input.dynamicParamsJson());
     Long basePrice = normalizeOptionalPositive(input.dynamicBasePrice(), "invalid_dynamic_base");
     Long floorPrice = normalizeOptionalPositive(input.dynamicFloorPrice(), "invalid_dynamic_floor");
@@ -861,6 +915,7 @@ class ProductService {
     return new DynamicSettings(
         true,
         algorithmType,
+        pricingMode,
         params,
         basePrice,
         floorPrice,
@@ -1026,6 +1081,51 @@ class ProductService {
     return databaseManager.withConnection(connection -> readProductById(connection, productId));
   }
 
+  ProductPriceQuote quoteProduct(long productId, int quantity) {
+    if (productId <= 0) {
+      throw new ServiceException("invalid_product", "Product id must be positive");
+    }
+    return databaseManager.withConnection(connection -> {
+      ProductView product = readActiveProduct(connection, productId, false);
+      return quoteOrderPrice(product, quantity);
+    });
+  }
+
+  List<ProductPriceTrendPoint> listPriceTrend(long productId, int requestedLimit) {
+    if (productId <= 0) {
+      throw new ServiceException("invalid_product", "Product id must be positive");
+    }
+    int limit = Math.max(1, Math.min(requestedLimit, 80));
+    return databaseManager.withConnection(connection -> {
+      readProductById(connection, productId);
+      String sql = """
+          SELECT oi.id, oi.unit_price, oi.quantity, o.created_at
+          FROM order_items oi
+          JOIN orders o ON o.id = oi.order_id
+          WHERE oi.product_id = ?
+            AND UPPER(o.status) <> 'REFUNDED'
+          ORDER BY oi.id DESC
+          LIMIT ?
+          """;
+      List<ProductPriceTrendPoint> points = new ArrayList<>();
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, productId);
+        statement.setInt(2, limit);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          while (resultSet.next()) {
+            points.add(new ProductPriceTrendPoint(
+                resultSet.getLong("id"),
+                resultSet.getLong("unit_price"),
+                resultSet.getInt("quantity"),
+                resultSet.getTimestamp("created_at").toLocalDateTime()));
+          }
+        }
+      }
+      java.util.Collections.reverse(points);
+      return points;
+    });
+  }
+
   ProductView updateDisplayIconPath(long productId, String displayIconPath) {
     if (productId <= 0L) {
       throw new ServiceException("invalid_product", "Product id must be positive");
@@ -1102,6 +1202,7 @@ class ProductService {
       Integer effectAmplifier,
       Boolean dynamicPricingEnabled,
       String dynamicAlgorithm,
+      String dynamicPricingMode,
       String dynamicParamsJson,
       Long dynamicBasePrice,
       Long dynamicFloorPrice,
@@ -1133,6 +1234,7 @@ class ProductService {
       Integer effectAmplifier,
       boolean dynamicPricingEnabled,
       String dynamicAlgorithm,
+      String dynamicPricingMode,
       String dynamicParamsJson,
       Long dynamicBasePrice,
       Long dynamicFloorPrice,
@@ -1165,6 +1267,7 @@ class ProductService {
           effectAmplifier,
           dynamicPricingEnabled,
           dynamicAlgorithm,
+          dynamicPricingMode,
           dynamicParamsJson,
           dynamicBasePrice,
           dynamicFloorPrice,
@@ -1176,6 +1279,25 @@ class ProductService {
           active,
           remaining);
     }
+  }
+
+  record ProductPriceQuote(
+      MarketAlgorithmRegistry.DynamicPricingMode pricingMode,
+      long firstUnitPrice,
+      long lastUnitPrice,
+      long averageUnitPrice,
+      long nextUnitPrice,
+      int quantity,
+      long totalAmount,
+      long currentDemandScore,
+      long nextDemandScore) {
+  }
+
+  record ProductPriceTrendPoint(
+      long orderItemId,
+      long price,
+      int quantity,
+      LocalDateTime createdAt) {
   }
 
   private Long getNullableLong(ResultSet resultSet, String column) throws SQLException {
@@ -1241,6 +1363,7 @@ class ProductService {
   private record DynamicSettings(
       boolean enabled,
       MarketAlgorithmRegistry.DynamicAlgorithmType algorithmType,
+      MarketAlgorithmRegistry.DynamicPricingMode pricingMode,
       JsonObject params,
       Long basePrice,
       Long floorPrice,

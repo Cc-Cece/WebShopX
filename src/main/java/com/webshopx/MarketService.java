@@ -712,7 +712,7 @@ class MarketService {
                ml.source_mode, ml.supply_batch_size,
                ml.supply_max_stock, ml.supply_loaded_total, ml.supply_sold_total,
           ml.supply_last_loaded_amount, ml.supply_last_loaded_at,
-            ml.trade_mode, ml.dynamic_pricing_enabled, ml.dynamic_algorithm, ml.dynamic_params_json,
+            ml.trade_mode, ml.dynamic_pricing_enabled, ml.dynamic_algorithm, ml.dynamic_pricing_mode, ml.dynamic_params_json,
            ml.dynamic_base_price, ml.dynamic_floor_price, ml.dynamic_cap_price, ml.dynamic_price_step,
            ml.dynamic_demand_score,
            ml.auction_algorithm, ml.auction_params_json,
@@ -1029,6 +1029,7 @@ class MarketService {
       String tradeMode,
       Boolean dynamicPricingEnabled,
       String dynamicAlgorithm,
+      String dynamicPricingMode,
       String dynamicParamsJson,
       Long dynamicBasePrice,
       Long dynamicFloorPrice,
@@ -1063,6 +1064,7 @@ class MarketService {
             tradeMode,
             dynamicPricingEnabled,
             dynamicAlgorithm,
+            dynamicPricingMode,
             dynamicParamsJson,
             dynamicBasePrice,
             dynamicFloorPrice,
@@ -3196,6 +3198,7 @@ class MarketService {
       String tradeModeRaw,
       Boolean dynamicPricingEnabled,
       String dynamicAlgorithmRaw,
+      String dynamicPricingModeRaw,
       String dynamicParamsJson,
       Long dynamicBasePrice,
       Long dynamicFloorPrice,
@@ -3245,6 +3248,7 @@ class MarketService {
       }
       boolean dynamicConfigTouched = Boolean.TRUE.equals(dynamicPricingEnabled)
           || (dynamicAlgorithmRaw != null && !dynamicAlgorithmRaw.isBlank())
+          || (dynamicPricingModeRaw != null && !dynamicPricingModeRaw.isBlank())
           || dynamicParamsJson != null
           || dynamicBasePrice != null
           || dynamicFloorPrice != null
@@ -3299,6 +3303,10 @@ class MarketService {
         .fromRaw(dynamicAlgorithmRaw == null || dynamicAlgorithmRaw.isBlank()
             ? listing.dynamicAlgorithm()
             : dynamicAlgorithmRaw);
+    MarketAlgorithmRegistry.DynamicPricingMode dynamicPricingMode = dynamicPricingModeRaw == null
+        || dynamicPricingModeRaw.isBlank()
+            ? MarketAlgorithmRegistry.DynamicPricingMode.fromRaw(listing.dynamicPricingMode())
+            : MarketAlgorithmRegistry.DynamicPricingMode.fromRaw(dynamicPricingModeRaw);
     JsonObject normalizedDynamicParams = dynamicParamsJson == null
         ? MarketAlgorithmRegistry.parseParams(listing.dynamicParamsJson())
         : MarketAlgorithmRegistry.parseParams(dynamicParamsJson);
@@ -3336,6 +3344,7 @@ class MarketService {
       normalizedDynamicCapPrice = null;
       normalizedDynamicPriceStep = null;
       normalizedDynamicDemandScore = 0L;
+      dynamicPricingMode = MarketAlgorithmRegistry.DynamicPricingMode.ORDER_FIXED;
     } else if (tradeMode == TradeMode.DIRECT && normalizedDynamicEnabled && normalizedDynamicBasePrice == null) {
       normalizedDynamicBasePrice = listing.dynamicBasePrice() != null
           ? Math.max(1L, listing.dynamicBasePrice())
@@ -3370,6 +3379,7 @@ class MarketService {
       normalizedDynamicCapPrice = null;
       normalizedDynamicPriceStep = null;
       normalizedDynamicDemandScore = 0L;
+      dynamicPricingMode = MarketAlgorithmRegistry.DynamicPricingMode.ORDER_FIXED;
 
       if (normalizedAuctionStartPrice == null) {
         normalizedAuctionStartPrice = listing.auctionStartPrice() != null
@@ -3544,6 +3554,7 @@ class MarketService {
             normalizedDynamicParams);
       } else {
         dynamicAlgorithmType = MarketAlgorithmRegistry.DynamicAlgorithmType.LINEAR_DEMAND_V1;
+        dynamicPricingMode = MarketAlgorithmRegistry.DynamicPricingMode.ORDER_FIXED;
         normalizedDynamicParams = new JsonObject();
         normalizedDynamicBasePrice = null;
         normalizedDynamicFloorPrice = null;
@@ -3558,7 +3569,7 @@ class MarketService {
         SET price = ?, currency = ?, tag_code = ?, tag_version = ?, remark = ?, display_name_override = ?,
         display_material = ?, display_icon_path = ?, supply_batch_size = ?, supply_max_stock = ?,
         quantity_total = ?, trade_mode = ?, dynamic_pricing_enabled = ?, dynamic_algorithm = ?,
-        dynamic_params_json = ?, dynamic_base_price = ?, dynamic_floor_price = ?, dynamic_cap_price = ?,
+        dynamic_pricing_mode = ?, dynamic_params_json = ?, dynamic_base_price = ?, dynamic_floor_price = ?, dynamic_cap_price = ?,
         dynamic_price_step = ?, dynamic_demand_score = ?, auction_algorithm = ?, auction_params_json = ?,
         auction_start_price = ?, auction_min_increment = ?, auction_started_at = ?, auction_public_end_at = ?,
         auction_end_at = ?, auction_highest_bid = ?, auction_highest_bidder_user_id = ?,
@@ -3588,41 +3599,42 @@ class MarketService {
       statement.setString(12, tradeMode.name());
       statement.setBoolean(13, normalizedDynamicEnabled);
       statement.setString(14, dynamicAlgorithmType.name());
-      statement.setString(15, MarketAlgorithmRegistry.toJson(normalizedDynamicParams));
-      statement.setObject(16, normalizedDynamicBasePrice);
-      statement.setObject(17, normalizedDynamicFloorPrice);
-      statement.setObject(18, normalizedDynamicCapPrice);
-      statement.setObject(19, normalizedDynamicPriceStep);
-      statement.setLong(20, normalizedDynamicDemandScore);
-      statement.setString(21, auctionAlgorithmType.name());
-      statement.setString(22, MarketAlgorithmRegistry.toJson(normalizedAuctionParams));
-      statement.setObject(23, normalizedAuctionStartPrice);
-      statement.setObject(24, normalizedAuctionMinIncrement);
+      statement.setString(15, dynamicPricingMode.name());
+      statement.setString(16, MarketAlgorithmRegistry.toJson(normalizedDynamicParams));
+      statement.setObject(17, normalizedDynamicBasePrice);
+      statement.setObject(18, normalizedDynamicFloorPrice);
+      statement.setObject(19, normalizedDynamicCapPrice);
+      statement.setObject(20, normalizedDynamicPriceStep);
+      statement.setLong(21, normalizedDynamicDemandScore);
+      statement.setString(22, auctionAlgorithmType.name());
+      statement.setString(23, MarketAlgorithmRegistry.toJson(normalizedAuctionParams));
+      statement.setObject(24, normalizedAuctionStartPrice);
+      statement.setObject(25, normalizedAuctionMinIncrement);
       if (normalizedAuctionStartedAt == null) {
-        statement.setTimestamp(25, null);
-      } else {
-        statement.setTimestamp(25, Timestamp.valueOf(normalizedAuctionStartedAt));
-      }
-      if (normalizedAuctionPublicEndAt == null) {
         statement.setTimestamp(26, null);
       } else {
-        statement.setTimestamp(26, Timestamp.valueOf(normalizedAuctionPublicEndAt));
+        statement.setTimestamp(26, Timestamp.valueOf(normalizedAuctionStartedAt));
       }
-      if (normalizedAuctionEndAt == null) {
+      if (normalizedAuctionPublicEndAt == null) {
         statement.setTimestamp(27, null);
       } else {
-        statement.setTimestamp(27, Timestamp.valueOf(normalizedAuctionEndAt));
+        statement.setTimestamp(27, Timestamp.valueOf(normalizedAuctionPublicEndAt));
       }
-      statement.setObject(28, normalizedAuctionHighestBid);
-      statement.setObject(29, normalizedAuctionHighestBidderUserId);
-      statement.setObject(30, normalizedAuctionHighestBidderUuid == null ? null : normalizedAuctionHighestBidderUuid.toString());
-      statement.setObject(31, normalizedAuctionHighestBidId);
-      if (normalizedAuctionLastBidAt == null) {
-        statement.setTimestamp(32, null);
+      if (normalizedAuctionEndAt == null) {
+        statement.setTimestamp(28, null);
       } else {
-        statement.setTimestamp(32, Timestamp.valueOf(normalizedAuctionLastBidAt));
+        statement.setTimestamp(28, Timestamp.valueOf(normalizedAuctionEndAt));
       }
-      statement.setLong(33, listingId);
+      statement.setObject(29, normalizedAuctionHighestBid);
+      statement.setObject(30, normalizedAuctionHighestBidderUserId);
+      statement.setObject(31, normalizedAuctionHighestBidderUuid == null ? null : normalizedAuctionHighestBidderUuid.toString());
+      statement.setObject(32, normalizedAuctionHighestBidId);
+      if (normalizedAuctionLastBidAt == null) {
+        statement.setTimestamp(33, null);
+      } else {
+        statement.setTimestamp(33, Timestamp.valueOf(normalizedAuctionLastBidAt));
+      }
+      statement.setLong(34, listingId);
       statement.executeUpdate();
     }
     MarketListing refreshed = readListingForUpdate(connection, listingId);
@@ -3644,6 +3656,7 @@ class MarketService {
         refreshed.tradeMode(),
         refreshed.dynamicPricingEnabled(),
         refreshed.dynamicAlgorithm(),
+        refreshed.dynamicPricingMode(),
         refreshed.dynamicParamsJson(),
         refreshed.dynamicBasePrice(),
         refreshed.dynamicFloorPrice(),
@@ -4624,42 +4637,54 @@ class MarketService {
 
   private PurchaseQuote buildDirectPurchaseQuote(MarketListing listing, int quantity) {
     long unitPrice = Math.max(1L, listing.price());
-    PluginSettings.MarketEconomySettings marketEconomy = settingsSupplier.get().economySettings().marketSettings();
+    long firstUnitPrice = unitPrice;
+    long lastUnitPrice = unitPrice;
+    long averageUnitPrice = unitPrice;
     long subtotal = Math.multiplyExact(unitPrice, quantity);
-    long fee = calculatePercent(subtotal, marketEconomy.tradeFeePercent());
-    long tax = calculatePercent(subtotal, marketEconomy.tradeTaxPercent());
-    long buyerTotal = Math.addExact(subtotal, tax);
-    long sellerReceive = Math.max(0L, subtotal - fee);
     long currentDemandScore = Math.max(0L, listing.dynamicDemandScore());
     long nextDemandScore = currentDemandScore;
     long nextUnitPrice = unitPrice;
+    MarketAlgorithmRegistry.DynamicPricingMode pricingMode = MarketAlgorithmRegistry.DynamicPricingMode.ORDER_FIXED;
 
     if (listing.tradeMode() == TradeMode.DIRECT && listing.dynamicPricingEnabled()) {
       MarketAlgorithmRegistry.DynamicAlgorithmType algorithmType = MarketAlgorithmRegistry.DynamicAlgorithmType
           .fromRaw(listing.dynamicAlgorithm());
+      pricingMode = MarketAlgorithmRegistry.DynamicPricingMode.fromRaw(listing.dynamicPricingMode());
       JsonObject dynamicParams = MarketAlgorithmRegistry.parseParams(listing.dynamicParamsJson());
       long basePrice = listing.dynamicBasePrice() == null ? unitPrice : listing.dynamicBasePrice();
       long step = listing.dynamicPriceStep() == null ? 1L : Math.max(1L, listing.dynamicPriceStep());
-      nextDemandScore = MarketAlgorithmRegistry.computeDemandAfterPurchase(
+      MarketAlgorithmRegistry.DynamicPriceQuote dynamicQuote = MarketAlgorithmRegistry.computeDynamicPriceQuote(
           algorithmType,
+          pricingMode,
+          Math.max(1L, basePrice),
           currentDemandScore,
           quantity,
-          dynamicParams);
-      nextUnitPrice = MarketAlgorithmRegistry.computeDynamicPrice(
-          algorithmType,
-          Math.max(1L, basePrice),
-          nextDemandScore,
           step,
           listing.dynamicFloorPrice(),
           listing.dynamicCapPrice(),
           dynamicParams);
+      firstUnitPrice = dynamicQuote.firstUnitPrice();
+      lastUnitPrice = dynamicQuote.lastUnitPrice();
+      averageUnitPrice = dynamicQuote.averageUnitPrice();
+      unitPrice = averageUnitPrice;
+      subtotal = dynamicQuote.totalAmount();
+      nextDemandScore = dynamicQuote.nextDemandScore();
+      nextUnitPrice = dynamicQuote.nextUnitPrice();
     }
 
+    PluginSettings.MarketEconomySettings marketEconomy = settingsSupplier.get().economySettings().marketSettings();
+    long fee = calculatePercent(subtotal, marketEconomy.tradeFeePercent());
+    long tax = calculatePercent(subtotal, marketEconomy.tradeTaxPercent());
+    long buyerTotal = Math.addExact(subtotal, tax);
+    long sellerReceive = Math.max(0L, subtotal - fee);
     return new PurchaseQuote(
         listing.id(),
         listing.currency(),
         listing.marketSide(),
         unitPrice,
+        firstUnitPrice,
+        lastUnitPrice,
+        averageUnitPrice,
         quantity,
         subtotal,
         buyerTotal,
@@ -4667,6 +4692,7 @@ class MarketService {
         fee,
         tax,
         listing.dynamicPricingEnabled(),
+        pricingMode,
         currentDemandScore,
         nextDemandScore,
         nextUnitPrice);
@@ -4685,6 +4711,9 @@ class MarketService {
         listing.currency(),
         listing.marketSide(),
         unitPrice,
+        unitPrice,
+        unitPrice,
+        unitPrice,
         quantity,
         subtotal,
         buyerTotal,
@@ -4692,6 +4721,7 @@ class MarketService {
         fee,
         tax,
         false,
+        MarketAlgorithmRegistry.DynamicPricingMode.ORDER_FIXED,
         0L,
         0L,
         unitPrice);
@@ -5010,7 +5040,7 @@ class MarketService {
                item_meta_json, remark, item_hash, status, source_mode,
                supply_world, supply_x, supply_y, supply_z, supply_batch_size, supply_max_stock,
          supply_loaded_total, supply_sold_total, supply_last_loaded_amount, supply_last_loaded_at,
-           trade_mode, dynamic_pricing_enabled, dynamic_algorithm, dynamic_params_json,
+           trade_mode, dynamic_pricing_enabled, dynamic_algorithm, dynamic_pricing_mode, dynamic_params_json,
            dynamic_base_price, dynamic_floor_price, dynamic_cap_price, dynamic_price_step,
            dynamic_demand_score,
            auction_algorithm, auction_params_json,
@@ -5067,6 +5097,7 @@ class MarketService {
             TradeMode.fromRaw(resultSet.getString("trade_mode")),
             resultSet.getBoolean("dynamic_pricing_enabled"),
             resultSet.getString("dynamic_algorithm"),
+            resultSet.getString("dynamic_pricing_mode"),
             resultSet.getString("dynamic_params_json"),
             nullableLong(resultSet, "dynamic_base_price"),
             nullableLong(resultSet, "dynamic_floor_price"),
@@ -5167,6 +5198,7 @@ class MarketService {
             tradeMode,
             resultSet.getBoolean("dynamic_pricing_enabled"),
             resultSet.getString("dynamic_algorithm"),
+            resultSet.getString("dynamic_pricing_mode"),
             resultSet.getString("dynamic_params_json"),
             nullableLong(resultSet, "dynamic_base_price"),
             nullableLong(resultSet, "dynamic_floor_price"),
@@ -5535,6 +5567,7 @@ class MarketService {
       TradeMode tradeMode,
       boolean dynamicPricingEnabled,
       String dynamicAlgorithm,
+      String dynamicPricingMode,
       String dynamicParamsJson,
       Long dynamicBasePrice,
       Long dynamicFloorPrice,
@@ -5691,6 +5724,7 @@ class MarketService {
       TradeMode tradeMode,
       boolean dynamicPricingEnabled,
       String dynamicAlgorithm,
+      String dynamicPricingMode,
       String dynamicParamsJson,
       Long dynamicBasePrice,
       Long dynamicFloorPrice,
@@ -5769,6 +5803,9 @@ class MarketService {
       CurrencyType currency,
       MarketSide side,
       long unitPrice,
+      long firstUnitPrice,
+      long lastUnitPrice,
+      long averageUnitPrice,
       int quantity,
       long totalPrice,
       long buyerTotal,
@@ -5776,6 +5813,7 @@ class MarketService {
       long feeAmount,
       long taxAmount,
       boolean dynamicPricingEnabled,
+      MarketAlgorithmRegistry.DynamicPricingMode dynamicPricingMode,
       long currentDemandScore,
       long nextDemandScore,
       long nextUnitPrice) {
@@ -5834,6 +5872,7 @@ class MarketService {
       TradeMode tradeMode,
       boolean dynamicPricingEnabled,
       String dynamicAlgorithm,
+      String dynamicPricingMode,
       String dynamicParamsJson,
       Long dynamicBasePrice,
       Long dynamicFloorPrice,

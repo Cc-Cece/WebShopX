@@ -108,8 +108,9 @@ class OrderService {
     UUID playerUuid = readBoundUuidForUpdate(connection, userId);
     String targetServerId = resolveTargetServerId(connection, playerUuid);
     consumePersonalLimitQuota(connection, userId, product, quantity);
-    long unitPrice = productService.resolveOrderUnitPrice(product);
-    long totalAmount = Math.multiplyExact(unitPrice, quantity);
+    ProductService.ProductPriceQuote priceQuote = productService.quoteOrderPrice(product, quantity);
+    long unitPrice = priceQuote.averageUnitPrice();
+    long totalAmount = priceQuote.totalAmount();
     String orderNo = newOrderNo();
     boolean isGroupBuyVoucher = product.productType() == ProductService.ProductType.GROUP_BUY_VOUCHER;
     LocalDateTime now = LocalDateTime.now();
@@ -240,8 +241,9 @@ class OrderService {
       }
 
       String orderNo = newOrderNo();
-      long unitPrice = productService.resolveOrderUnitPrice(product);
-      long totalAmount = Math.multiplyExact(unitPrice, quantity);
+      ProductService.ProductPriceQuote priceQuote = productService.quoteOrderPrice(product, quantity);
+      long unitPrice = priceQuote.averageUnitPrice();
+      long totalAmount = priceQuote.totalAmount();
       Material material = resolveVanillaMaterial(product.itemMaterial());
       int removedAmount = 0;
       int materialCountBefore = material == null ? 0 : countItems(player, material);

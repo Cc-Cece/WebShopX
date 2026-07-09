@@ -51,6 +51,23 @@ final class MarketAlgorithmRegistry {
     }
   }
 
+  enum DynamicPricingMode {
+    ORDER_FIXED,
+    PER_UNIT_MARGINAL;
+
+    static DynamicPricingMode fromRaw(String raw) {
+      if (raw == null || raw.isBlank()) {
+        return ORDER_FIXED;
+      }
+      String normalized = raw.trim().toUpperCase(Locale.ROOT);
+      try {
+        return DynamicPricingMode.valueOf(normalized);
+      } catch (IllegalArgumentException exception) {
+        return ORDER_FIXED;
+      }
+    }
+  }
+
   enum AuctionAlgorithmType {
     ENGLISH_AUCTION_V1,
     DUTCH_AUCTION_V1,
@@ -133,6 +150,49 @@ final class MarketAlgorithmRegistry {
         Math.max(1L, step),
         params);
     return applyBounds(rawPrice, floorPrice, capPrice);
+  }
+
+  static DynamicPriceQuote computeDynamicPriceQuote(
+      DynamicAlgorithmType algorithm,
+      DynamicPricingMode pricingMode,
+      long basePrice,
+      long currentDemand,
+      int quantity,
+      long step,
+      Long floorPrice,
+      Long capPrice,
+      JsonObject params) {
+    int normalizedQuantity = Math.max(1, quantity);
+    long demand = Math.max(0L, currentDemand);
+    long firstUnitPrice = computeDynamicPrice(algorithm, basePrice, demand, step, floorPrice, capPrice, params);
+    long totalAmount;
+    long lastUnitPrice;
+    long nextDemand;
+    if (pricingMode == DynamicPricingMode.PER_UNIT_MARGINAL) {
+      totalAmount = 0L;
+      lastUnitPrice = firstUnitPrice;
+      for (int index = 0; index < normalizedQuantity; index++) {
+        long unitPrice = computeDynamicPrice(algorithm, basePrice, demand, step, floorPrice, capPrice, params);
+        totalAmount = safeAdd(totalAmount, unitPrice);
+        lastUnitPrice = unitPrice;
+        demand = computeDemandAfterPurchase(algorithm, demand, 1, params);
+      }
+      nextDemand = demand;
+    } else {
+      totalAmount = safeMultiply(firstUnitPrice, normalizedQuantity);
+      lastUnitPrice = firstUnitPrice;
+      nextDemand = computeDemandAfterPurchase(algorithm, demand, normalizedQuantity, params);
+    }
+    long averageUnitPrice = Math.max(1L, totalAmount / normalizedQuantity);
+    long nextUnitPrice = computeDynamicPrice(algorithm, basePrice, nextDemand, step, floorPrice, capPrice, params);
+    return new DynamicPriceQuote(
+        pricingMode,
+        firstUnitPrice,
+        lastUnitPrice,
+        averageUnitPrice,
+        totalAmount,
+        nextDemand,
+        nextUnitPrice);
   }
 
   static long computeDutchPrice(
@@ -261,6 +321,26 @@ final class MarketAlgorithmRegistry {
       return Long.MIN_VALUE;
     }
     return left + right;
+  }
+
+  private static long safeMultiply(long left, long right) {
+    if (left == 0L || right == 0L) {
+      return 0L;
+    }
+    if (left > Long.MAX_VALUE / right) {
+      return Long.MAX_VALUE;
+    }
+    return left * right;
+  }
+
+  record DynamicPriceQuote(
+      DynamicPricingMode pricingMode,
+      long firstUnitPrice,
+      long lastUnitPrice,
+      long averageUnitPrice,
+      long totalAmount,
+      long nextDemandScore,
+      long nextUnitPrice) {
   }
 
   private static long toLongPrice(double value) {
