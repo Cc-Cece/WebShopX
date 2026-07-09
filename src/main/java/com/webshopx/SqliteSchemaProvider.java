@@ -145,6 +145,16 @@ final class SqliteSchemaProvider implements SchemaProvider {
       "market_listings",
       "supply_last_loaded_at",
       "DATETIME NULL");
+    addColumnIfMissing(
+      connection,
+      "products",
+      "dynamic_pricing_mode",
+      "TEXT NOT NULL DEFAULT 'ORDER_FIXED'");
+    addColumnIfMissing(
+      connection,
+      "market_listings",
+      "dynamic_pricing_mode",
+      "TEXT NOT NULL DEFAULT 'ORDER_FIXED'");
   }
 
     private void addColumnIfMissing(

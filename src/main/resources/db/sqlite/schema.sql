@@ -1,4 +1,4 @@
-﻿CREATE TABLE IF NOT EXISTS web_users (
+CREATE TABLE IF NOT EXISTS web_users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT NOT NULL,
   password_hash TEXT NOT NULL,
@@ -213,6 +213,7 @@ CREATE TABLE IF NOT EXISTS products (
   effect_amplifier INTEGER NULL,
   dynamic_pricing_enabled INTEGER NOT NULL DEFAULT 0,
   dynamic_algorithm TEXT NOT NULL DEFAULT 'LINEAR_DEMAND_V1',
+  dynamic_pricing_mode TEXT NOT NULL DEFAULT 'ORDER_FIXED',
   dynamic_params_json TEXT NULL,
   dynamic_base_price INTEGER NULL,
   dynamic_floor_price INTEGER NULL,
@@ -329,6 +330,7 @@ CREATE TABLE IF NOT EXISTS market_listings (
   market_side TEXT NOT NULL DEFAULT 'SELL',
   dynamic_pricing_enabled INTEGER NOT NULL DEFAULT 0,
   dynamic_algorithm TEXT NOT NULL DEFAULT 'LINEAR_DEMAND_V1',
+  dynamic_pricing_mode TEXT NOT NULL DEFAULT 'ORDER_FIXED',
   dynamic_base_price INTEGER NULL,
   dynamic_floor_price INTEGER NULL,
   dynamic_cap_price INTEGER NULL,

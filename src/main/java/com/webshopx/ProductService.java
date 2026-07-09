@@ -925,11 +925,7 @@ class ProductService {
   }
 
   private boolean supportsDynamicPricing(ProductType productType) {
-    return productType == ProductType.GIVE_ITEM
-        || productType == ProductType.GIVE_CUSTOM_ITEM
-        || productType == ProductType.RECYCLE_ITEM
-        || productType == ProductType.RECYCLE_COMMAND_ITEM
-        || productType == ProductType.RECYCLE_CUSTOM_ITEM;
+    return true;
   }
 
   private boolean supportsDynamicPricing(ProductView product) {

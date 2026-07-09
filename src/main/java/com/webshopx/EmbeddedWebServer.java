@@ -570,6 +570,15 @@ class EmbeddedWebServer {
     if (isPreflight(exchange)) {
       return;
     }
+    String path = exchange.getRequestURI().getPath();
+    if (path.equals("/api/products/quote")) {
+      handleProductsQuote(exchange);
+      return;
+    }
+    if (path.equals("/api/products/price-trend")) {
+      handleProductsPriceTrend(exchange);
+      return;
+    }
     if (!ensureMethod(exchange, "GET")) {
       return;
     }
@@ -642,6 +651,19 @@ class EmbeddedWebServer {
 
   private void handleOrders(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
+      return;
+    }
+    String path = exchange.getRequestURI().getPath();
+    if (path.equals("/api/orders/list")) {
+      handleOrdersList(exchange);
+      return;
+    }
+    if (path.equals("/api/orders/refund")) {
+      handleOrdersRefund(exchange);
+      return;
+    }
+    if (path.equals("/api/orders/policy")) {
+      handleOrdersPolicy(exchange);
       return;
     }
     if (!ensureMethod(exchange, "POST")) {
@@ -1306,6 +1328,11 @@ class EmbeddedWebServer {
 
   private void handleMarketListings(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
+      return;
+    }
+    String path = exchange.getRequestURI().getPath();
+    if (path.equals("/api/market/listings/create")) {
+      handleMarketListingsCreate(exchange);
       return;
     }
     if (!ensureMethod(exchange, "GET")) {
