@@ -161,6 +161,7 @@ public class WebShopPlugin extends JavaPlugin {
       embeddedWebServer = new EmbeddedWebServer(
           this,
           schedulerBridge,
+          databaseManager,
           this::settings,
           authService,
           walletService,

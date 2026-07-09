@@ -24,6 +24,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -50,6 +54,7 @@ class EmbeddedWebServer {
   private static final String REQUEST_START_NANOS_ATTR = "webshopx.request.startNanos";
   private final JavaPlugin plugin;
   private final SchedulerBridge schedulerBridge;
+  private final DatabaseManager databaseManager;
   private final Supplier<PluginSettings> settingsSupplier;
   private final AuthService authService;
   private final WalletService walletService;
@@ -110,6 +115,7 @@ class EmbeddedWebServer {
   EmbeddedWebServer(
       JavaPlugin plugin,
       SchedulerBridge schedulerBridge,
+      DatabaseManager databaseManager,
       Supplier<PluginSettings> settingsSupplier,
       AuthService authService,
       WalletService walletService,
@@ -130,6 +136,7 @@ class EmbeddedWebServer {
       BStatsTelemetryService bStatsTelemetryService) {
     this.plugin = plugin;
     this.schedulerBridge = schedulerBridge;
+    this.databaseManager = databaseManager;
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
     this.walletService = walletService;
@@ -199,6 +206,7 @@ class EmbeddedWebServer {
     server.createContext("/api/leaderboard/list", this::handleLeaderboardList);
     server.createContext("/api/market/listings", this::handleMarketListings);
     server.createContext("/api/market/listings/create", this::handleMarketListingsCreate);
+    server.createContext("/api/market/price-trend", this::handleMarketPriceTrend);
     server.createContext("/api/market/quote", this::handleMarketQuote);
     server.createContext("/api/market/buy", this::handleMarketBuy);
     server.createContext("/api/market/sell-to-buy", this::handleMarketSellToBuy);
@@ -214,6 +222,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/auth/login", this::handleAdminLogin);
     server.createContext("/api/admin/auth/me", this::handleAdminMe);
     server.createContext("/api/admin/auth/logout", this::handleAdminLogout);
+    server.createContext("/api/admin/overview/stats", this::handleAdminOverviewStats);
     server.createContext("/api/admin/l10n/manifest", this::handleAdminL10nManifest);
     server.createContext("/api/admin/locales", this::handleAdminLocalesList);
     server.createContext("/api/admin/locales/default", this::handleAdminLocalesDefault);
@@ -1542,6 +1551,38 @@ class EmbeddedWebServer {
     });
   }
 
+  private void handleMarketPriceTrend(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      Map<String, String> query = parseQuery(exchange);
+      Long listingIdRaw = parseLong(query.get("listingId"));
+      if (listingIdRaw == null || listingIdRaw <= 0L) {
+        throw new ServiceException("bad_request", "Missing field: listingId");
+      }
+      long listingId = listingIdRaw;
+      int limit = parseInt(query.get("limit"), 30);
+      List<MarketService.PriceTrendPoint> points = marketService.listPriceTrend(listingId, limit);
+      JsonArray history = new JsonArray();
+      for (MarketService.PriceTrendPoint point : points) {
+        JsonObject row = new JsonObject();
+        row.addProperty("tradeId", point.tradeId());
+        row.addProperty("price", point.price());
+        row.addProperty("quantity", point.quantity());
+        addBusinessDateTime(row, "createdAt", point.createdAt());
+        history.add(row);
+      }
+      JsonObject response = new JsonObject();
+      response.addProperty("listingId", listingId);
+      response.add("history", history);
+      sendJson(exchange, 200, response);
+    });
+  }
+
   private void handleMarketQuote(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
       return;
@@ -2207,6 +2248,63 @@ class EmbeddedWebServer {
       AuthService.AuthUser user = requireAuth(exchange, null);
       AdminService.AdminUser admin = adminService.getAdminUser(user);
       sendJson(exchange, 200, adminProfileJson(admin));
+    });
+  }
+
+  private void handleAdminOverviewStats(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      requireAdmin(exchange, null, null);
+      JsonObject response = databaseManager.withConnection(connection -> {
+        JsonObject stats = new JsonObject();
+        stats.addProperty("onlinePlayers", plugin.getServer().getOnlinePlayers().size());
+        stats.addProperty("maxPlayers", plugin.getServer().getMaxPlayers());
+        stats.addProperty("totalUsers", queryLong(connection, "SELECT COUNT(*) FROM web_users"));
+        stats.addProperty(
+            "boundUsers",
+            queryLong(connection, "SELECT COUNT(*) FROM web_users WHERE bound_uuid IS NOT NULL"));
+        stats.addProperty("totalProducts", queryLong(connection, "SELECT COUNT(*) FROM products"));
+        stats.addProperty(
+            "activeProducts",
+            queryLong(connection, "SELECT COUNT(*) FROM products WHERE active = TRUE"));
+        stats.addProperty("totalOrders", queryLong(connection, "SELECT COUNT(*) FROM orders"));
+        stats.addProperty(
+            "completedOrders",
+            queryLong(
+                connection,
+                "SELECT COUNT(*) FROM orders WHERE UPPER(status) IN ('ISSUED', 'COMPLETED', 'DELIVERED')"));
+        stats.addProperty(
+            "refundedOrders",
+            queryLong(connection, "SELECT COUNT(*) FROM orders WHERE UPPER(status) = 'REFUNDED'"));
+        stats.addProperty(
+            "totalRevenue",
+            queryLong(
+                connection,
+                "SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE UPPER(status) <> 'REFUNDED'"));
+        stats.addProperty(
+            "activeListings",
+            queryLong(connection, "SELECT COUNT(*) FROM market_listings WHERE UPPER(status) = 'ACTIVE'"));
+        stats.addProperty("totalTrades", queryLong(connection, "SELECT COUNT(*) FROM market_trades"));
+        stats.addProperty(
+            "completedTrades",
+            queryLong(
+                connection,
+                "SELECT COUNT(*) FROM market_trades WHERE UPPER(status) IN ('PENDING', 'WAIT_CLAIM', 'ISSUED', 'COMPLETED', 'DELIVERED')"));
+        stats.addProperty(
+            "totalTradeVolume",
+            queryLong(
+                connection,
+                "SELECT COALESCE(SUM(total_price), 0) FROM market_trades WHERE UPPER(status) <> 'REFUNDED'"));
+        stats.addProperty("totalRedeemCodes", queryLong(connection, "SELECT COUNT(*) FROM redeem_codes"));
+        stats.addProperty("totalRedeemUses", queryLong(connection, "SELECT COALESCE(SUM(used_count), 0) FROM redeem_codes"));
+        return stats;
+      });
+      sendJson(exchange, 200, response);
     });
   }
 
@@ -5208,6 +5306,16 @@ class EmbeddedWebServer {
       return 0;
     }
     return value.getAsJsonArray().size();
+  }
+
+  private long queryLong(Connection connection, String sql) throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(sql);
+         ResultSet resultSet = statement.executeQuery()) {
+      if (resultSet.next()) {
+        return Math.max(0L, resultSet.getLong(1));
+      }
+    }
+    return 0L;
   }
 
   private Long parseLong(String raw) {

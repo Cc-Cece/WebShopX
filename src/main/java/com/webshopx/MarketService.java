@@ -617,6 +617,49 @@ class MarketService {
     });
   }
 
+  List<PriceTrendPoint> listPriceTrend(long listingId, int requestedLimit) {
+    if (listingId <= 0L) {
+      throw new ServiceException("invalid_listing", "Listing id must be positive");
+    }
+    int limit = Math.max(1, Math.min(requestedLimit, 80));
+    return databaseManager.withConnection(connection -> {
+      String existsSql = "SELECT id FROM market_listings WHERE id = ?";
+      try (PreparedStatement statement = connection.prepareStatement(existsSql)) {
+        statement.setLong(1, listingId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (!resultSet.next()) {
+            throw new ServiceException("listing_missing", "Listing is not available");
+          }
+        }
+      }
+
+      String sql = """
+          SELECT id, unit_price, quantity, created_at
+          FROM market_trades
+          WHERE listing_id = ?
+            AND UPPER(status) <> 'REFUNDED'
+          ORDER BY id DESC
+          LIMIT ?
+          """;
+      List<PriceTrendPoint> points = new ArrayList<>();
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, listingId);
+        statement.setInt(2, limit);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          while (resultSet.next()) {
+            points.add(new PriceTrendPoint(
+                resultSet.getLong("id"),
+                resultSet.getLong("unit_price"),
+                resultSet.getInt("quantity"),
+                resultSet.getTimestamp("created_at").toLocalDateTime()));
+          }
+        }
+      }
+      java.util.Collections.reverse(points);
+      return points;
+    });
+  }
+
   SupplySourceDescriptor describeSupplySource(Block targetBlock) {
     SupplySource source = resolveSupplySource(targetBlock);
     return new SupplySourceDescriptor(source.worldName(), source.x(), source.y(), source.z());
@@ -2937,7 +2980,7 @@ class MarketService {
 
     String updateSql = """
         UPDATE market_listings
-        SET dynamic_demand_score = ?, price = ?
+        SET dynamic_demand_score = ?, price = ?, dynamic_base_price = ?
         WHERE id = ?
         """;
     int updated = 0;
@@ -2960,7 +3003,8 @@ class MarketService {
 
         statement.setLong(1, nextDemand);
         statement.setLong(2, nextPrice);
-        statement.setLong(3, target.listingId());
+        statement.setLong(3, basePrice);
+        statement.setLong(4, target.listingId());
         statement.addBatch();
       }
       int[] counts = statement.executeBatch();
@@ -3292,6 +3336,10 @@ class MarketService {
       normalizedDynamicCapPrice = null;
       normalizedDynamicPriceStep = null;
       normalizedDynamicDemandScore = 0L;
+    } else if (tradeMode == TradeMode.DIRECT && normalizedDynamicEnabled && normalizedDynamicBasePrice == null) {
+      normalizedDynamicBasePrice = listing.dynamicBasePrice() != null
+          ? Math.max(1L, listing.dynamicBasePrice())
+          : Math.max(1L, price);
     }
 
     long effectivePrice = price;
@@ -4769,7 +4817,8 @@ class MarketService {
       MarketAlgorithmRegistry.DynamicAlgorithmType algorithmType = MarketAlgorithmRegistry.DynamicAlgorithmType
         .fromRaw(listing.dynamicAlgorithm());
       JsonObject dynamicParams = MarketAlgorithmRegistry.parseParams(listing.dynamicParamsJson());
-      long basePrice = listing.dynamicBasePrice() == null ? listing.price() : listing.dynamicBasePrice();
+      boolean backfillBasePrice = listing.dynamicBasePrice() == null;
+      long basePrice = backfillBasePrice ? listing.price() : listing.dynamicBasePrice();
       long step = listing.dynamicPriceStep() == null ? 1L : Math.max(1L, listing.dynamicPriceStep());
       long nextDemandScore = MarketAlgorithmRegistry.computeDemandAfterPurchase(
         algorithmType,
@@ -4784,7 +4833,13 @@ class MarketService {
         listing.dynamicFloorPrice(),
         listing.dynamicCapPrice(),
         dynamicParams);
-      String dynamicSql = """
+      String dynamicSql = backfillBasePrice
+          ? """
+          UPDATE market_listings
+          SET dynamic_demand_score = ?, price = ?, dynamic_base_price = ?
+          WHERE id = ?
+          """
+          : """
           UPDATE market_listings
           SET dynamic_demand_score = ?, price = ?
           WHERE id = ?
@@ -4792,7 +4847,12 @@ class MarketService {
       try (PreparedStatement statement = connection.prepareStatement(dynamicSql)) {
         statement.setLong(1, nextDemandScore);
         statement.setLong(2, nextPrice);
-        statement.setLong(3, listing.id());
+        if (backfillBasePrice) {
+          statement.setLong(3, Math.max(1L, basePrice));
+          statement.setLong(4, listing.id());
+        } else {
+          statement.setLong(3, listing.id());
+        }
         statement.executeUpdate();
       }
     }
@@ -5746,6 +5806,13 @@ class MarketService {
       int quantity,
       long totalPrice,
       String status,
+      LocalDateTime createdAt) {
+  }
+
+  record PriceTrendPoint(
+      long tradeId,
+      long price,
+      int quantity,
       LocalDateTime createdAt) {
   }
 

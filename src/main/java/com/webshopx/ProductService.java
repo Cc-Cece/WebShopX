@@ -359,7 +359,15 @@ class ProductService {
         product.dynamicPriceStep(),
         nextDemand);
 
-    String sql = """
+    boolean backfillBasePrice = product.dynamicBasePrice() == null;
+    long basePrice = resolveDynamicBasePrice(product);
+    String sql = backfillBasePrice
+        ? """
+        UPDATE products
+        SET dynamic_demand_score = ?, price = ?, dynamic_base_price = ?
+        WHERE id = ?
+        """
+        : """
         UPDATE products
         SET dynamic_demand_score = ?, price = ?
         WHERE id = ?
@@ -367,7 +375,12 @@ class ProductService {
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, nextDemand);
       statement.setLong(2, nextPrice);
-      statement.setLong(3, product.id());
+      if (backfillBasePrice) {
+        statement.setLong(3, basePrice);
+        statement.setLong(4, product.id());
+      } else {
+        statement.setLong(3, product.id());
+      }
       statement.executeUpdate();
     }
     return readProductById(connection, product.id());
@@ -832,6 +845,17 @@ class ProductService {
     if (floorPrice != null && capPrice != null && floorPrice > capPrice) {
       throw new ServiceException("invalid_dynamic_bounds", "Dynamic floor price must be <= cap price");
     }
+    if (basePrice == null) {
+      if (existing != null && existing.dynamicBasePrice() != null) {
+        basePrice = Math.max(1L, existing.dynamicBasePrice());
+      } else if (input.price() > 0L) {
+        basePrice = input.price();
+      } else if (existing != null && existing.price() > 0L) {
+        basePrice = existing.price();
+      } else {
+        basePrice = 1L;
+      }
+    }
 
     long demandScore = existing == null ? 0L : Math.max(0L, existing.dynamicDemandScore());
     return new DynamicSettings(
@@ -930,7 +954,7 @@ class ProductService {
 
     String updateSql = """
         UPDATE products
-        SET dynamic_demand_score = ?, price = ?
+        SET dynamic_demand_score = ?, price = ?, dynamic_base_price = ?
         WHERE id = ?
         """;
     int updated = 0;
@@ -942,17 +966,21 @@ class ProductService {
         long nextDemand = MarketAlgorithmRegistry.computeDemandAfterDecay(
             Math.max(0L, target.dynamicDemandScore()),
             DYNAMIC_DECAY_STEP);
+        long basePrice = target.dynamicBasePrice() == null
+            ? Math.max(1L, target.currentPrice())
+            : Math.max(1L, target.dynamicBasePrice());
         long nextPrice = computeDynamicPrice(
             algorithmType,
             params,
-            target.dynamicBasePrice() == null ? Math.max(1L, target.currentPrice()) : target.dynamicBasePrice(),
+            basePrice,
             target.dynamicFloorPrice(),
             target.dynamicCapPrice(),
             target.dynamicPriceStep(),
             nextDemand);
         statement.setLong(1, nextDemand);
         statement.setLong(2, nextPrice);
-        statement.setLong(3, target.productId());
+        statement.setLong(3, basePrice);
+        statement.setLong(4, target.productId());
         statement.addBatch();
       }
       int[] counts = statement.executeBatch();

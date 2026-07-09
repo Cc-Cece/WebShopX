@@ -53,6 +53,10 @@ class MarketTagService {
     if (requested != null) {
       TagDefinition definition = config.tagsByCode().get(requested);
       if (definition == null) {
+        if (requested.equals(config.defaultTag()) || requested.equals(FALLBACK_DEFAULT_TAG)) {
+          String fallbackCode = requested.equals(config.defaultTag()) ? config.defaultTag() : FALLBACK_DEFAULT_TAG;
+          return new TagAssignment(fallbackCode, config.tagVersion());
+        }
         throw new ServiceException("invalid_tag", "Tag does not exist");
       }
       if (!definition.enabled()) {
