@@ -297,8 +297,10 @@ class DeliveryService {
         task.playerUuid(),
         player -> handleCommandTask(task, false, player),
         () -> {
+          int remainingQuantity = task.remainingQuantity();
           if (kind == DeliveryKind.GIVE_ITEM
-              && tryMoveCommandItemToMailbox(task, false, "player is offline", null)) {
+              && remainingQuantity > 0
+              && tryMoveCommandItemToMailbox(task, 0, remainingQuantity, false, "player is offline", null)) {
             return;
           }
           rescheduleCommand(task.id(), "player is offline", false);
@@ -310,7 +312,9 @@ class DeliveryService {
         task.targetUuid(),
         player -> handleMarketTask(task, false, player),
         () -> {
-          if (tryMoveMarketItemToMailbox(task, false, "player is offline", null)) {
+          int remainingQuantity = task.remainingQuantity();
+          if (remainingQuantity > 0
+              && tryMoveMarketItemToMailbox(task, 0, remainingQuantity, false, "player is offline", null)) {
             return;
           }
           rescheduleMarket(task.id(), "player is offline", false);
@@ -420,7 +424,7 @@ class DeliveryService {
     String filterByOrder = orderNoFilter == null ? "" : " AND o.order_no = ?";
     String sql = """
         SELECT dq.id, dq.order_id, dq.item_id, dq.mc_uuid, dq.command_text,
-               dq.delivery_kind, dq.payload_json, dq.quantity, dq.retry_count,
+               dq.delivery_kind, dq.payload_json, dq.quantity, dq.delivered_quantity, dq.retry_count,
          o.order_no, o.user_id
         FROM delivery_queue dq
         JOIN orders o ON o.id = dq.order_id
@@ -457,7 +461,7 @@ class DeliveryService {
     }
     String sql = """
       SELECT md.id, md.listing_id, md.trade_id, md.target_user_id, md.target_uuid, md.item_blob, md.quantity,
-           md.delivery_type, md.retry_count
+           md.delivered_quantity, md.delivery_type, md.retry_count
       FROM market_item_deliveries md
       """ + "WHERE " + String.join(" AND ", whereClauses) + " ORDER BY md.id ASC";
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -481,7 +485,7 @@ class DeliveryService {
     String filterByPlayer = playerUuid == null ? "" : " AND dq.mc_uuid = ?";
     String sql = """
         SELECT dq.id, dq.order_id, dq.item_id, dq.mc_uuid, dq.command_text,
-               dq.delivery_kind, dq.payload_json, dq.quantity, dq.retry_count,
+               dq.delivery_kind, dq.payload_json, dq.quantity, dq.delivered_quantity, dq.retry_count,
          o.order_no, o.user_id
         FROM delivery_queue dq
         JOIN orders o ON o.id = dq.order_id
@@ -513,7 +517,7 @@ class DeliveryService {
     String filterByPlayer = playerUuid == null ? "" : " AND md.target_uuid = ?";
     String sql = """
         SELECT md.id, md.listing_id, md.trade_id, md.target_user_id, md.target_uuid, md.item_blob, md.quantity,
-               md.delivery_type, md.retry_count
+               md.delivered_quantity, md.delivery_type, md.retry_count
         FROM market_item_deliveries md
         WHERE md.status = 'PENDING'
           AND md.next_retry_at <= CURRENT_TIMESTAMP
@@ -535,9 +539,16 @@ class DeliveryService {
 
   private boolean handleCommandTask(CommandDeliveryTask task, boolean claimMode, Player forcedPlayer) {
     DeliveryKind kind = DeliveryKind.fromRaw(task.deliveryKind());
+    int remainingQuantity = task.remainingQuantity();
+    if (remainingQuantity <= 0) {
+      markCommandDelivered(task.orderId(), task.id(), 0, claimMode);
+      return true;
+    }
     Player player = forcedPlayer;
     if (player == null || !player.isOnline()) {
-      if (!claimMode && kind == DeliveryKind.GIVE_ITEM && tryMoveCommandItemToMailbox(task, claimMode, "player is offline", null)) {
+      if (!claimMode
+          && kind == DeliveryKind.GIVE_ITEM
+          && tryMoveCommandItemToMailbox(task, 0, remainingQuantity, claimMode, "player is offline", null)) {
         return true;
       }
       if (!claimMode) {
@@ -559,10 +570,28 @@ class DeliveryService {
             }
           }
         }
-        case GIVE_ITEM -> executeGiveItem(task, player);
+        case GIVE_ITEM -> {
+          ItemStack itemStack = buildGiveItemStack(task);
+          int deliveredNow = addItemToInventory(player, itemStack, remainingQuantity);
+          if (deliveredNow >= remainingQuantity) {
+            markCommandDelivered(task.orderId(), task.id(), deliveredNow, claimMode);
+          } else {
+            String error = "inventory is full";
+            int mailboxQuantity = remainingQuantity - Math.max(0, deliveredNow);
+            if (!claimMode
+                && tryMoveCommandItemToMailbox(task, deliveredNow, mailboxQuantity, false, error, player)) {
+              return true;
+            }
+            markCommandWaitClaim(task.orderId(), task.id(), error, false, deliveredNow);
+            sendWarnActionBar(player, msg(player, "chat.delivery.claim_failed", Map.of("reason", error)));
+            return false;
+          }
+        }
         case POTION_EFFECT -> executePotion(task, player);
       }
-      markCommandDelivered(task.orderId(), task.id(), claimMode);
+      if (kind != DeliveryKind.GIVE_ITEM) {
+        markCommandDelivered(task.orderId(), task.id(), remainingQuantity, claimMode);
+      }
       if (claimMode) {
         notifyDeliverySuccess(player, msg(player, "chat.delivery.claim_success_order",
             Map.of("orderNo", task.orderNo())));
@@ -575,15 +604,15 @@ class DeliveryService {
       String raw = exception.getMessage() == null ? msg(player, "chat.delivery.generic_failed") : exception.getMessage();
       if (kind == DeliveryKind.GIVE_ITEM
           && isInventoryFullError(raw)
-          && tryMoveCommandItemToMailbox(task, claimMode, raw, player)) {
+          && tryMoveCommandItemToMailbox(task, 0, remainingQuantity, claimMode, raw, player)) {
         return true;
       }
       String error = truncate(localizeDeliveryError(player, raw), 255);
       if (claimMode) {
-        markCommandWaitClaim(task.orderId(), task.id(), error, false);
+        markCommandWaitClaim(task.orderId(), task.id(), error, false, 0);
         sendWarnActionBar(player, msg(player, "chat.delivery.claim_failed", Map.of("reason", error)));
       } else if (task.retryCount() + 1 >= MAX_AUTO_RETRY_BEFORE_CLAIM) {
-        markCommandWaitClaim(task.orderId(), task.id(), error, true);
+        markCommandWaitClaim(task.orderId(), task.id(), error, true, 0);
         sendWarnActionBar(player, msg(player, "chat.delivery.auto_claim_hint",
             Map.of("token", task.orderNo())));
       } else {
@@ -594,9 +623,14 @@ class DeliveryService {
   }
 
   private boolean handleMarketTask(MarketItemDeliveryTask task, boolean claimMode, Player forcedPlayer) {
+    int remainingQuantity = task.remainingQuantity();
+    if (remainingQuantity <= 0) {
+      markMarketDelivered(task, 0, claimMode);
+      return true;
+    }
     Player player = forcedPlayer;
     if (player == null || !player.isOnline()) {
-      if (!claimMode && tryMoveMarketItemToMailbox(task, claimMode, "player is offline", null)) {
+      if (!claimMode && tryMoveMarketItemToMailbox(task, 0, remainingQuantity, claimMode, "player is offline", null)) {
         return true;
       }
       if (!claimMode) {
@@ -611,9 +645,20 @@ class DeliveryService {
         throw new IllegalStateException("item snapshot is empty");
       }
 
-      addItemToInventory(player, itemStack, task.quantity());
+      int deliveredNow = addItemToInventory(player, itemStack, remainingQuantity);
 
-      markMarketDelivered(task, claimMode);
+      if (deliveredNow >= remainingQuantity) {
+        markMarketDelivered(task, deliveredNow, claimMode);
+      } else {
+        String error = "inventory is full";
+        int mailboxQuantity = remainingQuantity - Math.max(0, deliveredNow);
+        if (!claimMode && tryMoveMarketItemToMailbox(task, deliveredNow, mailboxQuantity, false, error, player)) {
+          return true;
+        }
+        markMarketWaitClaim(task, error, false, deliveredNow);
+        sendWarnActionBar(player, msg(player, "chat.delivery.claim_failed", Map.of("reason", error)));
+        return false;
+      }
       String token = task.tradeId() == null ? "#" + task.listingId() : "MKT-" + task.tradeId();
       if (claimMode) {
         notifyDeliverySuccess(player, msg(player, "chat.delivery.claim_success_market",
@@ -625,15 +670,15 @@ class DeliveryService {
       return true;
     } catch (Exception exception) {
       String raw = exception.getMessage() == null ? msg(player, "chat.delivery.generic_failed") : exception.getMessage();
-      if (isInventoryFullError(raw) && tryMoveMarketItemToMailbox(task, claimMode, raw, player)) {
+      if (isInventoryFullError(raw) && tryMoveMarketItemToMailbox(task, 0, remainingQuantity, claimMode, raw, player)) {
         return true;
       }
       String error = truncate(localizeDeliveryError(player, raw), 255);
       if (claimMode) {
-        markMarketWaitClaim(task, error, false);
+        markMarketWaitClaim(task, error, false, 0);
         sendWarnActionBar(player, msg(player, "chat.delivery.claim_failed", Map.of("reason", error)));
       } else if (task.retryCount() + 1 >= MAX_AUTO_RETRY_BEFORE_CLAIM) {
-        markMarketWaitClaim(task, error, true);
+        markMarketWaitClaim(task, error, true, 0);
         String token = task.tradeId() == null ? "#" + task.listingId() : "MKT-" + task.tradeId();
         sendWarnActionBar(player, msg(player, "chat.delivery.auto_claim_hint", Map.of("token", token)));
       } else {
@@ -643,19 +688,25 @@ class DeliveryService {
     }
   }
 
-  private void markCommandDelivered(long orderId, long deliveryId, boolean claimMode) {
+  private void markCommandDelivered(long orderId, long deliveryId, int deliveredNow, boolean claimMode) {
     databaseManager.inTransaction(connection -> {
       String updateDeliverySql = """
           UPDATE delivery_queue
           SET status = 'DELIVERED',
+              delivered_quantity = CASE
+                WHEN delivered_quantity + ? > quantity THEN quantity
+                ELSE delivered_quantity + ?
+              END,
               delivered_at = CURRENT_TIMESTAMP,
               claimed_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE claimed_at END,
               last_error = NULL
           WHERE id = ?
           """;
       try (PreparedStatement statement = connection.prepareStatement(updateDeliverySql)) {
-        statement.setBoolean(1, claimMode);
-        statement.setLong(2, deliveryId);
+        statement.setInt(1, Math.max(0, deliveredNow));
+        statement.setInt(2, Math.max(0, deliveredNow));
+        statement.setBoolean(3, claimMode);
+        statement.setLong(4, deliveryId);
         statement.executeUpdate();
       }
 
@@ -680,11 +731,15 @@ class DeliveryService {
     });
   }
 
-  private void markMarketDelivered(MarketItemDeliveryTask task, boolean claimMode) {
+  private void markMarketDelivered(MarketItemDeliveryTask task, int deliveredNow, boolean claimMode) {
     databaseManager.inTransaction(connection -> {
       String updateDeliverySql = """
           UPDATE market_item_deliveries
           SET status = 'DELIVERED',
+              delivered_quantity = CASE
+                WHEN delivered_quantity + ? > quantity THEN quantity
+                ELSE delivered_quantity + ?
+              END,
               delivered_at = CURRENT_TIMESTAMP,
               claimed_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE claimed_at END,
               last_error = NULL
@@ -693,8 +748,10 @@ class DeliveryService {
           """;
       int changed;
       try (PreparedStatement statement = connection.prepareStatement(updateDeliverySql)) {
-        statement.setBoolean(1, claimMode);
-        statement.setLong(2, task.id());
+        statement.setInt(1, Math.max(0, deliveredNow));
+        statement.setInt(2, Math.max(0, deliveredNow));
+        statement.setBoolean(3, claimMode);
+        statement.setLong(4, task.id());
         changed = statement.executeUpdate();
       }
       if (changed <= 0) {
@@ -814,20 +871,27 @@ class DeliveryService {
       long orderId,
       long deliveryId,
       String errorMessage,
-      boolean pushNotification) {
+      boolean pushNotification,
+      int deliveredNow) {
     databaseManager.withConnection(connection -> {
       ClaimTokenRepository.ensureOrderToken(connection, orderId, sqlProvider.forUpdateClause());
       String sql = """
           UPDATE delivery_queue
           SET status = 'WAIT_CLAIM',
+              delivered_quantity = CASE
+                WHEN delivered_quantity + ? > quantity THEN quantity
+                ELSE delivered_quantity + ?
+              END,
               retry_count = retry_count + 1,
               last_error = ?,
               next_retry_at = CURRENT_TIMESTAMP
           WHERE id = ?
           """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
-        statement.setString(1, truncate(errorMessage, 255));
-        statement.setLong(2, deliveryId);
+        statement.setInt(1, Math.max(0, deliveredNow));
+        statement.setInt(2, Math.max(0, deliveredNow));
+        statement.setString(3, truncate(errorMessage, 255));
+        statement.setLong(4, deliveryId);
         statement.executeUpdate();
       }
       String updateOrderSql = """
@@ -873,7 +937,8 @@ class DeliveryService {
   private void markMarketWaitClaim(
       MarketItemDeliveryTask task,
       String errorMessage,
-      boolean pushNotification) {
+      boolean pushNotification,
+      int deliveredNow) {
     databaseManager.withConnection(connection -> {
       if (task.tradeId() != null) {
         ClaimTokenRepository.ensureMarketTradeToken(
@@ -894,14 +959,20 @@ class DeliveryService {
       String sql = """
           UPDATE market_item_deliveries
           SET status = 'WAIT_CLAIM',
+              delivered_quantity = CASE
+                WHEN delivered_quantity + ? > quantity THEN quantity
+                ELSE delivered_quantity + ?
+              END,
               retry_count = retry_count + 1,
               last_error = ?,
               next_retry_at = CURRENT_TIMESTAMP
           WHERE id = ?
           """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
-        statement.setString(1, truncate(errorMessage, 255));
-        statement.setLong(2, task.id());
+        statement.setInt(1, Math.max(0, deliveredNow));
+        statement.setInt(2, Math.max(0, deliveredNow));
+        statement.setString(3, truncate(errorMessage, 255));
+        statement.setLong(4, task.id());
         statement.executeUpdate();
       }
       if (pushNotification) {
@@ -1056,47 +1127,65 @@ class DeliveryService {
     player.addPotionEffect(new PotionEffect(effectType, durationTicks, Math.max(0, amplifier)), true);
   }
 
-  private void addItemToInventory(Player player, ItemStack source, int totalAmount) {
+  private int addItemToInventory(Player player, ItemStack source, int totalAmount) {
     if (source == null || source.getType() == Material.AIR) {
       throw new IllegalStateException("item snapshot is empty");
     }
     int remaining = Math.max(1, totalAmount);
+    int delivered = 0;
     int maxStack = Math.max(1, source.getMaxStackSize());
     while (remaining > 0) {
+      if (player == null || !player.isOnline()) {
+        break;
+      }
       int chunk = Math.min(maxStack, remaining);
       ItemStack stack = source.clone();
       stack.setAmount(chunk);
       Map<Integer, ItemStack> leftovers = player.getInventory().addItem(stack);
-      if (!leftovers.isEmpty()) {
-        throw new IllegalStateException("inventory is full");
+      int leftoverAmount = leftovers.values().stream()
+          .filter(item -> item != null && item.getType() != Material.AIR)
+          .mapToInt(ItemStack::getAmount)
+          .sum();
+      int accepted = Math.max(0, chunk - leftoverAmount);
+      delivered += accepted;
+      remaining -= accepted;
+      if (leftoverAmount > 0 || accepted <= 0) {
+        break;
       }
-      remaining -= chunk;
     }
+    return delivered;
   }
 
   private boolean tryMoveCommandItemToMailbox(
       CommandDeliveryTask task,
+      int deliveredNow,
+      int mailboxQuantity,
       boolean claimMode,
       String reason,
       Player player) {
+    int quantityToMailbox = Math.max(0, mailboxQuantity);
+    if (quantityToMailbox <= 0) {
+      markCommandDelivered(task.orderId(), task.id(), deliveredNow, claimMode);
+      return true;
+    }
     try {
       ItemStack itemStack = buildGiveItemStack(task);
       mailboxService.enqueueItem(
           task.userId(),
           task.playerUuid(),
           itemStack,
-          task.quantity(),
+          quantityToMailbox,
           "ORDER",
           task.orderNo(),
           reason);
-      markCommandDelivered(task.orderId(), task.id(), claimMode);
+      markCommandDelivered(task.orderId(), task.id(), deliveredNow, claimMode);
       pushMailboxNotification(
           task.userId(),
           "ORDER",
           task.orderNo(),
           itemTitle(itemStack),
-          task.quantity(),
-          formatSourceDetail(task.orderNo(), itemStack, task.quantity()));
+          quantityToMailbox,
+          formatSourceDetail(task.orderNo(), itemStack, quantityToMailbox));
       if (player != null) {
         notifyDeliverySuccess(player, msg(player, "chat.delivery.mailbox_saved", Map.of("token", task.orderNo())));
       }
@@ -1109,9 +1198,16 @@ class DeliveryService {
 
   private boolean tryMoveMarketItemToMailbox(
       MarketItemDeliveryTask task,
+      int deliveredNow,
+      int mailboxQuantity,
       boolean claimMode,
       String reason,
       Player player) {
+    int quantityToMailbox = Math.max(0, mailboxQuantity);
+    if (quantityToMailbox <= 0) {
+      markMarketDelivered(task, deliveredNow, claimMode);
+      return true;
+    }
     try {
       ItemStack itemStack = itemSnapshotCodec.deserialize(task.itemBlob());
       String token = task.tradeId() == null ? "#" + task.listingId() : "MKT-" + task.tradeId();
@@ -1119,18 +1215,18 @@ class DeliveryService {
           task.targetUserId(),
           task.targetUuid(),
           itemStack,
-          task.quantity(),
+          quantityToMailbox,
           "MARKET",
           token,
           reason);
-      markMarketDelivered(task, claimMode);
+      markMarketDelivered(task, deliveredNow, claimMode);
       pushMailboxNotification(
           task.targetUserId(),
           "MARKET",
           token,
           itemTitle(itemStack),
-          task.quantity(),
-          formatSourceDetail(token, itemStack, task.quantity()));
+          quantityToMailbox,
+          formatSourceDetail(token, itemStack, quantityToMailbox));
       if (player != null) {
         notifyDeliverySuccess(player, msg(player, "chat.delivery.mailbox_saved", Map.of("token", token)));
       }
@@ -1437,6 +1533,7 @@ class DeliveryService {
           resultSet.getString("delivery_kind"),
           resultSet.getString("payload_json"),
           resultSet.getInt("quantity"),
+          Math.max(0, resultSet.getInt("delivered_quantity")),
           resultSet.getInt("retry_count"),
           resultSet.getString("order_no"),
           resultSet.getLong("user_id")));
@@ -1455,6 +1552,7 @@ class DeliveryService {
           UUID.fromString(resultSet.getString("target_uuid")),
           resultSet.getBytes("item_blob"),
           resultSet.getInt("quantity"),
+          Math.max(0, resultSet.getInt("delivered_quantity")),
           resultSet.getString("delivery_type"),
           resultSet.getInt("retry_count")));
     }
@@ -1530,9 +1628,13 @@ class DeliveryService {
       String deliveryKind,
       String payloadJson,
       int quantity,
+      int deliveredQuantity,
       int retryCount,
       String orderNo,
       long userId) {
+    int remainingQuantity() {
+      return Math.max(0, quantity - Math.max(0, deliveredQuantity));
+    }
   }
 
   private record MarketItemDeliveryTask(
@@ -1543,8 +1645,12 @@ class DeliveryService {
       UUID targetUuid,
       byte[] itemBlob,
       int quantity,
+      int deliveredQuantity,
       String deliveryType,
       int retryCount) {
+    int remainingQuantity() {
+      return Math.max(0, quantity - Math.max(0, deliveredQuantity));
+    }
   }
 
   private record ClaimFilters(

@@ -841,6 +841,7 @@ class SchemaManager {
           payload_json JSON NULL,
           manual_claim BOOLEAN NOT NULL DEFAULT FALSE,
           quantity INT NOT NULL,
+          delivered_quantity INT NOT NULL DEFAULT 0,
           status VARCHAR(24) NOT NULL DEFAULT 'PENDING',
           retry_count INT NOT NULL DEFAULT 0,
           last_error VARCHAR(255) NULL,
@@ -892,6 +893,12 @@ class SchemaManager {
           connection,
           "ALTER TABLE delivery_queue "
               + "ADD COLUMN claimed_at DATETIME NULL AFTER delivered_at");
+    }
+    if (!columnExists(connection, "delivery_queue", "delivered_quantity")) {
+      execute(
+          connection,
+          "ALTER TABLE delivery_queue "
+              + "ADD COLUMN delivered_quantity INT NOT NULL DEFAULT 0 AFTER quantity");
     }
     if (!indexExists(connection, "delivery_queue", "idx_delivery_claim")) {
       execute(
@@ -1661,6 +1668,7 @@ class SchemaManager {
           target_server_id VARCHAR(64) NULL,
           item_blob LONGBLOB NOT NULL,
           quantity INT NOT NULL,
+          delivered_quantity INT NOT NULL DEFAULT 0,
           delivery_type VARCHAR(16) NOT NULL,
           status VARCHAR(24) NOT NULL DEFAULT 'PENDING',
           retry_count INT NOT NULL DEFAULT 0,
@@ -1704,6 +1712,12 @@ class SchemaManager {
           connection,
           "ALTER TABLE market_item_deliveries "
               + "ADD COLUMN claimed_at DATETIME NULL AFTER delivered_at");
+    }
+    if (!columnExists(connection, "market_item_deliveries", "delivered_quantity")) {
+      execute(
+          connection,
+          "ALTER TABLE market_item_deliveries "
+              + "ADD COLUMN delivered_quantity INT NOT NULL DEFAULT 0 AFTER quantity");
     }
 
     dropIndexIfExists(connection, "market_item_deliveries", "uniq_market_delivery");
@@ -1811,6 +1825,7 @@ class SchemaManager {
           source_ref VARCHAR(64) NULL,
           item_blob LONGBLOB NOT NULL,
           quantity INT NOT NULL DEFAULT 1,
+          delivered_quantity INT NOT NULL DEFAULT 0,
           reason VARCHAR(255) NULL,
           status VARCHAR(24) NOT NULL DEFAULT 'PENDING',
           last_error VARCHAR(255) NULL,
@@ -1856,6 +1871,12 @@ class SchemaManager {
           connection,
           "ALTER TABLE mailbox_items "
               + "ADD COLUMN reason VARCHAR(255) NULL AFTER quantity");
+    }
+    if (!columnExists(connection, "mailbox_items", "delivered_quantity")) {
+      execute(
+          connection,
+          "ALTER TABLE mailbox_items "
+              + "ADD COLUMN delivered_quantity INT NOT NULL DEFAULT 0 AFTER quantity");
     }
     if (!columnExists(connection, "mailbox_items", "status")) {
       execute(

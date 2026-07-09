@@ -98,11 +98,22 @@ class MailboxService {
     for (MailboxItemTask task : tasks) {
       try {
         ItemStack baseItem = itemSnapshotCodec.deserialize(task.itemBlob());
-        addItemToInventory(player, baseItem, task.quantity());
-        markClaimed(task.id());
-        claimed++;
+        int remainingQuantity = task.remainingQuantity();
+        if (remainingQuantity <= 0) {
+          markClaimed(task.id(), 0);
+          claimed++;
+          continue;
+        }
+        int deliveredNow = addItemToInventory(player, baseItem, remainingQuantity);
+        if (deliveredNow >= remainingQuantity) {
+          markClaimed(task.id(), deliveredNow);
+          claimed++;
+        } else {
+          markProgress(task.id(), deliveredNow, "inventory is full");
+          failed++;
+        }
       } catch (Exception exception) {
-        markFailed(task.id(), normalizeText(exception.getMessage(), 255));
+        markProgress(task.id(), 0, normalizeText(exception.getMessage(), 255));
         failed++;
       }
     }
@@ -113,7 +124,7 @@ class MailboxService {
   private List<MailboxItemTask> readPendingTasks(UUID playerUuid, int limit) {
     return databaseManager.withConnection(connection -> {
       String sql = """
-          SELECT id, item_blob, quantity
+          SELECT id, item_blob, quantity, delivered_quantity
           FROM mailbox_items
           WHERE target_uuid = ?
             AND status = 'PENDING'
@@ -129,7 +140,8 @@ class MailboxService {
             tasks.add(new MailboxItemTask(
                 resultSet.getLong("id"),
                 resultSet.getBytes("item_blob"),
-                resultSet.getInt("quantity")));
+                resultSet.getInt("quantity"),
+                Math.max(0, resultSet.getInt("delivered_quantity"))));
           }
           return tasks;
         }
@@ -137,11 +149,12 @@ class MailboxService {
     });
   }
 
-  private void markClaimed(long mailboxId) {
+  private void markClaimed(long mailboxId, int deliveredNow) {
     databaseManager.withConnection(connection -> {
       String sql = """
           UPDATE mailbox_items
           SET status = 'CLAIMED',
+              delivered_quantity = quantity,
               claimed_at = CURRENT_TIMESTAMP,
               last_error = NULL
           WHERE id = ?
@@ -155,37 +168,58 @@ class MailboxService {
   }
 
   private void markFailed(long mailboxId, String error) {
+    markProgress(mailboxId, 0, error);
+  }
+
+  private void markProgress(long mailboxId, int deliveredNow, String error) {
     databaseManager.withConnection(connection -> {
       String sql = """
           UPDATE mailbox_items
-          SET last_error = ?
+          SET delivered_quantity = CASE
+                WHEN delivered_quantity + ? > quantity THEN quantity
+                ELSE delivered_quantity + ?
+              END,
+              last_error = ?
           WHERE id = ?
           """;
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
-        statement.setString(1, normalizeText(error, 255));
-        statement.setLong(2, mailboxId);
+        statement.setInt(1, Math.max(0, deliveredNow));
+        statement.setInt(2, Math.max(0, deliveredNow));
+        statement.setString(3, normalizeText(error, 255));
+        statement.setLong(4, mailboxId);
         statement.executeUpdate();
       }
       return null;
     });
   }
 
-  private void addItemToInventory(Player player, ItemStack source, int totalAmount) {
+  private int addItemToInventory(Player player, ItemStack source, int totalAmount) {
     if (source == null || source.getType() == Material.AIR) {
       throw new IllegalStateException("item snapshot is empty");
     }
     int remaining = Math.max(1, totalAmount);
+    int delivered = 0;
     int maxStack = Math.max(1, source.getMaxStackSize());
     while (remaining > 0) {
+      if (player == null || !player.isOnline()) {
+        break;
+      }
       int chunk = Math.min(maxStack, remaining);
       ItemStack stack = source.clone();
       stack.setAmount(chunk);
       Map<Integer, ItemStack> leftovers = player.getInventory().addItem(stack);
-      if (!leftovers.isEmpty()) {
-        throw new IllegalStateException("inventory is full");
+      int leftoverAmount = leftovers.values().stream()
+          .filter(item -> item != null && item.getType() != Material.AIR)
+          .mapToInt(ItemStack::getAmount)
+          .sum();
+      int accepted = Math.max(0, chunk - leftoverAmount);
+      delivered += accepted;
+      remaining -= accepted;
+      if (leftoverAmount > 0 || accepted <= 0) {
+        break;
       }
-      remaining -= chunk;
     }
+    return delivered;
   }
 
   private String normalizeText(String text, int maxLength) {
@@ -202,6 +236,9 @@ class MailboxService {
   record MailboxClaimSummary(int success, int failed, int remaining) {
   }
 
-  private record MailboxItemTask(long id, byte[] itemBlob, int quantity) {
+  private record MailboxItemTask(long id, byte[] itemBlob, int quantity, int deliveredQuantity) {
+    int remainingQuantity() {
+      return Math.max(0, quantity - Math.max(0, deliveredQuantity));
+    }
   }
 }

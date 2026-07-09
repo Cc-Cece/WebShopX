@@ -193,6 +193,7 @@ class EmbeddedWebServer {
     server.createContext("/api/orders/list", this::handleOrdersList);
     server.createContext("/api/orders/refund", this::handleOrdersRefund);
     server.createContext("/api/orders/policy", this::handleOrdersPolicy);
+    server.createContext("/api/orders/delivery-status", this::handleOrdersDeliveryStatus);
     server.createContext("/api/notifications/list", this::handleNotificationsList);
     server.createContext("/api/notifications/unread-count", this::handleNotificationsUnreadCount);
     server.createContext("/api/notifications/mark-read", this::handleNotificationsMarkRead);
@@ -412,7 +413,7 @@ class EmbeddedWebServer {
         row.addProperty("delta", entry.delta());
         row.addProperty("bizType", entry.bizType());
         row.addProperty("bizId", entry.bizId());
-        row.addProperty("createdAt", entry.createdAt().toString());
+        addBusinessDateTime(row, "createdAt", entry.createdAt());
         rows.add(row);
       }
       JsonObject response = new JsonObject();
@@ -662,8 +663,16 @@ class EmbeddedWebServer {
       handleOrdersRefund(exchange);
       return;
     }
+    if (path.equals("/api/orders/discard")) {
+      handleOrdersDiscard(exchange);
+      return;
+    }
     if (path.equals("/api/orders/policy")) {
       handleOrdersPolicy(exchange);
+      return;
+    }
+    if (path.equals("/api/orders/delivery-status")) {
+      handleOrdersDeliveryStatus(exchange);
       return;
     }
     if (!ensureMethod(exchange, "POST")) {
@@ -693,7 +702,7 @@ class EmbeddedWebServer {
       if (result.refundDeadline() == null) {
         response.add("refundDeadline", JsonNull.INSTANCE);
       } else {
-        response.addProperty("refundDeadline", result.refundDeadline().toString());
+        addBusinessDateTime(response, "refundDeadline", result.refundDeadline());
       }
       if (result.groupBuyVoucherCode() == null) {
         response.add("groupBuyVoucherCode", JsonNull.INSTANCE);
@@ -708,7 +717,7 @@ class EmbeddedWebServer {
       if (result.groupBuyVoucherConsumedAt() == null) {
         response.add("groupBuyVoucherConsumedAt", JsonNull.INSTANCE);
       } else {
-        response.addProperty("groupBuyVoucherConsumedAt", result.groupBuyVoucherConsumedAt().toString());
+        addBusinessDateTime(response, "groupBuyVoucherConsumedAt", result.groupBuyVoucherConsumedAt());
       }
       sendJson(exchange, 200, response);
     });
@@ -734,9 +743,10 @@ class EmbeddedWebServer {
         row.addProperty("id", order.id());
         row.addProperty("orderNo", order.orderNo());
         row.addProperty("status", order.status());
+        row.addProperty("displayStatus", order.displayStatus());
         row.addProperty("currency", order.currency().name());
         row.addProperty("totalAmount", order.totalAmount());
-        row.addProperty("createdAt", order.createdAt().toString());
+        addBusinessDateTime(row, "createdAt", order.createdAt());
         if (order.mcUuid() == null) {
           row.add("mcUuid", JsonNull.INSTANCE);
         } else {
@@ -745,17 +755,17 @@ class EmbeddedWebServer {
         if (order.deliveredAt() == null) {
           row.add("deliveredAt", JsonNull.INSTANCE);
         } else {
-          row.addProperty("deliveredAt", order.deliveredAt().toString());
+          addBusinessDateTime(row, "deliveredAt", order.deliveredAt());
         }
         if (order.refundedAt() == null) {
           row.add("refundedAt", JsonNull.INSTANCE);
         } else {
-          row.addProperty("refundedAt", order.refundedAt().toString());
+          addBusinessDateTime(row, "refundedAt", order.refundedAt());
         }
         if (order.refundDeadline() == null) {
           row.add("refundDeadline", JsonNull.INSTANCE);
         } else {
-          row.addProperty("refundDeadline", order.refundDeadline().toString());
+          addBusinessDateTime(row, "refundDeadline", order.refundDeadline());
         }
         row.addProperty("sku", order.productSku());
         row.addProperty("productTitle", order.productTitle());
@@ -792,6 +802,9 @@ class EmbeddedWebServer {
         }
         row.addProperty("quantity", order.quantity());
         row.addProperty("unitPrice", order.unitPrice());
+        row.addProperty("refundAmount", order.refundAmount());
+        row.addProperty("refundQuantity", order.refundQuantity());
+        row.addProperty("earnedQuantity", order.earnedQuantity());
         if (order.groupBuyVoucherCode() == null) {
           row.add("groupBuyVoucherCode", JsonNull.INSTANCE);
         } else {
@@ -805,7 +818,7 @@ class EmbeddedWebServer {
         if (order.groupBuyVoucherConsumedAt() == null) {
           row.add("groupBuyVoucherConsumedAt", JsonNull.INSTANCE);
         } else {
-          row.addProperty("groupBuyVoucherConsumedAt", order.groupBuyVoucherConsumedAt().toString());
+          addBusinessDateTime(row, "groupBuyVoucherConsumedAt", order.groupBuyVoucherConsumedAt());
         }
         if (order.claimToken() == null) {
           row.add("claimToken", JsonNull.INSTANCE);
@@ -815,6 +828,7 @@ class EmbeddedWebServer {
 
         boolean canRefund = canRefund(order, now);
         row.addProperty("canRefund", canRefund);
+        row.addProperty("canDiscard", canDiscard(order, now));
         array.add(row);
       }
       JsonObject response = new JsonObject();
@@ -840,8 +854,30 @@ class EmbeddedWebServer {
       OrderService.RefundResult result = orderService.refundOrder(user.id(), orderNo);
       JsonObject response = new JsonObject();
       response.addProperty("orderNo", result.orderNo());
+      response.addProperty("refundAmount", result.refundAmount());
+      response.addProperty("refundQuantity", result.refundQuantity());
+      response.addProperty("earnedQuantity", result.earnedQuantity());
       response.addProperty("shopCoin", result.balance().shopCoin());
       response.addProperty("gameCoin", result.balance().gameCoin());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleOrdersDiscard(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      String orderNo = getString(payload, "orderNo");
+      OrderService.DiscardResult result = orderService.discardOrder(user.id(), orderNo);
+      JsonObject response = new JsonObject();
+      response.addProperty("orderNo", result.orderNo());
+      response.addProperty("status", "CANCELLED");
       sendJson(exchange, 200, response);
     });
   }
@@ -871,6 +907,96 @@ class EmbeddedWebServer {
     });
   }
 
+  private void handleOrdersDeliveryStatus(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, null);
+      Map<String, String> query = parseQuery(exchange);
+      String orderNo = query.get("orderNo");
+      if (orderNo == null || orderNo.isBlank()) {
+        sendJson(exchange, 400, errorJson("bad_request", "Order number is required"));
+        return;
+      }
+      OrderService.DeliveryStatusResponse status = orderService.getDeliveryStatusForOrder(user.id(), orderNo);
+      
+      JsonObject response = new JsonObject();
+      response.addProperty("orderNo", status.orderNo());
+      response.addProperty("status", status.status());
+      response.addProperty("playerOnline", status.playerOnline());
+      
+      JsonArray array = new JsonArray();
+      for (OrderService.DeliveryTaskView task : status.deliveryTasks()) {
+        JsonObject row = new JsonObject();
+        row.addProperty("id", task.id());
+        row.addProperty("status", task.status());
+        row.addProperty("retryCount", task.retryCount());
+        if (task.lastError() == null) {
+          row.add("lastError", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("lastError", task.lastError());
+        }
+        if (task.nextRetryAt() == null) {
+          row.add("nextRetryAt", JsonNull.INSTANCE);
+        } else {
+          addBusinessDateTime(row, "nextRetryAt", task.nextRetryAt());
+        }
+        if (task.deliveredAt() == null) {
+          row.add("deliveredAt", JsonNull.INSTANCE);
+        } else {
+          addBusinessDateTime(row, "deliveredAt", task.deliveredAt());
+        }
+        if (task.claimedAt() == null) {
+          row.add("claimedAt", JsonNull.INSTANCE);
+        } else {
+          addBusinessDateTime(row, "claimedAt", task.claimedAt());
+        }
+        if (task.createdAt() == null) {
+          row.add("createdAt", JsonNull.INSTANCE);
+        } else {
+          addBusinessDateTime(row, "createdAt", task.createdAt());
+        }
+        row.addProperty("quantity", task.quantity());
+        row.addProperty("deliveredQuantity", task.deliveredQuantity());
+        row.addProperty("remainingQuantity", Math.max(0, task.quantity() - task.deliveredQuantity()));
+        row.addProperty("deliveryKind", task.deliveryKind());
+        if (task.targetServerId() == null) {
+          row.add("targetServerId", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("targetServerId", task.targetServerId());
+        }
+        if (task.mailboxStatus() == null) {
+          row.add("mailboxStatus", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("mailboxStatus", task.mailboxStatus());
+        }
+        row.addProperty("mailboxQuantity", task.mailboxQuantity());
+        if (task.mailboxCreatedAt() == null) {
+          row.add("mailboxCreatedAt", JsonNull.INSTANCE);
+        } else {
+          addBusinessDateTime(row, "mailboxCreatedAt", task.mailboxCreatedAt());
+        }
+        if (task.mailboxClaimedAt() == null) {
+          row.add("mailboxClaimedAt", JsonNull.INSTANCE);
+        } else {
+          addBusinessDateTime(row, "mailboxClaimedAt", task.mailboxClaimedAt());
+        }
+        if (task.mailboxReason() == null) {
+          row.add("mailboxReason", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("mailboxReason", task.mailboxReason());
+        }
+        array.add(row);
+      }
+      response.add("deliveryTasks", array);
+      sendJson(exchange, 200, response);
+    });
+  }
+
   private void handleNotificationsList(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
       return;
@@ -896,11 +1022,11 @@ class EmbeddedWebServer {
         row.addProperty("title", notification.title());
         row.addProperty("content", notification.content());
         row.addProperty("isRead", notification.read());
-        row.addProperty("createdAt", notification.createdAt().toString());
+        addBusinessDateTime(row, "createdAt", notification.createdAt());
         if (notification.readAt() == null) {
           row.add("readAt", JsonNull.INSTANCE);
         } else {
-          row.addProperty("readAt", notification.readAt().toString());
+          addBusinessDateTime(row, "readAt", notification.readAt());
         }
         if (notification.dataJson() == null || notification.dataJson().isBlank()) {
           row.add("data", JsonNull.INSTANCE);
@@ -1446,7 +1572,7 @@ class EmbeddedWebServer {
           row.addProperty("remark", listing.remark());
         }
         row.addProperty("status", listing.status());
-        row.addProperty("createdAt", listing.createdAt().toString());
+        addBusinessDateTime(row, "createdAt", listing.createdAt());
         row.addProperty("sourceMode", listing.sourceMode().name());
         row.addProperty("tradeMode", listing.tradeMode().name());
         row.addProperty("dynamicPricingEnabled", listing.dynamicPricingEnabled());
@@ -1554,7 +1680,7 @@ class EmbeddedWebServer {
         if (listing.supplyLastLoadedAt() == null) {
           row.add("supplyLastLoadedAt", JsonNull.INSTANCE);
         } else {
-          row.addProperty("supplyLastLoadedAt", listing.supplyLastLoadedAt().toString());
+          addBusinessDateTime(row, "supplyLastLoadedAt", listing.supplyLastLoadedAt());
         }
         rows.add(row);
       }
@@ -1804,7 +1930,7 @@ class EmbeddedWebServer {
     if (result.refundDeadline() == null) {
       response.add("refundDeadline", JsonNull.INSTANCE);
     } else {
-      response.addProperty("refundDeadline", result.refundDeadline().toString());
+      addBusinessDateTime(response, "refundDeadline", result.refundDeadline());
     }
     return response;
   }
@@ -2906,12 +3032,12 @@ class EmbeddedWebServer {
         if (code.expiresAt() == null) {
           row.add("expiresAt", JsonNull.INSTANCE);
         } else {
-          row.addProperty("expiresAt", code.expiresAt().toString());
+          addBusinessDateTime(row, "expiresAt", code.expiresAt());
         }
         if (code.createdAt() == null) {
           row.add("createdAt", JsonNull.INSTANCE);
         } else {
-          row.addProperty("createdAt", code.createdAt().toString());
+          addBusinessDateTime(row, "createdAt", code.createdAt());
         }
         array.add(row);
       }
@@ -3181,7 +3307,7 @@ class EmbeddedWebServer {
       if (result.consumedAt() == null) {
         response.add("consumedAt", JsonNull.INSTANCE);
       } else {
-        response.addProperty("consumedAt", result.consumedAt().toString());
+        addBusinessDateTime(response, "consumedAt", result.consumedAt());
       }
       sendJson(exchange, 200, response);
 
@@ -4119,23 +4245,24 @@ class EmbeddedWebServer {
         row.addProperty("id", order.id());
         row.addProperty("orderNo", order.orderNo());
         row.addProperty("status", order.status());
+        row.addProperty("displayStatus", order.displayStatus());
         row.addProperty("currency", order.currency().name());
         row.addProperty("totalAmount", order.totalAmount());
-        row.addProperty("createdAt", order.createdAt().toString());
+        addBusinessDateTime(row, "createdAt", order.createdAt());
         if (order.deliveredAt() == null) {
           row.add("deliveredAt", JsonNull.INSTANCE);
         } else {
-          row.addProperty("deliveredAt", order.deliveredAt().toString());
+          addBusinessDateTime(row, "deliveredAt", order.deliveredAt());
         }
         if (order.refundedAt() == null) {
           row.add("refundedAt", JsonNull.INSTANCE);
         } else {
-          row.addProperty("refundedAt", order.refundedAt().toString());
+          addBusinessDateTime(row, "refundedAt", order.refundedAt());
         }
         if (order.refundDeadline() == null) {
           row.add("refundDeadline", JsonNull.INSTANCE);
         } else {
-          row.addProperty("refundDeadline", order.refundDeadline().toString());
+          addBusinessDateTime(row, "refundDeadline", order.refundDeadline());
         }
         row.addProperty("userId", order.userId());
         row.addProperty("username", adminOrder.username());
@@ -4173,7 +4300,7 @@ class EmbeddedWebServer {
         if (order.groupBuyVoucherConsumedAt() == null) {
           row.add("groupBuyVoucherConsumedAt", JsonNull.INSTANCE);
         } else {
-          row.addProperty("groupBuyVoucherConsumedAt", order.groupBuyVoucherConsumedAt().toString());
+          addBusinessDateTime(row, "groupBuyVoucherConsumedAt", order.groupBuyVoucherConsumedAt());
         }
         array.add(row);
       }
@@ -4267,16 +4394,16 @@ class EmbeddedWebServer {
           row.addProperty("remark", listing.remark());
         }
         row.addProperty("status", listing.status());
-        row.addProperty("createdAt", listing.createdAt().toString());
+        addBusinessDateTime(row, "createdAt", listing.createdAt());
         if (listing.soldAt() == null) {
           row.add("soldAt", JsonNull.INSTANCE);
         } else {
-          row.addProperty("soldAt", listing.soldAt().toString());
+          addBusinessDateTime(row, "soldAt", listing.soldAt());
         }
         if (listing.unlistedAt() == null) {
           row.add("unlistedAt", JsonNull.INSTANCE);
         } else {
-          row.addProperty("unlistedAt", listing.unlistedAt().toString());
+          addBusinessDateTime(row, "unlistedAt", listing.unlistedAt());
         }
         rows.add(row);
       }
@@ -4329,7 +4456,7 @@ class EmbeddedWebServer {
       response.addProperty("id", userView.userId());
       response.addProperty("username", userView.username());
       response.addProperty("authState", userView.authState());
-      response.addProperty("createdAt", userView.createdAt().toString());
+      addBusinessDateTime(response, "createdAt", userView.createdAt());
       response.addProperty("shopCoin", userView.shopCoin());
       response.addProperty("gameCoin", userView.gameCoin());
       if (userView.boundUuid() == null) {
@@ -4361,7 +4488,7 @@ class EmbeddedWebServer {
         row.addProperty("id", user.userId());
         row.addProperty("username", user.username());
         row.addProperty("authState", user.authState());
-        row.addProperty("createdAt", user.createdAt().toString());
+        addBusinessDateTime(row, "createdAt", user.createdAt());
         row.addProperty("shopCoin", user.shopCoin());
         row.addProperty("gameCoin", user.gameCoin());
         if (user.boundUuid() == null) {
@@ -4513,7 +4640,7 @@ class EmbeddedWebServer {
         } else {
           row.addProperty("sourceIp", log.sourceIp());
         }
-        row.addProperty("createdAt", log.createdAt().toString());
+        addBusinessDateTime(row, "createdAt", log.createdAt());
         array.add(row);
       }
       JsonObject response = new JsonObject();
@@ -4772,6 +4899,13 @@ class EmbeddedWebServer {
     if (order == null) {
       return false;
     }
+    if ("REFUNDED".equalsIgnoreCase(order.status())
+        || "CANCELLED".equalsIgnoreCase(order.status())
+        || "REFUNDED".equalsIgnoreCase(order.displayStatus())
+        || "CANCELLED".equalsIgnoreCase(order.displayStatus())
+        || "CLAIMED".equalsIgnoreCase(order.displayStatus())) {
+      return false;
+    }
     String voucherStatus = order.groupBuyVoucherStatus();
     if (voucherStatus != null) {
       if ("REFUNDED".equalsIgnoreCase(voucherStatus) || "CONSUMED".equalsIgnoreCase(voucherStatus)) {
@@ -4783,12 +4917,40 @@ class EmbeddedWebServer {
     }
 
     if (settingsSupplier.get().refundUndeliveredEnabled()) {
-      return "PENDING".equalsIgnoreCase(order.status())
-          || "WAIT_CLAIM".equalsIgnoreCase(order.status());
+      return order.refundAmount() > 0L
+          && ("PENDING".equalsIgnoreCase(order.status())
+              || "WAIT_CLAIM".equalsIgnoreCase(order.status())
+              || "WAIT_CLAIM".equalsIgnoreCase(order.displayStatus()));
     }
     return "PENDING".equalsIgnoreCase(order.status())
         && order.refundDeadline() != null
         && now.isBefore(order.refundDeadline());
+  }
+
+  private boolean canDiscard(OrderService.OrderView order, LocalDateTime now) {
+    if (order == null || canRefund(order, now)) {
+      return false;
+    }
+    String status = order.status();
+    String displayStatus = order.displayStatus();
+    String voucherStatus = order.groupBuyVoucherStatus();
+    if ("REFUNDED".equalsIgnoreCase(status)
+        || "CANCELLED".equalsIgnoreCase(status)
+        || "CLAIMED".equalsIgnoreCase(displayStatus)
+        || "REFUNDED".equalsIgnoreCase(displayStatus)
+        || "CANCELLED".equalsIgnoreCase(displayStatus)
+        || "CONSUMED".equalsIgnoreCase(voucherStatus)
+        || "REFUNDED".equalsIgnoreCase(voucherStatus)
+        || "CANCELLED".equalsIgnoreCase(voucherStatus)) {
+      return false;
+    }
+    if ("ISSUED".equalsIgnoreCase(voucherStatus)) {
+      return true;
+    }
+    return "PENDING".equalsIgnoreCase(displayStatus)
+        || "WAIT_CLAIM".equalsIgnoreCase(displayStatus)
+        || "PENDING".equalsIgnoreCase(status)
+        || "WAIT_CLAIM".equalsIgnoreCase(status);
   }
 
   private AuthService.AuthUser requireAuth(HttpExchange exchange, JsonObject payload) {
@@ -4870,8 +5032,8 @@ class EmbeddedWebServer {
     } else {
       response.addProperty("boundUuid", admin.boundUuid().toString());
     }
-    response.addProperty("createdAt", admin.createdAt().toString());
-    response.addProperty("updatedAt", admin.updatedAt().toString());
+    addBusinessDateTime(response, "createdAt", admin.createdAt());
+    addBusinessDateTime(response, "updatedAt", admin.updatedAt());
     JsonArray permissions = new JsonArray();
     for (String code : admin.permissions()) {
       permissions.add(code);
@@ -5092,7 +5254,7 @@ class EmbeddedWebServer {
   private JsonObject sessionResponse(AuthService.AuthResult result) {
     JsonObject response = new JsonObject();
     response.addProperty("sessionToken", result.sessionToken());
-    response.addProperty("expiresAt", result.expiresAt().toString());
+    addBusinessDateTime(response, "expiresAt", result.expiresAt());
     JsonObject user = userResponse(result.user());
     response.add("user", user);
     response.addProperty("username", result.user().username());
@@ -6103,7 +6265,7 @@ class EmbeddedWebServer {
     if (entry.updatedAt() == null) {
       row.add("updatedAt", JsonNull.INSTANCE);
     } else {
-      row.addProperty("updatedAt", entry.updatedAt().toString());
+      addBusinessDateTime(row, "updatedAt", entry.updatedAt());
     }
     return row;
   }

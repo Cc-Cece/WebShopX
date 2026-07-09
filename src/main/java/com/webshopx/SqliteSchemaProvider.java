@@ -96,8 +96,11 @@ final class SqliteSchemaProvider implements SchemaProvider {
     assertColumnExists(connection, "web_users", "auth_state");
     assertColumnExists(connection, "runtime_config", "version");
     assertColumnExists(connection, "orders", "claim_token");
+    assertColumnExists(connection, "delivery_queue", "delivered_quantity");
     assertColumnExists(connection, "market_listings", "source_mode");
     assertColumnExists(connection, "market_listings", "trade_mode");
+    assertColumnExists(connection, "market_item_deliveries", "delivered_quantity");
+    assertColumnExists(connection, "mailbox_items", "delivered_quantity");
     assertColumnExists(connection, "webshopx_recharge_order", "provider_order_id");
 
     assertIndexExists(connection, "orders", "idx_orders_target_server");
@@ -155,6 +158,21 @@ final class SqliteSchemaProvider implements SchemaProvider {
       "market_listings",
       "dynamic_pricing_mode",
       "TEXT NOT NULL DEFAULT 'ORDER_FIXED'");
+    addColumnIfMissing(
+      connection,
+      "delivery_queue",
+      "delivered_quantity",
+      "INTEGER NOT NULL DEFAULT 0");
+    addColumnIfMissing(
+      connection,
+      "market_item_deliveries",
+      "delivered_quantity",
+      "INTEGER NOT NULL DEFAULT 0");
+    addColumnIfMissing(
+      connection,
+      "mailbox_items",
+      "delivered_quantity",
+      "INTEGER NOT NULL DEFAULT 0");
   }
 
     private void addColumnIfMissing(

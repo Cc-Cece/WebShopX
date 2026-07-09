@@ -1,6 +1,8 @@
 package com.webshopx;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -455,14 +457,16 @@ class OrderService {
         UPDATE products
         SET stock_remaining = CASE
             WHEN item_amount IS NULL THEN stock_remaining
-            ELSE LEAST(item_amount, stock_remaining + ?)
+            WHEN stock_remaining + ? > item_amount THEN item_amount
+            ELSE stock_remaining + ?
           END
         WHERE id = ?
           AND stock_remaining IS NOT NULL
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setInt(1, quantity);
-      statement.setLong(2, productId);
+      statement.setInt(2, quantity);
+      statement.setLong(3, productId);
       statement.executeUpdate();
     }
   }
@@ -524,14 +528,18 @@ class OrderService {
     }
     String updateSql = """
         UPDATE product_user_usage
-        SET used_count = GREATEST(0, used_count - ?),
+        SET used_count = CASE
+              WHEN used_count - ? < 0 THEN 0
+              ELSE used_count - ?
+            END,
             updated_at = CURRENT_TIMESTAMP
         WHERE product_id = ? AND user_id = ?
         """;
     try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
       statement.setInt(1, quantity);
-      statement.setLong(2, productId);
-      statement.setLong(3, userId);
+      statement.setInt(2, quantity);
+      statement.setLong(3, productId);
+      statement.setLong(4, userId);
       statement.executeUpdate();
     }
     String deleteSql = "DELETE FROM product_user_usage WHERE product_id = ? AND user_id = ? AND used_count <= 0";
@@ -1048,6 +1056,14 @@ class OrderService {
         SELECT o.id, o.order_no, o.user_id, o.mc_uuid, o.currency, o.total_amount, o.status,
                o.claim_token,
                o.created_at, o.delivered_at, o.refund_deadline, o.refunded_at,
+               (SELECT COUNT(*) FROM delivery_queue dq WHERE dq.order_id = o.id) AS delivery_task_count,
+               (SELECT COUNT(*) FROM delivery_queue dq WHERE dq.order_id = o.id AND dq.status = 'WAIT_CLAIM') AS wait_claim_delivery_count,
+               (SELECT COUNT(*) FROM delivery_queue dq WHERE dq.order_id = o.id AND dq.status NOT IN ('DELIVERED', 'CANCELLED')) AS open_delivery_count,
+               (SELECT COUNT(*) FROM mailbox_items mi WHERE mi.user_id = o.user_id AND mi.source_type = 'ORDER' AND mi.source_ref = o.order_no AND mi.status = 'PENDING') AS pending_mailbox_count,
+               (
+                 (SELECT COALESCE(SUM(dq.delivered_quantity), 0) FROM delivery_queue dq WHERE dq.order_id = o.id) +
+                 (SELECT COALESCE(SUM(mi.delivered_quantity), 0) FROM mailbox_items mi WHERE mi.user_id = o.user_id AND mi.source_type = 'ORDER' AND mi.source_ref = o.order_no)
+               ) AS earned_quantity,
                oi.quantity, oi.unit_price,
                p.sku, p.title, p.remark, p.product_type, p.item_material, p.item_amount,
                p.effect_type, p.effect_seconds, p.effect_amplifier,
@@ -1099,7 +1115,7 @@ class OrderService {
                mt.total_price, mt.buyer_total,
                mt.status AS trade_status, mt.claim_token, mt.refund_deadline, mt.refunded_at, mt.created_at,
                ml.item_material, ml.remark, ml.buyer_uuid,
-               md.status AS delivery_status, md.delivered_at
+               md.status AS delivery_status, md.delivered_at, md.delivered_quantity
         FROM market_trades mt
         JOIN market_listings ml ON ml.id = mt.listing_id
         LEFT JOIN market_item_deliveries md
@@ -1124,7 +1140,15 @@ class OrderService {
           String claimToken = resultSet.getString("claim_token");
           long tradeId = resultSet.getLong("trade_id");
           String ensuredToken = ensureMarketClaimToken(connection, tradeId, tradeStatus, claimToken);
-          results.add(readMarketOrderView(resultSet, userId, ensuredToken));
+          int pendingMailboxCount = countPendingMailboxItems(connection, userId, "MARKET", "MKT-" + tradeId);
+          int deliveredMailboxQuantity =
+              countDeliveredMailboxQuantity(connection, userId, "MARKET", "MKT-" + tradeId);
+          results.add(readMarketOrderView(
+              resultSet,
+              userId,
+              ensuredToken,
+              pendingMailboxCount,
+              deliveredMailboxQuantity));
         }
       }
       return results;
@@ -1243,6 +1267,14 @@ class OrderService {
           SELECT o.id, o.order_no, o.user_id, o.mc_uuid, o.currency, o.total_amount, o.status,
                  o.claim_token,
                  o.created_at, o.delivered_at, o.refund_deadline, o.refunded_at,
+                 (SELECT COUNT(*) FROM delivery_queue dq WHERE dq.order_id = o.id) AS delivery_task_count,
+                 (SELECT COUNT(*) FROM delivery_queue dq WHERE dq.order_id = o.id AND dq.status = 'WAIT_CLAIM') AS wait_claim_delivery_count,
+                 (SELECT COUNT(*) FROM delivery_queue dq WHERE dq.order_id = o.id AND dq.status NOT IN ('DELIVERED', 'CANCELLED')) AS open_delivery_count,
+                 (SELECT COUNT(*) FROM mailbox_items mi WHERE mi.user_id = o.user_id AND mi.source_type = 'ORDER' AND mi.source_ref = o.order_no AND mi.status = 'PENDING') AS pending_mailbox_count,
+                 (
+                   (SELECT COALESCE(SUM(dq.delivered_quantity), 0) FROM delivery_queue dq WHERE dq.order_id = o.id) +
+                   (SELECT COALESCE(SUM(mi.delivered_quantity), 0) FROM mailbox_items mi WHERE mi.user_id = o.user_id AND mi.source_type = 'ORDER' AND mi.source_ref = o.order_no)
+                 ) AS earned_quantity,
                  u.username, u.bound_uuid,
                  oi.quantity, oi.unit_price,
                  p.sku, p.title, p.remark, p.product_type, p.item_material, p.item_amount,
@@ -1366,7 +1398,7 @@ class OrderService {
     if (normalizedOrderNo.regionMatches(true, 0, "MKT-", 0, 4)) {
       return refundMarketOrder(userId, normalizedOrderNo);
     }
-    OrderRow order = databaseManager.inTransaction(connection -> {
+    RefundExecution execution = databaseManager.inTransaction(connection -> {
       OrderRow row = readOrderForRefund(connection, userId, normalizedOrderNo);
       if (row == null) {
         throw new ServiceException("order_missing", "Order not found");
@@ -1377,19 +1409,26 @@ class OrderService {
         throw new ServiceException("already_refunded", "Order has already been refunded");
       }
       validateOfficialRefund(row);
+      RefundPlan refundPlan = calculateOfficialRefundPlan(connection, row, userId);
+      if (refundPlan.refundAmount() <= 0L || refundPlan.refundQuantity() <= 0) {
+        throw new ServiceException("refund_not_allowed", "Order has no refundable amount");
+      }
       claimOfficialRefund(connection, row);
 
-      walletService.applyDelta(
+      boolean refundApplied = walletService.applyDelta(
           connection,
           userId,
           CurrencyType.valueOf(row.currency()),
-          row.totalAmount(),
+          refundPlan.refundAmount(),
           "ORDER_REFUND",
           row.orderNo() + ":refund",
           false);
+      if (!refundApplied) {
+        throw new ServiceException("already_refunded", "Order refund has already been applied");
+      }
 
-      restoreProductStock(connection, row.productId(), row.quantity());
-      reducePersonalLimitUsage(connection, row.productId(), userId, row.quantity());
+      restoreProductStock(connection, row.productId(), refundPlan.refundQuantity());
+      reducePersonalLimitUsage(connection, row.productId(), userId, refundPlan.refundQuantity());
 
       if (row.groupBuyVoucherCode() != null) {
         String updateVoucherSql = """
@@ -1415,11 +1454,97 @@ class OrderService {
         statement.executeUpdate();
       }
 
-      return row;
+      return new RefundExecution(row.orderNo(), refundPlan);
     });
 
     WalletService.WalletBalance balance = walletService.getBalance(userId);
-    return new RefundResult(order.orderNo(), balance);
+    return new RefundResult(
+        execution.orderNo(),
+        execution.refundPlan().refundAmount(),
+        execution.refundPlan().refundQuantity(),
+        execution.refundPlan().earnedQuantity(),
+        balance);
+  }
+
+  DiscardResult discardOrder(long userId, String orderNo) {
+    if (orderNo == null || orderNo.isBlank()) {
+      throw new ServiceException("order_missing", "Order number is required");
+    }
+    String normalizedOrderNo = orderNo.trim();
+    if (normalizedOrderNo.regionMatches(true, 0, "MKT-", 0, 4)) {
+      return discardMarketOrder(userId, normalizedOrderNo);
+    }
+    return databaseManager.inTransaction(connection -> {
+      OrderRow row = readOrderForRefund(connection, userId, normalizedOrderNo);
+      if (row == null) {
+        throw new ServiceException("order_missing", "Order not found");
+      }
+      if ("REFUNDED".equalsIgnoreCase(row.status())) {
+        throw new ServiceException("already_refunded", "Order has already been refunded");
+      }
+      if ("CANCELLED".equalsIgnoreCase(row.status())) {
+        throw new ServiceException("already_cancelled", "Order has already been cancelled");
+      }
+      if (isOfficialRefundAllowed(row)) {
+        throw new ServiceException("refund_available", "Order is still refundable");
+      }
+      if (!hasDiscardableOfficialAssets(connection, row, userId)) {
+        throw new ServiceException("discard_not_allowed", "Order has nothing pending to discard");
+      }
+
+      String updateOrderSql = """
+          UPDATE orders
+          SET status = 'CANCELLED', claim_token = NULL
+          WHERE id = ?
+            AND status <> 'REFUNDED'
+            AND status <> 'CANCELLED'
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(updateOrderSql)) {
+        statement.setLong(1, row.id());
+        if (statement.executeUpdate() <= 0) {
+          throw new ServiceException("discard_not_allowed", "Order cannot be discarded");
+        }
+      }
+
+      String cancelDeliverySql = """
+          UPDATE delivery_queue
+          SET status = 'CANCELLED', last_error = 'Discarded by buyer'
+          WHERE order_id = ?
+            AND status IN ('PENDING', 'WAIT_CLAIM')
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(cancelDeliverySql)) {
+        statement.setLong(1, row.id());
+        statement.executeUpdate();
+      }
+
+      String cancelMailboxSql = """
+          UPDATE mailbox_items
+          SET status = 'CANCELLED', last_error = 'Discarded by buyer'
+          WHERE user_id = ?
+            AND source_type = 'ORDER'
+            AND source_ref = ?
+            AND status = 'PENDING'
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(cancelMailboxSql)) {
+        statement.setLong(1, userId);
+        statement.setString(2, row.orderNo());
+        statement.executeUpdate();
+      }
+
+      if (row.groupBuyVoucherCode() != null) {
+        String updateVoucherSql = """
+            UPDATE group_buy_vouchers
+            SET status = 'CANCELLED'
+            WHERE code = ?
+              AND status = 'ISSUED'
+            """;
+        try (PreparedStatement statement = connection.prepareStatement(updateVoucherSql)) {
+          statement.setString(1, row.groupBuyVoucherCode());
+          statement.executeUpdate();
+        }
+      }
+      return new DiscardResult(row.orderNo());
+    });
   }
 
   int resetProductUserLimitUsage(long productId) {
@@ -1485,7 +1610,10 @@ class OrderService {
     }
 
     if (settingsSupplier.get().refundUndeliveredEnabled()) {
-      if ("PENDING".equalsIgnoreCase(row.status()) || "WAIT_CLAIM".equalsIgnoreCase(row.status())) {
+      if ("PENDING".equalsIgnoreCase(row.status())
+          || "WAIT_CLAIM".equalsIgnoreCase(row.status())
+          || "DELIVERED".equalsIgnoreCase(row.status())
+          || "COMPLETED".equalsIgnoreCase(row.status())) {
         return;
       }
       throw new ServiceException("refund_not_allowed", "Order is not refundable");
@@ -1534,7 +1662,7 @@ class OrderService {
 
   private RefundResult refundMarketOrder(long userId, String orderNo) {
     long tradeId = parseMarketTradeId(orderNo);
-    databaseManager.inTransaction(connection -> {
+    RefundExecution execution = databaseManager.inTransaction(connection -> {
       MarketOrderRow row = readMarketTradeForRefund(connection, userId, tradeId);
       if (row == null) {
         throw new ServiceException("order_missing", "Order not found");
@@ -1543,17 +1671,23 @@ class OrderService {
         throw new ServiceException("already_refunded", "Order has already been refunded");
       }
       validateMarketRefund(row);
+      RefundPlan refundPlan = calculateMarketRefundPlan(connection, row, userId, orderNo);
+      if (refundPlan.refundAmount() <= 0L || refundPlan.refundQuantity() <= 0) {
+        throw new ServiceException("refund_not_allowed", "Order has no refundable amount");
+      }
       claimMarketRefund(connection, row);
 
-      long refundAmount = row.buyerTotal() > 0 ? row.buyerTotal() : row.totalPrice();
-      walletService.applyDelta(
+      boolean refundApplied = walletService.applyDelta(
           connection,
           userId,
           CurrencyType.valueOf(row.currency()),
-          refundAmount,
+          refundPlan.refundAmount(),
           "ORDER_REFUND",
           orderNo + ":refund",
           false);
+      if (!refundApplied) {
+        throw new ServiceException("already_refunded", "Order refund has already been applied");
+      }
 
       String cancelDeliverySql = """
           UPDATE market_item_deliveries
@@ -1569,8 +1703,11 @@ class OrderService {
 
       String restoreListingSql = """
           UPDATE market_listings
-          SET quantity = quantity + ?,
-              quantity_total = GREATEST(quantity_total, quantity + ?),
+          SET quantity_total = CASE
+                WHEN quantity_total < quantity + ? THEN quantity + ?
+                ELSE quantity_total
+              END,
+              quantity = quantity + ?,
               status = 'ACTIVE',
               buyer_user_id = NULL,
               buyer_uuid = NULL,
@@ -1579,17 +1716,282 @@ class OrderService {
             AND status <> 'UNLISTED'
           """;
       try (PreparedStatement statement = connection.prepareStatement(restoreListingSql)) {
-        statement.setInt(1, row.quantity());
-        statement.setInt(2, row.quantity());
-        statement.setLong(3, row.listingId());
+        statement.setInt(1, refundPlan.refundQuantity());
+        statement.setInt(2, refundPlan.refundQuantity());
+        statement.setInt(3, refundPlan.refundQuantity());
+        statement.setLong(4, row.listingId());
         statement.executeUpdate();
       }
 
-      return row;
+      return new RefundExecution(orderNo, refundPlan);
     });
 
     WalletService.WalletBalance balance = walletService.getBalance(userId);
-    return new RefundResult(orderNo, balance);
+    return new RefundResult(
+        execution.orderNo(),
+        execution.refundPlan().refundAmount(),
+        execution.refundPlan().refundQuantity(),
+        execution.refundPlan().earnedQuantity(),
+        balance);
+  }
+
+  private DiscardResult discardMarketOrder(long userId, String orderNo) {
+    long tradeId = parseMarketTradeId(orderNo);
+    return databaseManager.inTransaction(connection -> {
+      MarketOrderRow row = readMarketTradeForRefund(connection, userId, tradeId);
+      if (row == null) {
+        throw new ServiceException("order_missing", "Order not found");
+      }
+      if ("REFUNDED".equalsIgnoreCase(row.status())) {
+        throw new ServiceException("already_refunded", "Order has already been refunded");
+      }
+      if ("CANCELLED".equalsIgnoreCase(row.status())) {
+        throw new ServiceException("already_cancelled", "Order has already been cancelled");
+      }
+      if (isMarketRefundAllowed(row)) {
+        throw new ServiceException("refund_available", "Order is still refundable");
+      }
+      if (!hasDiscardableMarketAssets(connection, row, userId, orderNo)) {
+        throw new ServiceException("discard_not_allowed", "Order has nothing pending to discard");
+      }
+
+      String updateTradeSql = """
+          UPDATE market_trades
+          SET status = 'CANCELLED', claim_token = NULL
+          WHERE id = ?
+            AND status <> 'REFUNDED'
+            AND status <> 'CANCELLED'
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(updateTradeSql)) {
+        statement.setLong(1, row.tradeId());
+        if (statement.executeUpdate() <= 0) {
+          throw new ServiceException("discard_not_allowed", "Order cannot be discarded");
+        }
+      }
+
+      String cancelDeliverySql = """
+          UPDATE market_item_deliveries
+          SET status = 'CANCELLED', last_error = 'Discarded by buyer'
+          WHERE trade_id = ?
+            AND delivery_type = 'SALE'
+            AND status IN ('PENDING', 'WAIT_CLAIM')
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(cancelDeliverySql)) {
+        statement.setLong(1, row.tradeId());
+        statement.executeUpdate();
+      }
+
+      String cancelMailboxSql = """
+          UPDATE mailbox_items
+          SET status = 'CANCELLED', last_error = 'Discarded by buyer'
+          WHERE user_id = ?
+            AND source_type = 'MARKET'
+            AND source_ref = ?
+            AND status = 'PENDING'
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(cancelMailboxSql)) {
+        statement.setLong(1, userId);
+        statement.setString(2, orderNo);
+        statement.executeUpdate();
+      }
+      return new DiscardResult(orderNo);
+    });
+  }
+
+  private boolean isOfficialRefundAllowed(OrderRow row) {
+    try {
+      validateOfficialRefund(row);
+      return true;
+    } catch (ServiceException exception) {
+      return false;
+    }
+  }
+
+  private boolean isMarketRefundAllowed(MarketOrderRow row) {
+    try {
+      validateMarketRefund(row);
+      return true;
+    } catch (ServiceException exception) {
+      return false;
+    }
+  }
+
+  private RefundPlan calculateOfficialRefundPlan(Connection connection, OrderRow row, long userId)
+      throws SQLException {
+    int totalQuantity = Math.max(1, row.quantity());
+    if (row.groupBuyVoucherCode() != null) {
+      String voucherStatus = String.valueOf(row.groupBuyVoucherStatus()).toUpperCase(Locale.ROOT);
+      int earnedQuantity = "CONSUMED".equals(voucherStatus) ? totalQuantity : 0;
+      int refundQuantity = Math.max(0, totalQuantity - earnedQuantity);
+      return new RefundPlan(
+          totalQuantity,
+          earnedQuantity,
+          refundQuantity,
+          prorateAmount(row.totalAmount(), refundQuantity, totalQuantity));
+    }
+    int earnedQuantity = Math.min(
+        totalQuantity,
+        countDeliveredQuantity(connection, "delivery_queue", "order_id", row.id())
+            + countDeliveredMailboxQuantity(connection, userId, "ORDER", row.orderNo()));
+    int refundQuantity = Math.max(0, totalQuantity - earnedQuantity);
+    return new RefundPlan(
+        totalQuantity,
+        earnedQuantity,
+        refundQuantity,
+        prorateAmount(row.totalAmount(), refundQuantity, totalQuantity));
+  }
+
+  private RefundPlan calculateMarketRefundPlan(
+      Connection connection,
+      MarketOrderRow row,
+      long userId,
+      String orderNo) throws SQLException {
+    int totalQuantity = Math.max(1, row.quantity());
+    int earnedQuantity = Math.min(
+        totalQuantity,
+        countMarketDeliveredQuantity(connection, row.tradeId())
+            + countDeliveredMailboxQuantity(connection, userId, "MARKET", orderNo));
+    int refundQuantity = Math.max(0, totalQuantity - earnedQuantity);
+    long paidAmount = row.buyerTotal() > 0 ? row.buyerTotal() : row.totalPrice();
+    return new RefundPlan(
+        totalQuantity,
+        earnedQuantity,
+        refundQuantity,
+        prorateAmount(paidAmount, refundQuantity, totalQuantity));
+  }
+
+  private int countDeliveredQuantity(Connection connection, String tableName, String keyColumn, long key)
+      throws SQLException {
+    if (!"delivery_queue".equals(tableName) || !"order_id".equals(keyColumn)) {
+      throw new IllegalArgumentException("Unsupported delivered quantity source");
+    }
+    String sql = """
+        SELECT COALESCE(SUM(delivered_quantity), 0) AS qty
+        FROM delivery_queue
+        WHERE order_id = ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, key);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        return resultSet.next() ? Math.max(0, resultSet.getInt("qty")) : 0;
+      }
+    }
+  }
+
+  private int countMarketDeliveredQuantity(Connection connection, long tradeId) throws SQLException {
+    String sql = """
+        SELECT COALESCE(SUM(delivered_quantity), 0) AS qty
+        FROM market_item_deliveries
+        WHERE trade_id = ?
+          AND delivery_type = 'SALE'
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, tradeId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        return resultSet.next() ? Math.max(0, resultSet.getInt("qty")) : 0;
+      }
+    }
+  }
+
+  private int countDeliveredMailboxQuantity(
+      Connection connection,
+      long userId,
+      String sourceType,
+      String sourceRef) throws SQLException {
+    String sql = """
+        SELECT COALESCE(SUM(delivered_quantity), 0) AS qty
+        FROM mailbox_items
+        WHERE user_id = ?
+          AND source_type = ?
+          AND source_ref = ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      statement.setString(2, sourceType);
+      statement.setString(3, sourceRef);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        return resultSet.next() ? Math.max(0, resultSet.getInt("qty")) : 0;
+      }
+    }
+  }
+
+  private long prorateAmount(long totalAmount, int refundQuantity, int totalQuantity) {
+    if (refundQuantity <= 0 || totalAmount <= 0L || totalQuantity <= 0) {
+      return 0L;
+    }
+    if (refundQuantity >= totalQuantity) {
+      return totalAmount;
+    }
+    return BigDecimal.valueOf(totalAmount)
+        .multiply(BigDecimal.valueOf(refundQuantity))
+        .divide(BigDecimal.valueOf(totalQuantity), 0, RoundingMode.HALF_UP)
+        .longValue();
+  }
+
+  private boolean hasDiscardableOfficialAssets(Connection connection, OrderRow row, long userId)
+      throws SQLException {
+    if ("PENDING".equalsIgnoreCase(row.status()) || "WAIT_CLAIM".equalsIgnoreCase(row.status())) {
+      return true;
+    }
+    if (row.groupBuyVoucherCode() != null && "ISSUED".equalsIgnoreCase(row.groupBuyVoucherStatus())) {
+      return true;
+    }
+    String sql = """
+        SELECT
+          (SELECT COUNT(*) FROM delivery_queue dq WHERE dq.order_id = ? AND dq.status IN ('PENDING', 'WAIT_CLAIM')) +
+          (SELECT COUNT(*) FROM mailbox_items mi WHERE mi.user_id = ? AND mi.source_type = 'ORDER' AND mi.source_ref = ? AND mi.status = 'PENDING') AS cnt
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, row.id());
+      statement.setLong(2, userId);
+      statement.setString(3, row.orderNo());
+      try (ResultSet resultSet = statement.executeQuery()) {
+        return resultSet.next() && resultSet.getInt("cnt") > 0;
+      }
+    }
+  }
+
+  private boolean hasDiscardableMarketAssets(
+      Connection connection,
+      MarketOrderRow row,
+      long userId,
+      String orderNo) throws SQLException {
+    if ("PENDING".equalsIgnoreCase(row.status()) || "WAIT_CLAIM".equalsIgnoreCase(row.status())) {
+      return true;
+    }
+    String sql = """
+        SELECT
+          (SELECT COUNT(*) FROM market_item_deliveries md WHERE md.trade_id = ? AND md.delivery_type = 'SALE' AND md.status IN ('PENDING', 'WAIT_CLAIM')) +
+          (SELECT COUNT(*) FROM mailbox_items mi WHERE mi.user_id = ? AND mi.source_type = 'MARKET' AND mi.source_ref = ? AND mi.status = 'PENDING') AS cnt
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, row.tradeId());
+      statement.setLong(2, userId);
+      statement.setString(3, orderNo);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        return resultSet.next() && resultSet.getInt("cnt") > 0;
+      }
+    }
+  }
+
+  private int countPendingMailboxItems(Connection connection, long userId, String sourceType, String sourceRef)
+      throws SQLException {
+    String sql = """
+        SELECT COUNT(*) AS cnt
+        FROM mailbox_items
+        WHERE user_id = ?
+          AND source_type = ?
+          AND source_ref = ?
+          AND status = 'PENDING'
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      statement.setString(2, sourceType);
+      statement.setString(3, sourceRef);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        return resultSet.next() ? Math.max(0, resultSet.getInt("cnt")) : 0;
+      }
+    }
   }
 
   private void claimOfficialRefund(Connection connection, OrderRow row) throws SQLException {
@@ -1721,14 +2123,31 @@ class OrderService {
     Timestamp refundedAt = resultSet.getTimestamp("refunded_at");
     Timestamp groupBuyVoucherConsumedAt = resultSet.getTimestamp("group_buy_voucher_consumed_at");
     String claimToken = claimTokenOverride != null ? claimTokenOverride : resultSet.getString("claim_token");
+    String status = resultSet.getString("status");
+    String voucherStatus = resultSet.getString("group_buy_voucher_status");
+    int quantity = resultSet.getInt("quantity");
+    int totalQuantity = Math.max(1, quantity);
+    int earnedQuantity = Math.min(totalQuantity, Math.max(0, resultSet.getInt("earned_quantity")));
+    if (resultSet.getString("group_buy_voucher_code") != null) {
+      earnedQuantity = "CONSUMED".equalsIgnoreCase(voucherStatus) ? totalQuantity : 0;
+    }
+    int refundQuantity = Math.max(0, totalQuantity - earnedQuantity);
+    long totalAmount = resultSet.getLong("total_amount");
     return new OrderView(
         resultSet.getLong("id"),
         resultSet.getString("order_no"),
         resultSet.getLong("user_id"),
         UUID.fromString(resultSet.getString("mc_uuid")),
         CurrencyType.valueOf(resultSet.getString("currency")),
-        resultSet.getLong("total_amount"),
-        resultSet.getString("status"),
+        totalAmount,
+        status,
+        resolveOfficialDisplayStatus(
+            status,
+            voucherStatus,
+            resultSet.getInt("delivery_task_count"),
+            resultSet.getInt("wait_claim_delivery_count"),
+            resultSet.getInt("open_delivery_count"),
+            resultSet.getInt("pending_mailbox_count")),
         resultSet.getTimestamp("created_at").toLocalDateTime(),
         deliveredAt == null ? null : deliveredAt.toLocalDateTime(),
         refundedAt == null ? null : refundedAt.toLocalDateTime(),
@@ -1742,15 +2161,23 @@ class OrderService {
         resultSet.getString("effect_type"),
         (Integer) resultSet.getObject("effect_seconds"),
         (Integer) resultSet.getObject("effect_amplifier"),
-        resultSet.getInt("quantity"),
+        quantity,
         resultSet.getLong("unit_price"),
+        prorateAmount(totalAmount, refundQuantity, totalQuantity),
+        refundQuantity,
+        earnedQuantity,
         resultSet.getString("group_buy_voucher_code"),
-        resultSet.getString("group_buy_voucher_status"),
+        voucherStatus,
         groupBuyVoucherConsumedAt == null ? null : groupBuyVoucherConsumedAt.toLocalDateTime(),
         claimToken);
   }
 
-  private OrderView readMarketOrderView(ResultSet resultSet, long userId, String claimTokenOverride)
+  private OrderView readMarketOrderView(
+      ResultSet resultSet,
+      long userId,
+      String claimTokenOverride,
+      int pendingMailboxCount,
+      int deliveredMailboxQuantity)
       throws SQLException {
     long tradeId = resultSet.getLong("trade_id");
     long listingId = resultSet.getLong("listing_id");
@@ -1782,6 +2209,12 @@ class OrderService {
     }
 
     long totalAmount = buyerTotal > 0 ? buyerTotal : totalPrice;
+    int totalQuantity = Math.max(1, tradeQuantity);
+    int earnedQuantity = Math.min(
+        totalQuantity,
+        Math.max(0, resultSet.getInt("delivered_quantity"))
+            + Math.max(0, deliveredMailboxQuantity));
+    int refundQuantity = Math.max(0, totalQuantity - earnedQuantity);
     String title = itemMaterial == null || itemMaterial.isBlank()
         ? "Market Listing Item"
         : itemMaterial;
@@ -1794,6 +2227,7 @@ class OrderService {
         CurrencyType.valueOf(currencyRaw),
         totalAmount,
         status,
+        resolveDeliveryDisplayStatus(status, deliveryStatus, pendingMailboxCount),
         resultSet.getTimestamp("created_at").toLocalDateTime(),
         deliveredAt == null ? null : deliveredAt.toLocalDateTime(),
         refundedAt == null ? null : refundedAt.toLocalDateTime(),
@@ -1809,10 +2243,66 @@ class OrderService {
         null,
         tradeQuantity,
         unitPrice > 0 ? unitPrice : totalPrice,
+        prorateAmount(totalAmount, refundQuantity, totalQuantity),
+        refundQuantity,
+        earnedQuantity,
         null,
         null,
         null,
         claimToken);
+  }
+
+  private String resolveOfficialDisplayStatus(
+      String status,
+      String voucherStatus,
+      int deliveryTaskCount,
+      int waitClaimDeliveryCount,
+      int openDeliveryCount,
+      int pendingMailboxCount) {
+    if ("REFUNDED".equalsIgnoreCase(status) || "REFUNDED".equalsIgnoreCase(voucherStatus)) {
+      return "REFUNDED";
+    }
+    if ("CANCELLED".equalsIgnoreCase(status) || "CANCELLED".equalsIgnoreCase(voucherStatus)) {
+      return "CANCELLED";
+    }
+    if ("CONSUMED".equalsIgnoreCase(voucherStatus)) {
+      return "CLAIMED";
+    }
+    if ("ISSUED".equalsIgnoreCase(voucherStatus)) {
+      return "WAIT_CLAIM";
+    }
+    if ("WAIT_CLAIM".equalsIgnoreCase(status) || waitClaimDeliveryCount > 0 || pendingMailboxCount > 0) {
+      return "WAIT_CLAIM";
+    }
+    if ("PENDING".equalsIgnoreCase(status) || openDeliveryCount > 0) {
+      return "PENDING";
+    }
+    if ("DELIVERED".equalsIgnoreCase(status) || "COMPLETED".equalsIgnoreCase(status) || deliveryTaskCount > 0) {
+      return "CLAIMED";
+    }
+    return status == null || status.isBlank() ? "PENDING" : status.toUpperCase(Locale.ROOT);
+  }
+
+  private String resolveDeliveryDisplayStatus(String status, String deliveryStatus, int pendingMailboxCount) {
+    if ("REFUNDED".equalsIgnoreCase(status)) {
+      return "REFUNDED";
+    }
+    if ("CANCELLED".equalsIgnoreCase(status)) {
+      return "CANCELLED";
+    }
+    if ("WAIT_CLAIM".equalsIgnoreCase(status)
+        || "WAIT_CLAIM".equalsIgnoreCase(deliveryStatus)
+        || pendingMailboxCount > 0) {
+      return "WAIT_CLAIM";
+    }
+    if ("PENDING".equalsIgnoreCase(status)) {
+      return "PENDING";
+    }
+    if ("DELIVERED".equalsIgnoreCase(status) || "COMPLETED".equalsIgnoreCase(status)
+        || "DELIVERED".equalsIgnoreCase(deliveryStatus)) {
+      return "CLAIMED";
+    }
+    return status == null || status.isBlank() ? "PENDING" : status.toUpperCase(Locale.ROOT);
   }
 
   private String ensureOrderClaimToken(Connection connection, long orderId, String status, String claimToken)
@@ -1920,6 +2410,7 @@ class OrderService {
       CurrencyType currency,
       long totalAmount,
       String status,
+      String displayStatus,
       LocalDateTime createdAt,
       LocalDateTime deliveredAt,
       LocalDateTime refundedAt,
@@ -1935,6 +2426,9 @@ class OrderService {
       Integer effectAmplifier,
       int quantity,
       long unitPrice,
+      long refundAmount,
+      int refundQuantity,
+      int earnedQuantity,
       String groupBuyVoucherCode,
       String groupBuyVoucherStatus,
       LocalDateTime groupBuyVoucherConsumedAt,
@@ -1970,8 +2464,260 @@ class OrderService {
       LocalDateTime consumedAt) {
   }
 
-  record RefundResult(String orderNo, WalletService.WalletBalance balance) {
+  private record RefundPlan(
+      int totalQuantity,
+      int earnedQuantity,
+      int refundQuantity,
+      long refundAmount) {
+  }
+
+  private record RefundExecution(
+      String orderNo,
+      RefundPlan refundPlan) {
+  }
+
+  record RefundResult(
+      String orderNo,
+      long refundAmount,
+      int refundQuantity,
+      int earnedQuantity,
+      WalletService.WalletBalance balance) {
+  }
+
+  record DiscardResult(String orderNo) {
+  }
+
+  DeliveryStatusResponse getDeliveryStatusForOrder(long userId, String orderNo) {
+    if (orderNo == null || orderNo.isBlank()) {
+      throw new ServiceException("order_missing", "Order number is required");
+    }
+    String normalized = orderNo.trim();
+    boolean isMarket = normalized.regionMatches(true, 0, "MKT-", 0, 4);
+
+    return databaseManager.withConnection(connection -> {
+      UUID playerUuid = null;
+      String orderStatus = "";
+      long orderId = -1L;
+      long tradeIdParsed = -1L;
+
+      if (isMarket) {
+        try {
+          tradeIdParsed = Long.parseLong(normalized.substring(4));
+        } catch (NumberFormatException e) {
+          throw new ServiceException("order_missing", "Order not found");
+        }
+        String queryTradeSql = "SELECT id, status, buyer_uuid FROM market_trades WHERE id = ? AND buyer_user_id = ?";
+        try (PreparedStatement statement = connection.prepareStatement(queryTradeSql)) {
+          statement.setLong(1, tradeIdParsed);
+          statement.setLong(2, userId);
+          try (ResultSet resultSet = statement.executeQuery()) {
+            if (!resultSet.next()) {
+              throw new ServiceException("order_missing", "Order not found");
+            }
+            String buyerUuidRaw = resultSet.getString("buyer_uuid");
+            if (buyerUuidRaw != null && !buyerUuidRaw.isEmpty()) {
+              playerUuid = UUID.fromString(buyerUuidRaw);
+            }
+            orderStatus = resultSet.getString("status");
+          }
+        }
+      } else {
+        String queryOrderSql = "SELECT id, status, mc_uuid FROM orders WHERE order_no = ? AND user_id = ?";
+        try (PreparedStatement statement = connection.prepareStatement(queryOrderSql)) {
+          statement.setString(1, normalized);
+          statement.setLong(2, userId);
+          try (ResultSet resultSet = statement.executeQuery()) {
+            if (!resultSet.next()) {
+              throw new ServiceException("order_missing", "Order not found");
+            }
+            orderId = resultSet.getLong("id");
+            String mcUuidRaw = resultSet.getString("mc_uuid");
+            if (mcUuidRaw != null && !mcUuidRaw.isEmpty()) {
+              playerUuid = UUID.fromString(mcUuidRaw);
+            }
+            orderStatus = resultSet.getString("status");
+          }
+        }
+      }
+
+      boolean playerOnline = false;
+      if (playerUuid != null) {
+        try {
+          Boolean online = schedulerBridge.supplyPlayer(playerUuid, Player::isOnline)
+              .completeOnTimeout(false, 1L, TimeUnit.SECONDS)
+              .exceptionally(ignored -> false)
+              .join();
+          playerOnline = online != null && online;
+        } catch (Exception ignored) {}
+      }
+
+      MailboxDeliveryState mailboxState = readMailboxDeliveryState(
+          connection,
+          userId,
+          isMarket ? "MARKET" : "ORDER",
+          isMarket ? "MKT-" + tradeIdParsed : normalized);
+      List<DeliveryTaskView> tasks = new ArrayList<>();
+      if (isMarket) {
+        String queryTasksSql = """
+            SELECT id, status, retry_count, last_error, next_retry_at, delivered_at, claimed_at, created_at,
+                   quantity, delivered_quantity, delivery_type, target_server_id
+            FROM market_item_deliveries
+            WHERE trade_id = ?
+            ORDER BY id ASC
+            """;
+        try (PreparedStatement statement = connection.prepareStatement(queryTasksSql)) {
+          statement.setLong(1, tradeIdParsed);
+          try (ResultSet resultSet = statement.executeQuery()) {
+            while (resultSet.next()) {
+              Timestamp nextRetry = resultSet.getTimestamp("next_retry_at");
+              Timestamp delivered = resultSet.getTimestamp("delivered_at");
+              Timestamp claimed = resultSet.getTimestamp("claimed_at");
+              Timestamp created = resultSet.getTimestamp("created_at");
+              tasks.add(new DeliveryTaskView(
+                  resultSet.getLong("id"),
+                  resultSet.getString("status"),
+                  resultSet.getInt("retry_count"),
+                  resultSet.getString("last_error"),
+                  nextRetry == null ? null : nextRetry.toLocalDateTime(),
+                  delivered == null ? null : delivered.toLocalDateTime(),
+                  claimed == null ? null : claimed.toLocalDateTime(),
+                  created == null ? null : created.toLocalDateTime(),
+                  resultSet.getInt("quantity"),
+                  Math.max(0, resultSet.getInt("delivered_quantity")),
+                  resultSet.getString("delivery_type"),
+                  resultSet.getString("target_server_id"),
+                  mailboxState.status(),
+                  mailboxState.quantity(),
+                  mailboxState.createdAt(),
+                  mailboxState.claimedAt(),
+                  mailboxState.reason()
+              ));
+            }
+          }
+        }
+      } else {
+        String queryTasksSql = """
+            SELECT id, status, retry_count, last_error, next_retry_at, delivered_at, claimed_at, created_at,
+                   quantity, delivered_quantity, delivery_kind, target_server_id
+            FROM delivery_queue
+            WHERE order_id = ?
+            ORDER BY id ASC
+            """;
+        try (PreparedStatement statement = connection.prepareStatement(queryTasksSql)) {
+          statement.setLong(1, orderId);
+          try (ResultSet resultSet = statement.executeQuery()) {
+            while (resultSet.next()) {
+              Timestamp nextRetry = resultSet.getTimestamp("next_retry_at");
+              Timestamp delivered = resultSet.getTimestamp("delivered_at");
+              Timestamp claimed = resultSet.getTimestamp("claimed_at");
+              Timestamp created = resultSet.getTimestamp("created_at");
+              tasks.add(new DeliveryTaskView(
+                  resultSet.getLong("id"),
+                  resultSet.getString("status"),
+                  resultSet.getInt("retry_count"),
+                  resultSet.getString("last_error"),
+                  nextRetry == null ? null : nextRetry.toLocalDateTime(),
+                  delivered == null ? null : delivered.toLocalDateTime(),
+                  claimed == null ? null : claimed.toLocalDateTime(),
+                  created == null ? null : created.toLocalDateTime(),
+                  resultSet.getInt("quantity"),
+                  Math.max(0, resultSet.getInt("delivered_quantity")),
+                  resultSet.getString("delivery_kind"),
+                  resultSet.getString("target_server_id"),
+                  mailboxState.status(),
+                  mailboxState.quantity(),
+                  mailboxState.createdAt(),
+                  mailboxState.claimedAt(),
+                  mailboxState.reason()
+              ));
+            }
+          }
+        }
+      }
+
+      return new DeliveryStatusResponse(normalized, orderStatus, playerOnline, tasks);
+    });
+  }
+
+  private MailboxDeliveryState readMailboxDeliveryState(
+      Connection connection,
+      long userId,
+      String sourceType,
+      String sourceRef) throws SQLException {
+    if (sourceRef == null || sourceRef.isBlank()) {
+      return MailboxDeliveryState.empty();
+    }
+    String sql = """
+        SELECT COUNT(*) AS total_count,
+               COALESCE(SUM(quantity), 0) AS total_quantity,
+               COALESCE(SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END), 0) AS pending_count,
+               COALESCE(SUM(CASE WHEN status = 'CLAIMED' THEN 1 ELSE 0 END), 0) AS claimed_count,
+               MIN(created_at) AS created_at,
+               MAX(claimed_at) AS claimed_at,
+               MAX(reason) AS reason
+        FROM mailbox_items
+        WHERE user_id = ?
+          AND source_type = ?
+          AND source_ref = ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      statement.setString(2, sourceType);
+      statement.setString(3, sourceRef);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next() || resultSet.getInt("total_count") <= 0) {
+          return MailboxDeliveryState.empty();
+        }
+        int pendingCount = resultSet.getInt("pending_count");
+        int claimedCount = resultSet.getInt("claimed_count");
+        String status = pendingCount > 0 ? "PENDING" : claimedCount > 0 ? "CLAIMED" : "UNKNOWN";
+        Timestamp createdAt = resultSet.getTimestamp("created_at");
+        Timestamp claimedAt = resultSet.getTimestamp("claimed_at");
+        return new MailboxDeliveryState(
+            status,
+            resultSet.getInt("total_quantity"),
+            createdAt == null ? null : createdAt.toLocalDateTime(),
+            claimedAt == null ? null : claimedAt.toLocalDateTime(),
+            resultSet.getString("reason"));
+      }
+    }
+  }
+
+  record DeliveryStatusResponse(
+      String orderNo,
+      String status,
+      boolean playerOnline,
+      List<DeliveryTaskView> deliveryTasks
+  ) {}
+
+  record DeliveryTaskView(
+      long id,
+      String status,
+      int retryCount,
+      String lastError,
+      LocalDateTime nextRetryAt,
+      LocalDateTime deliveredAt,
+      LocalDateTime claimedAt,
+      LocalDateTime createdAt,
+      int quantity,
+      int deliveredQuantity,
+      String deliveryKind,
+      String targetServerId,
+      String mailboxStatus,
+      int mailboxQuantity,
+      LocalDateTime mailboxCreatedAt,
+      LocalDateTime mailboxClaimedAt,
+      String mailboxReason
+  ) {}
+
+  private record MailboxDeliveryState(
+      String status,
+      int quantity,
+      LocalDateTime createdAt,
+      LocalDateTime claimedAt,
+      String reason) {
+    static MailboxDeliveryState empty() {
+      return new MailboxDeliveryState(null, 0, null, null, null);
+    }
   }
 }
-
-
