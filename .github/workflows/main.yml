@@ -160,6 +160,32 @@ jobs:
           mkdir -p dist
           cp build/libs/*.jar dist/
 
+      - name: Switch to JDK 25 for Minecraft 26.2
+        uses: ./.github/actions/common-setup
+        with:
+          java-version: '25'
+
+      - name: Build Minecraft 26.2 plugin variants
+        run: |
+          ./gradlew --no-daemon clean packagePluginVariants \
+            -x test -x checkstyleMain -x checkstyleTest -x spotbugsMain -x spotbugsTest \
+            -PtargetRuntime='26.2+' \
+            -Pver="${{ steps.meta.outputs.build_version }}"
+
+      - name: Verify and collect 26.2 artifacts
+        shell: bash
+        run: |
+          shopt -s nullglob
+          variants=(slim full full-linux full-win slim-folia full-folia full-linux-folia full-win-folia)
+          for variant in "${variants[@]}"; do
+            files=(build/libs/*-"${variant}"-26.2+.jar)
+            if (( ${#files[@]} == 0 )); then
+              echo "::error::Missing Minecraft 26.2 artifact for variant '${variant}'."
+              exit 1
+            fi
+          done
+          cp build/libs/*.jar dist/
+
       - name: Switch to JDK 17 for legacy build
         uses: ./.github/actions/common-setup
         with:
@@ -264,24 +290,32 @@ jobs:
               echo '| full-win | 变体包含 Windows 所需依赖，不包含 Linux 相关依赖； |'
               echo '| full-linux | 变体包含 Linux 所需依赖，不包含 Windows 相关依赖； |'
               echo
-              echo '| 变体 | paper1.18.2+ | paper1.20.6+ | Folia1.19.4+ |'
-              echo '| ---- | ---- | ---- | ---- |'
-              printf '| full | %s | %s | %s |\n' \
+              echo '| 变体 | paper1.18.2+ | paper1.20.6-1.21.11 | Folia1.19.4-1.21.11 | Paper26.2+ | Folia26.2+ |'
+              echo '| ---- | ---- | ---- | ---- | ---- | ---- |'
+              printf '| full | %s | %s | %s | %s | %s |\n' \
                 "$(link_cell "full" "1.18.2+")" \
                 "$(link_cell "full" "1.20.6+")" \
-                "$(link_cell "full-folia" "1.19.4+")"
-              printf '| slim | %s | %s | %s |\n' \
+                "$(link_cell "full-folia" "1.19.4+")" \
+                "$(link_cell "full" "26.2+")" \
+                "$(link_cell "full-folia" "26.2+")"
+              printf '| slim | %s | %s | %s | %s | %s |\n' \
                 "$(link_cell "slim" "1.18.2+")" \
                 "$(link_cell "slim" "1.20.6+")" \
-                "$(link_cell "slim-folia" "1.19.4+")"
-              printf '| full-win | %s | %s | %s |\n' \
+                "$(link_cell "slim-folia" "1.19.4+")" \
+                "$(link_cell "slim" "26.2+")" \
+                "$(link_cell "slim-folia" "26.2+")"
+              printf '| full-win | %s | %s | %s | %s | %s |\n' \
                 "$(link_cell "full-win" "1.18.2+")" \
                 "$(link_cell "full-win" "1.20.6+")" \
-                "$(link_cell "full-win-folia" "1.19.4+")"
-              printf '| full-linux | %s | %s | %s |\n' \
+                "$(link_cell "full-win-folia" "1.19.4+")" \
+                "$(link_cell "full-win" "26.2+")" \
+                "$(link_cell "full-win-folia" "26.2+")"
+              printf '| full-linux | %s | %s | %s | %s | %s |\n' \
                 "$(link_cell "full-linux" "1.18.2+")" \
                 "$(link_cell "full-linux" "1.20.6+")" \
-                "$(link_cell "full-linux-folia" "1.19.4+")"
+                "$(link_cell "full-linux-folia" "1.19.4+")" \
+                "$(link_cell "full-linux" "26.2+")" \
+                "$(link_cell "full-linux-folia" "26.2+")"
             } > "${output_file}"
           }
           
@@ -570,8 +604,10 @@ jobs:
           paper_legacy=(dist/*-slim-1.18.2+.jar)
           paper_modern=(dist/*-slim-1.20.6+.jar)
           folia=(dist/*-slim-folia-1.19.4+.jar)
+          paper_26=(dist/*-slim-26.2+.jar)
+          folia_26=(dist/*-slim-folia-26.2+.jar)
 
-          if (( ${#paper_legacy[@]} == 0 || ${#paper_modern[@]} == 0 || ${#folia[@]} == 0 )); then
+          if (( ${#paper_legacy[@]} == 0 || ${#paper_modern[@]} == 0 || ${#folia[@]} == 0 || ${#paper_26[@]} == 0 || ${#folia_26[@]} == 0 )); then
             echo "::error::Missing one or more slim artifacts required for Modrinth publish."
             exit 1
           fi
@@ -605,12 +641,12 @@ jobs:
           完整更新信息请查看 GitHub Release 页面：
           https://github.com/${MIRROR_REPO}/releases/tag/${TAG_NAME}
 
-          | 变体 | paper1.18.2+ | paper1.20.6+ | Folia1.19.4+ |
-          | ---- | ---- | ---- | ---- |
-          | full | $(link_cell "full" "1.18.2+") | $(link_cell "full" "1.20.6+") | $(link_cell "full-folia" "1.19.4+") |
-          | slim | $(link_cell "slim" "1.18.2+") | $(link_cell "slim" "1.20.6+") | $(link_cell "slim-folia" "1.19.4+") |
-          | full-win | $(link_cell "full-win" "1.18.2+") | $(link_cell "full-win" "1.20.6+") | $(link_cell "full-win-folia" "1.19.4+") |
-          | full-linux | $(link_cell "full-linux" "1.18.2+") | $(link_cell "full-linux" "1.20.6+") | $(link_cell "full-linux-folia" "1.19.4+") |
+          | 变体 | paper1.18.2+ | paper1.20.6-1.21.11 | Folia1.19.4-1.21.11 | Paper26.2+ | Folia26.2+ |
+          | ---- | ---- | ---- | ---- | ---- | ---- |
+          | full | $(link_cell "full" "1.18.2+") | $(link_cell "full" "1.20.6+") | $(link_cell "full-folia" "1.19.4+") | $(link_cell "full" "26.2+") | $(link_cell "full-folia" "26.2+") |
+          | slim | $(link_cell "slim" "1.18.2+") | $(link_cell "slim" "1.20.6+") | $(link_cell "slim-folia" "1.19.4+") | $(link_cell "slim" "26.2+") | $(link_cell "slim-folia" "26.2+") |
+          | full-win | $(link_cell "full-win" "1.18.2+") | $(link_cell "full-win" "1.20.6+") | $(link_cell "full-win-folia" "1.19.4+") | $(link_cell "full-win" "26.2+") | $(link_cell "full-win-folia" "26.2+") |
+          | full-linux | $(link_cell "full-linux" "1.18.2+") | $(link_cell "full-linux" "1.20.6+") | $(link_cell "full-linux-folia" "1.19.4+") | $(link_cell "full-linux" "26.2+") | $(link_cell "full-linux-folia" "26.2+") |
           EOF
           }
 
@@ -700,6 +736,8 @@ jobs:
           }
 
           # Upload order matters for display/primary file preference.
-          publish_modrinth "${folia[0]}" "folia-1.19.4-slim" '["folia"]' "1.19.4" "" ""
+          publish_modrinth "${folia[0]}" "folia-1.19.4-slim" '["folia"]' "1.19.4" "1.21.11" ""
           publish_modrinth "${paper_legacy[0]}" "paper-1.18.2-slim" '["paper","purpur","spigot","bukkit"]' "1.18.2" "1.20.5" "-p182"
-          publish_modrinth "${paper_modern[0]}" "paper-1.20.6-slim" '["paper","purpur","spigot","bukkit"]' "1.20.6" "" "-p206"
+          publish_modrinth "${paper_modern[0]}" "paper-1.20.6-slim" '["paper","purpur","spigot","bukkit"]' "1.20.6" "1.21.11" "-p206"
+          publish_modrinth "${folia_26[0]}" "folia-26.2-slim" '["folia"]' "26.2" "" "-f262"
+          publish_modrinth "${paper_26[0]}" "paper-26.2-slim" '["paper"]' "26.2" "" "-p262"
