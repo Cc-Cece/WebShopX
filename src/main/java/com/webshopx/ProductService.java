@@ -334,7 +334,7 @@ class ProductService {
         product.dynamicFloorPrice(),
         product.dynamicCapPrice(),
         product.dynamicPriceStep(),
-        Math.max(0L, product.dynamicDemandScore()));
+        product.dynamicDemandScore());
   }
 
   ProductPriceQuote quoteOrderPrice(ProductView product, int quantity) {
@@ -350,18 +350,22 @@ class ProductService {
           unitPrice,
           normalizedQuantity,
           totalAmount,
-          Math.max(0L, product.dynamicDemandScore()),
-          Math.max(0L, product.dynamicDemandScore()));
+          product.dynamicDemandScore(),
+          product.dynamicDemandScore());
     }
     MarketAlgorithmRegistry.DynamicAlgorithmType algorithmType =
         MarketAlgorithmRegistry.DynamicAlgorithmType.fromRaw(product.dynamicAlgorithm());
     MarketAlgorithmRegistry.DynamicPricingMode pricingMode =
         MarketAlgorithmRegistry.DynamicPricingMode.fromRaw(product.dynamicPricingMode());
     JsonObject params = MarketAlgorithmRegistry.parseParams(product.dynamicParamsJson());
-    long currentDemand = Math.max(0L, product.dynamicDemandScore());
+    long currentDemand = product.dynamicDemandScore();
+    MarketAlgorithmRegistry.DynamicPriceDirection direction = isRecycleProductType(product.productType())
+        ? MarketAlgorithmRegistry.DynamicPriceDirection.RECYCLE
+        : MarketAlgorithmRegistry.DynamicPriceDirection.PURCHASE;
     MarketAlgorithmRegistry.DynamicPriceQuote quote = MarketAlgorithmRegistry.computeDynamicPriceQuote(
         algorithmType,
         pricingMode,
+        direction,
         resolveDynamicBasePrice(product),
         currentDemand,
         normalizedQuantity,
@@ -392,7 +396,7 @@ class ProductService {
     MarketAlgorithmRegistry.DynamicAlgorithmType algorithmType =
         MarketAlgorithmRegistry.DynamicAlgorithmType.fromRaw(product.dynamicAlgorithm());
     JsonObject params = MarketAlgorithmRegistry.parseParams(product.dynamicParamsJson());
-    long currentDemand = Math.max(0L, product.dynamicDemandScore());
+    long currentDemand = product.dynamicDemandScore();
     long nextDemand = event == DynamicPriceEvent.PURCHASE
         ? MarketAlgorithmRegistry.computeDemandAfterPurchase(algorithmType, currentDemand, quantity, params)
         : MarketAlgorithmRegistry.computeDemandAfterRecycle(algorithmType, currentDemand, quantity, params);
@@ -621,7 +625,7 @@ class ProductService {
           dynamicFloorPrice,
           dynamicCapPrice,
           dynamicPriceStep,
-          Math.max(0L, dynamicDemandScore),
+          dynamicDemandScore,
         publishAtRaw,
         unpublishAtRaw,
         resultSet.getBoolean("active"),
@@ -888,7 +892,9 @@ class ProductService {
         .fromRaw(input.dynamicAlgorithm());
     MarketAlgorithmRegistry.DynamicPricingMode pricingMode = input.dynamicPricingMode() == null
         ? (existing == null
-            ? MarketAlgorithmRegistry.DynamicPricingMode.ORDER_FIXED
+            ? (isRecycleProductType(productType)
+                ? MarketAlgorithmRegistry.DynamicPricingMode.PER_UNIT_MARGINAL
+                : MarketAlgorithmRegistry.DynamicPricingMode.ORDER_FIXED)
             : MarketAlgorithmRegistry.DynamicPricingMode.fromRaw(existing.dynamicPricingMode()))
         : MarketAlgorithmRegistry.DynamicPricingMode.fromRaw(input.dynamicPricingMode());
     JsonObject params = MarketAlgorithmRegistry.parseParams(input.dynamicParamsJson());
@@ -911,7 +917,7 @@ class ProductService {
       }
     }
 
-    long demandScore = existing == null ? 0L : Math.max(0L, existing.dynamicDemandScore());
+    long demandScore = existing == null ? 0L : existing.dynamicDemandScore();
     return new DynamicSettings(
         true,
         algorithmType,
@@ -1015,7 +1021,7 @@ class ProductService {
             MarketAlgorithmRegistry.DynamicAlgorithmType.fromRaw(target.dynamicAlgorithm());
         JsonObject params = MarketAlgorithmRegistry.parseParams(target.dynamicParamsJson());
         long nextDemand = MarketAlgorithmRegistry.computeDemandAfterDecay(
-            Math.max(0L, target.dynamicDemandScore()),
+            target.dynamicDemandScore(),
             DYNAMIC_DECAY_STEP);
         long basePrice = target.dynamicBasePrice() == null
             ? Math.max(1L, target.currentPrice())
@@ -1155,6 +1161,12 @@ class ProductService {
       }
     }
     return usage;
+  }
+
+  private boolean isRecycleProductType(ProductType productType) {
+    return productType == ProductType.RECYCLE_ITEM
+        || productType == ProductType.RECYCLE_COMMAND_ITEM
+        || productType == ProductType.RECYCLE_CUSTOM_ITEM;
   }
 
   enum ProductType {

@@ -68,6 +68,11 @@ final class MarketAlgorithmRegistry {
     }
   }
 
+  enum DynamicPriceDirection {
+    PURCHASE,
+    RECYCLE
+  }
+
   enum AuctionAlgorithmType {
     ENGLISH_AUCTION_V1,
     DUTCH_AUCTION_V1,
@@ -113,8 +118,8 @@ final class MarketAlgorithmRegistry {
     DynamicPricingStrategy strategy = DYNAMIC_STRATEGIES.getOrDefault(
         algorithm,
         DYNAMIC_STRATEGIES.get(DynamicAlgorithmType.LINEAR_DEMAND_V1));
-    long delta = Math.max(0L, strategy.demandDelta(Math.max(0L, currentDemand), Math.max(1, buyQuantity), params));
-    return safeAdd(Math.max(0L, currentDemand), delta);
+    long delta = Math.max(0L, strategy.demandDelta(currentDemand, Math.max(1, buyQuantity), params));
+    return safeAdd(currentDemand, delta);
   }
 
   static long computeDemandAfterRecycle(
@@ -125,12 +130,19 @@ final class MarketAlgorithmRegistry {
     DynamicPricingStrategy strategy = DYNAMIC_STRATEGIES.getOrDefault(
         algorithm,
         DYNAMIC_STRATEGIES.get(DynamicAlgorithmType.LINEAR_DEMAND_V1));
-    long delta = Math.max(0L, strategy.demandDelta(Math.max(0L, currentDemand), Math.max(1, recycleQuantity), params));
-    return Math.max(0L, Math.max(0L, currentDemand) - delta);
+    long delta = Math.max(0L, strategy.demandDelta(currentDemand, Math.max(1, recycleQuantity), params));
+    return safeAdd(currentDemand, -delta);
   }
 
   static long computeDemandAfterDecay(long currentDemand, int decayStep) {
-    return Math.max(0L, currentDemand - Math.max(1, decayStep));
+    long step = Math.max(1L, decayStep);
+    if (currentDemand > 0L) {
+      return Math.max(0L, currentDemand - step);
+    }
+    if (currentDemand < 0L) {
+      return Math.min(0L, safeAdd(currentDemand, step));
+    }
+    return 0L;
   }
 
   static long computeDynamicPrice(
@@ -144,11 +156,14 @@ final class MarketAlgorithmRegistry {
     DynamicPricingStrategy strategy = DYNAMIC_STRATEGIES.getOrDefault(
         algorithm,
         DYNAMIC_STRATEGIES.get(DynamicAlgorithmType.LINEAR_DEMAND_V1));
-    long rawPrice = strategy.computeRawPrice(
-        Math.max(1L, basePrice),
-        Math.max(0L, demandHeat),
+    long normalizedBase = Math.max(1L, basePrice);
+    long absolutePressure = demandHeat == Long.MIN_VALUE ? Long.MAX_VALUE : Math.abs(demandHeat);
+    long positivePrice = strategy.computeRawPrice(
+        normalizedBase,
+        absolutePressure,
         Math.max(1L, step),
         params);
+    long rawPrice = demandHeat >= 0L ? positivePrice : safeAdd(normalizedBase, -(positivePrice - normalizedBase));
     return applyBounds(rawPrice, floorPrice, capPrice);
   }
 
@@ -162,8 +177,23 @@ final class MarketAlgorithmRegistry {
       Long floorPrice,
       Long capPrice,
       JsonObject params) {
+    return computeDynamicPriceQuote(algorithm, pricingMode, DynamicPriceDirection.PURCHASE,
+        basePrice, currentDemand, quantity, step, floorPrice, capPrice, params);
+  }
+
+  static DynamicPriceQuote computeDynamicPriceQuote(
+      DynamicAlgorithmType algorithm,
+      DynamicPricingMode pricingMode,
+      DynamicPriceDirection direction,
+      long basePrice,
+      long currentDemand,
+      int quantity,
+      long step,
+      Long floorPrice,
+      Long capPrice,
+      JsonObject params) {
     int normalizedQuantity = Math.max(1, quantity);
-    long demand = Math.max(0L, currentDemand);
+    long demand = currentDemand;
     long firstUnitPrice = computeDynamicPrice(algorithm, basePrice, demand, step, floorPrice, capPrice, params);
     long totalAmount;
     long lastUnitPrice;
@@ -175,13 +205,17 @@ final class MarketAlgorithmRegistry {
         long unitPrice = computeDynamicPrice(algorithm, basePrice, demand, step, floorPrice, capPrice, params);
         totalAmount = safeAdd(totalAmount, unitPrice);
         lastUnitPrice = unitPrice;
-        demand = computeDemandAfterPurchase(algorithm, demand, 1, params);
+        demand = direction == DynamicPriceDirection.RECYCLE
+            ? computeDemandAfterRecycle(algorithm, demand, 1, params)
+            : computeDemandAfterPurchase(algorithm, demand, 1, params);
       }
       nextDemand = demand;
     } else {
       totalAmount = safeMultiply(firstUnitPrice, normalizedQuantity);
       lastUnitPrice = firstUnitPrice;
-      nextDemand = computeDemandAfterPurchase(algorithm, demand, normalizedQuantity, params);
+      nextDemand = direction == DynamicPriceDirection.RECYCLE
+          ? computeDemandAfterRecycle(algorithm, demand, normalizedQuantity, params)
+          : computeDemandAfterPurchase(algorithm, demand, normalizedQuantity, params);
     }
     long averageUnitPrice = Math.max(1L, totalAmount / normalizedQuantity);
     long nextUnitPrice = computeDynamicPrice(algorithm, basePrice, nextDemand, step, floorPrice, capPrice, params);
