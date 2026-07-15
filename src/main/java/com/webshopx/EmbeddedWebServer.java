@@ -202,6 +202,7 @@ class EmbeddedWebServer {
     server.createContext("/api/meta/material-overrides", this::handleMaterialOverrideMeta);
     server.createContext("/api/meta/market-tags", this::handleMarketTagsMeta);
     server.createContext("/api/meta/locales", this::handleMetaLocales);
+    server.createContext("/api/locales/", this::handlePublicLocaleMessages);
     server.createContext("/api/meta/themes", this::handleMetaThemes);
     server.createContext("/api/leaderboard/config", this::handleLeaderboardConfig);
     server.createContext("/api/leaderboard/list", this::handleLeaderboardList);
@@ -2743,7 +2744,7 @@ class EmbeddedWebServer {
         row.addProperty("version", entry.version());
         row.addProperty("packageUrl", entry.packageUrl());
         try {
-          URI packageUri = parseManifestUri(entry.packageUrl());
+          URI packageUri = parseManifestUri(manifestUri.resolve(entry.packageUrl()).toString());
           byte[] packageBytes = fetchRemoteBinary(
               packageUri,
               "locale package",
@@ -4925,6 +4926,25 @@ class EmbeddedWebServer {
     return "PENDING".equalsIgnoreCase(order.status())
         && order.refundDeadline() != null
         && now.isBefore(order.refundDeadline());
+  }
+
+  private void handlePublicLocaleMessages(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      String path = exchange.getRequestURI().getPath();
+      String prefix = "/api/locales/";
+      String suffix = path.startsWith(prefix) ? path.substring(prefix.length()) : "";
+      if (!suffix.endsWith("/messages")) {
+        throw new ServiceException("not_found", "Locale messages endpoint not found");
+      }
+      String rawLocale = suffix.substring(0, suffix.length() - "/messages".length());
+      sendJson(exchange, 200, localeCenterService.readPublicWebMessages(rawLocale));
+    });
   }
 
   private boolean canDiscard(OrderService.OrderView order, LocalDateTime now) {

@@ -247,12 +247,57 @@ class LocaleCenterService {
     return array;
   }
 
+  synchronized JsonObject readPublicWebMessages(String rawLocale) {
+    String locale = normalizeLocale(rawLocale);
+    if (locale.isBlank()) {
+      throw new ServiceException("bad_request", "Invalid locale");
+    }
+
+    JsonObject state = readState();
+    JsonObject record = findLocale(ensureLocaleArray(state), locale);
+    if (record == null || !getAsBoolean(record, "webEnabled", BUILTIN_LOCALES.contains(locale))) {
+      throw new ServiceException("not_found", "Locale is not enabled for Web");
+    }
+
+    Path userWebRoot = userWebRootSupplier.get();
+    if (userWebRoot == null) {
+      throw new ServiceException("internal_error", "User web root is not initialized");
+    }
+
+    JsonObject messages = new JsonObject();
+    for (String namespace : ALLOWED_NAMESPACES) {
+      Path source = userWebRoot.resolve("i18n").resolve(namespace).resolve(locale + ".json").normalize();
+      if (!source.startsWith(userWebRoot) || !Files.isRegularFile(source)) {
+        continue;
+      }
+      try (Reader reader = Files.newBufferedReader(source, StandardCharsets.UTF_8)) {
+        JsonElement parsed = JsonParser.parseReader(reader);
+        if (!parsed.isJsonObject()) {
+          throw new ServiceException("internal_error", "Locale namespace is not a JSON object: " + namespace);
+        }
+        String vueNamespace = "market-algorithms".equals(namespace) ? "marketAlgorithms" : namespace;
+        messages.add(vueNamespace, parsed.getAsJsonObject());
+      } catch (IOException | RuntimeException exception) {
+        if (exception instanceof ServiceException serviceException) {
+          throw serviceException;
+        }
+        throw new ServiceException("internal_error", "Failed to read locale namespace: " + namespace);
+      }
+    }
+    if (messages.size() == 0) {
+      throw new ServiceException("not_found", "No Web messages installed for locale: " + locale);
+    }
+    return messages;
+  }
+
   private JsonObject localeEntryJson(JsonObject source, String locale) {
     JsonObject row = new JsonObject();
     row.addProperty("locale", locale);
     row.addProperty("name", defaultIfBlank(getAsString(source, "name"), defaultNameFor(locale)));
     row.addProperty("nativeName", defaultIfBlank(getAsString(source, "nativeName"), defaultNativeNameFor(locale)));
     row.addProperty("source", defaultIfBlank(getAsString(source, "source"), BUILTIN_LOCALES.contains(locale) ? "built-in" : "upload"));
+    row.addProperty("version", defaultIfBlank(getAsString(source, "version"), BUILTIN_LOCALES.contains(locale) ? "builtin-1" : "unknown"));
+    row.addProperty("messagesUrl", "/api/locales/" + locale + "/messages");
     return row;
   }
 
@@ -262,6 +307,8 @@ class LocaleCenterService {
     row.addProperty("name", defaultNameFor(locale));
     row.addProperty("nativeName", defaultNativeNameFor(locale));
     row.addProperty("source", "built-in");
+    row.addProperty("version", "builtin-1");
+    row.addProperty("messagesUrl", "/api/locales/" + locale + "/messages");
     return row;
   }
 

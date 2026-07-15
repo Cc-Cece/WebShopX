@@ -211,6 +211,45 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Resolved l10n tag: ${TAG}"
 
+      - name: Validate localization sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          root = Path("src/main/resources/web/i18n")
+          allowed_namespaces = {"app", "admin", "help", "market-algorithms", "materials"}
+          locale_pattern = re.compile(r"^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$")
+          errors = []
+          checked = 0
+
+          for path in sorted(root.glob("*/*.json")):
+              namespace = path.parent.name
+              locale = path.stem
+              if namespace not in allowed_namespaces:
+                  errors.append(f"unsupported namespace: {path}")
+                  continue
+              if not locale_pattern.fullmatch(locale):
+                  errors.append(f"invalid locale tag in filename: {path}")
+              try:
+                  payload = json.loads(path.read_text(encoding="utf-8"))
+              except Exception as exc:
+                  errors.append(f"invalid JSON: {path}: {exc}")
+                  continue
+              if not isinstance(payload, dict):
+                  errors.append(f"locale JSON root must be an object: {path}")
+              checked += 1
+
+          if checked == 0:
+              errors.append(f"no Web locale JSON files found below {root}")
+          if errors:
+              raise SystemExit("Localization source validation failed:\n- " + "\n- ".join(errors))
+          print(f"Validated {checked} Web locale JSON files.")
+          PY
+
       - name: Build locale zips and manifest
         shell: bash
         run: |
@@ -221,6 +260,68 @@ jobs:
             --version "${{ inputs.manifest_version }}" \
             --default-locale "zh-CN" \
             --output-dir "dist/l10n"
+
+      - name: Validate locale release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import zipfile
+          from pathlib import Path, PurePosixPath
+
+          output = Path("dist/l10n")
+          manifest_path = output / "manifest.json"
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          if manifest.get("schemaVersion") != 1:
+              raise SystemExit("manifest.json must use schemaVersion 1")
+          locales = manifest.get("locales")
+          if not isinstance(locales, list) or not locales:
+              raise SystemExit("manifest.json contains no locale entries")
+
+          errors = []
+          seen = set()
+          allowed_web_namespaces = {"app", "admin", "help", "market-algorithms", "materials"}
+          for row in locales:
+              locale = str(row.get("locale", "")).strip()
+              if not locale or locale in seen:
+                  errors.append(f"missing or duplicate locale: {locale!r}")
+                  continue
+              seen.add(locale)
+              archive = output / f"{locale}.zip"
+              if not archive.is_file():
+                  errors.append(f"missing archive: {archive}")
+                  continue
+              digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+              if digest != row.get("sha256"):
+                  errors.append(f"SHA-256 mismatch: {archive}")
+              if archive.stat().st_size != row.get("size"):
+                  errors.append(f"size mismatch: {archive}")
+              if not str(row.get("packageUrl", "")).endswith(f"/{locale}.zip"):
+                  errors.append(f"invalid packageUrl for {locale}")
+
+              with zipfile.ZipFile(archive) as bundle:
+                  files = [name for name in bundle.namelist() if not name.endswith("/")]
+                  for name in files:
+                      path = PurePosixPath(name)
+                      if path.is_absolute() or ".." in path.parts:
+                          errors.append(f"unsafe ZIP path in {archive}: {name}")
+                          continue
+                      valid_message = name == f"messages/messages.{locale}.yml"
+                      valid_web = (
+                          len(path.parts) == 4
+                          and path.parts[0:2] == ("web", "i18n")
+                          and path.parts[2] in allowed_web_namespaces
+                          and path.parts[3] == f"{locale}.json"
+                      )
+                      if not valid_message and not valid_web:
+                          errors.append(f"unsupported ZIP entry in {archive}: {name}")
+
+          if errors:
+              raise SystemExit("Localization artifact validation failed:\n- " + "\n- ".join(errors))
+          print(f"Validated manifest and {len(locales)} locale archives.")
+          PY
 
       - name: Publish localization release to mirror repo
         shell: bash
