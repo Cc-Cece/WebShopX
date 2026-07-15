@@ -3332,7 +3332,7 @@ class MarketService {
     Long normalizedDynamicFloorPrice = normalizeOptionalPositive(dynamicFloorPrice, "invalid_dynamic_floor");
     Long normalizedDynamicCapPrice = normalizeOptionalPositive(dynamicCapPrice, "invalid_dynamic_cap");
     Long normalizedDynamicPriceStep = normalizeOptionalPositive(dynamicPriceStep, "invalid_dynamic_step");
-    long normalizedDynamicDemandScore = Math.max(0L, listing.dynamicDemandScore());
+    long normalizedDynamicDemandScore = listing.dynamicDemandScore();
 
     MarketAlgorithmRegistry.AuctionAlgorithmType auctionAlgorithmType = MarketAlgorithmRegistry.AuctionAlgorithmType
         .fromRaw(auctionAlgorithmRaw == null || auctionAlgorithmRaw.isBlank()
@@ -4670,7 +4670,7 @@ class MarketService {
     long lastUnitPrice = unitPrice;
     long averageUnitPrice = unitPrice;
     long subtotal = Math.multiplyExact(unitPrice, quantity);
-    long currentDemandScore = Math.max(0L, listing.dynamicDemandScore());
+    long currentDemandScore = listing.dynamicDemandScore();
     long nextDemandScore = currentDemandScore;
     long nextUnitPrice = unitPrice;
     MarketAlgorithmRegistry.DynamicPricingMode pricingMode = MarketAlgorithmRegistry.DynamicPricingMode.ORDER_FIXED;
@@ -4685,6 +4685,9 @@ class MarketService {
       MarketAlgorithmRegistry.DynamicPriceQuote dynamicQuote = MarketAlgorithmRegistry.computeDynamicPriceQuote(
           algorithmType,
           pricingMode,
+          listing.marketSide() == MarketSide.BUY
+              ? MarketAlgorithmRegistry.DynamicPriceDirection.RECYCLE
+              : MarketAlgorithmRegistry.DynamicPriceDirection.PURCHASE,
           Math.max(1L, basePrice),
           currentDemandScore,
           quantity,
@@ -4879,11 +4882,11 @@ class MarketService {
       boolean backfillBasePrice = listing.dynamicBasePrice() == null;
       long basePrice = backfillBasePrice ? listing.price() : listing.dynamicBasePrice();
       long step = listing.dynamicPriceStep() == null ? 1L : Math.max(1L, listing.dynamicPriceStep());
-      long nextDemandScore = MarketAlgorithmRegistry.computeDemandAfterPurchase(
-        algorithmType,
-        listing.dynamicDemandScore(),
-        buyQuantity,
-        dynamicParams);
+      long nextDemandScore = listing.marketSide() == MarketSide.BUY
+          ? MarketAlgorithmRegistry.computeDemandAfterRecycle(
+              algorithmType, listing.dynamicDemandScore(), buyQuantity, dynamicParams)
+          : MarketAlgorithmRegistry.computeDemandAfterPurchase(
+              algorithmType, listing.dynamicDemandScore(), buyQuantity, dynamicParams);
       long nextPrice = MarketAlgorithmRegistry.computeDynamicPrice(
         algorithmType,
         Math.max(1L, basePrice),
