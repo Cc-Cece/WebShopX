@@ -1428,6 +1428,7 @@ class EmbeddedWebServer {
       Map<String, String> query = parseQuery(exchange);
       int limit = parseInt(query.get("limit"), 100);
       boolean mineOnly = parseBoolean(query.get("mine"));
+      boolean leadingOnly = parseBoolean(query.get("leading"));
       String sort = query.get("sort");
       String order = query.get("order");
       boolean ascending = order != null && order.equalsIgnoreCase("asc");
@@ -1466,10 +1467,17 @@ class EmbeddedWebServer {
       }
 
       Long sellerUserId = null;
+      Long auctionHighestBidderUserId = null;
       boolean activeOnly = !mineOnly;
-      if (mineOnly) {
+      if (mineOnly || leadingOnly) {
         AuthService.AuthUser user = requireAuth(exchange, null);
-        sellerUserId = user.id();
+        if (mineOnly) {
+          sellerUserId = user.id();
+        }
+        if (leadingOnly) {
+          auctionHighestBidderUserId = user.id();
+          activeOnly = true;
+        }
       }
 
       MarketService.ListingQuery listingQuery = new MarketService.ListingQuery(
@@ -1486,6 +1494,7 @@ class EmbeddedWebServer {
           tradeMode,
           tag,
           tags,
+          auctionHighestBidderUserId,
           limit);
       List<MarketService.ListingView> listings = marketService.listListings(listingQuery);
 

@@ -98,6 +98,7 @@ final class SqliteSchemaProvider implements SchemaProvider {
     assertColumnExists(connection, "orders", "claim_token");
     assertColumnExists(connection, "delivery_queue", "delivered_quantity");
     assertColumnExists(connection, "market_listings", "source_mode");
+    assertColumnExists(connection, "market_listings", "supply_access_protected");
     assertColumnExists(connection, "market_listings", "trade_mode");
     assertColumnExists(connection, "market_item_deliveries", "delivered_quantity");
     assertColumnExists(connection, "mailbox_items", "delivered_quantity");
@@ -105,6 +106,7 @@ final class SqliteSchemaProvider implements SchemaProvider {
 
     assertIndexExists(connection, "orders", "idx_orders_target_server");
     assertIndexExists(connection, "market_listings", "idx_market_listing_auction_due");
+    assertIndexExists(connection, "market_listings", "idx_market_supply_location");
     assertIndexExists(connection, "webshopx_recharge_order", "uniq_recharge_order_id");
   }
 
@@ -128,6 +130,15 @@ final class SqliteSchemaProvider implements SchemaProvider {
       "market_listings",
       "supply_max_stock",
       "INTEGER NULL");
+    addColumnIfMissing(
+      connection,
+      "market_listings",
+      "supply_access_protected",
+      "INTEGER NOT NULL DEFAULT 1");
+    execute(
+      connection,
+      "CREATE INDEX IF NOT EXISTS idx_market_supply_location "
+        + "ON market_listings (source_mode, status, supply_world, supply_x, supply_y, supply_z)");
     addColumnIfMissing(
       connection,
       "market_listings",

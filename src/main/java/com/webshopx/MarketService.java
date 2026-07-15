@@ -572,6 +572,7 @@ class MarketService {
             null,
             null,
             null,
+            null,
         limit));
   }
 
@@ -736,6 +737,10 @@ class MarketService {
     if (query.sellerUserId() != null) {
       sql.append(" AND ml.seller_user_id = ?");
       params.add(query.sellerUserId());
+    }
+    if (query.auctionHighestBidderUserId() != null) {
+      sql.append(" AND ml.auction_highest_bidder_user_id = ?");
+      params.add(query.auctionHighestBidderUserId());
     }
     if (query.currency() != null) {
       sql.append(" AND ml.currency = ?");
@@ -1354,7 +1359,7 @@ class MarketService {
         statement.setLong(26, supplyConfig.initialLoadedAmount());
         statement.setLong(27, 0L);
         statement.setInt(28, supplyConfig.initialLoadedAmount());
-        statement.setTimestamp(29, Timestamp.valueOf(LocalDateTime.now()));
+        statement.setTimestamp(29, Timestamp.valueOf(TimeSupport.utcNow()));
       } else {
         statement.setObject(24, null);
         statement.setObject(25, null);
@@ -1727,7 +1732,7 @@ class MarketService {
     long tax = quote.taxAmount();
     long buyerTotal = quote.buyerTotal();
     long sellerReceive = quote.sellerReceive();
-    LocalDateTime now = LocalDateTime.now();
+    LocalDateTime now = TimeSupport.utcNow();
     DeliveryMode deliveryMode = resolveDeliveryMode(deliveryModeRaw);
     LocalDateTime refundDeadline = deliveryMode == DeliveryMode.IMMEDIATE && cooldownSeconds > 0
         ? now.plusSeconds(cooldownSeconds)
@@ -1861,7 +1866,7 @@ class MarketService {
       throw new ServiceException("buy_escrow_insufficient", "BUY escrow does not cover this fulfill amount");
     }
     long sellerReceive = quote.sellerReceive();
-    LocalDateTime now = LocalDateTime.now();
+    LocalDateTime now = TimeSupport.utcNow();
     DeliveryMode deliveryMode = resolveDeliveryMode(deliveryModeRaw);
     LocalDateTime refundDeadline = deliveryMode == DeliveryMode.IMMEDIATE && cooldownSeconds > 0
         ? now.plusSeconds(cooldownSeconds)
@@ -1969,7 +1974,7 @@ class MarketService {
       throw new ServiceException("listing_unavailable", "Listing does not have remaining quantity");
     }
 
-    LocalDateTime now = LocalDateTime.now();
+    LocalDateTime now = TimeSupport.utcNow();
     if (listing.auctionEndAt() == null || !listing.auctionEndAt().isAfter(now)) {
       throw new ServiceException("auction_closed", "This Dutch auction has ended");
     }
@@ -1977,7 +1982,7 @@ class MarketService {
     if (hasPendingAuctionBids(connection, listing.id())) {
       refundAuctionBidsIfPresent(connection, listing, "dutch-direct-buy");
       listing = readListingForUpdate(connection, listing.id());
-      now = LocalDateTime.now();
+      now = TimeSupport.utcNow();
     }
 
     BoundUser buyer = readBoundUserById(connection, buyerUserId, true);
@@ -2136,7 +2141,7 @@ class MarketService {
     if (listing.sellerUserId() == bidderUserId) {
       throw new ServiceException("invalid_bid", "You cannot bid your own listing");
     }
-    if (listing.auctionEndAt() == null || !listing.auctionEndAt().isAfter(LocalDateTime.now())) {
+    if (listing.auctionEndAt() == null || !listing.auctionEndAt().isAfter(TimeSupport.utcNow())) {
       throw new ServiceException("auction_closed", "This auction has ended");
     }
 
@@ -2196,7 +2201,7 @@ class MarketService {
         updatedAuctionEndAt = maybeApplyAntiSnipingExtension(
             listing.auctionEndAt(),
             auctionParams,
-            LocalDateTime.now());
+            TimeSupport.utcNow());
         updatedAuctionPublicEndAt = updatedAuctionEndAt;
       }
       resolvedAuctionEndAt = updatedAuctionEndAt;
@@ -2285,7 +2290,7 @@ class MarketService {
     if (auctionEndAt == null) {
       return null;
     }
-    LocalDateTime referenceNow = now == null ? LocalDateTime.now() : now;
+    LocalDateTime referenceNow = now == null ? TimeSupport.utcNow() : now;
     if (!auctionEndAt.isAfter(referenceNow)) {
       return auctionEndAt;
     }
@@ -2517,7 +2522,7 @@ class MarketService {
       if (!listing.isAuction() || !"ACTIVE".equalsIgnoreCase(listing.status())) {
         continue;
       }
-      if (listing.auctionEndAt() == null || listing.auctionEndAt().isAfter(LocalDateTime.now())) {
+      if (listing.auctionEndAt() == null || listing.auctionEndAt().isAfter(TimeSupport.utcNow())) {
         continue;
       }
 
@@ -2793,7 +2798,7 @@ class MarketService {
           returnQuantity,
           DeliveryType.UNLIST,
           "PENDING",
-          LocalDateTime.now());
+          TimeSupport.utcNow());
     }
     notices.add(new AuctionSettlementNotice(listing.sellerUuid(), sellerMessage));
   }
@@ -2946,7 +2951,7 @@ class MarketService {
         deliveryQuantity,
         DeliveryType.SALE,
         "PENDING",
-        LocalDateTime.now());
+        TimeSupport.utcNow());
   }
 
   private int applyDynamicPriceDecay(Connection connection) throws SQLException {
@@ -3064,7 +3069,7 @@ class MarketService {
           listing.quantity(),
           DeliveryType.UNLIST,
           "PENDING",
-          LocalDateTime.now());
+          TimeSupport.utcNow());
     }
     return new UnlistResult(listing.id(), listing.currency(), listing.price(), listing.quantity());
   }
@@ -3399,7 +3404,7 @@ class MarketService {
         throw new ServiceException("invalid_auction_start", "Auction start price must be positive");
       }
 
-      LocalDateTime now = LocalDateTime.now();
+      LocalDateTime now = TimeSupport.utcNow();
       switch (auctionAlgorithmType) {
         case ENGLISH_AUCTION_V1 -> {
           if (normalizedAuctionMinIncrement == null) {
@@ -4949,7 +4954,7 @@ class MarketService {
           listing.quantity(),
           DeliveryType.UNLIST,
           "PENDING",
-          LocalDateTime.now());
+          TimeSupport.utcNow());
     }
     return new UnlistResult(listing.id(), listing.currency(), listing.price(), listing.quantity());
   }
@@ -5186,7 +5191,7 @@ class MarketService {
             floorPrice,
             auctionStartedAt,
             auctionEndAt,
-            LocalDateTime.now());
+            TimeSupport.utcNow());
       }
 
       listings.add(new ListingView(
@@ -5718,6 +5723,7 @@ class MarketService {
       TradeMode tradeMode,
       String tag,
       List<String> tags,
+      Long auctionHighestBidderUserId,
       int limit) {
   }
 

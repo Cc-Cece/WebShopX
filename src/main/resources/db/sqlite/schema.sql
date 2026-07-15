@@ -323,6 +323,7 @@ CREATE TABLE IF NOT EXISTS market_listings (
   supply_z INTEGER NULL,
   supply_batch_size INTEGER NULL,
   supply_max_stock INTEGER NULL,
+  supply_access_protected INTEGER NOT NULL DEFAULT 1,
   supply_loaded_total INTEGER NOT NULL DEFAULT 0,
   supply_sold_total INTEGER NOT NULL DEFAULT 0,
   supply_last_loaded_amount INTEGER NULL,
@@ -358,6 +359,7 @@ CREATE INDEX IF NOT EXISTS idx_market_listing_seller ON market_listings (seller_
 CREATE INDEX IF NOT EXISTS idx_market_listing_side_status_created ON market_listings (market_side, status, id);
 CREATE INDEX IF NOT EXISTS idx_market_listing_side_tag_status ON market_listings (market_side, tag_code, status, id);
 CREATE INDEX IF NOT EXISTS idx_market_listing_auction_due ON market_listings (trade_mode, status, auction_end_at);
+CREATE INDEX IF NOT EXISTS idx_market_supply_location ON market_listings (source_mode, status, supply_world, supply_x, supply_y, supply_z);
 
 CREATE TABLE IF NOT EXISTS market_tags (
   code TEXT NOT NULL,

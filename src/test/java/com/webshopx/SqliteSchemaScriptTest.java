@@ -34,8 +34,10 @@ class SqliteSchemaScriptTest {
       assertTrue(tableExists(connection, "market_listings"));
       assertTrue(columnExists(connection, "runtime_config", "version"));
       assertTrue(columnExists(connection, "market_listings", "auction_algorithm"));
+      assertTrue(columnExists(connection, "market_listings", "supply_access_protected"));
       assertTrue(indexExists(connection, "orders", "idx_orders_target_server"));
       assertTrue(indexExists(connection, "market_listings", "idx_market_listing_auction_due"));
+      assertTrue(indexExists(connection, "market_listings", "idx_market_supply_location"));
     } finally {
       Files.deleteIfExists(dbFile);
     }
