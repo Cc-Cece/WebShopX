@@ -1076,6 +1076,18 @@ class SchemaManager {
           "ALTER TABLE market_listings "
               + "ADD COLUMN supply_max_stock INT NULL AFTER supply_batch_size");
     }
+    if (!columnExists(connection, "market_listings", "supply_access_protected")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings "
+              + "ADD COLUMN supply_access_protected BOOLEAN NOT NULL DEFAULT TRUE AFTER supply_max_stock");
+    }
+    if (!indexExists(connection, "market_listings", "idx_market_supply_location")) {
+      execute(
+          connection,
+          "ALTER TABLE market_listings ADD INDEX idx_market_supply_location "
+              + "(source_mode, status, supply_world, supply_x, supply_y, supply_z)");
+    }
     if (!columnExists(connection, "market_listings", "supply_loaded_total")) {
       execute(
           connection,

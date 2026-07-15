@@ -16,6 +16,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.EnchantmentStorageMeta;
+import org.bukkit.inventory.meta.Repairable;
 import org.bukkit.util.io.BukkitObjectInputStream;
 import org.bukkit.util.io.BukkitObjectOutputStream;
 
@@ -109,6 +110,15 @@ final class ItemSnapshotCodec {
         meta.addProperty("durabilityMax", maxDurability);
         meta.addProperty("durabilityPercent", percent);
       }
+    }
+    if (itemMeta.isUnbreakable()) {
+      meta.addProperty("unbreakable", true);
+    }
+    if (itemMeta.hasCustomModelData()) {
+      meta.addProperty("customModelData", itemMeta.getCustomModelData());
+    }
+    if (itemMeta instanceof Repairable repairable && repairable.hasRepairCost()) {
+      meta.addProperty("repairCost", repairable.getRepairCost());
     }
     return meta;
   }

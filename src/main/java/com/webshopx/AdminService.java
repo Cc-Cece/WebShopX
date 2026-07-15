@@ -10,8 +10,10 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -269,6 +271,108 @@ class AdminService {
       }
       return null;
     });
+  }
+
+  UuidMigrationResult migrateUserUuid(long userId, UUID expectedOldUuid, UUID newUuid) {
+    if (expectedOldUuid == null || newUuid == null) {
+      throw new ServiceException("bad_request", "Both oldUuid and newUuid are required");
+    }
+    if (expectedOldUuid.equals(newUuid)) {
+      throw new ServiceException("bad_request", "The new UUID must differ from the old UUID");
+    }
+
+    UuidMigrationResult result = databaseManager.inTransaction(connection -> {
+      UUID currentUuid = lockBoundUuid(connection, userId);
+      if (currentUuid == null) {
+        throw new ServiceException("uuid_not_bound", "The user does not have a bound UUID");
+      }
+      if (!currentUuid.equals(expectedOldUuid)) {
+        throw new ServiceException("uuid_mismatch", "The user's bound UUID has changed; refresh and try again");
+      }
+      ensureUuidAvailable(connection, userId, newUuid);
+
+      String oldValue = expectedOldUuid.toString();
+      String newValue = newUuid.toString();
+      Map<String, Integer> migrated = new LinkedHashMap<>();
+      migrated.put("orders", executeUpdate(connection,
+          "UPDATE orders SET mc_uuid = ? WHERE user_id = ? AND mc_uuid = ? AND status = 'PENDING'",
+          newValue, userId, oldValue));
+      migrated.put("deliveries", executeUpdate(connection,
+          "UPDATE delivery_queue SET mc_uuid = ? WHERE mc_uuid = ? AND status IN ('PENDING', 'WAIT_CLAIM') "
+              + "AND order_id IN (SELECT id FROM orders WHERE user_id = ?)",
+          newValue, oldValue, userId));
+      migrated.put("marketDeliveries", executeUpdate(connection,
+          "UPDATE market_item_deliveries SET target_uuid = ? WHERE target_user_id = ? AND target_uuid = ? "
+              + "AND status IN ('PENDING', 'WAIT_CLAIM')",
+          newValue, userId, oldValue));
+      migrated.put("mailboxItems", executeUpdate(connection,
+          "UPDATE mailbox_items SET target_uuid = ? WHERE user_id = ? AND target_uuid = ? AND status = 'PENDING'",
+          newValue, userId, oldValue));
+      migrated.put("marketListings", executeUpdate(connection,
+          "UPDATE market_listings SET seller_uuid = ? WHERE seller_user_id = ? AND seller_uuid = ? "
+              + "AND status IN ('ACTIVE', 'PAUSED')",
+          newValue, userId, oldValue));
+      migrated.put("marketBuyers", executeUpdate(connection,
+          "UPDATE market_listings SET buyer_uuid = ? WHERE buyer_user_id = ? AND buyer_uuid = ? "
+              + "AND status IN ('ACTIVE', 'PAUSED')",
+          newValue, userId, oldValue));
+      migrated.put("auctionLeaders", executeUpdate(connection,
+          "UPDATE market_listings SET auction_highest_bidder_uuid = ? "
+              + "WHERE auction_highest_bidder_user_id = ? AND auction_highest_bidder_uuid = ? "
+              + "AND status IN ('ACTIVE', 'PAUSED')",
+          newValue, userId, oldValue));
+      migrated.put("leadingBids", executeUpdate(connection,
+          "UPDATE market_bids SET bidder_uuid = ? WHERE bidder_user_id = ? AND bidder_uuid = ? AND status = 'LEADING'",
+          newValue, userId, oldValue));
+      migrated.put("presence", executeUpdate(connection,
+          "DELETE FROM player_presence WHERE mc_uuid = ?", oldValue));
+
+      int accountUpdates = executeUpdate(connection,
+          "UPDATE web_users SET bound_uuid = ? WHERE id = ? AND bound_uuid = ?",
+          newValue, userId, oldValue);
+      if (accountUpdates != 1) {
+        throw new ServiceException("uuid_mismatch", "The user's bound UUID changed during migration");
+      }
+      return new UuidMigrationResult(userId, expectedOldUuid, newUuid, Map.copyOf(migrated));
+    });
+    authService.logoutAllSessions(userId);
+    return result;
+  }
+
+  private UUID lockBoundUuid(Connection connection, long userId) throws SQLException {
+    String sql = "SELECT bound_uuid FROM web_users WHERE id = ?" + sqlProvider.forUpdateClause();
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (!resultSet.next()) {
+          throw new ServiceException("not_found", "User not found");
+        }
+        String value = resultSet.getString("bound_uuid");
+        return value == null ? null : UUID.fromString(value);
+      }
+    }
+  }
+
+  private void ensureUuidAvailable(Connection connection, long userId, UUID uuid) throws SQLException {
+    String sql = "SELECT id FROM web_users WHERE bound_uuid = ? AND id <> ?" + sqlProvider.forUpdateClause();
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, uuid.toString());
+      statement.setLong(2, userId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (resultSet.next()) {
+          throw new ServiceException("uuid_in_use", "The new UUID is already bound to another user");
+        }
+      }
+    }
+  }
+
+  private int executeUpdate(Connection connection, String sql, Object... parameters) throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      for (int index = 0; index < parameters.length; index++) {
+        statement.setObject(index + 1, parameters[index]);
+      }
+      return statement.executeUpdate();
+    }
   }
 
   void forceLogout(long userId) {
@@ -689,5 +793,12 @@ class AdminService {
       LocalDateTime createdAt,
       long shopCoin,
       long gameCoin) {
+  }
+
+  record UuidMigrationResult(
+      long userId,
+      UUID oldUuid,
+      UUID newUuid,
+      Map<String, Integer> migrated) {
   }
 }

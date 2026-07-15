@@ -230,6 +230,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/users/list", this::handleAdminUsersList);
     server.createContext("/api/admin/users/reset-password", this::handleAdminResetPassword);
     server.createContext("/api/admin/users/unbind", this::handleAdminUnbind);
+    server.createContext("/api/admin/users/migrate-uuid", this::handleAdminMigrateUuid);
     server.createContext("/api/admin/users/logout", this::handleAdminForceLogout);
     server.createContext("/api/admin/users/wallet-adjust", this::handleAdminWalletAdjust);
     server.createContext("/api/admin/users/visual-permission", this::handleAdminUserVisualPermission);
@@ -1609,6 +1610,12 @@ class EmbeddedWebServer {
         } else {
           row.addProperty("auctionHighestBidderUuid", listing.auctionHighestBidderUuid().toString());
         }
+        if (listing.auctionHighestBidderName() == null) {
+          row.add("auctionHighestBidderName", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("auctionHighestBidderName", listing.auctionHighestBidderName());
+        }
+        row.addProperty("auctionBidCount", listing.auctionBidCount());
         if (listing.auctionHighestBidId() == null) {
           row.add("auctionHighestBidId", JsonNull.INSTANCE);
         } else {
@@ -1629,6 +1636,7 @@ class EmbeddedWebServer {
         } else {
           row.addProperty("supplyMaxStock", listing.supplyMaxStock());
         }
+        row.addProperty("supplyAccessProtected", listing.supplyAccessProtected());
         row.addProperty("supplyLoadedTotal", listing.supplyLoadedTotal());
         row.addProperty("supplySoldTotal", listing.supplySoldTotal());
         if (listing.supplyLastLoadedAmount() == null) {
@@ -2080,6 +2088,10 @@ class EmbeddedWebServer {
       Integer supplyMaxStock = payload.has("supplyMaxStock") && !payload.get("supplyMaxStock").isJsonNull()
           ? (int) getLong(payload, "supplyMaxStock", 0L)
           : null;
+      Boolean supplyAccessProtected = payload.has("supplyAccessProtected")
+          && !payload.get("supplyAccessProtected").isJsonNull()
+          ? payload.get("supplyAccessProtected").getAsBoolean()
+          : null;
         String tradeMode = getOptionalString(payload, "tradeMode").orElse(null);
         Boolean dynamicPricingEnabled = payload.has("dynamicPricingEnabled")
           && !payload.get("dynamicPricingEnabled").isJsonNull()
@@ -2152,6 +2164,7 @@ class EmbeddedWebServer {
           displayIconPath,
           supplyBatchSize,
           supplyMaxStock,
+          supplyAccessProtected,
           tradeMode,
           dynamicPricingEnabled,
           dynamicAlgorithm,
@@ -2224,6 +2237,7 @@ class EmbeddedWebServer {
       } else {
         response.addProperty("supplyMaxStock", result.supplyMaxStock());
       }
+      response.addProperty("supplyAccessProtected", result.supplyAccessProtected());
       if (result.dynamicBasePrice() == null) {
         response.add("dynamicBasePrice", JsonNull.INSTANCE);
       } else {
@@ -4583,6 +4597,40 @@ class EmbeddedWebServer {
         && now.isBefore(order.refundDeadline());
   }
 
+  private void handleAdminMigrateUuid(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.USER_SUPPORT);
+      long userId = resolveUserId(payload);
+      UUID oldUuid = parseRequiredUuid(payload, "oldUuid");
+      UUID newUuid = parseRequiredUuid(payload, "newUuid");
+      AdminService.UuidMigrationResult result = adminService.migrateUserUuid(userId, oldUuid, newUuid);
+
+      JsonObject migrated = new JsonObject();
+      result.migrated().forEach(migrated::addProperty);
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      response.addProperty("userId", result.userId());
+      response.addProperty("oldUuid", result.oldUuid().toString());
+      response.addProperty("newUuid", result.newUuid().toString());
+      response.add("migrated", migrated);
+      sendJson(exchange, 200, response);
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("userId", userId);
+      detail.addProperty("oldUuid", oldUuid.toString());
+      detail.addProperty("newUuid", newUuid.toString());
+      detail.add("migrated", migrated.deepCopy());
+      adminAuditService.log(admin, "USER_UUID_MIGRATE", "user", String.valueOf(userId), detail, clientIp(exchange));
+    });
+  }
+
   private void handlePublicLocaleMessages(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
       return;
@@ -4894,6 +4942,19 @@ class EmbeddedWebServer {
     return adminService.lookupUser(identifier)
         .map(AdminService.UserSupportView::userId)
         .orElseThrow(() -> new ServiceException("not_found", "User not found"));
+  }
+
+  private UUID parseRequiredUuid(JsonObject payload, String field) {
+    String value = getString(payload, field).trim().toLowerCase(Locale.ROOT);
+    try {
+      UUID uuid = UUID.fromString(value);
+      if (!uuid.toString().equals(value)) {
+        throw new IllegalArgumentException("Non-canonical UUID");
+      }
+      return uuid;
+    } catch (IllegalArgumentException exception) {
+      throw new ServiceException("bad_request", "Invalid UUID field: " + field);
+    }
   }
 
   private String clientIp(HttpExchange exchange) {

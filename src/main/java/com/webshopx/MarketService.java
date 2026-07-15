@@ -710,7 +710,7 @@ class MarketService {
                ml.remark, ml.status, ml.created_at,
                ml.market_side, ml.tag_code, ml.tag_version,
                ml.source_mode, ml.supply_batch_size,
-               ml.supply_max_stock, ml.supply_loaded_total, ml.supply_sold_total,
+               ml.supply_max_stock, ml.supply_access_protected, ml.supply_loaded_total, ml.supply_sold_total,
           ml.supply_last_loaded_amount, ml.supply_last_loaded_at,
             ml.trade_mode, ml.dynamic_pricing_enabled, ml.dynamic_algorithm, ml.dynamic_pricing_mode, ml.dynamic_params_json,
            ml.dynamic_base_price, ml.dynamic_floor_price, ml.dynamic_cap_price, ml.dynamic_price_step,
@@ -719,9 +719,12 @@ class MarketService {
            ml.auction_start_price, ml.auction_min_increment, ml.auction_started_at,
            ml.auction_public_end_at, ml.auction_end_at,
          ml.auction_highest_bid, ml.auction_highest_bidder_user_id,
-         ml.auction_highest_bidder_uuid, ml.auction_highest_bid_id, ml.auction_last_bid_at
+         ml.auction_highest_bidder_uuid, highest_bidder.username AS auction_highest_bidder_name,
+         (SELECT COUNT(*) FROM market_bids bid_count WHERE bid_count.listing_id = ml.id) AS auction_bid_count,
+         ml.auction_highest_bid_id, ml.auction_last_bid_at
         FROM market_listings ml
         JOIN web_users u ON u.id = ml.seller_user_id
+        LEFT JOIN web_users highest_bidder ON highest_bidder.id = ml.auction_highest_bidder_user_id
         WHERE 1=1
         """);
     List<Object> params = new ArrayList<>();
@@ -869,7 +872,7 @@ class MarketService {
                ml.item_material,
                ml.display_name_override, ml.display_material, ml.display_icon_path, ml.item_meta_json,
                ml.remark, ml.status, ml.created_at, ml.sold_at, ml.unlisted_at,
-               ml.source_mode, ml.supply_batch_size, ml.supply_max_stock, ml.supply_loaded_total,
+               ml.source_mode, ml.supply_batch_size, ml.supply_max_stock, ml.supply_access_protected, ml.supply_loaded_total,
                ml.supply_sold_total, ml.supply_last_loaded_amount, ml.supply_last_loaded_at
         FROM market_listings ml
         JOIN web_users us ON us.id = ml.seller_user_id
@@ -1026,6 +1029,7 @@ class MarketService {
       String displayIconPath,
       Integer supplyBatchSize,
       Integer supplyMaxStock,
+      Boolean supplyAccessProtected,
       String tradeMode,
       Boolean dynamicPricingEnabled,
       String dynamicAlgorithm,
@@ -1061,6 +1065,7 @@ class MarketService {
             displayIconPath,
             supplyBatchSize,
             supplyMaxStock,
+            supplyAccessProtected,
             tradeMode,
             dynamicPricingEnabled,
             dynamicAlgorithm,
@@ -3195,6 +3200,7 @@ class MarketService {
       String displayIconPath,
       Integer supplyBatchSize,
       Integer supplyMaxStock,
+      Boolean supplyAccessProtected,
       String tradeModeRaw,
       Boolean dynamicPricingEnabled,
       String dynamicAlgorithmRaw,
@@ -3228,6 +3234,9 @@ class MarketService {
     }
     Integer batch = listing.supplyBatchSize();
     Integer maxStock = listing.supplyMaxStock();
+    boolean accessProtected = supplyAccessProtected == null
+        ? listing.supplyAccessProtected()
+        : supplyAccessProtected;
     int quantityTotal = listing.quantityTotal();
     if (listing.isSupply()) {
       SupplyConfig normalized = normalizeSupplyConfig(
@@ -3568,7 +3577,7 @@ class MarketService {
         UPDATE market_listings
         SET price = ?, currency = ?, tag_code = ?, tag_version = ?, remark = ?, display_name_override = ?,
         display_material = ?, display_icon_path = ?, supply_batch_size = ?, supply_max_stock = ?,
-        quantity_total = ?, trade_mode = ?, dynamic_pricing_enabled = ?, dynamic_algorithm = ?,
+        supply_access_protected = ?, quantity_total = ?, trade_mode = ?, dynamic_pricing_enabled = ?, dynamic_algorithm = ?,
         dynamic_pricing_mode = ?, dynamic_params_json = ?, dynamic_base_price = ?, dynamic_floor_price = ?, dynamic_cap_price = ?,
         dynamic_price_step = ?, dynamic_demand_score = ?, auction_algorithm = ?, auction_params_json = ?,
         auction_start_price = ?, auction_min_increment = ?, auction_started_at = ?, auction_public_end_at = ?,
@@ -3595,46 +3604,47 @@ class MarketService {
       } else {
         statement.setInt(10, maxStock);
       }
-      statement.setInt(11, quantityTotal);
-      statement.setString(12, tradeMode.name());
-      statement.setBoolean(13, normalizedDynamicEnabled);
-      statement.setString(14, dynamicAlgorithmType.name());
-      statement.setString(15, dynamicPricingMode.name());
-      statement.setString(16, MarketAlgorithmRegistry.toJson(normalizedDynamicParams));
-      statement.setObject(17, normalizedDynamicBasePrice);
-      statement.setObject(18, normalizedDynamicFloorPrice);
-      statement.setObject(19, normalizedDynamicCapPrice);
-      statement.setObject(20, normalizedDynamicPriceStep);
-      statement.setLong(21, normalizedDynamicDemandScore);
-      statement.setString(22, auctionAlgorithmType.name());
-      statement.setString(23, MarketAlgorithmRegistry.toJson(normalizedAuctionParams));
-      statement.setObject(24, normalizedAuctionStartPrice);
-      statement.setObject(25, normalizedAuctionMinIncrement);
+      statement.setBoolean(11, accessProtected);
+      statement.setInt(12, quantityTotal);
+      statement.setString(13, tradeMode.name());
+      statement.setBoolean(14, normalizedDynamicEnabled);
+      statement.setString(15, dynamicAlgorithmType.name());
+      statement.setString(16, dynamicPricingMode.name());
+      statement.setString(17, MarketAlgorithmRegistry.toJson(normalizedDynamicParams));
+      statement.setObject(18, normalizedDynamicBasePrice);
+      statement.setObject(19, normalizedDynamicFloorPrice);
+      statement.setObject(20, normalizedDynamicCapPrice);
+      statement.setObject(21, normalizedDynamicPriceStep);
+      statement.setLong(22, normalizedDynamicDemandScore);
+      statement.setString(23, auctionAlgorithmType.name());
+      statement.setString(24, MarketAlgorithmRegistry.toJson(normalizedAuctionParams));
+      statement.setObject(25, normalizedAuctionStartPrice);
+      statement.setObject(26, normalizedAuctionMinIncrement);
       if (normalizedAuctionStartedAt == null) {
-        statement.setTimestamp(26, null);
-      } else {
-        statement.setTimestamp(26, Timestamp.valueOf(normalizedAuctionStartedAt));
-      }
-      if (normalizedAuctionPublicEndAt == null) {
         statement.setTimestamp(27, null);
       } else {
-        statement.setTimestamp(27, Timestamp.valueOf(normalizedAuctionPublicEndAt));
+        statement.setTimestamp(27, Timestamp.valueOf(normalizedAuctionStartedAt));
       }
-      if (normalizedAuctionEndAt == null) {
+      if (normalizedAuctionPublicEndAt == null) {
         statement.setTimestamp(28, null);
       } else {
-        statement.setTimestamp(28, Timestamp.valueOf(normalizedAuctionEndAt));
+        statement.setTimestamp(28, Timestamp.valueOf(normalizedAuctionPublicEndAt));
       }
-      statement.setObject(29, normalizedAuctionHighestBid);
-      statement.setObject(30, normalizedAuctionHighestBidderUserId);
-      statement.setObject(31, normalizedAuctionHighestBidderUuid == null ? null : normalizedAuctionHighestBidderUuid.toString());
-      statement.setObject(32, normalizedAuctionHighestBidId);
-      if (normalizedAuctionLastBidAt == null) {
-        statement.setTimestamp(33, null);
+      if (normalizedAuctionEndAt == null) {
+        statement.setTimestamp(29, null);
       } else {
-        statement.setTimestamp(33, Timestamp.valueOf(normalizedAuctionLastBidAt));
+        statement.setTimestamp(29, Timestamp.valueOf(normalizedAuctionEndAt));
       }
-      statement.setLong(34, listingId);
+      statement.setObject(30, normalizedAuctionHighestBid);
+      statement.setObject(31, normalizedAuctionHighestBidderUserId);
+      statement.setObject(32, normalizedAuctionHighestBidderUuid == null ? null : normalizedAuctionHighestBidderUuid.toString());
+      statement.setObject(33, normalizedAuctionHighestBidId);
+      if (normalizedAuctionLastBidAt == null) {
+        statement.setTimestamp(34, null);
+      } else {
+        statement.setTimestamp(34, Timestamp.valueOf(normalizedAuctionLastBidAt));
+      }
+      statement.setLong(35, listingId);
       statement.executeUpdate();
     }
     MarketListing refreshed = readListingForUpdate(connection, listingId);
@@ -3652,6 +3662,7 @@ class MarketService {
         refreshed.sourceMode(),
         refreshed.supplyBatchSize(),
         refreshed.supplyMaxStock(),
+        refreshed.supplyAccessProtected(),
         refreshed.quantityTotal(),
         refreshed.tradeMode(),
         refreshed.dynamicPricingEnabled(),
@@ -4396,32 +4407,45 @@ class MarketService {
     }
     return databaseManager.withConnection(connection -> {
       String sql = """
-          SELECT ml.id, ml.item_material, ml.status, ml.supply_world, ml.supply_x, ml.supply_y, ml.supply_z,
-                 u.username AS seller_name
+          SELECT ml.id, ml.item_material, ml.status, ml.seller_uuid, ml.supply_access_protected,
+                 ml.supply_world, ml.supply_x, ml.supply_y, ml.supply_z, u.username AS seller_name
           FROM market_listings ml
           JOIN web_users u ON u.id = ml.seller_user_id
           WHERE ml.source_mode = 'SUPPLY'
             AND ml.status IN ('ACTIVE', 'PAUSED')
+            AND ml.supply_world = ?
+            AND ml.supply_y = ?
+            AND ml.supply_x BETWEEN ? AND ?
+            AND ml.supply_z BETWEEN ? AND ?
           """;
-      try (PreparedStatement statement = connection.prepareStatement(sql);
-           ResultSet resultSet = statement.executeQuery()) {
-        while (resultSet.next()) {
-          String world = resultSet.getString("supply_world");
-          Integer x = nullableInt(resultSet, "supply_x");
-          Integer y = nullableInt(resultSet, "supply_y");
-          Integer z = nullableInt(resultSet, "supply_z");
-          if (world == null || x == null || y == null || z == null) {
-            continue;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, block.getWorld().getName());
+        statement.setInt(2, block.getY());
+        statement.setInt(3, block.getX() - 1);
+        statement.setInt(4, block.getX() + 1);
+        statement.setInt(5, block.getZ() - 1);
+        statement.setInt(6, block.getZ() + 1);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          while (resultSet.next()) {
+            String world = resultSet.getString("supply_world");
+            Integer x = nullableInt(resultSet, "supply_x");
+            Integer y = nullableInt(resultSet, "supply_y");
+            Integer z = nullableInt(resultSet, "supply_z");
+            if (world == null || x == null || y == null || z == null) {
+              continue;
+            }
+            if (matchesProtectedBlock(block, new SupplySource(world, x, y, z))) {
+              return new ProtectedSupplyInfo(
+                  resultSet.getLong("id"),
+                  resultSet.getString("seller_name"),
+                  UUID.fromString(resultSet.getString("seller_uuid")),
+                  resultSet.getString("item_material"),
+                  resultSet.getString("status"),
+                  resultSet.getBoolean("supply_access_protected"));
+            }
           }
-          if (matchesProtectedBlock(block, new SupplySource(world, x, y, z))) {
-            return new ProtectedSupplyInfo(
-                resultSet.getLong("id"),
-                resultSet.getString("seller_name"),
-                resultSet.getString("item_material"),
-                resultSet.getString("status"));
-          }
+          return null;
         }
-        return null;
       }
     });
   }
@@ -5038,7 +5062,7 @@ class MarketService {
                market_side, tag_code, tag_version, escrow_total, escrow_remaining,
                item_material, display_name_override, display_material, display_icon_path, raw_item_blob,
                item_meta_json, remark, item_hash, status, source_mode,
-               supply_world, supply_x, supply_y, supply_z, supply_batch_size, supply_max_stock,
+               supply_world, supply_x, supply_y, supply_z, supply_batch_size, supply_max_stock, supply_access_protected,
          supply_loaded_total, supply_sold_total, supply_last_loaded_amount, supply_last_loaded_at,
            trade_mode, dynamic_pricing_enabled, dynamic_algorithm, dynamic_pricing_mode, dynamic_params_json,
            dynamic_base_price, dynamic_floor_price, dynamic_cap_price, dynamic_price_step,
@@ -5088,6 +5112,7 @@ class MarketService {
             nullableInt(resultSet, "supply_z"),
             nullableInt(resultSet, "supply_batch_size"),
             nullableInt(resultSet, "supply_max_stock"),
+            resultSet.getBoolean("supply_access_protected"),
             resultSet.getLong("supply_loaded_total"),
             resultSet.getLong("supply_sold_total"),
             nullableInt(resultSet, "supply_last_loaded_amount"),
@@ -5189,6 +5214,7 @@ class MarketService {
           SupplyMode.fromRaw(resultSet.getString("source_mode")),
           nullableInt(resultSet, "supply_batch_size"),
           nullableInt(resultSet, "supply_max_stock"),
+          resultSet.getBoolean("supply_access_protected"),
           resultSet.getLong("supply_loaded_total"),
           resultSet.getLong("supply_sold_total"),
           nullableInt(resultSet, "supply_last_loaded_amount"),
@@ -5217,6 +5243,8 @@ class MarketService {
             resultSet.getString("auction_highest_bidder_uuid") == null
               ? null
               : UUID.fromString(resultSet.getString("auction_highest_bidder_uuid")),
+            resultSet.getString("auction_highest_bidder_name"),
+            resultSet.getLong("auction_bid_count"),
             nullableLong(resultSet, "auction_highest_bid_id"),
             resultSet.getTimestamp("auction_last_bid_at") == null
               ? null
@@ -5560,6 +5588,7 @@ class MarketService {
       Integer supplyZ,
       Integer supplyBatchSize,
       Integer supplyMaxStock,
+      boolean supplyAccessProtected,
       long supplyLoadedTotal,
       long supplySoldTotal,
       Integer supplyLastLoadedAmount,
@@ -5717,6 +5746,7 @@ class MarketService {
       SupplyMode sourceMode,
       Integer supplyBatchSize,
       Integer supplyMaxStock,
+      boolean supplyAccessProtected,
       long supplyLoadedTotal,
       long supplySoldTotal,
       Integer supplyLastLoadedAmount,
@@ -5741,6 +5771,8 @@ class MarketService {
       Long auctionHighestBid,
       Long auctionHighestBidderUserId,
       UUID auctionHighestBidderUuid,
+      String auctionHighestBidderName,
+      long auctionBidCount,
       Long auctionHighestBidId,
       LocalDateTime auctionLastBidAt) {
   }
@@ -5868,6 +5900,7 @@ class MarketService {
       SupplyMode sourceMode,
       Integer supplyBatchSize,
       Integer supplyMaxStock,
+      boolean supplyAccessProtected,
       int quantityTotal,
       TradeMode tradeMode,
       boolean dynamicPricingEnabled,
@@ -5928,8 +5961,10 @@ class MarketService {
   record ProtectedSupplyInfo(
       long listingId,
       String ownerName,
+      UUID ownerUuid,
       String itemMaterial,
-      String status) {
+      String status,
+      boolean accessProtected) {
   }
 
   record SupplySourceDescriptor(String worldName, int x, int y, int z) {

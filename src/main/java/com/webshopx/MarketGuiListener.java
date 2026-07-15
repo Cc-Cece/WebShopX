@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import org.bukkit.block.Block;
+import org.bukkit.block.Container;
+import org.bukkit.block.DoubleChest;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -14,6 +16,8 @@ import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.inventory.InventoryMoveItemEvent;
+import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 
@@ -37,6 +41,12 @@ class MarketGuiListener implements Listener {
   @EventHandler
   public void onInventoryClick(InventoryClickEvent event) {
     if (!(event.getWhoClicked() instanceof Player player)) {
+      return;
+    }
+    MarketService.ProtectedSupplyInfo supplyInfo = protectedSupplyInfo(event.getView().getTopInventory());
+    if (isDeniedSupplyAccess(player, supplyInfo)) {
+      event.setCancelled(true);
+      sendProtectedSupplyMessage(player, supplyInfo);
       return;
     }
     if (!(event.getView().getTopInventory().getHolder() instanceof MarketGuiService.GuiHolder holder)) {
@@ -72,6 +82,14 @@ class MarketGuiListener implements Listener {
 
   @EventHandler
   public void onInventoryDrag(InventoryDragEvent event) {
+    if (event.getWhoClicked() instanceof Player player) {
+      MarketService.ProtectedSupplyInfo supplyInfo = protectedSupplyInfo(event.getView().getTopInventory());
+      if (isDeniedSupplyAccess(player, supplyInfo)) {
+        event.setCancelled(true);
+        sendProtectedSupplyMessage(player, supplyInfo);
+        return;
+      }
+    }
     if (!(event.getView().getTopInventory().getHolder() instanceof MarketGuiService.GuiHolder holder)) {
       return;
     }
@@ -85,6 +103,65 @@ class MarketGuiListener implements Listener {
         return;
       }
     }
+  }
+
+  @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+  public void onInventoryOpen(InventoryOpenEvent event) {
+    if (!(event.getPlayer() instanceof Player player)) {
+      return;
+    }
+    MarketService.ProtectedSupplyInfo info = protectedSupplyInfo(event.getInventory());
+    if (!isDeniedSupplyAccess(player, info)) {
+      return;
+    }
+    event.setCancelled(true);
+    sendProtectedSupplyMessage(player, info);
+  }
+
+  @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+  public void onInventoryMoveItem(InventoryMoveItemEvent event) {
+    MarketService.ProtectedSupplyInfo info = protectedSupplyInfo(event.getSource());
+    if (info != null && info.accessProtected()) {
+      event.setCancelled(true);
+    }
+  }
+
+  private MarketService.ProtectedSupplyInfo protectedSupplyInfo(org.bukkit.inventory.Inventory inventory) {
+    if (inventory == null) {
+      return null;
+    }
+    Block block = null;
+    if (inventory.getHolder() instanceof Container container) {
+      block = container.getBlock();
+    } else if (inventory.getHolder() instanceof DoubleChest doubleChest) {
+      if (doubleChest.getLeftSide() instanceof Container container) {
+        block = container.getBlock();
+      } else if (doubleChest.getRightSide() instanceof Container container) {
+        block = container.getBlock();
+      }
+    } else if (inventory.getLocation() != null) {
+      block = inventory.getLocation().getBlock();
+    }
+    return block == null ? null : marketService.findProtectedSupplyInfo(block);
+  }
+
+  private boolean isDeniedSupplyAccess(Player player, MarketService.ProtectedSupplyInfo info) {
+    return info != null && info.accessProtected() && !player.getUniqueId().equals(info.ownerUuid());
+  }
+
+  private void sendProtectedSupplyMessage(Player player, MarketService.ProtectedSupplyInfo info) {
+    if (info == null) {
+      return;
+    }
+    player.sendMessage(
+        messageService.format(
+            player,
+            "chat.market.protected_supply",
+            java.util.Map.of(
+                "ownerName", info.ownerName(),
+                "itemMaterial", info.itemMaterial(),
+                "listingId", info.listingId(),
+                "status", marketGuiService.marketStatusLabel(player, info.status()))));
   }
 
   @EventHandler
