@@ -130,6 +130,7 @@ class MarketTagService {
 
   List<TagMeta> listTagMeta(Connection connection) throws SQLException {
     syncDictionary(connection);
+    TagConfig config = loadConfig();
     Map<String, long[]> activeCounts = loadActiveCounts(connection);
     List<TagMeta> result = new ArrayList<>();
     String sql = """
@@ -141,12 +142,15 @@ class MarketTagService {
          ResultSet resultSet = statement.executeQuery()) {
       while (resultSet.next()) {
         String code = resultSet.getString("code");
+        TagDefinition definition = config.tagsByCode().get(code);
         long[] counts = activeCounts.getOrDefault(code, new long[] {0L, 0L});
         result.add(new TagMeta(
             code,
             resultSet.getString("display_name"),
             resultSet.getBoolean("enabled"),
             resultSet.getInt("priority"),
+            definition == null ? "primary" : definition.color(),
+            definition == null ? "" : definition.description(),
             counts[0],
             counts[1]));
       }
@@ -247,12 +251,14 @@ class MarketTagService {
         continue;
       }
       String displayName = readString(row, code, "displayName", "display-name");
+      String color = readString(row, "primary", "color");
+      String description = readString(row, "", "description");
       int priority = readInt(row, 1000, "priority");
       boolean enabled = readBoolean(row, true, "enabled");
       JsonObject match = readObject(row, "match");
       Set<String> materialIn = normalizeMaterialSet(readArray(match, "materialIn", "material-in"));
       Set<String> nbtHasAny = normalizeKeywordSet(readArray(match, "nbtHasAny", "nbt-has-any"));
-      byCode.put(code, new TagDefinition(code, displayName, enabled, priority, materialIn, nbtHasAny));
+      byCode.put(code, new TagDefinition(code, displayName, enabled, priority, color, description, materialIn, nbtHasAny));
     }
 
     List<TagDefinition> ordered = new ArrayList<>(byCode.values());
@@ -400,16 +406,7 @@ class MarketTagService {
   }
 
   private String normalizeTagCode(String raw) {
-    if (raw == null) {
-      return null;
-    }
-    String normalized = raw.trim().toLowerCase(Locale.ROOT);
-    if (normalized.isEmpty()) {
-      return null;
-    }
-    normalized = normalized.replaceAll("[^a-z0-9_-]+", "_");
-    normalized = normalized.replaceAll("^_+|_+$", "");
-    return normalized.isEmpty() ? null : normalized;
+    return MarketTagCodes.normalize(raw);
   }
 
   private record CachedConfig(long version, TagConfig config) {
@@ -427,6 +424,8 @@ class MarketTagService {
       String displayName,
       boolean enabled,
       int priority,
+      String color,
+      String description,
       Set<String> materialIn,
       Set<String> nbtHasAny) {
   }
@@ -439,6 +438,8 @@ class MarketTagService {
       String displayName,
       boolean enabled,
       int priority,
+      String color,
+      String description,
       long activeSellCount,
       long activeBuyCount) {
   }

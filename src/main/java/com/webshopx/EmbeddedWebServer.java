@@ -167,6 +167,7 @@ class EmbeddedWebServer {
     server.createContext("/api/meta/materials", this::handleMaterialMeta);
     server.createContext("/api/meta/material-overrides", this::handleMaterialOverrideMeta);
     server.createContext("/api/meta/market-tags", this::handleMarketTagsMeta);
+    server.createContext("/api/market/auction-display-settings", this::handleAuctionDisplaySettings);
     server.createContext("/api/meta/locales", this::handleMetaLocales);
     server.createContext("/api/locales/", this::handlePublicLocaleMessages);
     server.createContext("/api/leaderboard/config", this::handleLeaderboardConfig);
@@ -216,6 +217,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/market/limitation-config", this::handleAdminMarketLimitationConfig);
     server.createContext("/api/admin/system/webshop", this::handleAdminWebshopRuntimeUpdate);
     server.createContext("/api/admin/system/market", this::handleAdminMarketRuntimeUpdate);
+    server.createContext("/api/admin/system/auction-display", this::handleAdminAuctionDisplayUpdate);
     server.createContext("/api/admin/system/maintenance", this::handleAdminMaintenanceSettingsUpdate);
     server.createContext("/api/admin/system/logging", this::handleAdminLoggingSettingsUpdate);
     server.createContext("/api/admin/system/broadcast", this::handleAdminBroadcastSettingsUpdate);
@@ -888,6 +890,7 @@ class EmbeddedWebServer {
       JsonObject response = new JsonObject();
       response.addProperty("orderNo", status.orderNo());
       response.addProperty("status", status.status());
+      response.addProperty("deliverySource", status.deliverySource());
       response.addProperty("playerOnline", status.playerOnline());
       
       JsonArray array = new JsonArray();
@@ -1153,6 +1156,8 @@ class EmbeddedWebServer {
         row.addProperty("displayName", tag.displayName());
         row.addProperty("enabled", tag.enabled());
         row.addProperty("priority", tag.priority());
+        row.addProperty("color", tag.color());
+        row.addProperty("description", tag.description());
         JsonObject activeCount = new JsonObject();
         activeCount.addProperty("SELL", tag.activeSellCount());
         activeCount.addProperty("BUY", tag.activeBuyCount());
@@ -1997,6 +2002,17 @@ class EmbeddedWebServer {
       response.add("pricePoints", points);
       sendJson(exchange, 200, response);
     });
+  }
+
+  private void handleAuctionDisplaySettings(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () ->
+        sendJson(exchange, 200, runtimeConfigService.readAuctionDisplayConfig().config()));
   }
 
   private void handleMarketUnlist(HttpExchange exchange) throws IOException {
@@ -3095,6 +3111,7 @@ class EmbeddedWebServer {
       response.add("deployment", deploymentModeJson(settings));
       response.add("marketTagsConfig", runtimeConfigService.readMarketTagsConfig().config());
       response.add("marketLimitationConfig", runtimeConfigService.readMarketLimitationConfig().config());
+      response.add("auctionDisplay", runtimeConfigService.readAuctionDisplayConfig().config());
       response.add("leaderboard", leaderboardSettingsJson(settings));
       response.add("webshopRuntime", webshopRuntimeJson(settings));
       response.add("rechargePayment", rechargePaymentSettingsJson(settings.paymentSettings()));
@@ -4644,6 +4661,32 @@ class EmbeddedWebServer {
     return "PENDING".equalsIgnoreCase(order.status())
         && order.refundDeadline() != null
         && now.isBefore(order.refundDeadline());
+  }
+
+  private void handleAdminAuctionDisplayUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      int chartPoints = clampInt(getLong(payload, "chartPoints", 10L), 1, 100, "chartPoints");
+      int timelineEntries = clampInt(getLong(payload, "timelineEntries", 5L), 1, 100, "timelineEntries");
+      long version = runtimeConfigService.updateAuctionDisplayConfig(chartPoints, timelineEntries);
+      publishRuntimeConfigRefresh(version);
+      JsonObject detail = new JsonObject();
+      detail.addProperty("chartPoints", chartPoints);
+      detail.addProperty("timelineEntries", timelineEntries);
+      adminAuditService.log(admin, "AUCTION_DISPLAY_UPDATE", "auction_display", null, detail, clientIp(exchange));
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      response.addProperty("chartPoints", chartPoints);
+      response.addProperty("timelineEntries", timelineEntries);
+      sendJson(exchange, 200, response);
+    });
   }
 
   private void handleAdminMigrateUuid(HttpExchange exchange) throws IOException {

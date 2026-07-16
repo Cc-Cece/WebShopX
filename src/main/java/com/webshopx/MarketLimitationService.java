@@ -408,16 +408,7 @@ class MarketLimitationService {
   }
 
   private String normalizeTagCode(String raw) {
-    if (raw == null) {
-      return null;
-    }
-    String normalized = raw.trim().toLowerCase(Locale.ROOT);
-    if (normalized.isEmpty()) {
-      return null;
-    }
-    normalized = normalized.replaceAll("[^a-z0-9_-]+", "_");
-    normalized = normalized.replaceAll("^_+|_+$", "");
-    return normalized.isEmpty() ? null : normalized;
+    return MarketTagCodes.normalize(raw);
   }
 
   private record CachedConfig(long version, LimitationConfig config) {

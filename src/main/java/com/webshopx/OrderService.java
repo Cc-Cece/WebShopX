@@ -2497,6 +2497,7 @@ class OrderService {
     return databaseManager.withConnection(connection -> {
       UUID playerUuid = null;
       String orderStatus = "";
+      String deliverySource = "ORDER";
       long orderId = -1L;
       long tradeIdParsed = -1L;
 
@@ -2506,7 +2507,9 @@ class OrderService {
         } catch (NumberFormatException e) {
           throw new ServiceException("order_missing", "Order not found");
         }
-        String queryTradeSql = "SELECT id, status, buyer_uuid FROM market_trades WHERE id = ? AND buyer_user_id = ?";
+        String queryTradeSql = "SELECT mt.id, mt.status, mt.buyer_uuid, ml.trade_mode "
+            + "FROM market_trades mt JOIN market_listings ml ON ml.id = mt.listing_id "
+            + "WHERE mt.id = ? AND mt.buyer_user_id = ?";
         try (PreparedStatement statement = connection.prepareStatement(queryTradeSql)) {
           statement.setLong(1, tradeIdParsed);
           statement.setLong(2, userId);
@@ -2519,6 +2522,9 @@ class OrderService {
               playerUuid = UUID.fromString(buyerUuidRaw);
             }
             orderStatus = resultSet.getString("status");
+            deliverySource = "AUCTION".equalsIgnoreCase(resultSet.getString("trade_mode"))
+                ? "MARKET_AUCTION"
+                : "MARKET_DIRECT";
           }
         }
       } else {
@@ -2635,7 +2641,7 @@ class OrderService {
         }
       }
 
-      return new DeliveryStatusResponse(normalized, orderStatus, playerOnline, tasks);
+      return new DeliveryStatusResponse(normalized, orderStatus, deliverySource, playerOnline, tasks);
     });
   }
 
@@ -2686,6 +2692,7 @@ class OrderService {
   record DeliveryStatusResponse(
       String orderNo,
       String status,
+      String deliverySource,
       boolean playerOnline,
       List<DeliveryTaskView> deliveryTasks
   ) {}

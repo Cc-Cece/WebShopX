@@ -29,6 +29,7 @@ class RuntimeConfigService {
   private static final String KEY_MARKET_RUNTIME = "market_runtime";
   private static final String KEY_MARKET_TAGS = "market_tags";
   private static final String KEY_MARKET_LIMITATION = "market_limitation";
+  private static final String KEY_AUCTION_DISPLAY = "auction_display";
   private static final String KEY_MAINTENANCE = "maintenance";
   private static final String KEY_LOGGING = "logging";
   private static final String KEY_BROADCAST = "broadcast";
@@ -101,6 +102,7 @@ class RuntimeConfigService {
       insertIfMissing(connection, KEY_MARKET_RUNTIME, serializeMarketRuntime(settings));
       insertIfMissing(connection, KEY_MARKET_TAGS, EMPTY_JSON_OBJECT);
       insertIfMissing(connection, KEY_MARKET_LIMITATION, EMPTY_JSON_OBJECT);
+      insertIfMissing(connection, KEY_AUCTION_DISPLAY, defaultAuctionDisplayConfig());
       insertIfMissing(connection, KEY_MAINTENANCE, serializeMaintenance(settings.maintenanceSettings()));
       insertIfMissing(connection, KEY_LOGGING, serializeLogging(settings.loggingSettings()));
       insertIfMissing(connection, KEY_BROADCAST, serializeBroadcast(settings.broadcastSettings()));
@@ -201,6 +203,26 @@ class RuntimeConfigService {
   ConfigDocument readMarketLimitationConfig() {
     return databaseManager.withConnection(connection ->
         readConfigObject(connection, KEY_MARKET_LIMITATION, EMPTY_JSON_OBJECT));
+  }
+
+  ConfigDocument readAuctionDisplayConfig() {
+    return databaseManager.withConnection(connection ->
+        readConfigObject(connection, KEY_AUCTION_DISPLAY, defaultAuctionDisplayConfig()));
+  }
+
+  long updateAuctionDisplayConfig(int chartPoints, int timelineEntries) {
+    JsonObject config = new JsonObject();
+    config.addProperty("chartPoints", Math.max(1, Math.min(100, chartPoints)));
+    config.addProperty("timelineEntries", Math.max(1, Math.min(100, timelineEntries)));
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_AUCTION_DISPLAY, gson.toJson(config)));
+  }
+
+  private String defaultAuctionDisplayConfig() {
+    JsonObject config = new JsonObject();
+    config.addProperty("chartPoints", 10);
+    config.addProperty("timelineEntries", 5);
+    return gson.toJson(config);
   }
 
   long updateMarketTagsConfig(JsonObject config) {
