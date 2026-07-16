@@ -46,29 +46,55 @@ class MarketTagService {
       byte[] rawItemBlob,
       String itemMetaJson,
       String itemMaterial) {
-    TagConfig config = loadConfig();
-    String requested = normalizeTagCode(requestedTag);
-    ItemStack itemStack = toItemStack(rawItemBlob, itemMaterial);
+    return resolveTags(
+        requestedTag == null ? Collections.emptyList() : List.of(requestedTag),
+        rawItemBlob,
+        itemMetaJson,
+        itemMaterial).get(0);
+  }
 
-    if (requested != null) {
-      TagDefinition definition = config.tagsByCode().get(requested);
-      if (definition == null) {
-        if (requested.equals(config.defaultTag()) || requested.equals(FALLBACK_DEFAULT_TAG)) {
-          String fallbackCode = requested.equals(config.defaultTag()) ? config.defaultTag() : FALLBACK_DEFAULT_TAG;
-          return new TagAssignment(fallbackCode, config.tagVersion());
+  List<TagAssignment> resolveTags(
+      List<String> requestedTags,
+      byte[] rawItemBlob,
+      String itemMetaJson,
+      String itemMaterial) {
+    TagConfig config = loadConfig();
+    ItemStack itemStack = toItemStack(rawItemBlob, itemMaterial);
+    LinkedHashMap<String, TagAssignment> assignments = new LinkedHashMap<>();
+
+    if (requestedTags != null && !requestedTags.isEmpty()) {
+      if (!config.playersCanSelectTags()) {
+        throw new ServiceException("tag_selection_disabled", "Players cannot select tags");
+      }
+      for (String raw : requestedTags) {
+        String requested = normalizeTagCode(raw);
+        if (requested == null) {
+          continue;
         }
-        throw new ServiceException("invalid_tag", "Tag does not exist");
+        TagDefinition definition = config.tagsByCode().get(requested);
+        if (definition == null) {
+          throw new ServiceException("invalid_tag", "Tag does not exist");
+        }
+        if (!definition.enabled()) {
+          throw new ServiceException("tag_disabled", "Tag is disabled");
+        }
+        if (FALLBACK_DEFAULT_TAG.equals(definition.code())) {
+          continue;
+        }
+        assignments.putIfAbsent(
+            definition.code(),
+            new TagAssignment(definition.code(), config.tagVersion(), "MANUAL"));
       }
-      if (!definition.enabled()) {
-        throw new ServiceException("tag_disabled", "Tag is disabled");
-      }
-      return new TagAssignment(definition.code(), config.tagVersion());
     }
 
     String itemMaterialName = itemStack.getType().name();
     String nbtSearchText = buildNbtSearchText(itemStack, itemMetaJson);
     for (TagDefinition definition : config.orderedTags()) {
       if (!definition.enabled()) {
+        continue;
+      }
+      if (FALLBACK_DEFAULT_TAG.equals(definition.code())
+          || (definition.materialIn().isEmpty() && definition.nbtHasAny().isEmpty())) {
         continue;
       }
       if (!definition.materialIn().isEmpty()
@@ -87,15 +113,29 @@ class MarketTagService {
           continue;
         }
       }
-      return new TagAssignment(definition.code(), config.tagVersion());
+      assignments.putIfAbsent(
+          definition.code(),
+          new TagAssignment(definition.code(), config.tagVersion(), "AUTO"));
     }
+    if (assignments.size() > config.maxTagsPerItem()) {
+      throw new ServiceException(
+          "tag_limit_exceeded",
+          "A listing can have at most " + config.maxTagsPerItem() + " tags");
+    }
+    if (assignments.isEmpty()) {
+      assignments.put(
+          FALLBACK_DEFAULT_TAG,
+          new TagAssignment(FALLBACK_DEFAULT_TAG, config.tagVersion(), "SYSTEM"));
+    }
+    return List.copyOf(assignments.values());
+  }
 
-    String fallbackCode = config.defaultTag();
-    TagDefinition fallback = config.tagsByCode().get(fallbackCode);
-    if (fallback != null && fallback.enabled()) {
-      return new TagAssignment(fallback.code(), config.tagVersion());
-    }
-    return new TagAssignment(FALLBACK_DEFAULT_TAG, config.tagVersion());
+  int maxTagsPerItem() {
+    return loadConfig().maxTagsPerItem();
+  }
+
+  boolean playersCanSelectTags() {
+    return loadConfig().playersCanSelectTags();
   }
 
   int currentTagVersion() {
@@ -104,6 +144,11 @@ class MarketTagService {
 
   void syncDictionary(Connection connection) throws SQLException {
     TagConfig config = loadConfig();
+    try (PreparedStatement disable = connection.prepareStatement(
+        "UPDATE market_tags SET enabled = FALSE WHERE code <> ?")) {
+      disable.setString(1, FALLBACK_DEFAULT_TAG);
+      disable.executeUpdate();
+    }
     String upsertSql = marketTagUpsertSql();
     try (PreparedStatement statement = connection.prepareStatement(upsertSql)) {
       for (TagDefinition definition : config.orderedTags()) {
@@ -149,6 +194,9 @@ class MarketTagService {
             resultSet.getString("display_name"),
             resultSet.getBoolean("enabled"),
             resultSet.getInt("priority"),
+            definition == null ? null : definition.id(),
+            definition != null,
+            definition != null && definition.system(),
             definition == null ? "primary" : definition.color(),
             definition == null ? "" : definition.description(),
             counts[0],
@@ -161,10 +209,11 @@ class MarketTagService {
   private Map<String, long[]> loadActiveCounts(Connection connection) throws SQLException {
     Map<String, long[]> counts = new LinkedHashMap<>();
     String sql = """
-        SELECT market_side, tag_code, COUNT(*) AS total
-        FROM market_listings
-        WHERE status = 'ACTIVE'
-        GROUP BY market_side, tag_code
+        SELECT ml.market_side, mlt.tag_code, COUNT(*) AS total
+        FROM market_listings ml
+        JOIN market_listing_tags mlt ON mlt.listing_id = ml.id
+        WHERE ml.status = 'ACTIVE'
+        GROUP BY ml.market_side, mlt.tag_code
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql);
          ResultSet resultSet = statement.executeQuery()) {
@@ -234,6 +283,8 @@ class MarketTagService {
 
   private TagConfig parseConfig(JsonObject root) {
     int tagVersion = Math.max(1, readInt(root, 1, "tagVersion", "tag-version", "version"));
+    int maxTagsPerItem = Math.max(1, Math.min(10, readInt(root, 3, "maxTagsPerItem")));
+    boolean playersCanSelectTags = readBoolean(root, true, "playersCanSelectTags");
     String defaultTag = normalizeTagCode(readString(root, null, "defaultTag", "default-tag"));
     if (defaultTag == null) {
       defaultTag = FALLBACK_DEFAULT_TAG;
@@ -251,6 +302,8 @@ class MarketTagService {
         continue;
       }
       String displayName = readString(row, code, "displayName", "display-name");
+      String id = readString(row, code, "id");
+      boolean system = readBoolean(row, false, "system");
       String color = readString(row, "primary", "color");
       String description = readString(row, "", "description");
       int priority = readInt(row, 1000, "priority");
@@ -258,7 +311,7 @@ class MarketTagService {
       JsonObject match = readObject(row, "match");
       Set<String> materialIn = normalizeMaterialSet(readArray(match, "materialIn", "material-in"));
       Set<String> nbtHasAny = normalizeKeywordSet(readArray(match, "nbtHasAny", "nbt-has-any"));
-      byCode.put(code, new TagDefinition(code, displayName, enabled, priority, color, description, materialIn, nbtHasAny));
+      byCode.put(code, new TagDefinition(id, code, displayName, enabled, system, priority, color, description, materialIn, nbtHasAny));
     }
 
     List<TagDefinition> ordered = new ArrayList<>(byCode.values());
@@ -270,7 +323,13 @@ class MarketTagService {
       return left.code().compareTo(right.code());
     });
 
-    return new TagConfig(tagVersion, defaultTag, byCode, ordered);
+    return new TagConfig(
+        tagVersion,
+        defaultTag,
+        maxTagsPerItem,
+        playersCanSelectTags,
+        byCode,
+        ordered);
   }
 
   private JsonObject readObject(JsonObject root, String... keys) {
@@ -415,14 +474,18 @@ class MarketTagService {
   private record TagConfig(
       int tagVersion,
       String defaultTag,
+      int maxTagsPerItem,
+      boolean playersCanSelectTags,
       Map<String, TagDefinition> tagsByCode,
       List<TagDefinition> orderedTags) {
   }
 
   private record TagDefinition(
+      String id,
       String code,
       String displayName,
       boolean enabled,
+      boolean system,
       int priority,
       String color,
       String description,
@@ -430,7 +493,7 @@ class MarketTagService {
       Set<String> nbtHasAny) {
   }
 
-  record TagAssignment(String code, int tagVersion) {
+  record TagAssignment(String code, int tagVersion, String source) {
   }
 
   record TagMeta(
@@ -438,6 +501,9 @@ class MarketTagService {
       String displayName,
       boolean enabled,
       int priority,
+      String id,
+      boolean configured,
+      boolean system,
       String color,
       String description,
       long activeSellCount,

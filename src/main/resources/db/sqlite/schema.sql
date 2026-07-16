@@ -372,6 +372,21 @@ CREATE TABLE IF NOT EXISTS market_tags (
 );
 CREATE INDEX IF NOT EXISTS idx_market_tags_enabled_priority ON market_tags (enabled, priority, code);
 
+CREATE TABLE IF NOT EXISTS market_listing_tags (
+  listing_id INTEGER NOT NULL,
+  tag_code TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'MANUAL',
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (listing_id, tag_code),
+  CONSTRAINT fk_market_listing_tags_listing
+    FOREIGN KEY (listing_id) REFERENCES market_listings(id) ON DELETE CASCADE,
+  CONSTRAINT fk_market_listing_tags_tag
+    FOREIGN KEY (tag_code) REFERENCES market_tags(code) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_market_listing_tags_tag
+  ON market_listing_tags (tag_code, listing_id);
+
 CREATE TABLE IF NOT EXISTS market_bids (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   listing_id INTEGER NOT NULL,

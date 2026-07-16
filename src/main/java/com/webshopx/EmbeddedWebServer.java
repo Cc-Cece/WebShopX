@@ -28,8 +28,10 @@ import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -1156,6 +1158,13 @@ class EmbeddedWebServer {
         row.addProperty("displayName", tag.displayName());
         row.addProperty("enabled", tag.enabled());
         row.addProperty("priority", tag.priority());
+        if (tag.id() == null) {
+          row.add("id", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("id", tag.id());
+        }
+        row.addProperty("configured", tag.configured());
+        row.addProperty("system", tag.system());
         row.addProperty("color", tag.color());
         row.addProperty("description", tag.description());
         JsonObject activeCount = new JsonObject();
@@ -1168,6 +1177,8 @@ class EmbeddedWebServer {
       }
       JsonObject response = new JsonObject();
       response.add("tags", rows);
+      response.addProperty("maxTagsPerItem", marketService.maxTagsPerItem());
+      response.addProperty("playersCanSelectTags", marketService.playersCanSelectTags());
       sendJson(exchange, 200, response);
     });
   }
@@ -1534,6 +1545,11 @@ class EmbeddedWebServer {
         } else {
           row.addProperty("tag", listing.tag());
         }
+        JsonArray listingTags = new JsonArray();
+        for (String tagCode : marketService.listListingTags(listing.id())) {
+          listingTags.add(tagCode);
+        }
+        row.add("tags", listingTags);
         row.addProperty("tagVersion", listing.tagVersion());
         row.addProperty("escrowTotal", listing.escrowTotal());
         row.addProperty("escrowRemaining", listing.escrowRemaining());
@@ -1706,6 +1722,11 @@ class EmbeddedWebServer {
           ? (int) getLong(payload, "quantity", 1L)
           : (int) getLong(payload, "amount", 1L);
       String tag = getOptionalString(payload, "tag").orElse(null);
+      List<String> requestedTags = getStringList(payload, "tags");
+      if (requestedTags.isEmpty() && tag != null) {
+        requestedTags = List.of(tag);
+      }
+      final List<String> selectedTags = requestedTags;
       String tradeMode = getOptionalString(payload, "tradeMode")
           .orElse("DIRECT")
           .trim()
@@ -1726,14 +1747,14 @@ class EmbeddedWebServer {
             price,
             quantity,
             currency,
-            tag);
+            selectedTags);
       } else {
         if (!tradeMode.equals("DIRECT")) {
           throw new ServiceException("invalid_trade_mode", "SELL listing creation currently supports DIRECT only");
         }
         result = awaitPlayerTask(
             user.boundUuid(),
-            player -> marketService.createListingFromPlayer(player, price, quantity, currency, tag));
+            player -> marketService.createListingFromPlayer(player, price, quantity, currency, selectedTags));
       }
 
       JsonObject response = new JsonObject();
@@ -2150,6 +2171,10 @@ class EmbeddedWebServer {
       String tag = payload.has("tag")
           ? getOptionalString(payload, "tag").orElse(null)
           : null;
+      List<String> requestedTags = getStringList(payload, "tags");
+      if (requestedTags.isEmpty() && tag != null) {
+        requestedTags = List.of(tag);
+      }
       String remark = getOptionalString(payload, "remark").orElse(null);
       String displayNameOverride = payload.has("displayNameOverride")
           ? getOptionalString(payload, "displayNameOverride").orElse(null)
@@ -2235,7 +2260,7 @@ class EmbeddedWebServer {
           listingId,
           price,
           currency,
-          tag,
+          requestedTags,
           remark,
           displayNameOverride,
           displayMaterial,
@@ -4594,11 +4619,7 @@ class EmbeddedWebServer {
     String relativePath = path.equals("/") ? "index.html" : path.substring(1);
 
     if (!relativePath.contains(".")) {
-      if (relativePath.startsWith("admin")) {
-        relativePath = "admin.html";
-      } else {
-        relativePath = "index.html";
-      }
+      relativePath = "index.html";
     }
 
     if (relativePath.contains("..")) {
@@ -5414,6 +5435,32 @@ class EmbeddedWebServer {
       return 0;
     }
     return value.getAsJsonArray().size();
+  }
+
+  private List<String> getStringList(JsonObject payload, String key) {
+    if (payload == null || key == null || !payload.has(key) || payload.get(key).isJsonNull()) {
+      return Collections.emptyList();
+    }
+    JsonElement value = payload.get(key);
+    LinkedHashSet<String> result = new LinkedHashSet<>();
+    if (value.isJsonArray()) {
+      for (JsonElement entry : value.getAsJsonArray()) {
+        if (entry != null && !entry.isJsonNull()) {
+          String text = entry.getAsString().trim();
+          if (!text.isEmpty()) {
+            result.add(text);
+          }
+        }
+      }
+    } else if (value.isJsonPrimitive()) {
+      for (String entry : value.getAsString().split(",")) {
+        String text = entry.trim();
+        if (!text.isEmpty()) {
+          result.add(text);
+        }
+      }
+    }
+    return List.copyOf(result);
   }
 
   private long queryLong(Connection connection, String sql) throws SQLException {

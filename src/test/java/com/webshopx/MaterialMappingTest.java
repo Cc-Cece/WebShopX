@@ -24,8 +24,9 @@ class MaterialMappingTest {
 
   @Test
   void materialZhMapShouldContainResolvableMaterialKeys() {
-    InputStream stream = MaterialMappingTest.class.getClassLoader().getResourceAsStream("web/material_zh.json");
-    assertNotNull(stream, "web/material_zh.json not found in test resources");
+    InputStream stream = MaterialMappingTest.class.getClassLoader()
+        .getResourceAsStream("web/i18n/materials/zh-CN.json");
+    assertNotNull(stream, "web/i18n/materials/zh-CN.json not found in test resources");
     JsonObject map = JsonParser.parseReader(new InputStreamReader(stream, StandardCharsets.UTF_8))
         .getAsJsonObject();
 
@@ -40,10 +41,10 @@ class MaterialMappingTest {
       }
     }
     System.out.println(
-        "material_zh.json resolved keys: " + resolved + ", unresolved keys: " + unresolved.size());
+        "zh-CN material map resolved keys: " + resolved + ", unresolved keys: " + unresolved.size());
     assertTrue(
         resolved > 100,
-        "Expected material_zh.json to contain enough resolvable material keys, actual=" + resolved);
+        "Expected the material locale to contain enough resolvable material keys, actual=" + resolved);
   }
 
   private Material resolveMaterial(String raw) {

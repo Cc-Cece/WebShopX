@@ -1,5 +1,5 @@
 param(
-  [string]$I18nRoot = "src/main/resources/web/i18n",
+  [string]$I18nRoot = "",
   [string[]]$StrictNamespaces = @("app", "admin", "market-algorithms")
 )
 
@@ -76,6 +76,12 @@ function Set-Equals {
   return $true
 }
 
+if ([string]::IsNullOrWhiteSpace($I18nRoot)) {
+  $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+  $siblingRoot = Join-Path $repoRoot "..\..\webshopx-web\src\i18n"
+  $ciRoot = Join-Path $repoRoot ".frontend\webshopx-web\src\i18n"
+  $I18nRoot = if (Test-Path $siblingRoot -PathType Container) { $siblingRoot } else { $ciRoot }
+}
 $root = Resolve-Path $I18nRoot
 $namespaces = Get-ChildItem -Path $root -Directory
 

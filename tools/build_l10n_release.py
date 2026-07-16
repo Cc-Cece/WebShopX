@@ -37,6 +37,11 @@ def parse_args() -> argparse.Namespace:
         default="tools/locale-metadata.json",
         help="Locale metadata mapping file.",
     )
+    parser.add_argument(
+        "--web-i18n-dir",
+        default="",
+        help="Frontend src/i18n directory. Defaults to the CI checkout or sibling frontend repository.",
+    )
     return parser.parse_args()
 
 
@@ -170,7 +175,12 @@ def main() -> int:
     stage_dir = output_dir / "_stage"
 
     messages_dir = repo_root / "src" / "main" / "resources" / "messages"
-    web_i18n_dir = repo_root / "src" / "main" / "resources" / "web" / "i18n"
+    if args.web_i18n_dir:
+        web_i18n_dir = Path(args.web_i18n_dir).resolve()
+    else:
+        ci_frontend = repo_root / ".frontend" / "webshopx-web" / "src" / "i18n"
+        sibling_frontend = repo_root.parents[1] / "webshopx-web" / "src" / "i18n"
+        web_i18n_dir = ci_frontend if ci_frontend.is_dir() else sibling_frontend
     metadata_file = (repo_root / args.metadata_file).resolve()
     metadata = load_locale_metadata(metadata_file)
 

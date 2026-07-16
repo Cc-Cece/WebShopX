@@ -23,11 +23,6 @@ function Get-RelativePath {
 function Is-ExcludedPath {
   param([string]$RelativePath)
   $normalized = $RelativePath.Replace('\', '/')
-  if ($normalized -like "src/main/resources/web/i18n/*") { return $true }
-  if ($normalized -like "src/main/resources/web/docs/*") { return $true }
-  if ($normalized -like "src/main/resources/web/vendor/*") { return $true }
-  if ($normalized -eq "src/main/resources/web/material_zh.json") { return $true }
-  if ($normalized -eq "src/main/resources/web/js/i18n.js") { return $true }
   return $false
 }
 
@@ -55,7 +50,6 @@ if (-not (Test-Path $outputDir)) {
 }
 
 $targets = @()
-$targets += Get-ChildItem -Path (Join-Path $root "src/main/resources/web") -Recurse -File -Include *.js, *.html
 $targets += Get-ChildItem -Path (Join-Path $root "src/main/java") -Recurse -File -Include *.java
 
 $records = New-Object System.Collections.Generic.List[object]
@@ -95,7 +89,7 @@ $builder = New-Object System.Text.StringBuilder
 [void]$builder.AppendLine("# Hardcoded i18n Audit")
 [void]$builder.AppendLine("")
 [void]$builder.AppendLine("- Generated at: $now")
-[void]$builder.AppendLine("- Scope: web js/html + java (excluding `web/i18n`, docs, vendor, `material_zh.json`, `web/js/i18n.js`)")
+[void]$builder.AppendLine("- Scope: built web assets + java (excluding generated bundles and `web/i18n`)")
 [void]$builder.AppendLine("- Files with CJK hits: $totalFiles")
 [void]$builder.AppendLine("- Total CJK line hits: $totalHits")
 [void]$builder.AppendLine("")

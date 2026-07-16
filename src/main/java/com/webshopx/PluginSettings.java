@@ -14,6 +14,8 @@ import org.bukkit.configuration.file.FileConfiguration;
 
 record PluginSettings(
     ServerMode serverMode,
+    DeploymentMode deploymentMode,
+    RelaySettings relaySettings,
     ClusterSettings clusterSettings,
     String apiBaseUrl,
     PaymentSettings paymentSettings,
@@ -48,6 +50,8 @@ record PluginSettings(
   static PluginSettings fromConfig(FileConfiguration config) {
     String rawMode = config.getString("webshop.server-mode", "internal");
     ServerMode mode = ServerMode.fromRaw(rawMode);
+    DeploymentMode deploymentMode = readDeploymentMode(config, mode);
+    RelaySettings relaySettings = readRelaySettings(config, deploymentMode);
     String configuredPublicApiUrl = normalizeApiBaseUrl(
         config.getString("webshop.embedded-http.public-api-url", ""));
     String legacyApiBaseUrl = normalizeApiBaseUrl(config.getString("webshop.api-base-url", ""));
@@ -169,6 +173,8 @@ record PluginSettings(
 
     return new PluginSettings(
         mode,
+        deploymentMode,
+        relaySettings,
         clusterSettings,
         publicApiUrl,
         new PaymentSettings(
@@ -228,6 +234,8 @@ record PluginSettings(
       BroadcastSettings broadcastSettings) {
     return new PluginSettings(
         serverMode,
+        deploymentMode,
+        relaySettings,
         clusterSettings,
         apiBaseUrl,
         paymentSettings,
@@ -263,6 +271,8 @@ record PluginSettings(
   PluginSettings withPaymentSettings(PaymentSettings paymentSettings) {
     return new PluginSettings(
         serverMode,
+        deploymentMode,
+        relaySettings,
         clusterSettings,
         apiBaseUrl,
         paymentSettings == null ? this.paymentSettings : paymentSettings,
@@ -473,6 +483,45 @@ record PluginSettings(
     return role.name().toLowerCase(Locale.ROOT);
   }
 
+  enum DeploymentMode {
+    SELF_HOSTED_INTERNAL,
+    SELF_HOSTED_EXTERNAL,
+    RELAY;
+
+    static DeploymentMode fromRaw(String raw) {
+      if (raw == null || raw.isBlank()) {
+        return SELF_HOSTED_INTERNAL;
+      }
+      String normalized = raw.trim().toLowerCase(Locale.ROOT).replace('_', '-');
+      return switch (normalized) {
+        case "self-hosted-external", "external", "self-hosted-nginx" -> SELF_HOSTED_EXTERNAL;
+        case "relay", "cloudflare-relay", "cloudflare" -> RELAY;
+        default -> SELF_HOSTED_INTERNAL;
+      };
+    }
+
+    String configValue() {
+      return name().toLowerCase(Locale.ROOT).replace('_', '-');
+    }
+  }
+
+  record RelaySettings(
+      boolean enabled,
+      String endpoint,
+      String serverId,
+      String connectorToken,
+      String websocketPath,
+      int heartbeatSeconds,
+      int reconnectMinSeconds,
+      int reconnectMaxSeconds,
+      int rpcTimeoutSeconds,
+      int publicCacheSeconds,
+      boolean diagnosticsEnabled) {
+    boolean shouldConnect() {
+      return enabled && !endpoint.isBlank() && !connectorToken.isBlank();
+    }
+  }
+
   enum ServerMode {
     INTERNAL,
     EXTERNAL;
@@ -532,6 +581,59 @@ record PluginSettings(
       String publicApiUrlSource,
       boolean corsEnabled,
       List<String> corsAllowedOrigins) {
+  }
+
+  private static DeploymentMode readDeploymentMode(FileConfiguration config, ServerMode legacyServerMode) {
+    String rawDeploymentMode = config.getString("deployment.mode");
+    if (rawDeploymentMode != null && !rawDeploymentMode.isBlank()) {
+      return DeploymentMode.fromRaw(rawDeploymentMode);
+    }
+    if (config.getBoolean("relay.enabled", false)
+        || config.getBoolean("cloudflare-relay.enabled", false)) {
+      return DeploymentMode.RELAY;
+    }
+    return legacyServerMode == ServerMode.EXTERNAL
+        ? DeploymentMode.SELF_HOSTED_EXTERNAL
+        : DeploymentMode.SELF_HOSTED_INTERNAL;
+  }
+
+  private static RelaySettings readRelaySettings(
+      FileConfiguration config,
+      DeploymentMode deploymentMode) {
+    String section = config.isConfigurationSection("relay") ? "relay" : "cloudflare-relay";
+    return new RelaySettings(
+        deploymentMode == DeploymentMode.RELAY,
+        normalizeApiBaseUrl(config.getString(section + ".endpoint", "")),
+        normalizeRelayServerId(config.getString(section + ".server-id", "main")),
+        trimToEmpty(config.getString(section + ".connector-token", "")),
+        normalizeWebSocketPath(config.getString(section + ".websocket-path", "/connector/ws")),
+        clamp(config.getInt(section + ".heartbeat-seconds", 30), 10, 300),
+        clamp(config.getInt(section + ".reconnect-min-seconds", 3), 1, 300),
+        clamp(config.getInt(section + ".reconnect-max-seconds", 60), 3, 900),
+        clamp(config.getInt(section + ".rpc-timeout-seconds", 10), 2, 120),
+        clamp(config.getInt(section + ".public-cache-seconds", 15), 0, 300),
+        config.getBoolean(section + ".diagnostics.enabled", true));
+  }
+
+  private static String normalizeRelayServerId(String rawServerId) {
+    String normalized = trimToEmpty(rawServerId);
+    return normalized.isEmpty() ? "main" : normalized;
+  }
+
+  private static String normalizeWebSocketPath(String rawPath) {
+    String normalized = trimToEmpty(rawPath);
+    if (normalized.isEmpty()) {
+      return "/connector/ws";
+    }
+    return normalized.startsWith("/") ? normalized : "/" + normalized;
+  }
+
+  private static String trimToEmpty(String value) {
+    return value == null ? "" : value.trim();
+  }
+
+  private static int clamp(int value, int min, int max) {
+    return Math.max(min, Math.min(max, value));
   }
 
   record PaymentSettings(
