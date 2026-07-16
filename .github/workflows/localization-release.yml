@@ -47,10 +47,10 @@ jobs:
       TARGET_REPO: ${{ inputs.target_repo || 'Prism-Committee/WebShopX-Issues' }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Checkout Vue frontend
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: Cc-Cece/webshopx-vuetify-web
           ref: ${{ vars.WEBSHOPX_WEB_REF || 'main' }}
