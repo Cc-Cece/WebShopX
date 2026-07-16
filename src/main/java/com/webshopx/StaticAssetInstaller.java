@@ -305,6 +305,8 @@ class StaticAssetInstaller {
         + System.lineSeparator()
         + "  apiBaseUrl: \"" + escapeJs(settings.apiBaseUrl()) + "\","
         + System.lineSeparator()
+        + "  publicUrl: \"" + escapeJs(settings.embeddedWebSettings().publicUrl()) + "\","
+        + System.lineSeparator()
         + "  serverMode: \"" + settings.serverMode().name() + "\","
         + System.lineSeparator()
         + "  defaultLocale: \"" + escapeJs(settings.defaultLocale()) + "\","

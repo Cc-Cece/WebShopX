@@ -1347,6 +1347,19 @@ class EmbeddedWebServer {
     json.addProperty("singleServerMode", singleServerMode);
     json.addProperty("clusterSyncEnabled", clusterSyncEnabled);
     json.addProperty("sqliteSingleServerOnly", sqliteSingleServerOnly);
+    PluginSettings.EmbeddedWebSettings web = settings.embeddedWebSettings();
+    json.addProperty("webServerMode", settings.serverMode().name());
+    json.addProperty("staticWebEnabled", settings.serverMode() == PluginSettings.ServerMode.INTERNAL);
+    json.addProperty("listenAddress", web.host() + ":" + web.port());
+    json.addProperty("publicUrl", web.publicUrl());
+    json.addProperty("publicApiUrl", web.publicApiUrl());
+    json.addProperty("publicApiUrlSource", web.publicApiUrlSource());
+    json.addProperty("corsEnabled", web.corsEnabled());
+    json.addProperty("corsAllowedOriginCount", web.corsAllowedOrigins().size());
+    JsonArray corsOrigins = new JsonArray();
+    web.corsAllowedOrigins().forEach(corsOrigins::add);
+    json.add("corsAllowedOrigins", corsOrigins);
+    json.addProperty("restartRequiredForChanges", true);
     return json;
   }
 

@@ -48,6 +48,11 @@ record PluginSettings(
   static PluginSettings fromConfig(FileConfiguration config) {
     String rawMode = config.getString("webshop.server-mode", "internal");
     ServerMode mode = ServerMode.fromRaw(rawMode);
+    String configuredPublicApiUrl = normalizeApiBaseUrl(
+        config.getString("webshop.embedded-http.public-api-url", ""));
+    String legacyApiBaseUrl = normalizeApiBaseUrl(config.getString("webshop.api-base-url", ""));
+    boolean usingLegacyApiBaseUrl = configuredPublicApiUrl.isBlank() && !legacyApiBaseUrl.isBlank();
+    String publicApiUrl = firstNonBlank(configuredPublicApiUrl, legacyApiBaseUrl, "");
     ClusterRole clusterRole = ClusterRole.fromRaw(config.getString("cluster.role", "standalone"));
     String clusterServerId = normalizeServerId(config.getString("cluster.server-id"), clusterRole);
     ClusterSettings clusterSettings = new ClusterSettings(
@@ -65,6 +70,11 @@ record PluginSettings(
         config.getString("webshop.embedded-http.host", "0.0.0.0"),
         config.getInt("webshop.embedded-http.port", 8819),
         config.getString("webshop.embedded-http.static-root", "web"),
+        normalizeApiBaseUrl(config.getString("webshop.public-url", "")),
+        publicApiUrl,
+        usingLegacyApiBaseUrl
+            ? "legacy:webshop.api-base-url"
+            : (configuredPublicApiUrl.isBlank() ? "default:same-origin" : "webshop.embedded-http.public-api-url"),
         corsEnabled,
         corsAllowedOrigins);
 
@@ -160,7 +170,7 @@ record PluginSettings(
     return new PluginSettings(
         mode,
         clusterSettings,
-        normalizeApiBaseUrl(config.getString("webshop.api-base-url", "")),
+        publicApiUrl,
         new PaymentSettings(
             normalizeProviderId(config.getString("payment.provider", "")),
             normalizePaymentCurrencies(config.getStringList("payment.recharge.currencies")),
@@ -513,7 +523,15 @@ record PluginSettings(
     }
   }
 
-  record EmbeddedWebSettings(String host, int port, String staticRoot, boolean corsEnabled, List<String> corsAllowedOrigins) {
+  record EmbeddedWebSettings(
+      String host,
+      int port,
+      String staticRoot,
+      String publicUrl,
+      String publicApiUrl,
+      String publicApiUrlSource,
+      boolean corsEnabled,
+      List<String> corsAllowedOrigins) {
   }
 
   record PaymentSettings(

@@ -9,7 +9,8 @@ webshop:
   # internal: 启用内置静态网页 + API
   # external: 仅启用 API（静态资源由反向代理/CDN 提供）
   server-mode: internal
-  api-base-url: ""
+  # 用户实际访问的前端地址；留空时由当前请求推断。
+  public-url: ""
 
   # 引导管理员账号，仅用于首次初始化。
   # 首次登录后请创建新管理员并关闭此功能。
@@ -23,6 +24,9 @@ webshop:
     host: 0.0.0.0
     port: 8819
     static-root: web
+    # API 对外公开的完整根地址（应包含 /api）；留空时内置页面使用同源 /api。
+    # 旧版 webshop.api-base-url 仍会被自动读取，迁移后建议改用本项。
+    public-api-url: ""
     # CORS (跨源资源共享) 配置
     # 允许第三方外置网页(如 webshopx-web)跨域访问。
     cors:
