@@ -910,6 +910,83 @@ class MarketService {
     return buyListing(buyerUserId, listingId, buyQuantity, idempotencyKey, deliveryModeRaw, null, null);
   }
 
+  AuctionInsights getAuctionInsights(long listingId, Long viewerUserId) {
+    if (listingId <= 0L) {
+      throw new ServiceException("invalid_listing", "Listing id must be positive");
+    }
+    return databaseManager.withConnection(connection -> {
+      String algorithm;
+      String listingStatus;
+      try (PreparedStatement statement = connection.prepareStatement(
+          "SELECT trade_mode, auction_algorithm, status FROM market_listings WHERE id = ?")) {
+        statement.setLong(1, listingId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (!resultSet.next()) {
+            throw new ServiceException("listing_not_found", "Listing was not found");
+          }
+          if (!"AUCTION".equalsIgnoreCase(resultSet.getString("trade_mode"))) {
+            throw new ServiceException("invalid_trade_mode", "Listing is not an auction");
+          }
+          algorithm = resultSet.getString("auction_algorithm");
+          listingStatus = resultSet.getString("status");
+        }
+      }
+
+      boolean sealed = MarketAlgorithmRegistry.sealedBid(
+          MarketAlgorithmRegistry.AuctionAlgorithmType.fromRaw(algorithm));
+      long bidCount;
+      long participantCount;
+      try (PreparedStatement statement = connection.prepareStatement(
+          "SELECT COUNT(*) AS bid_count, COUNT(DISTINCT bidder_user_id) AS participant_count "
+              + "FROM market_bids WHERE listing_id = ?")) {
+        statement.setLong(1, listingId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          resultSet.next();
+          bidCount = resultSet.getLong("bid_count");
+          participantCount = resultSet.getLong("participant_count");
+        }
+      }
+
+      Long myBid = null;
+      String myStatus = "NONE";
+      if (viewerUserId != null) {
+        try (PreparedStatement statement = connection.prepareStatement(
+            "SELECT bid_amount, status FROM market_bids WHERE listing_id = ? AND bidder_user_id = ? "
+                + "ORDER BY created_at DESC, id DESC LIMIT 1")) {
+          statement.setLong(1, listingId);
+          statement.setLong(2, viewerUserId);
+          try (ResultSet resultSet = statement.executeQuery()) {
+            if (resultSet.next()) {
+              myBid = resultSet.getLong("bid_amount");
+              String storedStatus = resultSet.getString("status");
+              myStatus = sealed && "ACTIVE".equalsIgnoreCase(listingStatus) ? "SUBMITTED" : storedStatus;
+            }
+          }
+        }
+      }
+
+      List<AuctionInsightPoint> pricePoints = new ArrayList<>();
+      if (!sealed) {
+        try (PreparedStatement statement = connection.prepareStatement(
+            "SELECT mb.bid_amount, u.username, mb.created_at FROM market_bids mb "
+                + "JOIN web_users u ON u.id = mb.bidder_user_id "
+                + "WHERE mb.listing_id = ? ORDER BY mb.created_at ASC, mb.id ASC LIMIT 100")) {
+          statement.setLong(1, listingId);
+          try (ResultSet resultSet = statement.executeQuery()) {
+            while (resultSet.next()) {
+              pricePoints.add(new AuctionInsightPoint(
+                  resultSet.getLong("bid_amount"),
+                  resultSet.getString("username"),
+                  resultSet.getTimestamp("created_at").toLocalDateTime()));
+            }
+          }
+        }
+      }
+      return new AuctionInsights(listingId, algorithm, bidCount, participantCount, sealed,
+          myBid, myStatus, List.copyOf(pricePoints));
+    });
+  }
+
   TradeResult buyListing(
       long buyerUserId,
       long listingId,
@@ -5893,6 +5970,20 @@ class MarketService {
       long price,
       int quantity,
       LocalDateTime createdAt) {
+  }
+
+  record AuctionInsightPoint(long amount, String bidderName, LocalDateTime createdAt) {
+  }
+
+  record AuctionInsights(
+      long listingId,
+      String algorithm,
+      long bidCount,
+      long participantCount,
+      boolean sealed,
+      Long myBid,
+      String myStatus,
+      List<AuctionInsightPoint> pricePoints) {
   }
 
   record ListingSettingsUpdateResult(

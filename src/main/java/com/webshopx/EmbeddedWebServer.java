@@ -180,6 +180,7 @@ class EmbeddedWebServer {
     server.createContext("/api/market/buy", this::handleMarketBuy);
     server.createContext("/api/market/sell-to-buy", this::handleMarketSellToBuy);
     server.createContext("/api/market/bid", this::handleMarketBid);
+    server.createContext("/api/market/auction-insights", this::handleMarketAuctionInsights);
     server.createContext("/api/market/unlist", this::handleMarketUnlist);
     server.createContext("/api/market/pause", this::handleMarketPause);
     server.createContext("/api/market/resume", this::handleMarketResume);
@@ -1604,22 +1605,24 @@ class EmbeddedWebServer {
         } else {
           addBusinessDateTime(row, "auctionPublicEndAt", listing.auctionPublicEndAt());
         }
-        if (listing.auctionHighestBid() == null) {
+        boolean sealedAuction = "VICKREY_AUCTION_V1".equalsIgnoreCase(listing.auctionAlgorithm())
+            && "ACTIVE".equalsIgnoreCase(listing.status());
+        if (sealedAuction || listing.auctionHighestBid() == null) {
           row.add("auctionHighestBid", JsonNull.INSTANCE);
         } else {
           row.addProperty("auctionHighestBid", listing.auctionHighestBid());
         }
-        if (listing.auctionHighestBidderUserId() == null) {
+        if (sealedAuction || listing.auctionHighestBidderUserId() == null) {
           row.add("auctionHighestBidderUserId", JsonNull.INSTANCE);
         } else {
           row.addProperty("auctionHighestBidderUserId", listing.auctionHighestBidderUserId());
         }
-        if (listing.auctionHighestBidderUuid() == null) {
+        if (sealedAuction || listing.auctionHighestBidderUuid() == null) {
           row.add("auctionHighestBidderUuid", JsonNull.INSTANCE);
         } else {
           row.addProperty("auctionHighestBidderUuid", listing.auctionHighestBidderUuid().toString());
         }
-        if (listing.auctionHighestBidderName() == null) {
+        if (sealedAuction || listing.auctionHighestBidderName() == null) {
           row.add("auctionHighestBidderName", JsonNull.INSTANCE);
         } else {
           row.addProperty("auctionHighestBidderName", listing.auctionHighestBidderName());
@@ -1955,6 +1958,43 @@ class EmbeddedWebServer {
       } else {
         response.addProperty("minimumRequiredBid", result.minimumRequiredBid());
       }
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleMarketAuctionInsights(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      Long parsedListingId = parseLong(parseQuery(exchange).get("listingId"));
+      long listingId = parsedListingId == null ? -1L : parsedListingId;
+      Long viewerUserId = findOptionalAuth(exchange).map(AuthService.AuthUser::id).orElse(null);
+      MarketService.AuctionInsights insights = marketService.getAuctionInsights(listingId, viewerUserId);
+      JsonObject response = new JsonObject();
+      response.addProperty("listingId", insights.listingId());
+      response.addProperty("algorithm", insights.algorithm());
+      response.addProperty("bidCount", insights.bidCount());
+      response.addProperty("participantCount", insights.participantCount());
+      response.addProperty("sealed", insights.sealed());
+      if (insights.myBid() == null) {
+        response.add("myBid", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("myBid", insights.myBid());
+      }
+      response.addProperty("myStatus", insights.myStatus());
+      JsonArray points = new JsonArray();
+      for (MarketService.AuctionInsightPoint point : insights.pricePoints()) {
+        JsonObject row = new JsonObject();
+        row.addProperty("amount", point.amount());
+        row.addProperty("bidderName", point.bidderName());
+        addBusinessDateTime(row, "createdAt", point.createdAt());
+        points.add(row);
+      }
+      response.add("pricePoints", points);
       sendJson(exchange, 200, response);
     });
   }

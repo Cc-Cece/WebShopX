@@ -15,11 +15,12 @@ group = "com.webshopx"
 String targetRuntime = hasProperty('targetRuntime')
         ? property('targetRuntime').toString().trim().toLowerCase(Locale.ROOT)
         : '1.20.6+'
-if (!(targetRuntime in ['26.2+', '1.20.6+', '1.18.2+'])) {
-    throw new GradleException("Unsupported targetRuntime: ${targetRuntime}. Allowed values: 26.2+, 1.20.6+, 1.18.2+")
+if (!(targetRuntime in ['26.2+', '26.1+', '1.20.6+', '1.18.2+'])) {
+    throw new GradleException("Unsupported targetRuntime: ${targetRuntime}. Allowed values: 26.2+, 26.1+, 1.20.6+, 1.18.2+")
 }
 boolean legacy18Runtime = targetRuntime == '1.18.2+'
-boolean minecraft26Runtime = targetRuntime == '26.2+'
+boolean minecraft26Runtime = targetRuntime in ['26.1+', '26.2+']
+boolean minecraft261Runtime = targetRuntime == '26.1+'
 boolean includeFoliaVariants = !legacy18Runtime
 JavaVersion runtimeJavaVersion = legacy18Runtime
         ? JavaVersion.VERSION_17
@@ -27,10 +28,10 @@ JavaVersion runtimeJavaVersion = legacy18Runtime
 int runtimeJavaLanguageVersion = legacy18Runtime ? 17 : minecraft26Runtime ? 25 : 21
 String runtimePaperApiVersion = legacy18Runtime
         ? '1.18.2-R0.1-SNAPSHOT'
-        : minecraft26Runtime ? '26.2.build.+' : '1.20.6-R0.1-SNAPSHOT'
-String runtimePluginApiVersion = legacy18Runtime ? '1.18' : minecraft26Runtime ? '26.2' : '1.20'
+        : minecraft261Runtime ? '26.1.2.build.+' : minecraft26Runtime ? '26.2.build.+' : '1.20.6-R0.1-SNAPSHOT'
+String runtimePluginApiVersion = legacy18Runtime ? '1.18' : minecraft261Runtime ? '26.1' : minecraft26Runtime ? '26.2' : '1.20'
 String runtimeClassifierSuffix = targetRuntime
-String foliaClassifierSuffix = minecraft26Runtime ? '26.2+' : '1.19.4+'
+String foliaClassifierSuffix = minecraft26Runtime ? targetRuntime : '1.19.4+'
 
 def variantClassifier = { String baseClassifier ->
     "${baseClassifier}-${runtimeClassifierSuffix}"
