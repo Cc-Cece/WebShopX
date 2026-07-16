@@ -49,6 +49,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Checkout Vue frontend
+        uses: actions/checkout@v4
+        with:
+          repository: Cc-Cece/webshopx-vuetify-web
+          ref: ${{ vars.WEBSHOPX_WEB_REF || 'main' }}
+          path: .frontend/webshopx-web
+
       - name: Validate Crowdin secrets (when enabled)
         if: ${{ github.event_name == 'schedule' || inputs.pull_from_crowdin }}
         shell: bash
@@ -184,7 +191,7 @@ jobs:
             lang_dir="$(echo "${source_file}" | cut -d/ -f2)"
             locale="${lang_dir}"
             namespace="$(echo "${source_file}" | sed -E 's#^crowdin-download/[^/]+/web/i18n/([^/]+)/en-US\.json$#\1#')"
-            target="src/main/resources/web/i18n/${namespace}/${locale}.json"
+            target=".frontend/webshopx-web/src/i18n/${namespace}/${locale}.json"
             mkdir -p "$(dirname "${target}")"
             cp -f "${source_file}" "${target}"
             copied=$((copied + 1))
@@ -220,8 +227,8 @@ jobs:
           import re
           from pathlib import Path
 
-          root = Path("src/main/resources/web/i18n")
-          allowed_namespaces = {"app", "admin", "help", "market-algorithms", "materials"}
+          root = Path(".frontend/webshopx-web/src/i18n")
+          allowed_namespaces = {"app", "admin", "market-algorithms", "materials"}
           locale_pattern = re.compile(r"^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$")
           errors = []
           checked = 0
@@ -259,6 +266,7 @@ jobs:
             --tag "${{ steps.tag.outputs.tag }}" \
             --version "${{ inputs.manifest_version }}" \
             --default-locale "zh-CN" \
+            --web-i18n-dir ".frontend/webshopx-web/src/i18n" \
             --output-dir "dist/l10n"
 
       - name: Validate locale release artifacts

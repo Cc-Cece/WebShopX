@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 
 class SchemaManager {
   private static final String PRODUCT_SCHEDULE_UTC_MIGRATION_KEY = "product_schedule_utc_v1";
+  private static final String MARKET_TAG_SCHEMA_V2_KEY = "market_tag_schema_v2";
   private static final SqlProvider MYSQL_SQL_PROVIDER = SqlProvider.forType(DbType.MYSQL);
 
   void ensureSchema(DatabaseManager databaseManager, PluginSettings settings) {
@@ -53,6 +54,8 @@ class SchemaManager {
     migrateMarketListings(connection);
     createMarketTags(connection);
     migrateMarketTags(connection);
+    createMarketListingTags(connection);
+    resetMarketTagsV2IfNeeded(connection);
     createMarketTrades(connection);
     migrateMarketTrades(connection);
     createMarketBids(connection);
@@ -1421,6 +1424,70 @@ class SchemaManager {
           "ALTER TABLE market_tags "
               + "ADD INDEX idx_market_tags_enabled_priority (enabled, priority, code)");
     }
+  }
+
+  private void createMarketListingTags(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS market_listing_tags (
+          listing_id BIGINT NOT NULL,
+          tag_code VARCHAR(64) NOT NULL,
+          source VARCHAR(16) NOT NULL DEFAULT 'MANUAL',
+          position INT NOT NULL DEFAULT 0,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (listing_id, tag_code),
+          KEY idx_market_listing_tags_tag (tag_code, listing_id),
+          CONSTRAINT fk_market_listing_tags_listing
+            FOREIGN KEY (listing_id) REFERENCES market_listings(id) ON DELETE CASCADE,
+          CONSTRAINT fk_market_listing_tags_tag
+            FOREIGN KEY (tag_code) REFERENCES market_tags(code) ON DELETE RESTRICT
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """;
+    execute(connection, sql);
+    execute(
+        connection,
+        """
+        INSERT INTO market_tags (code, display_name, enabled, priority)
+        SELECT DISTINCT ml.tag_code, ml.tag_code, TRUE, 1000
+        FROM market_listings ml
+        WHERE ml.tag_code IS NOT NULL
+          AND ml.tag_code <> ''
+          AND NOT EXISTS (
+            SELECT 1 FROM market_tags mt WHERE mt.code = ml.tag_code
+          )
+        """);
+    execute(
+        connection,
+        """
+        INSERT INTO market_listing_tags (listing_id, tag_code, source, position)
+        SELECT ml.id, ml.tag_code, 'SYSTEM', 0
+        FROM market_listings ml
+        WHERE ml.tag_code IS NOT NULL
+          AND ml.tag_code <> ''
+          AND NOT EXISTS (
+            SELECT 1 FROM market_listing_tags mlt WHERE mlt.listing_id = ml.id
+          )
+        """);
+  }
+
+  private void resetMarketTagsV2IfNeeded(Connection connection) throws SQLException {
+    if (readMetaValue(connection, MARKET_TAG_SCHEMA_V2_KEY) != null) {
+      return;
+    }
+    execute(connection, "DELETE FROM market_listing_tags");
+    execute(connection, "DELETE FROM market_tags");
+    execute(connection, "DELETE FROM runtime_config WHERE config_key = 'market_tags'");
+    execute(
+        connection,
+        "INSERT INTO market_tags (code, display_name, enabled, priority) "
+            + "VALUES ('default', 'Default', TRUE, 2147483647)");
+    execute(
+        connection,
+        "UPDATE market_listings SET tag_code = 'default', tag_version = 1");
+    execute(
+        connection,
+        "INSERT INTO market_listing_tags (listing_id, tag_code, source, position) "
+            + "SELECT id, 'default', 'SYSTEM', 0 FROM market_listings");
+    writeMetaValue(connection, MARKET_TAG_SCHEMA_V2_KEY, "2");
   }
 
   private void createMarketBids(Connection connection) throws SQLException {

@@ -13,6 +13,7 @@ import java.util.regex.Pattern;
 
 final class SqliteSchemaProvider implements SchemaProvider {
   private static final String SCHEMA_RESOURCE = "/db/sqlite/schema.sql";
+  private static final String MARKET_TAG_SCHEMA_V2_KEY = "market_tag_schema_v2";
   private static final Pattern SAFE_IDENTIFIER = Pattern.compile("[A-Za-z0-9_]+");
 
   @Override
@@ -91,6 +92,8 @@ final class SqliteSchemaProvider implements SchemaProvider {
     assertTableExists(connection, "runtime_config");
     assertTableExists(connection, "orders");
     assertTableExists(connection, "market_listings");
+    assertTableExists(connection, "market_tags");
+    assertTableExists(connection, "market_listing_tags");
     assertTableExists(connection, "webshopx_recharge_order");
 
     assertColumnExists(connection, "web_users", "auth_state");
@@ -107,6 +110,7 @@ final class SqliteSchemaProvider implements SchemaProvider {
     assertIndexExists(connection, "orders", "idx_orders_target_server");
     assertIndexExists(connection, "market_listings", "idx_market_listing_auction_due");
     assertIndexExists(connection, "market_listings", "idx_market_supply_location");
+    assertIndexExists(connection, "market_listing_tags", "idx_market_listing_tags_tag");
     assertIndexExists(connection, "webshopx_recharge_order", "uniq_recharge_order_id");
   }
 
@@ -184,6 +188,44 @@ final class SqliteSchemaProvider implements SchemaProvider {
       "mailbox_items",
       "delivered_quantity",
       "INTEGER NOT NULL DEFAULT 0");
+    resetMarketTagsV2IfNeeded(connection);
+  }
+
+  private void resetMarketTagsV2IfNeeded(Connection connection) throws SQLException {
+    if (metaValueExists(connection, MARKET_TAG_SCHEMA_V2_KEY)) {
+      return;
+    }
+    execute(connection, "DELETE FROM market_listing_tags");
+    execute(connection, "DELETE FROM market_tags");
+    execute(connection, "DELETE FROM runtime_config WHERE config_key = 'market_tags'");
+    execute(
+        connection,
+        "INSERT INTO market_tags (code, display_name, enabled, priority) "
+            + "VALUES ('default', 'Default', 1, 2147483647)");
+    execute(
+        connection,
+        "UPDATE market_listings SET tag_code = 'default', tag_version = 1");
+    execute(
+        connection,
+        "INSERT INTO market_listing_tags (listing_id, tag_code, source, position) "
+            + "SELECT id, 'default', 'SYSTEM', 0 FROM market_listings");
+    try (PreparedStatement statement = connection.prepareStatement(
+        "INSERT INTO webshop_meta (meta_key, meta_value) VALUES (?, ?) "
+            + "ON CONFLICT(meta_key) DO UPDATE SET meta_value = excluded.meta_value")) {
+      statement.setString(1, MARKET_TAG_SCHEMA_V2_KEY);
+      statement.setString(2, "2");
+      statement.executeUpdate();
+    }
+  }
+
+  private boolean metaValueExists(Connection connection, String key) throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(
+        "SELECT 1 FROM webshop_meta WHERE meta_key = ? LIMIT 1")) {
+      statement.setString(1, key);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        return resultSet.next();
+      }
+    }
   }
 
     private void addColumnIfMissing(

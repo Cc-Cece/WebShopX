@@ -4,6 +4,12 @@ build/
 out/
 bin/
 
+# Generated Vue frontend bundle
+# Source lives in the sibling webshopx-web repository. Gradle/release tasks
+# should generate or stage these files instead of committing compiled assets.
+src/main/resources/web/
+.frontend/
+
 # IDE
 .idea/
 *.iml

@@ -17,6 +17,9 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.time.ZoneId;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashSet;
+import java.util.UUID;
 
 class RuntimeConfigService {
   private static final String EMPTY_JSON_OBJECT = "{}";
@@ -196,8 +199,10 @@ class RuntimeConfigService {
   }
 
   ConfigDocument readMarketTagsConfig() {
-    return databaseManager.withConnection(connection ->
-        readConfigObject(connection, KEY_MARKET_TAGS, EMPTY_JSON_OBJECT));
+    return databaseManager.withConnection(connection -> {
+      ConfigDocument document = readConfigObject(connection, KEY_MARKET_TAGS, EMPTY_JSON_OBJECT);
+      return new ConfigDocument(normalizeMarketTagsConfig(document.config()), document.version());
+    });
   }
 
   ConfigDocument readMarketLimitationConfig() {
@@ -226,9 +231,80 @@ class RuntimeConfigService {
   }
 
   long updateMarketTagsConfig(JsonObject config) {
-    JsonObject normalized = config == null ? new JsonObject() : copyJsonObject(config);
+    JsonObject normalized = normalizeMarketTagsConfig(config);
     return databaseManager.inTransaction(connection ->
         updateConfig(connection, KEY_MARKET_TAGS, gson.toJson(normalized)));
+  }
+
+  private JsonObject normalizeMarketTagsConfig(JsonObject source) {
+    JsonObject normalized = source == null ? new JsonObject() : copyJsonObject(source);
+    int maxTags = normalized.has("maxTagsPerItem")
+        ? normalized.get("maxTagsPerItem").getAsInt()
+        : 3;
+    normalized.addProperty("maxTagsPerItem", Math.max(1, Math.min(10, maxTags)));
+    if (!normalized.has("playersCanSelectTags")) {
+      normalized.addProperty("playersCanSelectTags", true);
+    }
+    normalized.addProperty("defaultTag", "default");
+
+    JsonArray input = normalized.has("tags") && normalized.get("tags").isJsonArray()
+        ? normalized.getAsJsonArray("tags")
+        : new JsonArray();
+    JsonArray tags = new JsonArray();
+    LinkedHashSet<String> seen = new LinkedHashSet<>();
+    JsonObject configuredFallback = null;
+    for (JsonElement element : input) {
+      if (element == null || !element.isJsonObject()) {
+        continue;
+      }
+      JsonObject row = copyJsonObject(element.getAsJsonObject());
+      String code = MarketTagCodes.normalize(
+          row.has("code") ? row.get("code").getAsString() : null);
+      if ("default".equals(code)) {
+        configuredFallback = row;
+        continue;
+      }
+      if (code == null || !seen.add(code)) {
+        continue;
+      }
+      row.addProperty("code", code);
+      row.addProperty("key", code);
+      if (!row.has("id") || row.get("id").getAsString().isBlank()) {
+        row.addProperty("id", stableTagId(code));
+      }
+      if (!row.has("displayName")) {
+        row.addProperty("displayName", code);
+      }
+      if (!row.has("enabled")) {
+        row.addProperty("enabled", true);
+      }
+      tags.add(row);
+    }
+
+    JsonObject fallback = configuredFallback == null ? new JsonObject() : configuredFallback;
+    fallback.addProperty("id", stableTagId("default"));
+    fallback.addProperty("code", "default");
+    fallback.addProperty("key", "default");
+    if (!fallback.has("displayName")) {
+      fallback.addProperty("displayName", "Default");
+    }
+    if (!fallback.has("description")) {
+      fallback.addProperty("description", "Fallback tag used when no other tag matches");
+    }
+    if (!fallback.has("color")) {
+      fallback.addProperty("color", "grey");
+    }
+    fallback.addProperty("enabled", true);
+    fallback.addProperty("system", true);
+    fallback.addProperty("priority", Integer.MAX_VALUE);
+    fallback.add("match", new JsonObject());
+    tags.add(fallback);
+    normalized.add("tags", tags);
+    return normalized;
+  }
+
+  private String stableTagId(String key) {
+    return UUID.nameUUIDFromBytes(("webshopx:market-tag:" + key).getBytes(StandardCharsets.UTF_8)).toString();
   }
 
   long updateMarketLimitationConfig(JsonObject config) {

@@ -9,7 +9,6 @@ plugins {
 }
 
 version = 'dev-v1.2.9'
-String declaredProjectVersion = version.toString()
 
 group = "com.webshopx"
 String targetRuntime = hasProperty('targetRuntime')
@@ -133,7 +132,30 @@ tasks.withType(JavaCompile).configureEach {
     options.release = runtimeJavaLanguageVersion
 }
 
+sourceSets {
+    main {
+        resources {
+            srcDir layout.buildDirectory.dir('generated-resources/main')
+        }
+    }
+}
+
+def syncWebFrontend = tasks.register('syncWebFrontend', Exec) {
+    group = 'build'
+    description = 'Builds webshopx-web and stages it as generated plugin resources.'
+    workingDir projectDir
+    outputs.dir layout.buildDirectory.dir('generated-resources/main/web')
+    if (System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('windows')) {
+        commandLine 'powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                '-File', file('tools/sync-web-frontend.ps1').absolutePath
+    } else {
+        commandLine 'pwsh', '-NoProfile',
+                '-File', file('tools/sync-web-frontend.ps1').absolutePath
+    }
+}
+
 processResources {
+    mustRunAfter syncWebFrontend
     filesMatching("**/plugin*.yml") {
         expand(
                 NAME: rootProject.name,
@@ -141,24 +163,6 @@ processResources {
                 PACKAGE: rootProject.group.toString(),
                 API_VERSION: runtimePluginApiVersion
         )
-    }
-    String updateCheckVersion = declaredProjectVersion
-    if (hasProperty('updateVersion')) {
-        String overrideUpdateVersion = updateVersion.toString().trim()
-        if (!overrideUpdateVersion.isEmpty()) {
-            updateCheckVersion = overrideUpdateVersion
-        }
-    } else {
-        String runtimeVersion = version.toString().trim()
-        if (!runtimeVersion.isEmpty() && !runtimeVersion.toLowerCase(Locale.ROOT).startsWith("snapshot-")) {
-            updateCheckVersion = runtimeVersion
-        }
-    }
-    filesMatching("web/admin.html") {
-        filter(org.apache.tools.ant.filters.ReplaceTokens, tokens: [
-                VERSION       : version.toString(),
-                UPDATE_VERSION: updateCheckVersion
-        ])
     }
 }
 
@@ -307,6 +311,25 @@ tasks.register('packagePluginVariants') {
         dependsOn tasks.named('fullFoliaJar')
         dependsOn tasks.named('fullFoliaLinuxJar')
         dependsOn tasks.named('fullFoliaWinJar')
+    }
+}
+
+tasks.named('packagePluginVariants') {
+    dependsOn syncWebFrontend
+}
+
+[
+        'shadowJar',
+        'slimJar',
+        'foliaSlimJar',
+        'fullLinuxJar',
+        'fullWinJar',
+        'fullFoliaJar',
+        'fullFoliaLinuxJar',
+        'fullFoliaWinJar'
+].each { taskName ->
+    tasks.named(taskName) {
+        dependsOn syncWebFrontend
     }
 }
 

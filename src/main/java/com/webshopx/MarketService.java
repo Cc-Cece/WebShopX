@@ -110,6 +110,22 @@ class MarketService {
       int quantity,
       CurrencyType currency,
       String tagCode) {
+    return createBuyListing(
+        ownerUserId,
+        itemMaterialRaw,
+        price,
+        quantity,
+        currency,
+        tagCode == null ? Collections.emptyList() : List.of(tagCode));
+  }
+
+  ListingCreateResult createBuyListing(
+      long ownerUserId,
+      String itemMaterialRaw,
+      long price,
+      int quantity,
+      CurrencyType currency,
+      List<String> requestedTags) {
     if (price <= 0L) {
       throw new ServiceException("invalid_price", "Price must be positive");
     }
@@ -137,7 +153,7 @@ class MarketService {
           MarketSide.BUY,
           TradeMode.DIRECT,
           currency,
-          tagCode,
+          firstTag(requestedTags),
           templateItem.getType().name(),
           snapshot.rawItemBlob(),
           snapshot.itemMetaJson());
@@ -146,16 +162,18 @@ class MarketService {
           MarketSide.BUY,
           TradeMode.DIRECT,
           currency,
-          tagCode);
+          firstTag(requestedTags));
 
       String resolvedTag = limitationDecision.forcedTag() == null
-          ? tagCode
+          ? null
           : limitationDecision.forcedTag();
-      MarketTagService.TagAssignment assignment = marketTagService.resolveTag(
-          resolvedTag,
+      List<String> effectiveRequestedTags = resolvedTag == null ? requestedTags : List.of(resolvedTag);
+      List<MarketTagService.TagAssignment> assignments = marketTagService.resolveTags(
+          effectiveRequestedTags,
           snapshot.rawItemBlob(),
           snapshot.itemMetaJson(),
           templateItem.getType().name());
+      MarketTagService.TagAssignment assignment = assignments.get(0);
       marketTagService.syncDictionary(connection);
 
       long subtotal = Math.multiplyExact(price, quantity);
@@ -177,6 +195,7 @@ class MarketService {
           escrow,
           escrow,
           quantity);
+      replaceListingTags(connection, listingId, assignments);
       applyCreateCostIfNeeded(
           connection,
           owner.userId(),
@@ -344,7 +363,15 @@ class MarketService {
       long price,
       int amount,
       CurrencyType currency) {
-    return createListingFromPlayer(player, price, amount, currency, null);
+    return createListingFromPlayer(player, price, amount, currency, Collections.emptyList());
+  }
+
+  int maxTagsPerItem() {
+    return marketTagService.maxTagsPerItem();
+  }
+
+  boolean playersCanSelectTags() {
+    return marketTagService.playersCanSelectTags();
   }
 
   ListingCreateResult createListingFromPlayer(
@@ -353,6 +380,20 @@ class MarketService {
       int amount,
       CurrencyType currency,
       String requestedTagCode) {
+    return createListingFromPlayer(
+        player,
+        price,
+        amount,
+        currency,
+        requestedTagCode == null ? Collections.emptyList() : List.of(requestedTagCode));
+  }
+
+  ListingCreateResult createListingFromPlayer(
+      Player player,
+      long price,
+      int amount,
+      CurrencyType currency,
+      List<String> requestedTags) {
     if (price <= 0L) {
       throw new ServiceException("invalid_price", "Price must be positive");
     }
@@ -392,7 +433,7 @@ class MarketService {
           snapshot,
           listingLimit,
           SupplyConfig.manual(),
-          requestedTagCode));
+          requestedTags));
       publishListingCreatedEvent(boundUser.userId(), player.getName(), result, TradeMode.DIRECT);
       return result;
     } catch (Exception exception) {
@@ -755,7 +796,8 @@ class MarketService {
       params.add(query.tradeMode().name());
     }
     if (query.tag() != null && !query.tag().isBlank()) {
-      sql.append(" AND ml.tag_code = ?");
+      sql.append(" AND EXISTS (SELECT 1 FROM market_listing_tags mlt"
+          + " WHERE mlt.listing_id = ml.id AND mlt.tag_code = ?)");
       params.add(query.tag());
     }
     if (query.tags() != null && !query.tags().isEmpty()) {
@@ -763,14 +805,15 @@ class MarketService {
           .filter(value -> value != null && !value.isBlank())
           .toList();
       if (!tags.isEmpty()) {
-        sql.append(" AND ml.tag_code IN (");
+        sql.append(" AND EXISTS (SELECT 1 FROM market_listing_tags mlt"
+            + " WHERE mlt.listing_id = ml.id AND mlt.tag_code IN (");
         for (int i = 0; i < tags.size(); i++) {
           if (i > 0) {
             sql.append(", ");
           }
           sql.append("?");
         }
-        sql.append(")");
+        sql.append("))");
         params.addAll(tags);
       }
     }
@@ -1104,7 +1147,7 @@ class MarketService {
       long listingId,
       long price,
       CurrencyType currency,
-      String tagCode,
+      List<String> requestedTags,
       String remark,
       String displayNameOverride,
       String displayMaterial,
@@ -1140,7 +1183,7 @@ class MarketService {
             listingId,
             price,
             currency,
-            tagCode,
+            requestedTags,
             normalizedRemark,
             displayNameOverride,
             displayMaterial,
@@ -1275,7 +1318,8 @@ class MarketService {
       ItemSnapshotCodec.Snapshot snapshot,
       int listingLimit,
       SupplyConfig supplyConfig,
-      String requestedTagCode) throws SQLException {
+      List<String> requestedTags) throws SQLException {
+    String requestedTagCode = firstTag(requestedTags);
     MarketLimitationService.Decision limitationDecision = evaluateLimitationDecision(
         seller.boundUuid(),
         MarketSide.SELL,
@@ -1291,14 +1335,15 @@ class MarketService {
         TradeMode.DIRECT,
         currency,
         requestedTagCode);
-    String requestedTag = limitationDecision.forcedTag() == null
-        ? requestedTagCode
-        : limitationDecision.forcedTag();
-    MarketTagService.TagAssignment assignment = marketTagService.resolveTag(
-        requestedTag,
+    List<String> effectiveRequestedTags = limitationDecision.forcedTag() == null
+        ? requestedTags
+        : List.of(limitationDecision.forcedTag());
+    List<MarketTagService.TagAssignment> assignments = marketTagService.resolveTags(
+        effectiveRequestedTags,
         snapshot.rawItemBlob(),
         snapshot.itemMetaJson(),
         listingItem.getType().name());
+    MarketTagService.TagAssignment assignment = assignments.get(0);
     marketTagService.syncDictionary(connection);
 
     long listingId = createListingInTransaction(
@@ -1316,6 +1361,7 @@ class MarketService {
         0L,
         0L,
         null);
+    replaceListingTags(connection, listingId, assignments);
     applyCreateCostIfNeeded(
         connection,
         seller.userId(),
@@ -1556,6 +1602,82 @@ class MarketService {
     return MarketTagCodes.normalize(raw);
   }
 
+  private String firstTag(List<String> tags) {
+    if (tags == null) {
+      return null;
+    }
+    for (String tag : tags) {
+      String normalized = normalizeTagCode(tag);
+      if (normalized != null) {
+        return normalized;
+      }
+    }
+    return null;
+  }
+
+  private void replaceListingTags(
+      Connection connection,
+      long listingId,
+      List<MarketTagService.TagAssignment> assignments) throws SQLException {
+    try (PreparedStatement delete = connection.prepareStatement(
+        "DELETE FROM market_listing_tags WHERE listing_id = ?")) {
+      delete.setLong(1, listingId);
+      delete.executeUpdate();
+    }
+    String sql = """
+        INSERT INTO market_listing_tags (listing_id, tag_code, source, position)
+        VALUES (?, ?, ?, ?)
+        """;
+    try (PreparedStatement insert = connection.prepareStatement(sql)) {
+      int position = 0;
+      for (MarketTagService.TagAssignment assignment : assignments) {
+        insert.setLong(1, listingId);
+        insert.setString(2, assignment.code());
+        insert.setString(3, assignment.source());
+        insert.setInt(4, position++);
+        insert.addBatch();
+      }
+      insert.executeBatch();
+    }
+  }
+
+  List<String> listListingTags(long listingId) {
+    return databaseManager.withConnection(connection -> listListingTags(connection, listingId));
+  }
+
+  private List<String> listListingTags(Connection connection, long listingId) throws SQLException {
+      List<String> result = new ArrayList<>();
+      String sql = """
+          SELECT tag_code
+          FROM market_listing_tags
+          WHERE listing_id = ?
+          ORDER BY position ASC, tag_code ASC
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, listingId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          while (resultSet.next()) {
+            result.add(resultSet.getString("tag_code"));
+          }
+        }
+      }
+      if (result.isEmpty()) {
+        try (PreparedStatement fallback = connection.prepareStatement(
+            "SELECT tag_code FROM market_listings WHERE id = ?")) {
+          fallback.setLong(1, listingId);
+          try (ResultSet resultSet = fallback.executeQuery()) {
+            if (resultSet.next()) {
+              String tag = normalizeTagCode(resultSet.getString("tag_code"));
+              if (tag != null) {
+                result.add(tag);
+              }
+            }
+          }
+        }
+      }
+      return List.copyOf(result);
+  }
+
   private boolean hasLimitationBypass(UUID actorUuid) {
     if (actorUuid == null) {
       return false;
@@ -1630,16 +1752,20 @@ class MarketService {
         long listingId = resultSet.getLong("id");
         String currentTag = normalizeTagCode(resultSet.getString("tag_code"));
         int currentVersion = resultSet.getInt("tag_version");
-        MarketTagService.TagAssignment assignment = marketTagService.resolveTag(
-            null,
+        List<MarketTagService.TagAssignment> assignments = marketTagService.resolveTags(
+            Collections.emptyList(),
             resultSet.getBytes("raw_item_blob"),
             resultSet.getString("item_meta_json"),
             resultSet.getString("item_material"));
-        if (!assignment.code().equals(currentTag) || currentVersion != targetVersion) {
-          update.setString(1, assignment.code());
+        MarketTagService.TagAssignment primary = assignments.get(0);
+        List<String> nextTags = assignments.stream().map(MarketTagService.TagAssignment::code).toList();
+        boolean tagsChanged = !nextTags.equals(listListingTags(connection, listingId));
+        if (!primary.code().equals(currentTag) || currentVersion != targetVersion || tagsChanged) {
+          update.setString(1, primary.code());
           update.setInt(2, targetVersion);
           update.setLong(3, listingId);
           update.addBatch();
+          replaceListingTags(connection, listingId, assignments);
           changed++;
         }
       }
@@ -3266,7 +3392,7 @@ class MarketService {
       long listingId,
       long price,
       CurrencyType currency,
-      String tagCodeRaw,
+      List<String> requestedTags,
       String remark,
       String displayNameOverride,
       String displayMaterial,
@@ -3301,10 +3427,7 @@ class MarketService {
     String normalizedDisplayNameOverride = normalizeDisplayNameOverride(displayNameOverride);
     String normalizedDisplayMaterial = normalizeDisplayMaterial(displayMaterial);
     String normalizedDisplayIconPath = normalizeDisplayIconPath(displayIconPath);
-    String normalizedRequestedTag = normalizeTagCode(tagCodeRaw);
-    if (normalizedRequestedTag == null) {
-      normalizedRequestedTag = listing.tagCode();
-    }
+    String normalizedRequestedTag = firstTag(requestedTags);
     Integer batch = listing.supplyBatchSize();
     Integer maxStock = listing.supplyMaxStock();
     boolean accessProtected = supplyAccessProtected == null
@@ -3367,14 +3490,30 @@ class MarketService {
         tradeMode,
         currency,
         normalizedRequestedTag);
-    String resolvedTag = limitationDecision.forcedTag() == null
-        ? normalizedRequestedTag
-        : limitationDecision.forcedTag();
-    MarketTagService.TagAssignment tagAssignment = marketTagService.resolveTag(
-        resolvedTag,
-        listing.rawItemBlob(),
-        listing.itemMetaJson(),
-        listing.itemMaterial());
+    List<String> effectiveRequestedTags = limitationDecision.forcedTag() == null
+        ? requestedTags
+        : List.of(limitationDecision.forcedTag());
+    List<MarketTagService.TagAssignment> tagAssignments;
+    if (!marketTagService.playersCanSelectTags() && limitationDecision.forcedTag() == null) {
+      int currentTagVersion = marketTagService.currentTagVersion();
+      tagAssignments = listListingTags(connection, listing.id()).stream()
+          .map(code -> new MarketTagService.TagAssignment(code, currentTagVersion, "PRESERVED"))
+          .toList();
+      if (tagAssignments.isEmpty()) {
+        tagAssignments = marketTagService.resolveTags(
+            Collections.emptyList(),
+            listing.rawItemBlob(),
+            listing.itemMetaJson(),
+            listing.itemMaterial());
+      }
+    } else {
+      tagAssignments = marketTagService.resolveTags(
+          effectiveRequestedTags,
+          listing.rawItemBlob(),
+          listing.itemMetaJson(),
+          listing.itemMaterial());
+    }
+    MarketTagService.TagAssignment tagAssignment = tagAssignments.get(0);
     marketTagService.syncDictionary(connection);
     if (tradeMode != TradeMode.AUCTION && listing.isAuction()) {
       refundAuctionBidsIfPresent(connection, listing, "mode-switch");
@@ -3720,6 +3859,7 @@ class MarketService {
       statement.setLong(35, listingId);
       statement.executeUpdate();
     }
+    replaceListingTags(connection, listingId, tagAssignments);
     MarketListing refreshed = readListingForUpdate(connection, listingId);
     return new ListingSettingsUpdateResult(
         refreshed.id(),

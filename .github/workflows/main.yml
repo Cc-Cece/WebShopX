@@ -101,6 +101,29 @@ jobs:
         with:
           java-version: ${{ env.JAVA_VERSION }}
 
+      - name: Checkout Vue frontend
+        uses: actions/checkout@v4
+        with:
+          repository: Cc-Cece/webshopx-vuetify-web
+          ref: ${{ vars.WEBSHOPX_WEB_REF || 'main' }}
+          path: .frontend/webshopx-web
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup frontend Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: .frontend/webshopx-web/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: .frontend/webshopx-web
+        run: pnpm install --frozen-lockfile
+
       - name: Resolve build metadata
         id: meta
         shell: bash
