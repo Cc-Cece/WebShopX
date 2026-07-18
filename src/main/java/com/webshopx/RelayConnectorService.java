@@ -37,6 +37,7 @@ class RelayConnectorService implements AutoCloseable {
   private final ScheduledExecutorService executorService;
   private final AtomicBoolean closed = new AtomicBoolean(false);
   private final AtomicBoolean connecting = new AtomicBoolean(false);
+  private final AtomicBoolean reconnectImmediately = new AtomicBoolean(false);
   private final AtomicLong reconnectCount = new AtomicLong();
   private final AtomicLong requestsReceived = new AtomicLong();
   private final AtomicLong requestsSucceeded = new AtomicLong();
@@ -215,7 +216,7 @@ class RelayConnectorService implements AutoCloseable {
       plugin.getLogger().log(Level.WARNING, "Relay disconnected: " + message, throwable);
     }
     if (!closed.get()) {
-      long delay = reconnectDelaySeconds(count);
+      long delay = reconnectImmediately.getAndSet(false) ? 0 : reconnectDelaySeconds(count);
       plugin.getLogger().info("Relay reconnect scheduled in " + delay + "s.");
       scheduleConnect(delay);
     }
@@ -342,13 +343,22 @@ class RelayConnectorService implements AutoCloseable {
     if ("hello.ack".equals(type)) {
       applyConnectionPolicy(message);
       boolean ok = !message.has("ok") || message.get("ok").getAsBoolean();
+      String status = optionalString(message, "status");
+      if (ok && "pending_binding".equals(status)) {
+        lastError = null;
+        plugin.getLogger().info("Relay authenticated; waiting for dashboard binding. Installation ID: " + installationId);
+      } else if (ok) {
+        reconnectCount.set(0);
+      }
       if (!ok) {
         lastError = optionalString(message, "error");
-        if ("pending_binding".equals(lastError)) {
-          plugin.getLogger().info("Relay authenticated; waiting for dashboard binding. Installation ID: " + installationId);
-        }
       }
       lastHeartbeatAt = Instant.now();
+      return;
+    }
+    if ("installation.bound".equals(type)) {
+      reconnectImmediately.set(true);
+      plugin.getLogger().info("Relay installation bound to project: " + optionalString(message, "projectSlug"));
       return;
     }
     if ("pong".equals(type)) {
