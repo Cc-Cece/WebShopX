@@ -1,5 +1,18 @@
 # WebShopX
 
+## Relay 简化配置
+
+```yaml
+webshop:
+  server-mode: relay
+
+relay:
+  url: ""
+  access-key: "wsx_user_xxx"
+```
+
+`url` 留空时使用官方 Relay。在非 `relay` 模式下，`relay.url` 和 `relay.access-key` 均可忽略。插件会自动生成稳定安装 ID，并在 Relay 控制台显示为待绑定服务器；实例必须先在网页创建，再进行绑定。
+
 WebShopX 是一个面向 `Paper / Spigot` 服务器的 Web 商店插件，把官方商城、玩家市场、钱包、订单流转和后台管理整合进同一套系统。
 
 `WebShopX` is a web-first commerce plugin for `Paper / Spigot`, combining B2C shop, C2C player market, wallet, order flow, and admin tools in one project.
@@ -87,7 +100,7 @@ WebShopX 是一个面向 `Paper / Spigot` 服务器的 Web 商店插件，把官
 
 ## Web 运行模式
 
-`config.yml` 中的 `webshop.server-mode` 支持两种模式：
+`config.yml` 中的 `webshop.server-mode` 支持三种模式：
 
 - `internal`
   - 插件同时提供 API 和静态网页
@@ -96,6 +109,20 @@ WebShopX 是一个面向 `Paper / Spigot` 服务器的 Web 商店插件，把官
   - 插件仅提供 API
   - 静态资源会导出到 `plugins/WebShopX/web/`
   - 适合前端交给 `Nginx`、面板或 CDN 托管
+- `relay`
+  - 插件使用账号访问密钥主动连接 WebShopX Relay
+  - 公网入口及实例绑定在 Relay 网页中管理
+
+Relay 配置如下。`url` 留空时使用官方 Relay；在 `internal` 或 `external` 模式下，整个 `relay` 配置均可忽略。
+
+```yaml
+webshop:
+  server-mode: relay
+
+relay:
+  url: ''
+  access-key: 'wsx_user_xxxxxxxxx'
+```
 
 如果使用 `external` 模式，可通过 `webshop.api-base-url` 指定前端请求的 API 地址。
 

@@ -6,16 +6,18 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
-import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -44,6 +46,11 @@ class RelayConnectorService implements AutoCloseable {
   private volatile Instant connectedAt;
   private volatile Instant lastHeartbeatAt;
   private volatile String lastError;
+  private volatile int heartbeatSeconds;
+  private volatile int reconnectMinSeconds;
+  private volatile int reconnectMaxSeconds;
+  private volatile int rpcTimeoutSeconds;
+  private final String installationId;
 
   RelayConnectorService(
       JavaPlugin plugin,
@@ -53,16 +60,22 @@ class RelayConnectorService implements AutoCloseable {
     this.settings = settings;
     this.rpcRouter = rpcRouter;
     this.gson = new GsonBuilder().disableHtmlEscaping().create();
+    this.heartbeatSeconds = settings.heartbeatSeconds();
+    this.reconnectMinSeconds = settings.reconnectMinSeconds();
+    this.reconnectMaxSeconds = settings.reconnectMaxSeconds();
+    this.rpcTimeoutSeconds = settings.rpcTimeoutSeconds();
+    loadCachedConnectionPolicy();
+    this.installationId = loadInstallationId();
     this.httpClient = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(Math.max(2, settings.rpcTimeoutSeconds())))
+        .connectTimeout(Duration.ofSeconds(Math.max(2, rpcTimeoutSeconds)))
         .build();
     this.executorService = Executors.newSingleThreadScheduledExecutor(new RelayThreadFactory());
   }
 
   void start() {
     if (!settings.shouldConnect()) {
-      lastError = "Relay endpoint or connector token is not configured";
-      plugin.getLogger().info("Relay is enabled but endpoint/token is missing; connector will stay offline.");
+      lastError = "Relay URL or access key is not configured";
+      plugin.getLogger().info("Relay is enabled but URL/access key is missing; connector will stay offline.");
       return;
     }
     plugin.getLogger().info("Starting Relay connector: " + settings.endpoint());
@@ -78,7 +91,7 @@ class RelayConnectorService implements AutoCloseable {
         settings.enabled(),
         webSocket != null && !webSocket.isOutputClosed() && !webSocket.isInputClosed(),
         settings.endpoint(),
-        settings.serverId(),
+        installationId,
         connectedAt,
         lastHeartbeatAt,
         reconnectCount.get(),
@@ -116,8 +129,8 @@ class RelayConnectorService implements AutoCloseable {
     try {
       URI uri = connectorUri();
       httpClient.newWebSocketBuilder()
-          .header("Authorization", "Bearer " + settings.connectorToken())
-          .connectTimeout(Duration.ofSeconds(Math.max(2, settings.rpcTimeoutSeconds())))
+          .header("Authorization", "Bearer " + settings.accessKey())
+          .connectTimeout(Duration.ofSeconds(Math.max(2, rpcTimeoutSeconds)))
           .buildAsync(uri, new RelayListener())
           .whenComplete((socket, throwable) -> {
             connecting.set(false);
@@ -142,8 +155,9 @@ class RelayConnectorService implements AutoCloseable {
     JsonObject hello = new JsonObject();
     hello.addProperty("type", "hello");
     hello.addProperty("protocolVersion", 1);
-    hello.addProperty("serverId", settings.serverId());
-    hello.addProperty("token", settings.connectorToken());
+    hello.addProperty("accessKey", settings.accessKey());
+    hello.addProperty("installationId", installationId);
+    hello.addProperty("machineName", resolveMachineName());
     hello.addProperty("pluginVersion", plugin.getDescription().getVersion());
     hello.addProperty("minecraftVersion", resolveMinecraftVersion());
     com.google.gson.JsonArray capabilities = new com.google.gson.JsonArray();
@@ -155,13 +169,14 @@ class RelayConnectorService implements AutoCloseable {
   }
 
   private void scheduleHeartbeat() {
-    executorService.scheduleAtFixedRate(
+    executorService.schedule(
         () -> {
           if (closed.get()) {
             return;
           }
           WebSocket socket = webSocket;
           if (socket == null || socket.isInputClosed() || socket.isOutputClosed()) {
+            scheduleHeartbeat();
             return;
           }
           JsonObject ping = new JsonObject();
@@ -172,9 +187,9 @@ class RelayConnectorService implements AutoCloseable {
                 handleDisconnect(socket, "heartbeat_failed: " + rootMessage(throwable), throwable);
                 return null;
               });
+          scheduleHeartbeat();
         },
-        settings.heartbeatSeconds(),
-        settings.heartbeatSeconds(),
+        heartbeatSeconds,
         TimeUnit.SECONDS);
   }
 
@@ -214,8 +229,8 @@ class RelayConnectorService implements AutoCloseable {
   }
 
   private long reconnectDelaySeconds(long count) {
-    long min = Math.max(1, settings.reconnectMinSeconds());
-    long max = Math.max(min, settings.reconnectMaxSeconds());
+    long min = Math.max(1, reconnectMinSeconds);
+    long max = Math.max(min, reconnectMaxSeconds);
     long exponential = min * (1L << Math.min(6, Math.max(0, count - 1)));
     return Math.min(max, exponential);
   }
@@ -234,9 +249,77 @@ class RelayConnectorService implements AutoCloseable {
       scheme = "wss://";
       rest = endpoint;
     }
-    String separator = settings.websocketPath().contains("?") ? "&" : "?";
-    String serverId = URLEncoder.encode(settings.serverId(), StandardCharsets.UTF_8);
-    return URI.create(scheme + rest + settings.websocketPath() + separator + "server_id=" + serverId);
+    return URI.create(scheme + rest + "/connector/ws");
+  }
+
+  private String loadInstallationId() {
+    Path file = plugin.getDataFolder().toPath().resolve("relay-installation-id");
+    try {
+      if (Files.isRegularFile(file)) {
+        String value = Files.readString(file).trim();
+        if (!value.isBlank()) return value;
+      }
+      Files.createDirectories(file.getParent());
+      String value = UUID.randomUUID().toString();
+      Files.writeString(file, value + System.lineSeparator(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+      return value;
+    } catch (Exception exception) {
+      throw new IllegalStateException("Failed to load Relay installation ID", exception);
+    }
+  }
+
+  private void loadCachedConnectionPolicy() {
+    Path file = plugin.getDataFolder().toPath().resolve("relay-connection-policy.json");
+    try {
+      if (Files.isRegularFile(file)) {
+        JsonElement parsed = JsonParser.parseString(Files.readString(file));
+        if (parsed.isJsonObject()) applyConnectionPolicyObject(parsed.getAsJsonObject(), false);
+      }
+    } catch (Exception exception) {
+      plugin.getLogger().log(Level.WARNING, "Ignoring invalid cached Relay connection policy", exception);
+    }
+  }
+
+  private void applyConnectionPolicy(JsonObject message) {
+    if (!message.has("connectionPolicy") || !message.get("connectionPolicy").isJsonObject()) return;
+    applyConnectionPolicyObject(message.getAsJsonObject("connectionPolicy"), true);
+  }
+
+  private void applyConnectionPolicyObject(JsonObject policy, boolean persist) {
+    int nextHeartbeat = clamp(intOrDefault(policy, "heartbeatSeconds", heartbeatSeconds), 10, 300);
+    int nextReconnectMin = clamp(intOrDefault(policy, "reconnectMinSeconds", reconnectMinSeconds), 1, 300);
+    int nextReconnectMax = clamp(intOrDefault(policy, "reconnectMaxSeconds", reconnectMaxSeconds), nextReconnectMin, 900);
+    int nextRpcTimeout = clamp(intOrDefault(policy, "rpcTimeoutSeconds", rpcTimeoutSeconds), 2, 120);
+    heartbeatSeconds = nextHeartbeat;
+    reconnectMinSeconds = nextReconnectMin;
+    reconnectMaxSeconds = nextReconnectMax;
+    rpcTimeoutSeconds = nextRpcTimeout;
+    if (!persist) return;
+    JsonObject cached = new JsonObject();
+    cached.addProperty("heartbeatSeconds", nextHeartbeat);
+    cached.addProperty("reconnectMinSeconds", nextReconnectMin);
+    cached.addProperty("reconnectMaxSeconds", nextReconnectMax);
+    cached.addProperty("rpcTimeoutSeconds", nextRpcTimeout);
+    Path file = plugin.getDataFolder().toPath().resolve("relay-connection-policy.json");
+    try {
+      Files.createDirectories(file.getParent());
+      Files.writeString(file, gson.toJson(cached) + System.lineSeparator(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+    } catch (Exception exception) {
+      plugin.getLogger().log(Level.WARNING, "Failed to cache Relay connection policy", exception);
+    }
+  }
+
+  private static int clamp(int value, int min, int max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  private String resolveMachineName() {
+    for (String key : List.of("HOSTNAME", "COMPUTERNAME")) {
+      String value = System.getenv(key);
+      if (value != null && !value.isBlank()) return value.trim();
+    }
+    try { return java.net.InetAddress.getLocalHost().getHostName(); }
+    catch (Exception ignored) { return "unknown"; }
   }
 
   private void handleTextMessage(String text) {
@@ -257,9 +340,13 @@ class RelayConnectorService implements AutoCloseable {
 
     String type = optionalString(message, "type");
     if ("hello.ack".equals(type)) {
+      applyConnectionPolicy(message);
       boolean ok = !message.has("ok") || message.get("ok").getAsBoolean();
       if (!ok) {
         lastError = optionalString(message, "error");
+        if ("pending_binding".equals(lastError)) {
+          plugin.getLogger().info("Relay authenticated; waiting for dashboard binding. Installation ID: " + installationId);
+        }
       }
       lastHeartbeatAt = Instant.now();
       return;
@@ -335,7 +422,7 @@ class RelayConnectorService implements AutoCloseable {
         new RelayRpcRequest.AuthEnvelope(optionalString(auth, "token")),
         payload,
         optionalString(message, "idempotencyKey"),
-        intOrDefault(message, "timeoutMs", settings.rpcTimeoutSeconds() * 1000));
+        intOrDefault(message, "timeoutMs", rpcTimeoutSeconds * 1000));
   }
 
   private Map<String, String> parseStringMap(JsonObject object) {

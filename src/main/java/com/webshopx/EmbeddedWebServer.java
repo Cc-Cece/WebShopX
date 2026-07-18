@@ -71,6 +71,7 @@ class EmbeddedWebServer {
   private final RuntimeConfigService runtimeConfigService;
   private final ClusterEventBusService clusterEventBusService;
   private final BStatsTelemetryService bStatsTelemetryService;
+  private final PluginUpdateService pluginUpdateService;
   private final Gson gson;
   private static final int MATERIAL_ICON_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
   private static final Set<String> MATERIAL_ICON_ALLOWED_EXTENSIONS =
@@ -128,6 +129,7 @@ class EmbeddedWebServer {
     this.runtimeConfigService = runtimeConfigService;
     this.clusterEventBusService = clusterEventBusService;
     this.bStatsTelemetryService = bStatsTelemetryService;
+    this.pluginUpdateService = new PluginUpdateService(plugin);
     this.gson = new GsonBuilder().disableHtmlEscaping().create();
     this.localeCenterService = new LocaleCenterService(plugin, () -> this.webUserRoot);
   }
@@ -171,6 +173,7 @@ class EmbeddedWebServer {
     server.createContext("/api/meta/market-tags", this::handleMarketTagsMeta);
     server.createContext("/api/market/auction-display-settings", this::handleAuctionDisplaySettings);
     server.createContext("/api/meta/locales", this::handleMetaLocales);
+    server.createContext("/api/meta/version", this::handleMetaVersion);
     server.createContext("/api/locales/", this::handlePublicLocaleMessages);
     server.createContext("/api/leaderboard/config", this::handleLeaderboardConfig);
     server.createContext("/api/leaderboard/list", this::handleLeaderboardList);
@@ -224,6 +227,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/system/logging", this::handleAdminLoggingSettingsUpdate);
     server.createContext("/api/admin/system/broadcast", this::handleAdminBroadcastSettingsUpdate);
     server.createContext("/api/admin/system/notification", this::handleAdminNotificationSettingsUpdate);
+    server.createContext("/api/admin/system/update", this::handleAdminPluginUpdate);
     server.createContext("/api/admin/visual/settings", this::handleAdminVisualSettingsUpdate);
     server.createContext("/api/admin/material-overrides/list", this::handleAdminMaterialOverridesList);
     server.createContext("/api/admin/material-overrides/upsert", this::handleAdminMaterialOverridesUpsert);
@@ -2649,6 +2653,31 @@ class EmbeddedWebServer {
       response.addProperty("defaultLocale", getOptionalString(state, "defaultLocale").orElse("zh-CN"));
       response.add("locales", localeCenterService.listPublicWebLocales());
       sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleMetaVersion(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> sendJson(exchange, 200, pluginUpdateService.publicState()));
+  }
+
+  private void handleAdminPluginUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    String method = exchange.getRequestMethod();
+    if (!method.equalsIgnoreCase("GET") && !method.equalsIgnoreCase("POST")) {
+      sendJson(exchange, 405, errorJson("method_not_allowed", "Use GET or POST"));
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      requireAdmin(exchange, null, null);
+      sendJson(exchange, 200, pluginUpdateService.getUpdateState(method.equalsIgnoreCase("POST")));
     });
   }
 

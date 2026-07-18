@@ -19,13 +19,13 @@ record RelayStatus(
         settings != null && settings.enabled(),
         false,
         settings == null ? "" : settings.endpoint(),
-        settings == null ? "main" : settings.serverId(),
+        "main",
         null,
         null,
         0L,
         0L,
         0L,
         0L,
-        settings == null || settings.shouldConnect() ? null : "Relay endpoint or connector token is not configured");
+        settings == null || settings.shouldConnect() ? null : "Relay URL or access key is not configured");
   }
 }

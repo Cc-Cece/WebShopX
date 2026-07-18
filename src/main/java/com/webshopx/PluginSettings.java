@@ -508,9 +508,7 @@ record PluginSettings(
   record RelaySettings(
       boolean enabled,
       String endpoint,
-      String serverId,
-      String connectorToken,
-      String websocketPath,
+      String accessKey,
       int heartbeatSeconds,
       int reconnectMinSeconds,
       int reconnectMaxSeconds,
@@ -518,13 +516,14 @@ record PluginSettings(
       int publicCacheSeconds,
       boolean diagnosticsEnabled) {
     boolean shouldConnect() {
-      return enabled && !endpoint.isBlank() && !connectorToken.isBlank();
+      return enabled && !endpoint.isBlank() && !accessKey.isBlank();
     }
   }
 
   enum ServerMode {
     INTERNAL,
-    EXTERNAL;
+    EXTERNAL,
+    RELAY;
 
     static ServerMode fromRaw(String raw) {
       String normalized = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
@@ -539,6 +538,9 @@ record PluginSettings(
           || normalized.equals("embedded")
           || normalized.equals("builtin")) {
         return INTERNAL;
+      }
+      if (normalized.equals("relay")) {
+        return RELAY;
       }
       return INTERNAL;
     }
@@ -584,6 +586,13 @@ record PluginSettings(
   }
 
   private static DeploymentMode readDeploymentMode(FileConfiguration config, ServerMode legacyServerMode) {
+    if (legacyServerMode == ServerMode.RELAY) {
+      return DeploymentMode.RELAY;
+    }
+    // Compatibility for configurations generated before server-mode=relay existed.
+    if (config.getBoolean("relay.enabled", false)) {
+      return DeploymentMode.RELAY;
+    }
     String rawDeploymentMode = config.getString("deployment.mode");
     if (rawDeploymentMode != null && !rawDeploymentMode.isBlank()) {
       return DeploymentMode.fromRaw(rawDeploymentMode);
@@ -602,30 +611,15 @@ record PluginSettings(
       DeploymentMode deploymentMode) {
     String section = config.isConfigurationSection("relay") ? "relay" : "cloudflare-relay";
     return new RelaySettings(
-        deploymentMode == DeploymentMode.RELAY && config.getBoolean(section + ".enabled", true),
-        normalizeApiBaseUrl(config.getString(section + ".endpoint", "")),
-        normalizeRelayServerId(config.getString(section + ".server-id", "main")),
-        trimToEmpty(config.getString(section + ".connector-token", "")),
-        normalizeWebSocketPath(config.getString(section + ".websocket-path", "/connector/ws")),
+        deploymentMode == DeploymentMode.RELAY,
+        firstNonBlank(normalizeApiBaseUrl(config.getString(section + ".url", "")), "https://47.122.127.164", ""),
+        trimToEmpty(config.getString(section + ".access-key", "")),
         clamp(config.getInt(section + ".heartbeat-seconds", 30), 10, 300),
         clamp(config.getInt(section + ".reconnect-min-seconds", 3), 1, 300),
         clamp(config.getInt(section + ".reconnect-max-seconds", 60), 3, 900),
         clamp(config.getInt(section + ".rpc-timeout-seconds", 10), 2, 120),
         clamp(config.getInt(section + ".public-cache-seconds", 15), 0, 300),
         config.getBoolean(section + ".diagnostics.enabled", true));
-  }
-
-  private static String normalizeRelayServerId(String rawServerId) {
-    String normalized = trimToEmpty(rawServerId);
-    return normalized.isEmpty() ? "main" : normalized;
-  }
-
-  private static String normalizeWebSocketPath(String rawPath) {
-    String normalized = trimToEmpty(rawPath);
-    if (normalized.isEmpty()) {
-      return "/connector/ws";
-    }
-    return normalized.startsWith("/") ? normalized : "/" + normalized;
   }
 
   private static String trimToEmpty(String value) {

@@ -13,14 +13,11 @@ class PluginSettingsRelayTest {
   void readsRelayDeploymentConfiguration() throws Exception {
     YamlConfiguration config = new YamlConfiguration();
     config.loadFromString("""
-        deployment:
-          mode: relay
+        webshop:
+          server-mode: relay
         relay:
-          enabled: true
-          endpoint: "https://relay.example.com/"
-          server-id: "main"
-          connector-token: "secret"
-          websocket-path: "p/demo/connector/ws"
+          url: "https://relay.example.com/"
+          access-key: "wsx_user_secret"
           heartbeat-seconds: 5
           reconnect-min-seconds: 0
           reconnect-max-seconds: 9999
@@ -33,7 +30,7 @@ class PluginSettingsRelayTest {
     assertEquals(PluginSettings.DeploymentMode.RELAY, settings.deploymentMode());
     assertTrue(relay.shouldConnect());
     assertEquals("https://relay.example.com", relay.endpoint());
-    assertEquals("/p/demo/connector/ws", relay.websocketPath());
+    assertEquals("wsx_user_secret", relay.accessKey());
     assertEquals(10, relay.heartbeatSeconds());
     assertEquals(1, relay.reconnectMinSeconds());
     assertEquals(900, relay.reconnectMaxSeconds());
@@ -55,27 +52,39 @@ class PluginSettingsRelayTest {
     PluginSettings settings = PluginSettings.fromConfig(config);
 
     assertEquals(PluginSettings.DeploymentMode.RELAY, settings.deploymentMode());
-    assertEquals("legacy", settings.relaySettings().serverId());
-    assertTrue(settings.relaySettings().shouldConnect());
+    assertFalse(settings.relaySettings().shouldConnect());
   }
 
   @Test
-  void explicitRelayDisablePreventsConnection() throws Exception {
+  void ignoresRelaySettingsOutsideRelayServerMode() throws Exception {
     YamlConfiguration config = new YamlConfiguration();
     config.loadFromString("""
-        deployment:
-          mode: relay
+        webshop:
+          server-mode: internal
         relay:
-          enabled: false
-          endpoint: "https://relay.example.com"
-          connector-token: "secret"
+          url: "https://relay.example.com"
+          access-key: "wsx_user_secret"
         """);
 
     PluginSettings settings = PluginSettings.fromConfig(config);
 
-    assertEquals(PluginSettings.DeploymentMode.RELAY, settings.deploymentMode());
+    assertEquals(PluginSettings.DeploymentMode.SELF_HOSTED_INTERNAL, settings.deploymentMode());
     assertFalse(settings.relaySettings().enabled());
     assertFalse(settings.relaySettings().shouldConnect());
+  }
+
+  @Test
+  void usesOfficialRelayUrlByDefault() throws Exception {
+    YamlConfiguration config = new YamlConfiguration();
+    config.loadFromString("""
+        webshop:
+          server-mode: relay
+        relay:
+          access-key: "wsx_user_secret"
+        """);
+    PluginSettings.RelaySettings relay = PluginSettings.fromConfig(config).relaySettings();
+    assertEquals("https://47.122.127.164", relay.endpoint());
+    assertTrue(relay.shouldConnect());
   }
 
 }

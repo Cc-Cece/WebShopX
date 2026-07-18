@@ -6,6 +6,8 @@
 # ============================================================
 
 webshop:
+  # server-mode: internal | external | relay
+  # relay 模式通过 WebShopX Relay 提供公网访问。
   # internal: 启用内置静态网页 + API
   # external: 仅启用 API（静态资源由反向代理/CDN 提供）
   server-mode: internal
@@ -40,11 +42,19 @@ webshop:
     directory: logs/business-ledger
     retention-days: 30
 
+relay:
+  # 仅在 webshop.server-mode=relay 时生效；非 relay 模式下可忽略本节。
+  # 留空时使用官方 Relay 地址；保留此项以便后续迁移或自建服务。
+  url: ""
+  # Relay 用户信息页面中生成的访问密钥。
+  access-key: ""
+
 database:
   # mysql | mariadb | sqlite
   # 为了快速上手，默认使用 sqlite。
   # 强烈建议生产环境使用 mysql 或 mariadb（性能/并发/稳定性更好）。
   type: sqlite
+  # 以下配置（host-server-rsa-public-key-file）仅在 database.type=mysql 或 mariadb 时生效。
   host: 127.0.0.1
   port: 3306
   schema: webshop
@@ -81,18 +91,3 @@ payment:
   # 留空时自动选择第一个可用的 WebShopXPaymentApi provider。
   # 推荐安装 WebShopX-Payments 并使用 webshopx-payments。
   provider: webshopx-payments
-
-# Relay 部署为可选功能；默认不启用。
-deployment:
-  mode: self-hosted-internal
-
-relay:
-  enabled: false
-  endpoint: ""
-  server-id: main
-  connector-token: ""
-  websocket-path: /connector/ws
-  heartbeat-seconds: 30
-  reconnect-min-seconds: 3
-  reconnect-max-seconds: 60
-  rpc-timeout-seconds: 10
