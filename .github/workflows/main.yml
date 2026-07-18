@@ -106,6 +106,7 @@ jobs:
         with:
           repository: Cc-Cece/webshopx-vuetify-web
           ref: ${{ vars.WEBSHOPX_WEB_REF || 'main' }}
+          token: ${{ secrets.WEBSHOPX_WEB_READ_TOKEN }}
           path: .frontend/webshopx-web
 
       - name: Setup pnpm
