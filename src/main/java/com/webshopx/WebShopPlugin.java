@@ -57,6 +57,9 @@ public class WebShopPlugin extends JavaPlugin {
   private AdminAuditService adminAuditService;
   private LeaderboardService leaderboardService;
   private EmbeddedWebServer embeddedWebServer;
+  private RelayConnectorService relayConnectorService;
+  private Path webStaticRoot;
+  private Path webUserRoot;
   private StaticAssetInstaller staticAssetInstaller;
   private TextureAssetManager textureAssetManager;
   private MaintenanceService maintenanceService;
@@ -206,6 +209,7 @@ public class WebShopPlugin extends JavaPlugin {
       startMaintenanceLoop();
       startMarketCycleLoop();
       restartWebRuntime();
+      restartRelayConnector();
       if (bStatsTelemetryService != null) {
         bStatsTelemetryService.markStartupSuccess();
       }
@@ -245,6 +249,7 @@ public class WebShopPlugin extends JavaPlugin {
       marketCycleTask.cancel();
       marketCycleTask = null;
     }
+    stopRelayConnector();
     if (embeddedWebServer != null) {
       embeddedWebServer.stop();
     }
@@ -313,6 +318,7 @@ public class WebShopPlugin extends JavaPlugin {
     startMaintenanceLoop();
     startMarketCycleLoop();
     restartWebRuntime();
+    restartRelayConnector();
   }
 
   void reloadRuntimeBusinessSettings() {
@@ -333,6 +339,7 @@ public class WebShopPlugin extends JavaPlugin {
       startMaintenanceLoop();
       startMarketCycleLoop();
       restartWebRuntime();
+      restartRelayConnector();
     } catch (Exception exception) {
       getLogger().log(Level.WARNING, messageService.getConsole("console.failed_reload_runtime_business_settings"), exception);
     }
@@ -529,24 +536,78 @@ public class WebShopPlugin extends JavaPlugin {
       embeddedWebServer.stop();
     }
     if (!settings.clusterSettings().shouldStartWebApi()) {
+      webStaticRoot = null;
+      webUserRoot = null;
       getLogger().info(messageService.formatConsole(
           "console.cluster_web_api_disabled_on_role",
           MapUtils.mapOf("role", settings.clusterSettings().role().name().toLowerCase(Locale.ROOT))));
       return;
     }
 
-    Path staticRoot = staticAssetInstaller.install(settings.embeddedWebSettings().staticRoot(), settings);
-    Path userWebRoot = prepareUserWebRoot(staticRoot);
-    textureAssetManager.ensureLocalTextureCacheAsync(staticRoot, resolveMinecraftVersion());
+    webStaticRoot = staticAssetInstaller.install(settings.embeddedWebSettings().staticRoot(), settings);
+    webUserRoot = prepareUserWebRoot(webStaticRoot);
+    textureAssetManager.ensureLocalTextureCacheAsync(webStaticRoot, resolveMinecraftVersion());
     if (settings.serverMode() == PluginSettings.ServerMode.EXTERNAL) {
-      getLogger().info(messageService.formatConsole("console.server_mode_external", MapUtils.mapOf("path", staticRoot)));
+      getLogger().info(messageService.formatConsole("console.server_mode_external", MapUtils.mapOf("path", webStaticRoot)));
     }
 
     try {
-      embeddedWebServer.start(staticRoot, userWebRoot);
+      embeddedWebServer.start(webStaticRoot, webUserRoot);
     } catch (Exception exception) {
       throw new IllegalStateException("Failed to start embedded HTTP server", exception);
     }
+  }
+
+  private void restartRelayConnector() {
+    stopRelayConnector();
+    if (settings == null || settings.deploymentMode() != PluginSettings.DeploymentMode.RELAY) {
+      return;
+    }
+    if (webStaticRoot == null || webUserRoot == null) {
+      getLogger().warning("Relay is enabled, but web assets are not initialized; connector will stay offline.");
+      return;
+    }
+
+    RelayRpcRouter rpcRouter = new RelayRpcRouter(
+        this,
+        this::settings,
+        this::relayStatus,
+        authService,
+        productService,
+        orderService,
+        adminService,
+        adminAuditService,
+        visualCustomizationService,
+        webStaticRoot,
+        webUserRoot,
+        new RelayLocalHttpBridge(
+            settings.embeddedWebSettings(),
+            settings.relaySettings().rpcTimeoutSeconds()));
+    relayConnectorService = new RelayConnectorService(
+        this,
+        settings.relaySettings(),
+        rpcRouter);
+    relayConnectorService.start();
+  }
+
+  private void stopRelayConnector() {
+    if (relayConnectorService == null) {
+      return;
+    }
+    try {
+      relayConnectorService.close();
+    } catch (Exception exception) {
+      getLogger().log(Level.WARNING, "Failed to stop relay connector.", exception);
+    } finally {
+      relayConnectorService = null;
+    }
+  }
+
+  private RelayStatus relayStatus() {
+    if (relayConnectorService != null) {
+      return relayConnectorService.status();
+    }
+    return RelayStatus.disabled(settings == null ? null : settings.relaySettings());
   }
 
   private Path prepareUserWebRoot(Path staticRoot) {
@@ -630,6 +691,7 @@ public class WebShopPlugin extends JavaPlugin {
     try {
       metrics = new Metrics(this, BSTATS_PLUGIN_ID);
       metrics.addCustomChart(new SimplePie("server_mode", () -> settings.serverMode().name().toLowerCase(Locale.ROOT)));
+      metrics.addCustomChart(new SimplePie("deployment_mode", () -> settings.deploymentMode().configValue()));
       metrics.addCustomChart(
           new SimplePie("cluster_role", () -> settings.clusterSettings().role().name().toLowerCase(Locale.ROOT)));
       metrics.addCustomChart(new SimplePie("default_locale", settings::defaultLocale));

@@ -602,7 +602,7 @@ record PluginSettings(
       DeploymentMode deploymentMode) {
     String section = config.isConfigurationSection("relay") ? "relay" : "cloudflare-relay";
     return new RelaySettings(
-        deploymentMode == DeploymentMode.RELAY,
+        deploymentMode == DeploymentMode.RELAY && config.getBoolean(section + ".enabled", true),
         normalizeApiBaseUrl(config.getString(section + ".endpoint", "")),
         normalizeRelayServerId(config.getString(section + ".server-id", "main")),
         trimToEmpty(config.getString(section + ".connector-token", "")),

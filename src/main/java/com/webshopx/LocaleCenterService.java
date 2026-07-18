@@ -297,7 +297,7 @@ class LocaleCenterService {
     row.addProperty("nativeName", defaultIfBlank(getAsString(source, "nativeName"), defaultNativeNameFor(locale)));
     row.addProperty("source", defaultIfBlank(getAsString(source, "source"), BUILTIN_LOCALES.contains(locale) ? "built-in" : "upload"));
     row.addProperty("version", defaultIfBlank(getAsString(source, "version"), BUILTIN_LOCALES.contains(locale) ? "builtin-1" : "unknown"));
-    row.addProperty("messagesUrl", "/api/locales/" + locale + "/messages");
+    row.addProperty("messagesUrl", "/locales/" + locale + "/messages");
     return row;
   }
 
@@ -308,7 +308,7 @@ class LocaleCenterService {
     row.addProperty("nativeName", defaultNativeNameFor(locale));
     row.addProperty("source", "built-in");
     row.addProperty("version", "builtin-1");
-    row.addProperty("messagesUrl", "/api/locales/" + locale + "/messages");
+    row.addProperty("messagesUrl", "/locales/" + locale + "/messages");
     return row;
   }
 

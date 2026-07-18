@@ -8,7 +8,7 @@ plugins {
     id 'java'
 }
 
-version = 'dev-v1.2.9'
+version = 'dev-v3.0.0'
 
 group = "com.webshopx"
 String targetRuntime = hasProperty('targetRuntime')

@@ -66,6 +66,9 @@ class RelayConnectorService implements AutoCloseable {
       return;
     }
     plugin.getLogger().info("Starting Relay connector: " + settings.endpoint());
+    if (settings.endpoint().regionMatches(true, 0, "http://", 0, "http://".length())) {
+      plugin.getLogger().warning("Relay endpoint uses unencrypted WebSocket (ws://); use HTTPS/WSS in production.");
+    }
     scheduleConnect(0);
     scheduleHeartbeat();
   }
@@ -103,7 +106,11 @@ class RelayConnectorService implements AutoCloseable {
   }
 
   private void connect() {
-    if (closed.get() || !settings.shouldConnect() || !connecting.compareAndSet(false, true)) {
+    WebSocket current = webSocket;
+    if (closed.get()
+        || !settings.shouldConnect()
+        || (current != null && !current.isInputClosed() && !current.isOutputClosed())
+        || !connecting.compareAndSet(false, true)) {
       return;
     }
     try {
@@ -115,7 +122,7 @@ class RelayConnectorService implements AutoCloseable {
           .whenComplete((socket, throwable) -> {
             connecting.set(false);
             if (throwable != null) {
-              handleDisconnect("connect_failed: " + rootMessage(throwable), throwable);
+              handleDisconnect(null, "connect_failed: " + rootMessage(throwable), throwable);
               return;
             }
             webSocket = socket;
@@ -127,7 +134,7 @@ class RelayConnectorService implements AutoCloseable {
           });
     } catch (Exception exception) {
       connecting.set(false);
-      handleDisconnect("connect_failed: " + rootMessage(exception), exception);
+      handleDisconnect(null, "connect_failed: " + rootMessage(exception), exception);
     }
   }
 
@@ -162,7 +169,7 @@ class RelayConnectorService implements AutoCloseable {
           ping.addProperty("time", Instant.now().toString());
           socket.sendText(gson.toJson(ping), true)
               .exceptionally(throwable -> {
-                handleDisconnect("heartbeat_failed: " + rootMessage(throwable), throwable);
+                handleDisconnect(socket, "heartbeat_failed: " + rootMessage(throwable), throwable);
                 return null;
               });
         },
@@ -178,8 +185,11 @@ class RelayConnectorService implements AutoCloseable {
     executorService.schedule(this::connect, Math.max(0L, delaySeconds), TimeUnit.SECONDS);
   }
 
-  private void handleDisconnect(String message, Throwable throwable) {
+  private void handleDisconnect(WebSocket expectedSocket, String message, Throwable throwable) {
     WebSocket socket = webSocket;
+    if (expectedSocket != null && socket != expectedSocket) {
+      return;
+    }
     webSocket = null;
     connectedAt = null;
     lastError = message;
@@ -305,7 +315,7 @@ class RelayConnectorService implements AutoCloseable {
     socket.sendText(gson.toJson(outbound), true)
         .exceptionally(throwable -> {
           requestsFailed.incrementAndGet();
-          handleDisconnect("send_failed: " + rootMessage(throwable), throwable);
+          handleDisconnect(socket, "send_failed: " + rootMessage(throwable), throwable);
           return null;
         });
   }
@@ -414,13 +424,13 @@ class RelayConnectorService implements AutoCloseable {
 
     @Override
     public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
-      handleDisconnect("closed(" + statusCode + "): " + reason, null);
+      handleDisconnect(webSocket, "closed(" + statusCode + "): " + reason, null);
       return WebSocket.Listener.super.onClose(webSocket, statusCode, reason);
     }
 
     @Override
     public void onError(WebSocket webSocket, Throwable error) {
-      handleDisconnect("websocket_error: " + rootMessage(error), error);
+      handleDisconnect(webSocket, "websocket_error: " + rootMessage(error), error);
     }
   }
 
