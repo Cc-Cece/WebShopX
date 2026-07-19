@@ -1,4 +1,4 @@
-﻿name: CI, Build and Dual Release Sync
+name: CI, Build and Dual Release Sync
 
 permissions:
   contents: write
@@ -111,7 +111,7 @@ jobs:
           path: .frontend/webshopx-web
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10
 
