@@ -10,6 +10,8 @@ import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.webshopx.payment.api.PaymentMethod;
+import com.webshopx.payment.api.PaymentConfigUpdateRequest;
+import com.webshopx.payment.api.PaymentConfigUpdateResult;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -218,6 +220,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/economy/leaderboard", this::handleAdminLeaderboardSettingsUpdate);
     server.createContext("/api/admin/economy/currency", this::handleAdminCurrencyDisplayUpdate);
     server.createContext("/api/admin/economy/recharge-payment", this::handleAdminRechargePaymentUpdate);
+    server.createContext("/api/admin/economy/payment-provider-config", this::handleAdminPaymentProviderConfig);
     server.createContext("/api/admin/market/tags-config", this::handleAdminMarketTagsConfig);
     server.createContext("/api/admin/market/limitation-config", this::handleAdminMarketLimitationConfig);
     server.createContext("/api/admin/system/webshop", this::handleAdminWebshopRuntimeUpdate);
@@ -1089,7 +1092,7 @@ class EmbeddedWebServer {
       response.add("gameCoin", game);
       response.add("exchange", buildExchangeMetaJson());
       response.add("payment", rechargePaymentSettingsJson(settingsSupplier.get().paymentSettings()));
-      response.add("paymentProvider", paymentProviderInfoJson(rechargeService.paymentProviderInfo()));
+      response.add("paymentProviders", paymentProviderInfosJson(rechargeService.paymentProviderInfos()));
       response.addProperty("timeZone", settingsSupplier.get().timeZone().getId());
       sendJson(exchange, 200, response);
     });
@@ -1283,6 +1286,7 @@ class EmbeddedWebServer {
 
   private JsonObject webshopRuntimeJson(PluginSettings settings) {
     JsonObject json = new JsonObject();
+    json.addProperty("shopUrl", runtimeConfigService.readShopUrl());
     json.addProperty("defaultLocale", settings.defaultLocale());
     json.addProperty("sessionExpireHours", settings.sessionExpireHours());
     json.addProperty("bindRequestExpireMinutes", settings.bindRequestExpireMinutes());
@@ -3182,7 +3186,7 @@ class EmbeddedWebServer {
       response.add("leaderboard", leaderboardSettingsJson(settings));
       response.add("webshopRuntime", webshopRuntimeJson(settings));
       response.add("rechargePayment", rechargePaymentSettingsJson(settings.paymentSettings()));
-      response.add("paymentProvider", paymentProviderInfoJson(rechargeService.paymentProviderInfo()));
+      response.add("paymentProviders", paymentProviderInfosJson(rechargeService.paymentProviderInfos()));
       response.add("marketRuntime", marketRuntimeJson(settings));
       response.add("maintenance", maintenanceSettingsJson(settings.maintenanceSettings()));
       response.add("logging", loggingSettingsJson(settings.loggingSettings()));
@@ -3362,10 +3366,11 @@ class EmbeddedWebServer {
       PluginSettings.PaymentSettings current = settingsSupplier.get().paymentSettings();
       List<String> currencies = getStringArray(payload, "currencies");
       PluginSettings.PaymentSettings paymentSettings = new PluginSettings.PaymentSettings(
-          current.provider(),
+          "",
           currencies,
           PluginSettings.normalizePaymentMethods(getStringArray(payload, "methods")),
           parseRechargeRates(payload));
+      validatePaymentRoutes(paymentSettings.rechargeRates());
       long version = runtimeConfigService.updatePaymentRecharge(paymentSettings);
       publishRuntimeConfigRefresh(version);
 
@@ -3379,6 +3384,54 @@ class EmbeddedWebServer {
       response.addProperty("status", "ok");
       response.add("rechargePayment", rechargePaymentSettingsJson(paymentSettings));
       sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminPaymentProviderConfig(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (exchange.getRequestMethod().equalsIgnoreCase("GET")) {
+      withServiceHandling(exchange, () -> {
+        requireAdmin(exchange, null, AdminPermission.ECONOMY_MANAGE);
+        JsonObject response = new JsonObject();
+        Map<String, String> query = parseQuery(exchange);
+        String locale = query.get("locale");
+        String providerId = query.get("providerId");
+        response.add("provider", rechargeService.paymentProviderConfiguration(providerId, locale)
+            .map(gson::toJsonTree).orElse(JsonNull.INSTANCE));
+        sendJson(exchange, 200, response);
+      });
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      Map<String, Object> changes = payload.has("changes") && payload.get("changes").isJsonObject()
+          ? gson.fromJson(payload.getAsJsonObject("changes"), Map.class)
+          : Map.of();
+      Set<String> clearedSecrets = new LinkedHashSet<>(getStringArray(payload, "clearedSecrets"));
+      String providerId = getString(payload, "providerId");
+      PaymentConfigUpdateResult result = rechargeService.updatePaymentProviderConfiguration(
+          providerId, new PaymentConfigUpdateRequest(changes, clearedSecrets));
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("status", result.status().name());
+      detail.addProperty("providerId", providerId);
+      detail.addProperty("changedFieldCount", changes.size());
+      detail.addProperty("clearedSecretCount", clearedSecrets.size());
+      adminAuditService.log(admin, "PAYMENT_PROVIDER_CONFIG_UPDATE", "payment_provider", null,
+          detail, clientIp(exchange));
+
+      JsonObject response = new JsonObject();
+      response.add("result", gson.toJsonTree(result));
+      String locale = getString(payload, "locale");
+      response.add("provider", rechargeService.paymentProviderConfiguration(providerId, locale)
+          .map(gson::toJsonTree).orElse(JsonNull.INSTANCE));
+      sendJson(exchange, result.status().name().equals("REJECTED") ? 422 : 200, response);
     });
   }
 
@@ -3481,6 +3534,7 @@ class EmbeddedWebServer {
       JsonObject payload = readJson(exchange);
       AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
 
+      String shopUrl = readShopUrl(getString(payload, "shopUrl"));
       String defaultLocale = readLocaleField(getString(payload, "defaultLocale"), "defaultLocale");
       int sessionExpireHours = clampInt(getLong(payload, "sessionExpireHours", 72L), 1, 24 * 365, "sessionExpireHours");
       int bindRequestExpireMinutes = clampInt(
@@ -3497,6 +3551,7 @@ class EmbeddedWebServer {
       ZoneId timeZone = readTimeZoneField(getString(payload, "timeZone"), "timeZone");
 
       RuntimeConfigService.RuntimeSettingsUpdate update = new RuntimeConfigService.RuntimeSettingsUpdate(
+          shopUrl,
           defaultLocale,
           sessionExpireHours,
           bindRequestExpireMinutes,
@@ -3513,6 +3568,7 @@ class EmbeddedWebServer {
       publishRuntimeConfigRefresh(version);
 
       JsonObject detail = new JsonObject();
+      detail.addProperty("shopUrl", shopUrl);
       detail.addProperty("defaultLocale", defaultLocale);
       detail.addProperty("timeZone", timeZone.getId());
       detail.addProperty("deliveryBatchSize", deliveryBatchSize);
@@ -5058,6 +5114,10 @@ class EmbeddedWebServer {
         continue;
       }
       JsonObject item = element.getAsJsonObject();
+      String providerId = getString(item, "providerId");
+      if (providerId.isBlank()) {
+        throw new ServiceException("bad_request", "providerId is required for every payment route");
+      }
       PaymentMethod method = parsePaymentMethod(getString(item, "method"));
       String currency = getString(item, "currency");
       if (!currency.trim().toUpperCase(Locale.ROOT).matches("^[A-Z]{3,8}$")) {
@@ -5067,9 +5127,56 @@ class EmbeddedWebServer {
       if (coinsPerUnit <= 0L) {
         throw new ServiceException("bad_request", "coinsPerUnit must be greater than 0");
       }
-      rates.add(new PluginSettings.RechargeRate(method, currency, coinsPerUnit));
+      rates.add(new PluginSettings.RechargeRate(providerId, method, currency, coinsPerUnit));
     }
     return rates;
+  }
+
+  private String readShopUrl(String rawValue) {
+    String value = rawValue == null ? "" : rawValue.trim();
+    if (value.isEmpty()) {
+      return "";
+    }
+    if (value.length() > 2048) {
+      throw new ServiceException("bad_request", "shopUrl must not exceed 2048 characters");
+    }
+    try {
+      java.net.URI uri = java.net.URI.create(value);
+      String scheme = uri.getScheme();
+      if (uri.getHost() == null || scheme == null
+          || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))) {
+        throw new IllegalArgumentException("unsupported URL");
+      }
+      return uri.toString();
+    } catch (IllegalArgumentException exception) {
+      throw new ServiceException("bad_request", "shopUrl must be a valid HTTP or HTTPS URL");
+    }
+  }
+
+  private void validatePaymentRoutes(List<PluginSettings.RechargeRate> routes) {
+    Map<String, WebShopXPaymentBridge.PaymentProviderInfo> providers = new java.util.LinkedHashMap<>();
+    for (WebShopXPaymentBridge.PaymentProviderInfo provider : rechargeService.paymentProviderInfos()) {
+      providers.put(provider.providerId(), provider);
+    }
+    Set<String> combinations = new LinkedHashSet<>();
+    for (PluginSettings.RechargeRate route : routes) {
+      String key = route.method().name() + ":" + route.currency();
+      if (!combinations.add(key)) {
+        throw new ServiceException("payment_route_conflict",
+            "Only one provider may serve " + route.method() + " " + route.currency());
+      }
+      WebShopXPaymentBridge.PaymentProviderInfo provider = providers.get(route.providerId());
+      if (provider == null) {
+        throw new ServiceException("payment_provider_not_found",
+            "Payment provider was not found: " + route.providerId());
+      }
+      if (!provider.supportedMethods().contains(route.method())
+          || !provider.supportedCurrencies().contains(route.currency())) {
+        throw new ServiceException("payment_route_unsupported",
+            "Payment provider " + route.providerId() + " does not support "
+                + route.method() + " " + route.currency());
+      }
+    }
   }
 
   private String readHeaderToken(HttpExchange exchange) {
@@ -5224,6 +5331,7 @@ class EmbeddedWebServer {
         continue;
       }
       JsonObject item = new JsonObject();
+      item.addProperty("providerId", rate.providerId());
       item.addProperty("method", rate.method().name());
       item.addProperty("currency", rate.currency());
       item.addProperty("coinsPerUnit", rate.coinsPerUnit());
@@ -5240,6 +5348,9 @@ class EmbeddedWebServer {
       response.add("displayName", JsonNull.INSTANCE);
       response.add("supportedMethods", new JsonArray());
       response.add("supportedCurrencies", new JsonArray());
+      response.addProperty("rechargeRateEditable", true);
+      response.addProperty("settlementAmountMode", "WEBSHOPX_CALCULATED");
+      response.addProperty("rechargeRateNotice", "");
       return response;
     }
     response.addProperty("available", info.available());
@@ -5247,7 +5358,18 @@ class EmbeddedWebServer {
     addNullableString(response, "displayName", info.displayName());
     response.add("supportedMethods", paymentMethodArrayJson(List.copyOf(info.supportedMethods())));
     response.add("supportedCurrencies", stringArrayJson(List.copyOf(info.supportedCurrencies())));
+    response.addProperty("rechargeRateEditable", info.rechargeRateEditable());
+    response.addProperty("settlementAmountMode", info.settlementAmountMode());
+    response.addProperty("rechargeRateNotice", info.rechargeRateNotice());
     return response;
+  }
+
+  private JsonArray paymentProviderInfosJson(List<WebShopXPaymentBridge.PaymentProviderInfo> infos) {
+    JsonArray array = new JsonArray();
+    for (WebShopXPaymentBridge.PaymentProviderInfo info : infos) {
+      array.add(paymentProviderInfoJson(info));
+    }
+    return array;
   }
 
   private JsonArray stringArrayJson(List<String> values) {

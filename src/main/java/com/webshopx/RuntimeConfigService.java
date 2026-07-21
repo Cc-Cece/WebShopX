@@ -193,6 +193,13 @@ class RuntimeConfigService {
         updateConfig(connection, KEY_WEBSHOP_RUNTIME, serializeWebshopRuntime(update)));
   }
 
+  String readShopUrl() {
+    return databaseManager.withConnection(connection -> {
+      ConfigDocument document = readConfigObject(connection, KEY_WEBSHOP_RUNTIME, EMPTY_JSON_OBJECT);
+      return readString(document.config(), "shopUrl", "").trim();
+    });
+  }
+
   long updateMarketRuntime(int marketMaxActiveListings, PluginSettings.MarketSupplySettings marketSupplySettings) {
     return databaseManager.inTransaction(connection ->
         updateConfig(connection, KEY_MARKET_RUNTIME, serializeMarketRuntime(marketMaxActiveListings, marketSupplySettings)));
@@ -679,6 +686,7 @@ class RuntimeConfigService {
     JsonArray rates = new JsonArray();
     for (PluginSettings.RechargeRate rate : settings.rechargeRates()) {
       JsonObject rateJson = new JsonObject();
+      rateJson.addProperty("providerId", rate.providerId());
       rateJson.addProperty("method", rate.method().name());
       rateJson.addProperty("currency", rate.currency());
       rateJson.addProperty("coinsPerUnit", rate.coinsPerUnit());
@@ -698,17 +706,18 @@ class RuntimeConfigService {
     }
     try {
       JsonObject root = JsonParser.parseString(row.configValue()).getAsJsonObject();
+      String legacyProvider = readString(root, "provider", fallback.provider());
       return new PluginSettings.PaymentSettings(
-          fallback.provider(),
+          legacyProvider,
           readStringArray(root, "currencies", fallback.rechargeCurrencies()),
           PluginSettings.normalizePaymentMethods(readStringArray(root, "methods", paymentMethodNames(fallback.rechargeMethods()))),
-          readRechargeRates(root));
+          readRechargeRates(root, legacyProvider));
     } catch (Exception exception) {
       return fallback;
     }
   }
 
-  private List<PluginSettings.RechargeRate> readRechargeRates(JsonObject jsonObject) {
+  private List<PluginSettings.RechargeRate> readRechargeRates(JsonObject jsonObject, String legacyProvider) {
     if (jsonObject == null || !jsonObject.has("rates") || jsonObject.get("rates").isJsonNull()) {
       return List.of();
     }
@@ -722,11 +731,12 @@ class RuntimeConfigService {
         continue;
       }
       JsonObject item = element.getAsJsonObject();
+      String providerId = readString(item, "providerId", legacyProvider);
       PaymentMethod method = PluginSettings.parsePaymentMethod(readString(item, "method", "ALIPAY"));
       String currency = readString(item, "currency", "");
       long coinsPerUnit = readLong(item, "coinsPerUnit", 0L);
       if (method != null && coinsPerUnit > 0L) {
-        result.add(new PluginSettings.RechargeRate(method, currency, coinsPerUnit));
+        result.add(new PluginSettings.RechargeRate(providerId, method, currency, coinsPerUnit));
       }
     }
     return result;
@@ -734,6 +744,7 @@ class RuntimeConfigService {
 
   private String serializeWebshopRuntime(PluginSettings settings) {
     RuntimeSettingsUpdate update = new RuntimeSettingsUpdate(
+        "",
         settings.defaultLocale(),
         settings.sessionExpireHours(),
         settings.bindRequestExpireMinutes(),
@@ -751,6 +762,7 @@ class RuntimeConfigService {
 
   private String serializeWebshopRuntime(RuntimeSettingsUpdate update) {
     JsonObject root = new JsonObject();
+    root.addProperty("shopUrl", update.shopUrl());
     root.addProperty("defaultLocale", update.defaultLocale());
     root.addProperty("sessionExpireHours", update.sessionExpireHours());
     root.addProperty("bindRequestExpireMinutes", update.bindRequestExpireMinutes());
@@ -769,6 +781,7 @@ class RuntimeConfigService {
   private RuntimeSettingsUpdate parseWebshopRuntime(ConfigRow row, PluginSettings fallback) {
     if (row == null || row.configValue() == null || row.configValue().isBlank()) {
       return new RuntimeSettingsUpdate(
+          "",
           fallback.defaultLocale(),
           fallback.sessionExpireHours(),
           fallback.bindRequestExpireMinutes(),
@@ -785,6 +798,7 @@ class RuntimeConfigService {
     try {
       JsonObject root = JsonParser.parseString(row.configValue()).getAsJsonObject();
       return new RuntimeSettingsUpdate(
+          readString(root, "shopUrl", "").trim(),
           readString(root, "defaultLocale", fallback.defaultLocale()),
           readInt(root, "sessionExpireHours", fallback.sessionExpireHours()),
           readInt(root, "bindRequestExpireMinutes", fallback.bindRequestExpireMinutes()),
@@ -799,6 +813,7 @@ class RuntimeConfigService {
           readZoneId(root, "timeZone", fallback.timeZone()));
     } catch (Exception exception) {
       return new RuntimeSettingsUpdate(
+          "",
           fallback.defaultLocale(),
           fallback.sessionExpireHours(),
           fallback.bindRequestExpireMinutes(),
@@ -1225,6 +1240,7 @@ class RuntimeConfigService {
   }
 
   record RuntimeSettingsUpdate(
+      String shopUrl,
       String defaultLocale,
       int sessionExpireHours,
       int bindRequestExpireMinutes,

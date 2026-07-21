@@ -376,6 +376,7 @@ public class WebShopPlugin extends JavaPlugin {
         marketGuiService,
         deliveryService,
         mailboxService,
+        runtimeConfigService,
         messageService,
         schedulerBridge,
         this::settings);

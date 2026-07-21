@@ -31,6 +31,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
   private final MarketGuiService marketGuiService;
   private final DeliveryService deliveryService;
   private final MailboxService mailboxService;
+  private final RuntimeConfigService runtimeConfigService;
   private final MessageService messageService;
   private final SchedulerBridge schedulerBridge;
   private final Supplier<PluginSettings> settingsSupplier;
@@ -45,6 +46,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       MarketGuiService marketGuiService,
       DeliveryService deliveryService,
       MailboxService mailboxService,
+      RuntimeConfigService runtimeConfigService,
       MessageService messageService,
       SchedulerBridge schedulerBridge,
       Supplier<PluginSettings> settingsSupplier) {
@@ -57,6 +59,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     this.marketGuiService = marketGuiService;
     this.deliveryService = deliveryService;
     this.mailboxService = mailboxService;
+    this.runtimeConfigService = runtimeConfigService;
     this.messageService = messageService;
     this.schedulerBridge = schedulerBridge;
     this.settingsSupplier = settingsSupplier;
@@ -76,6 +79,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
         yield true;
       }
       case "password" -> handlePassword(sender, args);
+      case "home" -> handleHome(sender);
       case "market" -> handleMarket(sender, args);
       case "claim" -> handleClaim(sender, args);
       case "mailbox" -> handleMailbox(sender, args);
@@ -101,6 +105,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       List<String> options = new ArrayList<>();
       options.add("help");
       options.add("password");
+      options.add("home");
       options.add("market");
       options.add("claim");
       options.add("mailbox");
@@ -207,6 +212,19 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       player.sendMessage(msg(player, "command.password.failed",
           Map.of("reason", humanizePasswordError(player, exception))));
     }
+    return true;
+  }
+
+  private boolean handleHome(CommandSender sender) {
+    String shopUrl = runtimeConfigService.readShopUrl();
+    if (shopUrl.isBlank()) {
+      sender.sendMessage(msg(sender, "command.home.not_configured"));
+      return true;
+    }
+    sender.sendMessage(Component.text(
+            messageService.get(sender, "command.home.open_link"),
+            NamedTextColor.AQUA)
+        .clickEvent(ClickEvent.openUrl(shopUrl)));
     return true;
   }
 

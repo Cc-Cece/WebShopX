@@ -14,6 +14,7 @@ public class PaymentNotify {
   private String methodCode;
   private Instant paidAt;
   private String rawEventId;
+  private Long creditedCoinAmount;
   private Map<String, String> extra = new LinkedHashMap<>();
 
   public String getMerchantOrderId() {
@@ -86,6 +87,14 @@ public class PaymentNotify {
 
   public void setRawEventId(String rawEventId) {
     this.rawEventId = rawEventId;
+  }
+
+  public Long getCreditedCoinAmount() {
+    return creditedCoinAmount;
+  }
+
+  public void setCreditedCoinAmount(Long creditedCoinAmount) {
+    this.creditedCoinAmount = creditedCoinAmount;
   }
 
   public Map<String, String> getExtra() {

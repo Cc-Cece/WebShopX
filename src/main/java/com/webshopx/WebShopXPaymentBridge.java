@@ -1,6 +1,14 @@
 package com.webshopx;
 
 import com.webshopx.payment.api.PaymentCreateRequest;
+import com.webshopx.payment.api.PaymentConfigDescriptor;
+import com.webshopx.payment.api.PaymentConfigAccess;
+import com.webshopx.payment.api.PaymentConfigField;
+import com.webshopx.payment.api.PaymentConfigProblem;
+import com.webshopx.payment.api.PaymentConfigSnapshot;
+import com.webshopx.payment.api.PaymentConfigUpdateRequest;
+import com.webshopx.payment.api.PaymentConfigUpdateResult;
+import com.webshopx.payment.api.PaymentConfigurable;
 import com.webshopx.payment.api.PaymentCreateResult;
 import com.webshopx.payment.api.PaymentListener;
 import com.webshopx.payment.api.PaymentMethod;
@@ -9,10 +17,15 @@ import com.webshopx.payment.api.PaymentNotifyResult;
 import com.webshopx.payment.api.PaymentQueryRequest;
 import com.webshopx.payment.api.PaymentQueryResult;
 import com.webshopx.payment.api.PaymentStatus;
+import com.webshopx.payment.api.RechargeRatePolicy;
+import com.webshopx.payment.api.SettlementAmountMode;
 import com.webshopx.payment.api.WebShopXPaymentApi;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
@@ -31,7 +44,7 @@ final class WebShopXPaymentBridge {
   private final JavaPlugin plugin;
   private final YuPayBridge legacyYuPayBridge;
   private final java.util.function.Supplier<PluginSettings> settingsSupplier;
-  private ActiveRegistration activeRegistration;
+  private final Map<String, ActiveRegistration> activeRegistrations = new LinkedHashMap<>();
 
   WebShopXPaymentBridge(
       JavaPlugin plugin,
@@ -43,46 +56,50 @@ final class WebShopXPaymentBridge {
   }
 
   boolean isAvailable() {
-    try {
-      ProviderHandle handle = resolveProvider(false);
-      return handle != null;
-    } catch (ServiceException exception) {
-      return false;
-    }
+    return !providerHandles().isEmpty();
   }
 
   Optional<String> activeProviderId() {
-    if (activeRegistration != null) {
-      return Optional.of(activeRegistration.providerId());
-    }
-    try {
-      ProviderHandle handle = resolveProvider(false);
-      return handle == null ? Optional.empty() : Optional.of(handle.providerId());
-    } catch (ServiceException exception) {
-      return Optional.empty();
-    }
+    return activeRegistrations.keySet().stream().findFirst();
   }
 
   Optional<String> configuredProviderId() {
-    String provider = settingsSupplier.get().paymentSettings().provider();
-    return isBlank(provider) ? Optional.empty() : Optional.of(provider);
+    return Optional.empty();
   }
 
   PaymentProviderInfo providerInfo() {
-    ProviderHandle handle;
-    try {
-      handle = resolveProvider(false);
-    } catch (ServiceException exception) {
-      return new PaymentProviderInfo(false, null, null, Set.of(), Set.of());
+    List<PaymentProviderInfo> providers = providerInfos();
+    return providers.isEmpty()
+        ? new PaymentProviderInfo(false, null, null, Set.of(), Set.of(), true,
+            SettlementAmountMode.WEBSHOPX_CALCULATED.name(), "")
+        : providers.get(0);
+  }
+
+  List<PaymentProviderInfo> providerInfos() {
+    List<PaymentProviderInfo> result = new ArrayList<>();
+    for (ProviderHandle handle : providerHandles().values()) {
+      result.add(providerInfo(handle));
     }
+    return Collections.unmodifiableList(result);
+  }
+
+  PaymentProviderInfo providerInfo(String providerId) {
+    return providerInfo(requireProvider(providerId));
+  }
+
+  private PaymentProviderInfo providerInfo(ProviderHandle handle) {
     if (handle == null) {
-      return new PaymentProviderInfo(false, null, null, Set.of(), Set.of());
+      return new PaymentProviderInfo(false, null, null, Set.of(), Set.of(), true,
+          SettlementAmountMode.WEBSHOPX_CALCULATED.name(), "");
     }
     if (handle.kind() == ProviderKind.LEGACY_YUPAY) {
-      return new PaymentProviderInfo(true, LEGACY_PROVIDER_ID, "YuPay", Set.of(PaymentMethod.ALIPAY, PaymentMethod.WECHAT), Set.of("CNY"));
+      return new PaymentProviderInfo(true, LEGACY_PROVIDER_ID, "YuPay",
+          Set.of(PaymentMethod.ALIPAY, PaymentMethod.WECHAT), Set.of("CNY"), true,
+          SettlementAmountMode.WEBSHOPX_CALCULATED.name(), "");
     }
     Set<PaymentMethod> methods = new LinkedHashSet<>();
     Set<String> currencies = new LinkedHashSet<>();
+    RechargeRatePolicy ratePolicy = RechargeRatePolicy.webShopXManaged();
     try {
       if (handle.api().supportedMethods() != null) {
         methods.addAll(handle.api().supportedMethods());
@@ -101,16 +118,27 @@ final class WebShopXPaymentBridge {
     } catch (RuntimeException exception) {
       plugin.getLogger().log(Level.WARNING, "Failed to read payment provider currencies.", exception);
     }
+    try {
+      RechargeRatePolicy providedPolicy = handle.api().rechargeRatePolicy();
+      if (providedPolicy != null) {
+        ratePolicy = providedPolicy;
+      }
+    } catch (RuntimeException exception) {
+      plugin.getLogger().log(Level.WARNING, "Failed to read payment provider recharge rate policy.", exception);
+    }
     return new PaymentProviderInfo(
         true,
         handle.providerId(),
         handle.api().displayName(),
         Collections.unmodifiableSet(methods),
-        Collections.unmodifiableSet(currencies));
+        Collections.unmodifiableSet(currencies),
+        ratePolicy.editable(),
+        ratePolicy.settlementAmountMode().name(),
+        ratePolicy.configurationNotice());
   }
 
-  CreatePaymentResultData createPayment(CreatePaymentRequestData request) {
-    ProviderHandle handle = requireProvider();
+  CreatePaymentResultData createPayment(String providerId, CreatePaymentRequestData request) {
+    ProviderHandle handle = requireProvider(providerId);
     if (handle.kind() == ProviderKind.LEGACY_YUPAY) {
       return createLegacyPayment(request);
     }
@@ -157,8 +185,8 @@ final class WebShopXPaymentBridge {
         result.getMessage());
   }
 
-  QueryPaymentResultData queryPayment(String merchantOrderId, String providerOrderId) {
-    ProviderHandle handle = requireProvider();
+  QueryPaymentResultData queryPayment(String providerId, String merchantOrderId, String providerOrderId) {
+    ProviderHandle handle = requireProvider(providerId);
     if (handle.kind() == ProviderKind.LEGACY_YUPAY) {
       if (isBlank(providerOrderId)) {
         throw new ServiceException("payment_query_failed", "providerOrderId is required for legacy YuPay");
@@ -211,57 +239,122 @@ final class WebShopXPaymentBridge {
         result.getMessage());
   }
 
-  boolean registerPaymentListener(Function<PaymentNotifyData, NotifyResultData> handler) {
-    ProviderHandle handle = resolveProvider(true);
-    if (handle == null) {
-      return false;
+  Optional<PaymentProviderConfiguration> providerConfiguration(String providerId, String locale) {
+    ProviderHandle handle = requireProvider(providerId);
+    if (handle == null || handle.kind() != ProviderKind.API
+        || !(handle.api() instanceof PaymentConfigurable configurable)) {
+      return Optional.empty();
     }
-    if (handle.kind() == ProviderKind.LEGACY_YUPAY) {
-      boolean registered = legacyYuPayBridge.registerPaymentListener(notify -> {
-        NotifyResultData result = handler.apply(toBridgeNotify(notify));
-        return result.success()
-            ? YuPayBridge.NotifyResultData.ok(result.message())
-            : YuPayBridge.NotifyResultData.fail(result.code(), result.message());
-      });
-      if (registered) {
-        activeRegistration = new ActiveRegistration(ProviderKind.LEGACY_YUPAY, LEGACY_PROVIDER_ID, null);
-        plugin.getLogger().warning(
-            "Legacy YuPay API detected as payment fallback; please migrate to WebShopXPaymentApi.");
-      }
-      return registered;
-    }
-
-    PaymentListener listener = notify -> {
-      NotifyResultData result = handler.apply(toBridgeNotify(notify));
-      return result.success()
-          ? PaymentNotifyResult.ok(result.message())
-          : PaymentNotifyResult.fail(result.code(), result.message());
-    };
     try {
-      handle.api().registerListener(CONSUMER_ID, listener);
-      activeRegistration = new ActiveRegistration(ProviderKind.API, handle.providerId(), handle.api());
-      return true;
+      return Optional.of(new PaymentProviderConfiguration(
+          handle.providerId(), handle.api().displayName(),
+          configurable.describeConfiguration(locale), configurable.readConfiguration(),
+          configurable.supportedConfigurationLocales()));
     } catch (RuntimeException exception) {
-      throw new ServiceException("payment_api_error", exceptionMessage(exception));
+      throw new ServiceException("payment_config_read_failed", exceptionMessage(exception));
     }
   }
 
-  void unregisterPaymentListener() {
-    ActiveRegistration registration = activeRegistration;
-    activeRegistration = null;
-    if (registration == null) {
-      legacyYuPayBridge.unregisterPaymentListener();
-      return;
-    }
-    if (registration.kind() == ProviderKind.LEGACY_YUPAY) {
-      legacyYuPayBridge.unregisterPaymentListener();
-      return;
+  PaymentConfigUpdateResult updateProviderConfiguration(String providerId, PaymentConfigUpdateRequest request) {
+    ProviderHandle handle = requireProvider(providerId);
+    if (handle.kind() != ProviderKind.API
+        || !(handle.api() instanceof PaymentConfigurable configurable)) {
+      throw new ServiceException("payment_config_unsupported", "Payment provider does not expose configuration");
     }
     try {
-      registration.api().unregisterListener(CONSUMER_ID);
+      Map<String, PaymentConfigField> fields = new java.util.LinkedHashMap<>();
+      PaymentConfigDescriptor descriptor = configurable.describeConfiguration();
+      if (descriptor != null) {
+        descriptor.sections().forEach(section -> section.fields().forEach(field -> fields.put(field.key(), field)));
+      }
+      java.util.List<PaymentConfigProblem> problems = new java.util.ArrayList<>();
+      request.changes().keySet().forEach(key -> {
+        PaymentConfigField field = fields.get(key);
+        if (field == null || field.access() == PaymentConfigAccess.READ_ONLY) {
+          problems.add(new PaymentConfigProblem(key, "unknown_or_read_only", "Setting is not writable"));
+        }
+      });
+      request.clearedSecrets().forEach(key -> {
+        PaymentConfigField field = fields.get(key);
+        if (field == null || field.access() != PaymentConfigAccess.WRITE_ONLY) {
+          problems.add(new PaymentConfigProblem(key, "not_a_secret", "Setting is not a write-only secret"));
+        }
+      });
+      if (!problems.isEmpty()) {
+        return PaymentConfigUpdateResult.rejected("Configuration was not changed", problems);
+      }
+      PaymentConfigUpdateResult result = configurable.updateConfiguration(request);
+      if (result == null) {
+        throw new ServiceException("payment_config_update_failed", "Payment provider returned no result");
+      }
+      return result;
+    } catch (ServiceException exception) {
+      throw exception;
     } catch (RuntimeException exception) {
-      plugin.getLogger().log(Level.WARNING, "Failed to unregister payment listener.", exception);
+      throw new ServiceException("payment_config_update_failed", exceptionMessage(exception));
     }
+  }
+
+  void cancelPayment(String providerId, String merchantOrderId, String providerOrderId) {
+    ProviderHandle handle = requireProvider(providerId);
+    if (handle.kind() == ProviderKind.LEGACY_YUPAY) {
+      return;
+    }
+    PaymentQueryRequest request = new PaymentQueryRequest();
+    request.setMerchantOrderId(merchantOrderId);
+    request.setProviderOrderId(providerOrderId);
+    try {
+      handle.api().cancelPayment(request);
+    } catch (RuntimeException exception) {
+      throw new ServiceException("payment_cancel_failed", exceptionMessage(exception));
+    }
+  }
+
+  boolean registerPaymentListener(Function<PaymentNotifyData, NotifyResultData> handler) {
+    unregisterPaymentListener();
+    for (ProviderHandle handle : providerHandles().values()) {
+      if (handle.kind() == ProviderKind.LEGACY_YUPAY) {
+        boolean registered = legacyYuPayBridge.registerPaymentListener(notify -> {
+          NotifyResultData result = handler.apply(toBridgeNotify(LEGACY_PROVIDER_ID, notify));
+          return result.success() ? YuPayBridge.NotifyResultData.ok(result.message())
+              : YuPayBridge.NotifyResultData.fail(result.code(), result.message());
+        });
+        if (registered) {
+          activeRegistrations.put(handle.providerId(),
+              new ActiveRegistration(handle.kind(), handle.providerId(), null));
+        }
+        continue;
+      }
+      PaymentListener listener = notify -> {
+        NotifyResultData result = handler.apply(toBridgeNotify(handle.providerId(), notify));
+        return result.success() ? PaymentNotifyResult.ok(result.message())
+            : PaymentNotifyResult.fail(result.code(), result.message());
+      };
+      try {
+        handle.api().registerListener(CONSUMER_ID, listener);
+        activeRegistrations.put(handle.providerId(),
+            new ActiveRegistration(handle.kind(), handle.providerId(), handle.api()));
+      } catch (RuntimeException exception) {
+        plugin.getLogger().log(Level.WARNING,
+            "Failed to register listener for payment provider " + handle.providerId(), exception);
+      }
+    }
+    return !activeRegistrations.isEmpty();
+  }
+
+  void unregisterPaymentListener() {
+    for (ActiveRegistration registration : new ArrayList<>(activeRegistrations.values())) {
+      if (registration.kind() == ProviderKind.LEGACY_YUPAY) {
+        legacyYuPayBridge.unregisterPaymentListener();
+      } else {
+        try {
+          registration.api().unregisterListener(CONSUMER_ID);
+        } catch (RuntimeException exception) {
+          plugin.getLogger().log(Level.WARNING, "Failed to unregister payment listener.", exception);
+        }
+      }
+    }
+    activeRegistrations.clear();
   }
 
   private CreatePaymentResultData createLegacyPayment(CreatePaymentRequestData request) {
@@ -290,58 +383,46 @@ final class WebShopXPaymentBridge {
         result.message());
   }
 
-  private ProviderHandle requireProvider() {
-    ProviderHandle handle = resolveProvider(true);
+  private ProviderHandle requireProvider(String providerId) {
+    if (isBlank(providerId)) {
+      throw new ServiceException("payment_provider_required", "A payment provider must be configured for this method and currency");
+    }
+    ProviderHandle handle = providerHandles().get(providerId.trim().toLowerCase(Locale.ROOT));
     if (handle == null) {
-      throw new ServiceException("payment_unavailable", "Payment service is not available");
+      throw new ServiceException("payment_provider_not_found", "Payment provider was not found: " + providerId);
     }
     return handle;
   }
 
-  private ProviderHandle resolveProvider(boolean logAutoSelection) {
+  private Map<String, ProviderHandle> providerHandles() {
+    Map<String, ProviderHandle> result = new LinkedHashMap<>();
     Collection<RegisteredServiceProvider<WebShopXPaymentApi>> registrations =
         plugin.getServer().getServicesManager().getRegistrations(WebShopXPaymentApi.class);
-    String configuredProvider = settingsSupplier.get().paymentSettings().provider();
-    if (!registrations.isEmpty()) {
-      ProviderHandle first = null;
-      for (RegisteredServiceProvider<WebShopXPaymentApi> registration : registrations) {
-        WebShopXPaymentApi api = registration.getProvider();
-        if (api == null || isBlank(api.providerId())) {
-          continue;
-        }
-        ProviderHandle handle = new ProviderHandle(
-            ProviderKind.API,
-            api.providerId().trim().toLowerCase(Locale.ROOT),
-            api);
-        if (first == null) {
-          first = handle;
-        }
-        if (!isBlank(configuredProvider)
-            && handle.providerId().equals(configuredProvider.trim().toLowerCase(Locale.ROOT))) {
-          return handle;
-        }
+    for (RegisteredServiceProvider<WebShopXPaymentApi> registration : registrations) {
+      WebShopXPaymentApi api = registration.getProvider();
+      if (api == null || isBlank(api.providerId())) {
+        continue;
       }
-      if (!isBlank(configuredProvider)) {
-        throw new ServiceException(
-            "payment_provider_not_found",
-            "Configured payment provider was not found: " + configuredProvider);
+      String id = api.providerId().trim().toLowerCase(Locale.ROOT);
+      if (result.containsKey(id)) {
+        plugin.getLogger().warning("Duplicate payment provider id ignored: " + id);
+        continue;
       }
-      if (first != null && logAutoSelection) {
-        plugin.getLogger().info("Using payment provider: " + first.providerId());
-      }
-      return first;
+      result.put(id, new ProviderHandle(ProviderKind.API, id, api));
     }
     if (legacyYuPayBridge.isAvailable()) {
-      return new ProviderHandle(ProviderKind.LEGACY_YUPAY, LEGACY_PROVIDER_ID, null);
+      result.putIfAbsent(LEGACY_PROVIDER_ID,
+          new ProviderHandle(ProviderKind.LEGACY_YUPAY, LEGACY_PROVIDER_ID, null));
     }
-    return null;
+    return result;
   }
 
-  private PaymentNotifyData toBridgeNotify(PaymentNotify notify) {
+  private PaymentNotifyData toBridgeNotify(String providerId, PaymentNotify notify) {
     if (notify == null) {
       return null;
     }
     return new PaymentNotifyData(
+        providerId,
         notify.getMerchantOrderId(),
         notify.getProviderOrderId(),
         statusName(notify.getStatus()),
@@ -349,14 +430,16 @@ final class WebShopXPaymentBridge {
         notify.getCurrency(),
         methodName(notify.getMethod(), notify.getMethodCode()),
         notify.getPaidAt(),
+        notify.getCreditedCoinAmount(),
         notify.getExtra());
   }
 
-  private PaymentNotifyData toBridgeNotify(YuPayBridge.PaymentNotifyData notify) {
+  private PaymentNotifyData toBridgeNotify(String providerId, YuPayBridge.PaymentNotifyData notify) {
     if (notify == null) {
       return null;
     }
     return new PaymentNotifyData(
+        providerId,
         notify.merchantOrderId(),
         notify.providerOrderId(),
         notify.status(),
@@ -364,6 +447,7 @@ final class WebShopXPaymentBridge {
         notify.currency(),
         notify.method(),
         notify.payTime(),
+        null,
         notify.extra());
   }
 
@@ -405,12 +489,23 @@ final class WebShopXPaymentBridge {
       Map<String, String> metadata) {
   }
 
+  record PaymentProviderConfiguration(
+      String providerId,
+      String displayName,
+      PaymentConfigDescriptor descriptor,
+      PaymentConfigSnapshot snapshot,
+      Set<String> supportedLocales) {
+  }
+
   record PaymentProviderInfo(
       boolean available,
       String providerId,
       String displayName,
       Set<PaymentMethod> supportedMethods,
-      Set<String> supportedCurrencies) {
+      Set<String> supportedCurrencies,
+      boolean rechargeRateEditable,
+      String settlementAmountMode,
+      String rechargeRateNotice) {
   }
 
   record CreatePaymentResultData(
@@ -481,6 +576,7 @@ final class WebShopXPaymentBridge {
   }
 
   record PaymentNotifyData(
+      String providerId,
       String merchantOrderId,
       String providerOrderId,
       String status,
@@ -488,6 +584,7 @@ final class WebShopXPaymentBridge {
       String currency,
       String method,
       Instant payTime,
+      Long creditedCoinAmount,
       Map<String, String> extra) {
   }
 

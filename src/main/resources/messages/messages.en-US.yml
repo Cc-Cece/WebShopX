@@ -1,5 +1,8 @@
 command:
   unknown_subcommand: "§cUnknown subcommand. Use /webshopx help for help."
+  home:
+    open_link: "[WebShopX] Click here to open the shop"
+    not_configured: "§cThe shop address has not been configured. Please contact an administrator."
   common:
     no_permission: "§cYou do not have permission."
   password:
@@ -75,6 +78,7 @@ command:
     failed: "§cWallet adjustment failed: {reason}"
   help:
     base:
+      - "§e/webshopx home §7- Open the web shop"
       - "§e/webshopx help §7- Show help"
       - "§e/webshopx password <new-password> §7- Create or reset the web password in-game"
       - "§e/webshopx market [gui] §7- Open the market GUI"

@@ -643,7 +643,7 @@ record PluginSettings(
       provider = normalizeProviderId(provider);
       rechargeCurrencies = normalizePaymentCurrencies(rechargeCurrencies);
       rechargeMethods = normalizePaymentMethods(paymentMethodNames(rechargeMethods));
-      rechargeRates = normalizeRechargeRates(rechargeRates, rechargeCurrencies, rechargeMethods);
+      rechargeRates = normalizeRechargeRates(rechargeRates, rechargeCurrencies, rechargeMethods, provider);
     }
 
     boolean isCurrencyAllowed(String currency) {
@@ -696,8 +696,9 @@ record PluginSettings(
     }
   }
 
-  record RechargeRate(PaymentMethod method, String currency, long coinsPerUnit) {
+  record RechargeRate(String providerId, PaymentMethod method, String currency, long coinsPerUnit) {
     RechargeRate {
+      providerId = normalizeProviderId(providerId);
       method = method == null ? PaymentMethod.ALIPAY : method;
       currency = currency == null ? "" : currency.trim().toUpperCase(Locale.ROOT);
       coinsPerUnit = Math.max(1L, coinsPerUnit);
@@ -707,23 +708,28 @@ record PluginSettings(
   static List<RechargeRate> normalizeRechargeRates(
       List<RechargeRate> rawRates,
       List<String> currencies,
-      List<PaymentMethod> methods) {
+      List<PaymentMethod> methods,
+      String legacyProviderId) {
     Map<String, RechargeRate> normalized = new java.util.LinkedHashMap<>();
     if (rawRates != null) {
       for (RechargeRate raw : rawRates) {
         if (raw == null || raw.currency() == null || !raw.currency().matches("^[A-Z]{3,8}$")) {
           continue;
         }
-        RechargeRate rate = new RechargeRate(raw.method(), raw.currency(), raw.coinsPerUnit());
+        RechargeRate rate = new RechargeRate(raw.providerId(), raw.method(), raw.currency(), raw.coinsPerUnit());
+        if (rate.providerId().isBlank()) {
+          continue;
+        }
         normalized.put(rate.method().name() + ":" + rate.currency(), rate);
       }
     }
-    if (normalized.isEmpty()) {
+    String migratedProvider = normalizeProviderId(legacyProviderId);
+    if (normalized.isEmpty() && !migratedProvider.isBlank()) {
       List<String> normalizedCurrencies = normalizePaymentCurrencies(currencies);
       List<PaymentMethod> normalizedMethods = normalizePaymentMethods(PaymentSettings.paymentMethodNames(methods));
       for (PaymentMethod method : normalizedMethods) {
         for (String currency : normalizedCurrencies) {
-          RechargeRate rate = new RechargeRate(method, currency, 100L);
+          RechargeRate rate = new RechargeRate(migratedProvider, method, currency, 100L);
           normalized.put(rate.method().name() + ":" + rate.currency(), rate);
         }
       }

@@ -2,6 +2,8 @@ package com.webshopx;
 
 import com.google.gson.Gson;
 import com.webshopx.payment.api.PaymentMethod;
+import com.webshopx.payment.api.PaymentConfigUpdateRequest;
+import com.webshopx.payment.api.PaymentConfigUpdateResult;
 import java.net.URLEncoder;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -54,8 +56,17 @@ class RechargeService {
     return paymentBridge.isAvailable();
   }
 
-  WebShopXPaymentBridge.PaymentProviderInfo paymentProviderInfo() {
-    return paymentBridge.providerInfo();
+  java.util.List<WebShopXPaymentBridge.PaymentProviderInfo> paymentProviderInfos() {
+    return paymentBridge.providerInfos();
+  }
+
+  java.util.Optional<WebShopXPaymentBridge.PaymentProviderConfiguration> paymentProviderConfiguration(
+      String providerId, String locale) {
+    return paymentBridge.providerConfiguration(providerId, locale);
+  }
+
+  PaymentConfigUpdateResult updatePaymentProviderConfiguration(String providerId, PaymentConfigUpdateRequest request) {
+    return paymentBridge.updateProviderConfiguration(providerId, request);
   }
 
   void registerPaymentListener() {
@@ -68,6 +79,18 @@ class RechargeService {
 
   RechargeCreateResult createRechargeOrder(RechargeCreateRequest request) {
     RechargeCreateRequest normalized = normalizeCreateRequest(request);
+    PluginSettings.RechargeRate route = settingsSupplier.get().paymentSettings()
+        .rechargeRate(normalized.preferredMethod(), normalized.currency());
+    if (route == null || route.providerId().isBlank()) {
+      throw new ServiceException("payment_route_not_configured",
+          "No payment provider is configured for " + normalized.preferredMethod() + " " + normalized.currency());
+    }
+    WebShopXPaymentBridge.PaymentProviderInfo provider = paymentBridge.providerInfo(route.providerId());
+    if (!provider.supportedMethods().contains(normalized.preferredMethod())
+        || !provider.supportedCurrencies().contains(normalized.currency())) {
+      throw new ServiceException("payment_route_unsupported",
+          "Payment provider " + route.providerId() + " does not support this method and currency");
+    }
     String orderId = generateOrderId();
     Instant requestedExpiresAt = resolveRechargeOrderExpiresAt();
     Map<String, String> metadata = new LinkedHashMap<>();
@@ -76,7 +99,7 @@ class RechargeService {
 
     databaseManager.inTransaction(connection -> {
       ensureUserExists(connection, normalized.userId());
-      insertRechargeOrder(connection, orderId, normalized, gson.toJson(metadata));
+      insertRechargeOrder(connection, orderId, normalized, route.providerId(), gson.toJson(metadata));
       return null;
     });
 
@@ -94,7 +117,7 @@ class RechargeService {
 
     WebShopXPaymentBridge.CreatePaymentResultData payResult;
     try {
-      payResult = paymentBridge.createPayment(new WebShopXPaymentBridge.CreatePaymentRequestData(
+      payResult = paymentBridge.createPayment(route.providerId(), new WebShopXPaymentBridge.CreatePaymentRequestData(
           orderId,
           String.valueOf(normalized.userId()),
           normalized.playerUuid(),
@@ -169,6 +192,7 @@ class RechargeService {
       if (order.status().isTerminal()) {
         return new RechargeCancelResult(true, order.orderId(), order.status().name(), null, "order already closed");
       }
+      paymentBridge.cancelPayment(order.provider(), order.orderId(), order.providerOrderId());
       markOrderTerminal(connection, order.orderId(), RechargeOrderStatus.CLOSED);
       return new RechargeCancelResult(true, order.orderId(), RechargeOrderStatus.CLOSED.name(), null, "success");
     });
@@ -195,7 +219,7 @@ class RechargeService {
     }
 
     WebShopXPaymentBridge.QueryPaymentResultData query =
-        paymentBridge.queryPayment(order.orderId(), order.providerOrderId());
+        paymentBridge.queryPayment(order.provider(), order.orderId(), order.providerOrderId());
     if (!query.success()) {
       return FixRechargeResult.fail(
           order.orderId(),
@@ -207,6 +231,7 @@ class RechargeService {
     RechargeOrder before = findOrder(normalizedOrderId);
     WebShopXPaymentBridge.NotifyResultData notifyResult = handlePaymentNotify(
         new WebShopXPaymentBridge.PaymentNotifyData(
+        order.provider(),
         query.merchantOrderId(),
         query.providerOrderId(),
         query.status(),
@@ -214,6 +239,7 @@ class RechargeService {
         query.currency(),
         query.method(),
         query.payTime(),
+        null,
         Map.of("source", "fix")));
     RechargeOrder after = findOrder(normalizedOrderId);
     boolean fixed = before != null
@@ -448,6 +474,7 @@ class RechargeService {
       Connection connection,
       String orderId,
       RechargeCreateRequest request,
+      String providerId,
       String metadataJson) throws SQLException {
     String sql = """
         INSERT INTO webshopx_recharge_order (
@@ -464,7 +491,7 @@ class RechargeService {
       statement.setString(5, request.currency());
       statement.setLong(6, request.coinAmount());
       statement.setString(7, RechargeOrderStatus.PENDING.name());
-      statement.setString(8, paymentBridge.configuredProviderId().orElse(DEFAULT_PROVIDER_NAME));
+      statement.setString(8, providerId);
       statement.setString(9, metadataJson);
       statement.executeUpdate();
     }
@@ -536,15 +563,22 @@ class RechargeService {
     validateNotify(order, notify, targetStatus);
 
     if (targetStatus == RechargeOrderStatus.PAID) {
+      long creditedCoinAmount = notify.creditedCoinAmount() == null
+          ? order.coinAmount()
+          : notify.creditedCoinAmount();
+      if (creditedCoinAmount <= 0L) {
+        throw new ServiceException(
+            "payment_coin_amount_invalid", "creditedCoinAmount must be greater than 0");
+      }
       boolean credited = walletService.applyDelta(
           connection,
           order.userId(),
           CurrencyType.SHOP_COIN,
-          order.coinAmount(),
+          creditedCoinAmount,
           LEDGER_BIZ_TYPE,
           order.orderId(),
           false);
-      markOrderPaid(connection, order, notify);
+      markOrderPaid(connection, order, notify, creditedCoinAmount);
       return WebShopXPaymentBridge.NotifyResultData.ok(credited ? "success" : "already processed");
     }
 
@@ -556,6 +590,9 @@ class RechargeService {
       RechargeOrder order,
       WebShopXPaymentBridge.PaymentNotifyData notify,
       RechargeOrderStatus targetStatus) {
+    if (isBlank(notify.providerId()) || !notify.providerId().equalsIgnoreCase(order.provider())) {
+      throw new ServiceException("payment_provider_mismatch", "payment provider mismatch");
+    }
     if (!isBlank(order.providerOrderId())
         && !String.valueOf(order.providerOrderId()).equals(String.valueOf(notify.providerOrderId()))) {
       throw new ServiceException("payment_provider_mismatch", "providerOrderId mismatch");
@@ -588,18 +625,20 @@ class RechargeService {
   private void markOrderPaid(
       Connection connection,
       RechargeOrder order,
-      WebShopXPaymentBridge.PaymentNotifyData notify) throws SQLException {
+      WebShopXPaymentBridge.PaymentNotifyData notify,
+      long creditedCoinAmount) throws SQLException {
     String sql = """
         UPDATE webshopx_recharge_order
-        SET status = ?, provider_order_id = COALESCE(provider_order_id, ?),
+        SET status = ?, provider_order_id = COALESCE(provider_order_id, ?), coin_amount = ?,
             paid_time = ?, credited_time = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE order_id = ? AND status IN ('PENDING', 'PAYING')
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, RechargeOrderStatus.PAID.name());
       statement.setString(2, notify.providerOrderId());
-      setTimestamp(statement, 3, notify.payTime() == null ? Instant.now() : notify.payTime());
-      statement.setString(4, order.orderId());
+      statement.setLong(3, creditedCoinAmount);
+      setTimestamp(statement, 4, notify.payTime() == null ? Instant.now() : notify.payTime());
+      statement.setString(5, order.orderId());
       statement.executeUpdate();
     }
   }

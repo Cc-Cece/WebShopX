@@ -87,7 +87,3 @@ redis:
   # 旧版别名（可选）
   channel: webshopx:market:broadcast
 
-payment:
-  # 留空时自动选择第一个可用的 WebShopXPaymentApi provider。
-  # 推荐安装 WebShopX-Payments 并使用 webshopx-payments。
-  provider: webshopx-payments

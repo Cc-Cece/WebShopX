@@ -7,7 +7,7 @@ description: Web-first Minecraft shop plugin (Phase 1 + Phase 2)
 commands:
   webshopx:
     description: WebShopX unified command
-    usage: "/webshopx <password|market|claim|mailbox|recharge|gamecoin|shopcoin|reload|redeem|help>"
+    usage: "/webshopx <home|password|market|claim|mailbox|recharge|gamecoin|shopcoin|reload|redeem|help>"
     aliases: [ws]
 softdepend: [Vault, WebShopX-Payments, YuPay]
 permissions:

@@ -1,6 +1,73 @@
 # WebShopX
 
-## Relay 简化配置
+WebShopX 是面向 Paper、Purpur、Spigot 与 Folia 服务端的 Web 商城插件，将官方商城、玩家市场、钱包、订单与发货、充值和后台管理整合在同一套系统中。
+
+当前开发版本：`dev-v3.0.0`
+
+## 功能概览
+
+- Vue 3 + Vuetify 玩家端与管理后台
+- 官方商城：指令、物品、回收、药水效果、团购券等商品类型
+- 玩家市场：出售、收购、供货箱、自动补货、标签、搜索与成交记录
+- 固定价、拍卖和动态定价交易模式
+- `ShopCoin` / `GameCoin` 双币钱包，可选通过 Vault 对接游戏经济
+- 自动发货、邮箱、手动领取、退款、兑换码和充值订单
+- 管理员角色、细粒度权限、审计日志与业务账本
+- 中文、英文消息与 Web 本地化中心
+- SQLite、MySQL、MariaDB，以及基于 Redis 的多服集群同步
+- 内置 HTTP、外置静态站点和 WebShopX Relay 三种部署模式
+- Paper/Purpur、Spigot 与 Folia 的分运行时构建产物
+
+## 运行环境
+
+| Minecraft 运行时 | Java | Folia 构建 |
+|---|---:|---|
+| `1.18.2+` | 17 | 不提供 |
+| `1.20.6+`（默认） | 21 | 提供 |
+| `26.1+` | 25 | 提供 |
+| `26.2+` | 25 | 提供 |
+
+数据库支持 `sqlite`、`mysql`、`mariadb`。Vault、WebShopX-Payments 与 YuPay 均为可选软依赖。
+
+## 快速开始
+
+1. 从 Release 或 CI 产物中选择与你的 Minecraft 版本和服务端类型匹配的 JAR。
+2. 将 JAR 放入服务端的 `plugins/` 目录并启动一次。
+3. 检查 `plugins/WebShopX/config.yml`；默认 SQLite 可直接用于单服体验，生产环境推荐 MySQL/MariaDB。
+4. 再次启动服务端，玩家执行 `/ws password <新密码>` 设置网页密码。
+5. `internal` 模式下访问 `http://服务器地址:8819/`；管理入口为 `http://服务器地址:8819/admin.html`。
+
+首次启动会启用引导管理员：
+
+```text
+用户名：admin
+密码：admin123456
+```
+
+首次登录后请立即创建正式管理员，并关闭或修改 `webshop.admin-bootstrap`。公网部署还应配置反向代理、TLS 与访问控制，不要直接暴露默认管理凭据。
+
+## 部署模式
+
+### 内置模式（internal）
+
+插件同时提供 API 和内置网页，适合快速部署：
+
+```yaml
+webshop:
+  server-mode: internal
+  public-url: "https://shop.example.com"
+  embedded-http:
+    host: 0.0.0.0
+    port: 8819
+```
+
+### 外置模式（external）
+
+插件仅提供 API，前端静态文件交由 Nginx 或 CDN 托管。通过 `webshop.embedded-http.public-api-url` 指定完整 API 根地址（应包含 `/api`），跨域时同时配置 `cors`。
+
+### Relay 模式（relay）
+
+无需向公网开放 Minecraft 服务器端口。插件会主动连接 WebShopX Relay；`url` 留空时使用官方 Relay，非 Relay 模式可完全省略此配置段。
 
 ```yaml
 webshop:
@@ -8,265 +75,157 @@ webshop:
 
 relay:
   url: ""
-  access-key: "wsx_user_xxx"
+  access-key: "wsx_user_xxxxxxxxx"
 ```
 
-`url` 留空时使用官方 Relay。在非 `relay` 模式下，`relay.url` 和 `relay.access-key` 均可忽略。插件会自动生成稳定安装 ID，并在 Relay 控制台显示为待绑定服务器；实例必须先在网页创建，再进行绑定。
+安装 ID 会自动生成。请先在 Relay 网页创建实例，再绑定控制台中显示的待绑定服务器。后台设置页支持查看状态和立即重连。
 
-WebShopX 是一个面向 `Paper / Spigot` 服务器的 Web 商店插件，把官方商城、玩家市场、钱包、订单流转和后台管理整合进同一套系统。
+## 数据库与集群
 
-`WebShopX` is a web-first commerce plugin for `Paper / Spigot`, combining B2C shop, C2C player market, wallet, order flow, and admin tools in one project.
-
-## 项目概览
-
-- 官方商城和玩家市场共用一套账号、钱包、订单和发货逻辑
-- 内置玩家端网页和管理后台，不依赖额外的前端工程
-- 支持 `ShopCoin / GameCoin` 双币体系
-- 可选接入 `Vault`，让 `GameCoin` 对接现有经济插件
-- 支持自动发货、手动领取、退款、兑换码、团购券
-- 支持内置 HTTP 模式，也支持把前端静态资源托管到 `Nginx / CDN`
-
-## 主要功能
-
-### 玩家端
-
-- 使用 Minecraft 用户名和网页密码登录
-- 查看余额、最近钱包流水、订单记录
-- 使用兑换码入账
-- 进行 `ShopCoin / GameCoin` 双向兑换
-- 浏览并购买官方商品
-- 浏览玩家市场、玩家店铺和自己的上架
-- 修改自己上架的价格、备注、状态
-- 购买后自动发货；失败时转为 `/ws claim` 手动领取
-
-### 官方商城
-
-- 支持多种商品类型
-  - 指令商品
-  - 物品商品
-  - 回收商品
-  - 药水效果
-  - 团购券
-- 支持上下架时间、库存、限购和备注
-- 支持后台直接管理商品与活动状态
-
-### 玩家市场
-
-- 普通上架
-- 供货箱上架
-- 自动补货
-- 市场筛选、排序、搜索
-- 卖家成交记录查询
-- 市场手续费 / 税率配置
-
-### 管理后台
-
-- 管理员登录与会话鉴权
-- 商品、订单、兑换码、市场、用户统一管理
-- 用户支持能力
-  - 重置密码
-  - 解绑账号
-  - 强制下线
-  - 调整钱包余额
-- 审计日志
-- 细粒度管理员权限与模板
-
-## 运行环境
-
-- `Java 21`
-- `Paper 1.20.6+` 或兼容的 `Spigot`
-- `MariaDB / MySQL / SQLite`
-- `Vault` 可选
-
-## 快速开始
-
-1. 构建或下载插件 JAR。
-2. 将插件放入服务器的 `plugins/` 目录。
-3. 启动一次服务器，生成默认配置。
-4. 编辑 `plugins/WebShopX/config.yml`，至少修改数据库连接信息。
-5. 重启服务器。
-6. 玩家在游戏内执行 `/ws password <新密码>` 创建或重置网页登录密码。
-7. 打开玩家端 `http://你的地址:8819/`。
-8. 打开管理端 `http://你的地址:8819/admin.html`。
-
-## 首次部署注意事项
-
-- 默认数据库占位配置为 `webshop / change_me`。如果保持默认值，插件会拒绝启动。
-- 默认启用了管理员引导账号：
-  - 用户名：`admin`
-  - 密码：`admin123456`
-- 公开环境部署前，务必修改或关闭 `webshop.admin-bootstrap`。
-- 默认内置 HTTP 监听 `0.0.0.0:8819`，公网部署时建议配合反向代理、TLS 和访问控制。
-
-## Web 运行模式
-
-`config.yml` 中的 `webshop.server-mode` 支持三种模式：
-
-- `internal`
-  - 插件同时提供 API 和静态网页
-  - 适合快速部署和本地测试
-- `external`
-  - 插件仅提供 API
-  - 静态资源会导出到 `plugins/WebShopX/web/`
-  - 适合前端交给 `Nginx`、面板或 CDN 托管
-- `relay`
-  - 插件使用账号访问密钥主动连接 WebShopX Relay
-  - 公网入口及实例绑定在 Relay 网页中管理
-
-Relay 配置如下。`url` 留空时使用官方 Relay；在 `internal` 或 `external` 模式下，整个 `relay` 配置均可忽略。
+默认配置使用 SQLite：
 
 ```yaml
-webshop:
-  server-mode: relay
+database:
+  type: sqlite
+  sqlite-file: plugins/WebShopX/webshopx.db
+  pool-size: 10
 
-relay:
-  url: ''
-  access-key: 'wsx_user_xxxxxxxxx'
+cluster:
+  role: standalone
+  server-id: standalone
 ```
 
-如果使用 `external` 模式，可通过 `webshop.api-base-url` 指定前端请求的 API 地址。
+SQLite 仅支持 `cluster.role=standalone`，适用于单服或轻量部署。多服集群请使用 MySQL/MariaDB，并启用 Redis：
+
+```yaml
+database:
+  type: mariadb
+  host: 127.0.0.1
+  port: 3306
+  schema: webshop
+  username: webshop
+  password: change_me
+
+cluster:
+  role: master # master | node
+  server-id: lobby-1
+
+redis:
+  enabled: true
+  host: 127.0.0.1
+  port: 6379
+```
+
+业务设置主要保存在数据库中，并通过 Web 管理后台维护；升级时旧配置会自动迁移。请同时备份数据库和 `plugins/WebShopX/` 数据目录。
 
 ## 常用命令
 
+主命令为 `/webshopx`，别名 `/ws`。
+
 | 命令 | 说明 |
 |---|---|
-| `/webshopx help` | 查看帮助 |
-| `/webshopx password <新密码>` | 在游戏内创建或重置网页登录密码 |
-| `/webshopx market [gui]` | 打开市场 GUI |
-| `/webshopx market sell <price> [amount] [currency]` | 兼容旧式上架命令 |
-| `/webshopx market logs [count]` | 查看自己的最近成交记录 |
-| `/webshopx claim [all\|ODR-...\|MKT-...\|CLM-...\|MCL-...]` | 领取待发货内容 |
-| `/webshopx reload` | 重载配置与内置网页 |
-| `/webshopx redeem create <shop> <game> [max] [perUserMax] [minutes] [code]` | 创建兑换码 |
+| `/ws help` | 查看帮助 |
+| `/ws password <新密码>` | 创建或重置网页登录密码 |
+| `/ws market [gui]` | 打开市场 GUI |
+| `/ws market sell <price> [amount] [currency]` | 出售手中物品 |
+| `/ws market logs [count]` | 查看最近成交记录 |
+| `/ws claim [all\|ODR-...\|MKT-...\|CLM-...\|MCL-...]` | 领取待发货内容 |
+| `/ws mailbox claim` | 领取邮箱内容 |
+| `/ws recharge <amount>` | 创建充值订单 |
+| `/ws reload` | 重载配置和网页资源（管理员） |
+| `/ws redeem create <shop> <game> [max] [perUserMax] [minutes] [code]` | 创建兑换码（管理员） |
+| `/ws gamecoin <player> <delta>` | 调整 GameCoin（管理员） |
+| `/ws shopcoin <player> <delta>` | 调整 ShopCoin（管理员） |
 
-别名：`/ws`
+## 权限
 
-## 权限节点
+| 权限 | 默认 | 说明 |
+|---|---|---|
+| `webshop.use` | 所有人 | 普通玩家功能 |
+| `webshop.admin` | OP | 管理命令与后台操作 |
+| `webshop.market.auction` | OP | 在限制规则要求时使用拍卖 |
+| `webshop.market.limitation.bypass` | OP | 绕过市场创建/编辑限制 |
 
-| 权限 | 说明 |
-|---|---|
-| `webshop.use` | 普通玩家使用权限 |
-| `webshop.admin` | 后台与管理命令权限 |
+## 从源码构建
 
-## 构建
+插件构建会自动调用相邻的 `webshopx-web` 前端工程。目录应如下：
 
-日常开发直接运行：
+```text
+workspace/
+├─ WebShopX/
+└─ webshopx-web/
+```
+
+准备 JDK、Node.js 与 pnpm，先安装前端依赖：
+
+```bash
+cd webshopx-web
+pnpm install
+cd ../WebShopX
+```
+
+构建默认 `1.20.6+` 的全部适用变体：
 
 ```bash
 ./gradlew build
 ```
 
-常用构建任务：
+Windows 使用 `gradlew.bat`。可用 `targetRuntime` 选择目标运行时：
 
 ```bash
-./gradlew shadowJar
-./gradlew obfuscatedJar
-./gradlew releaseObfuscated
+./gradlew packagePluginVariants -PtargetRuntime=1.18.2+
+./gradlew packagePluginVariants -PtargetRuntime=1.20.6+
+./gradlew packagePluginVariants -PtargetRuntime=26.1+
+./gradlew packagePluginVariants -PtargetRuntime=26.2+
 ```
 
-构建产物位于 `build/libs/`：
+常用任务：
 
-- `WebShopX-<version>.jar`
-- `WebShopX-<version>-obf.jar`
-- `WebShopX-release-obf.jar`
+| Gradle 任务 | 产物/用途 |
+|---|---|
+| `shadowJar` | 包含运行依赖的完整 JAR |
+| `slimJar` | 不包含运行依赖的精简 JAR |
+| `fullLinuxJar` / `fullWinJar` | 仅保留对应平台 SQLite 原生库 |
+| `fullFoliaJar` / `foliaSlimJar` | Folia 元数据变体 |
+| `packagePluginVariants` | 构建目标运行时的全部适用变体 |
+| `obfuscatedJar` | 混淆后的完整 JAR |
+| `releaseObfuscated` | 生成稳定文件名的混淆发布包 |
 
-也支持通过 Gradle 属性覆盖版本号：
+产物位于 `build/libs/`，文件名包含版本、类型和运行时，例如：
+
+```text
+WebShopX-dev-v3.0.0-full-1.20.6+.jar
+WebShopX-dev-v3.0.0-full-folia-1.19.4+.jar
+WebShopX-dev-v3.0.0-full-linux-26.2+.jar
+```
+
+可覆盖版本号并生成快照：
 
 ```bash
-./gradlew shadowJar -Pver=1.0.6
-./gradlew shadowJar -Psnapshot=true
-./gradlew shadowJar obfuscatedJar -Pver=1.0.6 -Psnapshot=true
+./gradlew shadowJar -Pver=3.0.0
+./gradlew shadowJar -Pver=3.0.0 -Psnapshot=true
 ```
 
-## 配置要点
+若只需运行后端测试并跳过依赖前端资源的测试：
 
-- `database.*`
-  - 数据库连接配置，必须改成真实值
-  - `database.type` 支持 `mysql | mariadb | sqlite`
-  - `sqlite` 模式仅支持 `cluster.role=standalone`（单服）
-  - `sqlite` 可配置 `sqlite-file / sqlite-journal-mode / sqlite-synchronous / sqlite-busy-timeout-ms / sqlite-max-retries / sqlite-retry-backoff-ms`
-  - 非 TLS 连接默认开启 `allow-public-key-retrieval`，以兼容 `caching_sha2_password`
-  - 如需更稳妥地在非 TLS 下认证，可设置 `server-rsa-public-key-file`
-- `webshop.embedded-http.*`
-  - 内置 HTTP 服务监听地址、端口和静态资源目录
-- `webshop.admin-bootstrap.*`
-  - 首次管理员账号引导配置
-- `exchange.*`
-  - 双币兑换开关和汇率
-- `economy.market.*`
-  - 玩家市场手续费和税率
-- `webshop.market.supply.*`
-  - 自动补货和供货箱相关参数
-- `currency.*`
-  - 两种货币的名称和缩写
-
-## SQLite 部署说明
-
-对于 `database.type=sqlite`，WebShopX 现在支持使用本地数据库文件的单服务器部署。
-
-- 支持的类型值：
-  - `mysql`
-  - `mariadb`
-  - `sqlite`
-- SQLite 运行时限制：
-  - 使用 `sqlite` 时必须设置 `cluster.role=standalone`
-  - 如果 `cluster.role` 为 `master` 或 `node`，插件将按设计拒绝启动
-- 推荐的 SQLite 配置：
-
-```yaml
-database:
-  type: sqlite
-  sqlite-file: data/webshopx.db
-  sqlite-journal-mode: WAL
-  sqlite-synchronous: NORMAL
-  sqlite-busy-timeout-ms: 5000
-  sqlite-max-retries: 5
-  sqlite-retry-backoff-ms: [10, 50, 100]
-  pool-size: 2
+```bash
+./gradlew test -PskipFrontendResourceTests=true
 ```
-
-- 推荐使用场景：
-  - 单服务器 / 轻量级部署
-  - 小到中等流量
-- 不推荐使用场景：
-  - 跨节点集群
-  - 多服务器环境下的高写入竞争负载
-- 备份提醒：
-  - 同时备份数据库文件和插件数据目录
-  - SQLite 文件默认位于 `plugins/WebShopX/data/` 目录下
 
 ## 项目结构
 
 ```text
-src/main/java/com/webshopx/   核心插件逻辑、HTTP API、业务服务
-src/main/resources/web/       内置玩家端与管理端页面
-src/main/resources/config.yml 默认配置
-src/main/resources/plugin.yml Bukkit / Paper 插件元数据
-src/test/java/com/webshopx/   单元测试
+src/main/java/com/webshopx/       插件、HTTP API 与业务服务
+src/main/resources/config.yml     最小启动配置
+src/main/resources/messages/      游戏内消息资源
+src/main/resources/db/            数据库结构
+src/test/java/com/webshopx/       自动化测试
+tools/sync-web-frontend.ps1       Vue 前端构建与资源同步
+tools/i18n-validate.ps1           本地化校验
 ```
 
-## 当前状态
+## 贡献与许可
 
-这个仓库不是纯概念原型，当前版本已经包含可运行的完整链路：
-
-- 玩家登录与绑定
-- 官方商城
-- 玩家市场
-- 钱包与兑换
-- 订单、退款、发货与领取
-- 管理后台
-
-目前也有一些明确边界：
-
-- UI 和默认文案以中文为主
-- `Redis` 配置项已预留，但当前版本尚未接入业务流程
-- 更适合中小到中大型中文服直接落地，再按自身业务继续扩展
-- `SQLite` 建议用于单服或轻量部署场景；跨节点集群请使用 `MySQL/MariaDB`
-
-## 开发与贡献
-
-欢迎提交 Issue 和 Pull Request。贡献流程见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
-
-## 许可证
+欢迎提交 Issue 和 Pull Request。提交前请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 本项目基于 [GPL-3.0](./LICENSE) 许可证开源。
