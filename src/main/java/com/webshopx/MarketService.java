@@ -453,8 +453,10 @@ class MarketService {
     if (listingItem == null || listingItem.getType() == Material.AIR || listingItem.getAmount() <= 0) {
       throw new ServiceException("invalid_item", "Listing item is empty");
     }
+    int quantity = listingItem.getAmount();
     ItemStack storedItem = listingItem.clone();
-    ItemSnapshotCodec.Snapshot snapshot = itemSnapshotCodec.serialize(storedItem.clone());
+    storedItem.setAmount(1);
+    ItemSnapshotCodec.Snapshot snapshot = itemSnapshotCodec.serialize(storedItem);
     BoundUser boundUser = databaseManager.withConnection(connection ->
         readBoundUserByUuid(connection, player.getUniqueId(), false));
     if (boundUser == null) {
@@ -470,7 +472,8 @@ class MarketService {
         snapshot,
         listingLimit,
         SupplyConfig.manual(),
-        null));
+        null,
+        quantity));
     publishListingCreatedEvent(boundUser.userId(), player.getName(), result, TradeMode.DIRECT);
     return result;
   }
@@ -1319,6 +1322,21 @@ class MarketService {
       int listingLimit,
       SupplyConfig supplyConfig,
       List<String> requestedTags) throws SQLException {
+    return createSellListingInTransaction(
+        connection, seller, currency, price, listingItem, snapshot, listingLimit, supplyConfig, requestedTags, null);
+  }
+
+  private ListingCreateResult createSellListingInTransaction(
+      Connection connection,
+      BoundUser seller,
+      CurrencyType currency,
+      long price,
+      ItemStack listingItem,
+      ItemSnapshotCodec.Snapshot snapshot,
+      int listingLimit,
+      SupplyConfig supplyConfig,
+      List<String> requestedTags,
+      Integer quantityOverride) throws SQLException {
     String requestedTagCode = firstTag(requestedTags);
     MarketLimitationService.Decision limitationDecision = evaluateLimitationDecision(
         seller.boundUuid(),
@@ -1360,7 +1378,7 @@ class MarketService {
         assignment.tagVersion(),
         0L,
         0L,
-        null);
+        quantityOverride);
     replaceListingTags(connection, listingId, assignments);
     applyCreateCostIfNeeded(
         connection,
@@ -1369,7 +1387,9 @@ class MarketService {
         limitationDecision.createCost(),
         listingId);
 
-    int createdQuantity = supplyConfig.mode() == SupplyMode.SUPPLY
+    int createdQuantity = quantityOverride != null
+        ? Math.max(0, quantityOverride)
+        : supplyConfig.mode() == SupplyMode.SUPPLY
         ? Math.max(0, supplyConfig.initialLoadedAmount())
         : listingItem.getAmount();
     return new ListingCreateResult(
