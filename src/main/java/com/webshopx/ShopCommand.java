@@ -1,5 +1,6 @@
 package com.webshopx;
 
+import com.google.gson.JsonObject;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,6 +33,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
   private final DeliveryService deliveryService;
   private final MailboxService mailboxService;
   private final RuntimeConfigService runtimeConfigService;
+  private final HomepageService homepageService;
   private final MessageService messageService;
   private final SchedulerBridge schedulerBridge;
   private final Supplier<PluginSettings> settingsSupplier;
@@ -47,6 +49,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       DeliveryService deliveryService,
       MailboxService mailboxService,
       RuntimeConfigService runtimeConfigService,
+      HomepageService homepageService,
       MessageService messageService,
       SchedulerBridge schedulerBridge,
       Supplier<PluginSettings> settingsSupplier) {
@@ -60,6 +63,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     this.deliveryService = deliveryService;
     this.mailboxService = mailboxService;
     this.runtimeConfigService = runtimeConfigService;
+    this.homepageService = homepageService;
     this.messageService = messageService;
     this.schedulerBridge = schedulerBridge;
     this.settingsSupplier = settingsSupplier;
@@ -216,7 +220,22 @@ class ShopCommand implements CommandExecutor, TabCompleter {
   }
 
   private boolean handleHome(CommandSender sender) {
-    String shopUrl = runtimeConfigService.readShopUrl();
+    JsonObject homepage = homepageService.publicDocument();
+    if (!homepage.has("enabled") || !homepage.get("enabled").getAsBoolean()) {
+      sender.sendMessage(msg(sender, "command.home.not_configured"));
+      return true;
+    }
+    String shopUrl = homepage.has("homeUrl") ? homepage.get("homeUrl").getAsString().trim() : "";
+    if (shopUrl.startsWith("/")) {
+      String publicUrl = settingsSupplier.get().embeddedWebSettings().publicUrl();
+      shopUrl = publicUrl.isBlank() ? "" : publicUrl.replaceAll("/+$", "") + shopUrl;
+    }
+    if (shopUrl.isBlank()) {
+      String publicUrl = settingsSupplier.get().embeddedWebSettings().publicUrl();
+      if (!publicUrl.isBlank()) {
+        shopUrl = publicUrl.replaceAll("/+$", "") + "/home";
+      }
+    }
     if (shopUrl.isBlank()) {
       sender.sendMessage(msg(sender, "command.home.not_configured"));
       return true;

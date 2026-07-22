@@ -33,6 +33,7 @@ public class WebShopPlugin extends JavaPlugin {
   private PluginSettings settings;
   private DatabaseManager databaseManager;
   private RuntimeConfigService runtimeConfigService;
+  private HomepageService homepageService;
   private PlayerPresenceService playerPresenceService;
   private ClusterEventBusService clusterEventBusService;
   private AuthService authService;
@@ -98,6 +99,7 @@ public class WebShopPlugin extends JavaPlugin {
         pruneLegacyBusinessConfigAndBackup();
       }
       runtimeConfigService.ensureDefaults(settings);
+      homepageService = new HomepageService(databaseManager);
       settings = runtimeConfigService.applyTo(settings);
       try {
         bStatsTelemetryService = new BStatsTelemetryService(databaseManager, this::settings);
@@ -181,6 +183,7 @@ public class WebShopPlugin extends JavaPlugin {
           visualCustomizationService,
           userMarketSettingsService,
           runtimeConfigService,
+          homepageService,
           clusterEventBusService,
           bStatsTelemetryService);
 
@@ -377,6 +380,7 @@ public class WebShopPlugin extends JavaPlugin {
         deliveryService,
         mailboxService,
         runtimeConfigService,
+        homepageService,
         messageService,
         schedulerBridge,
         this::settings);

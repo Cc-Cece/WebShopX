@@ -14,6 +14,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.time.ZoneId;
@@ -191,13 +192,6 @@ class RuntimeConfigService {
   long updateWebshopRuntime(RuntimeSettingsUpdate update) {
     return databaseManager.inTransaction(connection ->
         updateConfig(connection, KEY_WEBSHOP_RUNTIME, serializeWebshopRuntime(update)));
-  }
-
-  String readShopUrl() {
-    return databaseManager.withConnection(connection -> {
-      ConfigDocument document = readConfigObject(connection, KEY_WEBSHOP_RUNTIME, EMPTY_JSON_OBJECT);
-      return readString(document.config(), "shopUrl", "").trim();
-    });
   }
 
   long updateMarketRuntime(int marketMaxActiveListings, PluginSettings.MarketSupplySettings marketSupplySettings) {
@@ -744,7 +738,6 @@ class RuntimeConfigService {
 
   private String serializeWebshopRuntime(PluginSettings settings) {
     RuntimeSettingsUpdate update = new RuntimeSettingsUpdate(
-        "",
         settings.defaultLocale(),
         settings.sessionExpireHours(),
         settings.bindRequestExpireMinutes(),
@@ -762,7 +755,6 @@ class RuntimeConfigService {
 
   private String serializeWebshopRuntime(RuntimeSettingsUpdate update) {
     JsonObject root = new JsonObject();
-    root.addProperty("shopUrl", update.shopUrl());
     root.addProperty("defaultLocale", update.defaultLocale());
     root.addProperty("sessionExpireHours", update.sessionExpireHours());
     root.addProperty("bindRequestExpireMinutes", update.bindRequestExpireMinutes());
@@ -781,7 +773,6 @@ class RuntimeConfigService {
   private RuntimeSettingsUpdate parseWebshopRuntime(ConfigRow row, PluginSettings fallback) {
     if (row == null || row.configValue() == null || row.configValue().isBlank()) {
       return new RuntimeSettingsUpdate(
-          "",
           fallback.defaultLocale(),
           fallback.sessionExpireHours(),
           fallback.bindRequestExpireMinutes(),
@@ -798,7 +789,6 @@ class RuntimeConfigService {
     try {
       JsonObject root = JsonParser.parseString(row.configValue()).getAsJsonObject();
       return new RuntimeSettingsUpdate(
-          readString(root, "shopUrl", "").trim(),
           readString(root, "defaultLocale", fallback.defaultLocale()),
           readInt(root, "sessionExpireHours", fallback.sessionExpireHours()),
           readInt(root, "bindRequestExpireMinutes", fallback.bindRequestExpireMinutes()),
@@ -813,7 +803,6 @@ class RuntimeConfigService {
           readZoneId(root, "timeZone", fallback.timeZone()));
     } catch (Exception exception) {
       return new RuntimeSettingsUpdate(
-          "",
           fallback.defaultLocale(),
           fallback.sessionExpireHours(),
           fallback.bindRequestExpireMinutes(),
@@ -1240,7 +1229,6 @@ class RuntimeConfigService {
   }
 
   record RuntimeSettingsUpdate(
-      String shopUrl,
       String defaultLocale,
       int sessionExpireHours,
       int bindRequestExpireMinutes,

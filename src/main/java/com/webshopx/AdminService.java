@@ -220,7 +220,15 @@ class AdminService {
                 permissionDefinition(
                     AdminPermission.AUDIT_VIEW,
                     "admin.permissions.permission.AUDIT_VIEW.label",
-                    "admin.permissions.permission.AUDIT_VIEW.description"))));
+                    "admin.permissions.permission.AUDIT_VIEW.description"))),
+        new PermissionGroup(
+            "homepage",
+            "admin.permissions.group.homepage",
+            List.of(
+                permissionDefinition(
+                    AdminPermission.HOMEPAGE_MANAGE,
+                    "admin.permissions.permission.HOMEPAGE_MANAGE.label",
+                    "admin.permissions.permission.HOMEPAGE_MANAGE.description"))));
   }
 
   List<PermissionTemplate> listPermissionTemplates() {

@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.security.MessageDigest;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -71,6 +72,7 @@ class EmbeddedWebServer {
   private final VisualCustomizationService visualCustomizationService;
   private final UserMarketSettingsService userMarketSettingsService;
   private final RuntimeConfigService runtimeConfigService;
+  private final HomepageService homepageService;
   private final ClusterEventBusService clusterEventBusService;
   private final BStatsTelemetryService bStatsTelemetryService;
   private final PluginUpdateService pluginUpdateService;
@@ -78,6 +80,7 @@ class EmbeddedWebServer {
   private static final int MATERIAL_ICON_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
   private static final Set<String> MATERIAL_ICON_ALLOWED_EXTENSIONS =
       Set.of("png", "webp", "jpg", "jpeg", "gif");
+  private static final int HOME_ASSET_MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
   private final LocaleCenterService localeCenterService;
 
@@ -108,6 +111,7 @@ class EmbeddedWebServer {
       VisualCustomizationService visualCustomizationService,
       UserMarketSettingsService userMarketSettingsService,
       RuntimeConfigService runtimeConfigService,
+      HomepageService homepageService,
       ClusterEventBusService clusterEventBusService,
       BStatsTelemetryService bStatsTelemetryService) {
     this.plugin = plugin;
@@ -129,6 +133,7 @@ class EmbeddedWebServer {
     this.visualCustomizationService = visualCustomizationService;
     this.userMarketSettingsService = userMarketSettingsService;
     this.runtimeConfigService = runtimeConfigService;
+    this.homepageService = homepageService;
     this.clusterEventBusService = clusterEventBusService;
     this.bStatsTelemetryService = bStatsTelemetryService;
     this.pluginUpdateService = new PluginUpdateService(plugin);
@@ -179,6 +184,8 @@ class EmbeddedWebServer {
     server.createContext("/api/locales/", this::handlePublicLocaleMessages);
     server.createContext("/api/leaderboard/config", this::handleLeaderboardConfig);
     server.createContext("/api/leaderboard/list", this::handleLeaderboardList);
+    server.createContext("/api/homepage", this::handlePublicHomepage);
+    server.createContext("/api/homepage/status", this::handlePublicHomepageStatus);
     server.createContext("/api/products/quote", this::handleProductsQuote);
     server.createContext("/api/products/price-trend", this::handleProductsPriceTrend);
     server.createContext("/api/market/listings", this::handleMarketListings);
@@ -231,6 +238,11 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/system/broadcast", this::handleAdminBroadcastSettingsUpdate);
     server.createContext("/api/admin/system/notification", this::handleAdminNotificationSettingsUpdate);
     server.createContext("/api/admin/system/update", this::handleAdminPluginUpdate);
+    server.createContext("/api/admin/homepage/draft", this::handleAdminHomepageDraft);
+    server.createContext("/api/admin/homepage/publish", this::handleAdminHomepagePublish);
+    server.createContext("/api/admin/homepage/revisions", this::handleAdminHomepageRevisions);
+    server.createContext("/api/admin/homepage/restore", this::handleAdminHomepageRestore);
+    server.createContext("/api/admin/homepage/assets", this::handleAdminHomepageAssets);
     server.createContext("/api/admin/visual/settings", this::handleAdminVisualSettingsUpdate);
     server.createContext("/api/admin/material-overrides/list", this::handleAdminMaterialOverridesList);
     server.createContext("/api/admin/material-overrides/upsert", this::handleAdminMaterialOverridesUpsert);
@@ -252,6 +264,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/admin-users/list", this::handleAdminAdminUsersList);
     server.createContext("/api/admin/admin-users/upsert", this::handleAdminAdminUsersUpsert);
     server.createContext("/api/admin/admin-users/active", this::handleAdminAdminUsersActive);
+    server.createContext("/home-assets/", this::handleHomepageAsset);
 
     // Only serve static files in INTERNAL mode
     if (serverMode == PluginSettings.ServerMode.INTERNAL) {
@@ -1286,7 +1299,6 @@ class EmbeddedWebServer {
 
   private JsonObject webshopRuntimeJson(PluginSettings settings) {
     JsonObject json = new JsonObject();
-    json.addProperty("shopUrl", runtimeConfigService.readShopUrl());
     json.addProperty("defaultLocale", settings.defaultLocale());
     json.addProperty("sessionExpireHours", settings.sessionExpireHours());
     json.addProperty("bindRequestExpireMinutes", settings.bindRequestExpireMinutes());
@@ -2660,6 +2672,200 @@ class EmbeddedWebServer {
     });
   }
 
+  private void handlePublicHomepage(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    sendJson(exchange, 200, homepageService.publicDocument());
+  }
+
+  private void handlePublicHomepageStatus(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) return;
+    if (!ensureMethod(exchange, "GET")) return;
+    JsonObject response = new JsonObject();
+    response.addProperty("online", true);
+    response.addProperty("onlinePlayers", plugin.getServer().getOnlinePlayers().size());
+    response.addProperty("maxPlayers", plugin.getServer().getMaxPlayers());
+    response.addProperty("minecraftVersion", plugin.getServer().getMinecraftVersion());
+    if (plugin.getServer().getOnlinePlayers().isEmpty()) {
+      response.add("averagePlayerPing", JsonNull.INSTANCE);
+    } else {
+      double averagePing = plugin.getServer().getOnlinePlayers().stream()
+          .mapToInt(Player::getPing)
+          .average()
+          .orElse(0.0D);
+      response.addProperty("averagePlayerPing", Math.round(averagePing));
+    }
+    sendJson(exchange, 200, response);
+  }
+
+  private void handleAdminHomepageDraft(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+      withServiceHandling(exchange, () -> {
+        requireAdmin(exchange, null, AdminPermission.HOMEPAGE_MANAGE);
+        sendJson(exchange, 200, homepageService.draftState());
+      });
+      return;
+    }
+    if (!ensureMethod(exchange, "PUT")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.HOMEPAGE_MANAGE);
+      JsonObject document = payload.has("document") && payload.get("document").isJsonObject()
+          ? payload.getAsJsonObject("document") : payload;
+      JsonObject response = homepageService.saveDraft(document, admin.username());
+      adminAuditService.log(admin, "HOMEPAGE_DRAFT_SAVE", "homepage", response.get("id").getAsString(),
+          new JsonObject(), clientIp(exchange));
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminHomepagePublish(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) return;
+    if (!ensureMethod(exchange, "POST")) return;
+    withServiceHandling(exchange, () -> {
+      AdminService.AdminUser admin = requireAdmin(exchange, null, AdminPermission.HOMEPAGE_MANAGE);
+      JsonObject response = homepageService.publish(admin.username());
+      adminAuditService.log(admin, "HOMEPAGE_PUBLISH", "homepage", response.get("id").getAsString(),
+          new JsonObject(), clientIp(exchange));
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminHomepageRevisions(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) return;
+    if (!ensureMethod(exchange, "GET")) return;
+    withServiceHandling(exchange, () -> {
+      requireAdmin(exchange, null, AdminPermission.HOMEPAGE_MANAGE);
+      sendJson(exchange, 200, homepageService.revisions());
+    });
+  }
+
+  private void handleAdminHomepageRestore(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) return;
+    if (!ensureMethod(exchange, "POST")) return;
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.HOMEPAGE_MANAGE);
+      JsonObject response = homepageService.restore(getString(payload, "revisionId"), admin.username());
+      adminAuditService.log(admin, "HOMEPAGE_RESTORE", "homepage", getString(payload, "revisionId"),
+          new JsonObject(), clientIp(exchange));
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminHomepageAssets(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+      withServiceHandling(exchange, () -> {
+        requireAdmin(exchange, null, AdminPermission.HOMEPAGE_MANAGE);
+        sendJson(exchange, 200, homepageService.assets());
+      });
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AdminService.AdminUser admin = requireAdmin(exchange, null, AdminPermission.HOMEPAGE_MANAGE);
+      Map<String, String> query = parseQuery(exchange);
+      String extension = resolveIconUploadExtension(query.get("filename"), null,
+          exchange.getRequestHeaders().getFirst("Content-Type"));
+      byte[] content = readRequestBodyWithLimit(exchange, HOME_ASSET_MAX_UPLOAD_BYTES);
+      if (content.length == 0) {
+        throw new ServiceException("bad_request", "Empty file content");
+      }
+      if (!isHomepageImage(content, extension)) {
+        throw new ServiceException("bad_request", "File content does not match a supported image format");
+      }
+      Path root = resolveHomepageAssetRoot();
+      String fileName = "home-" + System.currentTimeMillis() + "-"
+          + UUID.randomUUID().toString().substring(0, 8) + "." + extension;
+      Path output = root.resolve(fileName).normalize();
+      if (!output.startsWith(root)) {
+        throw new ServiceException("bad_request", "Invalid upload target");
+      }
+      Files.write(output, content, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+      String sha256;
+      try {
+        sha256 = java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content));
+      } catch (java.security.NoSuchAlgorithmException exception) {
+        throw new IllegalStateException("SHA-256 is unavailable", exception);
+      }
+      JsonObject detail = new JsonObject();
+      detail.addProperty("fileName", fileName);
+      adminAuditService.log(admin, "HOMEPAGE_ASSET_UPLOAD", "home_asset", fileName,
+          detail, clientIp(exchange));
+      String originalName = query.getOrDefault("filename", fileName);
+      String mimeType = exchange.getRequestHeaders().getFirst("Content-Type");
+      JsonObject response = homepageService.recordAsset(fileName, originalName,
+          mimeType == null ? contentType(output) : mimeType, content.length, sha256, admin.username());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleHomepageAsset(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    String prefix = "/home-assets/";
+    String relative = exchange.getRequestURI().getPath().substring(prefix.length());
+    if (relative.isBlank() || relative.contains("..") || relative.contains("/") || relative.contains("\\")) {
+      sendJson(exchange, 400, errorJson("bad_request", "Invalid asset path"));
+      return;
+    }
+    Path root = resolveHomepageAssetRoot();
+    Path file = root.resolve(relative).normalize();
+    if (!file.startsWith(root) || !Files.isRegularFile(file)) {
+      sendJson(exchange, 404, errorJson("not_found", "Asset not found"));
+      return;
+    }
+    byte[] content = Files.readAllBytes(file);
+    exchange.getResponseHeaders().set("Content-Type", contentType(file));
+    exchange.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
+    exchange.getResponseHeaders().set("Cache-Control", "public, max-age=86400");
+    applyCorsHeaders(exchange);
+    exchange.sendResponseHeaders(200, content.length);
+    try (OutputStream output = exchange.getResponseBody()) {
+      output.write(content);
+    }
+  }
+
+  private Path resolveHomepageAssetRoot() throws IOException {
+    Path root = plugin.getDataFolder().toPath().resolve("home-assets").toAbsolutePath().normalize();
+    Files.createDirectories(root);
+    return root;
+  }
+
+  private boolean isHomepageImage(byte[] content, String extension) {
+    if (content == null || content.length < 12) {
+      return false;
+    }
+    return switch (extension) {
+      case "png" -> content[0] == (byte) 0x89 && content[1] == 0x50
+          && content[2] == 0x4e && content[3] == 0x47;
+      case "jpg", "jpeg" -> content[0] == (byte) 0xff && content[1] == (byte) 0xd8;
+      case "gif" -> content[0] == 0x47 && content[1] == 0x49 && content[2] == 0x46;
+      case "webp" -> content[0] == 0x52 && content[1] == 0x49 && content[2] == 0x46
+          && content[3] == 0x46 && content[8] == 0x57 && content[9] == 0x45
+          && content[10] == 0x42 && content[11] == 0x50;
+      default -> false;
+    };
+  }
+
   private void handleMetaVersion(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
       return;
@@ -3534,7 +3740,6 @@ class EmbeddedWebServer {
       JsonObject payload = readJson(exchange);
       AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
 
-      String shopUrl = readShopUrl(getString(payload, "shopUrl"));
       String defaultLocale = readLocaleField(getString(payload, "defaultLocale"), "defaultLocale");
       int sessionExpireHours = clampInt(getLong(payload, "sessionExpireHours", 72L), 1, 24 * 365, "sessionExpireHours");
       int bindRequestExpireMinutes = clampInt(
@@ -3551,7 +3756,6 @@ class EmbeddedWebServer {
       ZoneId timeZone = readTimeZoneField(getString(payload, "timeZone"), "timeZone");
 
       RuntimeConfigService.RuntimeSettingsUpdate update = new RuntimeConfigService.RuntimeSettingsUpdate(
-          shopUrl,
           defaultLocale,
           sessionExpireHours,
           bindRequestExpireMinutes,
@@ -3568,7 +3772,6 @@ class EmbeddedWebServer {
       publishRuntimeConfigRefresh(version);
 
       JsonObject detail = new JsonObject();
-      detail.addProperty("shopUrl", shopUrl);
       detail.addProperty("defaultLocale", defaultLocale);
       detail.addProperty("timeZone", timeZone.getId());
       detail.addProperty("deliveryBatchSize", deliveryBatchSize);
@@ -5130,27 +5333,6 @@ class EmbeddedWebServer {
       rates.add(new PluginSettings.RechargeRate(providerId, method, currency, coinsPerUnit));
     }
     return rates;
-  }
-
-  private String readShopUrl(String rawValue) {
-    String value = rawValue == null ? "" : rawValue.trim();
-    if (value.isEmpty()) {
-      return "";
-    }
-    if (value.length() > 2048) {
-      throw new ServiceException("bad_request", "shopUrl must not exceed 2048 characters");
-    }
-    try {
-      java.net.URI uri = java.net.URI.create(value);
-      String scheme = uri.getScheme();
-      if (uri.getHost() == null || scheme == null
-          || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))) {
-        throw new IllegalArgumentException("unsupported URL");
-      }
-      return uri.toString();
-    } catch (IllegalArgumentException exception) {
-      throw new ServiceException("bad_request", "shopUrl must be a valid HTTP or HTTPS URL");
-    }
   }
 
   private void validatePaymentRoutes(List<PluginSettings.RechargeRate> routes) {

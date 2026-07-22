@@ -1,8 +1,8 @@
 command:
   unknown_subcommand: "§c未知子命令，请使用 /webshopx help 查看帮助。"
   home:
-    open_link: "[WebShopX] 点击这里打开商店"
-    not_configured: "§c管理员尚未配置商店地址，请联系管理员。"
+    open_link: "[WebShopX] 点击这里打开服务器主页"
+    not_configured: "§c管理员尚未启用服务器主页或配置公开地址。"
   common:
     no_permission: "§c你没有权限。"
   password:
@@ -78,7 +78,7 @@ command:
     failed: "§c钱包变动失败：{reason}"
   help:
     base:
-      - "§e/webshopx home §7- 打开网页商店"
+      - "§e/webshopx home §7- 打开服务器主页"
       - "§e/webshopx help §7- 查看帮助"
       - "§e/webshopx password <新密码> §7- 在游戏内创建或重置网页登录密码"
       - "§e/webshopx market [gui] §7- 打开市场 GUI（创建上架与管理）"
@@ -452,6 +452,7 @@ admin:
       market: "玩家市场"
       economy: "经济配置"
       audit: "审计"
+      homepage: "服务器主页"
     permission:
       PRODUCT_MANAGE:
         label: "商品管理"
@@ -477,6 +478,9 @@ admin:
       AUDIT_VIEW:
         label: "审计日志查看"
         description: "查看管理员操作审计日志。"
+      HOMEPAGE_MANAGE:
+        label: "主页管理"
+        description: "编辑服务器主页并上传主页图片。"
     template:
       SHOP_ADMIN:
         label: "商城运营"

@@ -11,7 +11,8 @@ enum AdminRole {
       AdminPermission.PRODUCT_MANAGE,
       AdminPermission.PRODUCT_ZERO_PRICE,
       AdminPermission.ORDER_VIEW,
-      AdminPermission.ECONOMY_MANAGE)),
+      AdminPermission.ECONOMY_MANAGE,
+      AdminPermission.HOMEPAGE_MANAGE)),
   MARKET_MODERATOR(EnumSet.of(AdminPermission.MARKET_MANAGE)),
   SUPPORT_ADMIN(EnumSet.of(AdminPermission.USER_SUPPORT, AdminPermission.ORDER_VIEW)),
   AUDITOR(EnumSet.of(AdminPermission.AUDIT_VIEW));
