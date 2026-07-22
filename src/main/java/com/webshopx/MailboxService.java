@@ -121,6 +121,41 @@ class MailboxService {
     return new MailboxClaimSummary(claimed, failed, remaining);
   }
 
+  List<MailboxItemView> listPending(UUID playerUuid, int offset, int limit) {
+    if (playerUuid == null) {
+      return List.of();
+    }
+    return databaseManager.withConnection(connection -> {
+      String sql = """
+          SELECT id, source_type, source_ref, item_blob, quantity, delivered_quantity, reason
+          FROM mailbox_items
+          WHERE target_uuid = ?
+            AND status = 'PENDING'
+          ORDER BY id ASC
+          LIMIT ? OFFSET ?
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, playerUuid.toString());
+        statement.setInt(2, Math.max(1, limit));
+        statement.setInt(3, Math.max(0, offset));
+        try (ResultSet resultSet = statement.executeQuery()) {
+          List<MailboxItemView> items = new ArrayList<>();
+          while (resultSet.next()) {
+            ItemStack item = itemSnapshotCodec.deserialize(resultSet.getBytes("item_blob"));
+            items.add(new MailboxItemView(
+                resultSet.getLong("id"),
+                item,
+                Math.max(0, resultSet.getInt("quantity") - resultSet.getInt("delivered_quantity")),
+                resultSet.getString("source_type"),
+                resultSet.getString("source_ref"),
+                resultSet.getString("reason")));
+          }
+          return items;
+        }
+      }
+    });
+  }
+
   private List<MailboxItemTask> readPendingTasks(UUID playerUuid, int limit) {
     return databaseManager.withConnection(connection -> {
       String sql = """
@@ -234,6 +269,15 @@ class MailboxService {
   }
 
   record MailboxClaimSummary(int success, int failed, int remaining) {
+  }
+
+  record MailboxItemView(
+      long id,
+      ItemStack item,
+      int remainingQuantity,
+      String sourceType,
+      String sourceRef,
+      String reason) {
   }
 
   private record MailboxItemTask(long id, byte[] itemBlob, int quantity, int deliveredQuantity) {

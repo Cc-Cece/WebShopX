@@ -26,7 +26,7 @@ command:
     failed: "§cClaim failed: {reason}"
   mailbox:
     player_only: "§cOnly players can use the in-game mailbox."
-    usage: "§eUsage: /webshopx mailbox claim"
+    usage: "§eUsage: /webshopx mailbox [collect]"
     none: "§eThere are no mailbox items to claim."
     pending: "§6You have §f{count} §6mailbox item(s) pending."
     partial: "§6Mailbox claim completed: success §a{success} §6item(s), failed §c{failed} §6item(s), remaining §e{remaining}§6."
@@ -47,26 +47,9 @@ command:
   reload:
     success: "§aWebShopX configuration reloaded."
     failed: "§cReload failed. Check console logs."
-  redeem:
-    usage: "§eUsage: /webshopx redeem create <shopCoin> <gameCoin> [maxUses] [perUserMaxUses] [minutes] [code]"
-    created: "§aRedeem code created: §f{code}"
-    number: "§cParameters must be valid numbers."
-    failed: "§cCreate failed: {reason}"
   recharge:
-    player_only: "§cOnly players can create recharge orders."
-    usage: "§eUsage: /webshopx recharge <amount>"
     fix_usage: "§eUsage: /webshopx recharge fix <orderId>"
-    creating: "§7[WebShopX] Creating recharge order..."
     fixing: "§7[WebShopX] Querying the payment provider and fixing recharge order..."
-    not_bound: "§cPlease run /webshopx password <new-password> before recharging."
-    created: "§a[WebShopX] Recharge order created"
-    amount: "§7Amount: §f{amount} {currency}"
-    coins: "§7Coins: §f{coins} ShopCoin"
-    expires: "§7Expires at: §f{time}"
-    pay_link: "[WebShopX] Click here to complete payment"
-    pay_url: "§7{url}"
-    no_pay_url: "§cThe payment provider did not return a payment URL."
-    failed: "§cRecharge failed: {reason}"
     fix_success: "§aRecharge fix completed: order={order}, status={status}, fixed={fixed}"
     fix_failed: "§cRecharge fix failed: order={order}, code={code}, message={message}"
   wallet:
@@ -81,15 +64,16 @@ command:
       - "§e/webshopx home §7- Open the server homepage"
       - "§e/webshopx help §7- Show help"
       - "§e/webshopx password <new-password> §7- Create or reset the web password in-game"
-      - "§e/webshopx market [gui] §7- Open the market GUI"
+      - "§e/webshopx §7- Open the market GUI"
+      - "§e/webshopx gui §7- Open the market GUI"
+      - "§e/webshopx market §7- Open the market GUI"
       - "§e/webshopx market sell <price> [amount] [currency] §7- Legacy listing command"
       - "§e/webshopx market logs [count] §7- Show recent trades from your store"
-      - "§e/webshopx recharge <amount> §7- Create a payment recharge order"
       - "§e/webshopx claim [all|ODR-...|MKT-...|CLM-...|MCL-...] §7- Claim pending deliveries"
-      - "§e/webshopx mailbox claim §7- Claim buffered items from in-game mailbox"
+      - "§e/webshopx mailbox §7- Open the in-game mailbox GUI"
+      - "§e/webshopx mailbox collect §7- Quickly collect items from the in-game mailbox"
     admin:
       - "§e/webshopx reload §7- Reload config and embedded web assets"
-      - "§e/webshopx redeem create <shop> <game> [max] [perUserMax] [minutes] [code] §7- Create a redeem code"
       - "§e/webshopx recharge fix <orderId> §7- Query the payment provider and repair a recharge order"
       - "§e/webshopx gamecoin <user> <±amount> [reason] §7- Adjust configured game currency balance"
       - "§e/webshopx shopcoin <user> <±amount> [reason] §7- Adjust configured shop currency balance"
@@ -188,12 +172,12 @@ notify:
     wait_claim_market_title: "Market Item Waiting for Claim"
     wait_claim_market_content: "Auto delivery for market item failed. Run /ws claim {token} in-game. Reason: {reason}"
     mailbox_pending_title: "Mailbox Pending Notice"
-    mailbox_pending_content: "Inventory was unavailable during auto delivery, item moved to mailbox. Run /ws mailbox claim in-game. Source: {sourceType} {sourceDetail}"
+    mailbox_pending_content: "Inventory was unavailable during auto delivery, item moved to mailbox. Run /ws mailbox in-game to view it. Source: {sourceType} {sourceDetail}"
 
 chat:
   delivery:
     claim_hint: "§eYou have {count} pending delivery item(s). Use /ws claim"
-    mailbox_hint: "§eYou have {count} mailbox item(s). Use /ws mailbox claim"
+    mailbox_hint: "§eYou have {count} mailbox item(s). Use /ws mailbox to view them"
     claim_success_order: "Claimed successfully: {orderNo}"
     deliver_success_order: "Delivered successfully: {orderNo}"
     claim_success_market: "Claimed successfully: {token}"
@@ -234,6 +218,17 @@ chat:
     supply_paused_external: "§eThe supply container became unavailable. Listing #{listingId} was paused automatically."
 
 gui:
+  mailbox:
+    title: "Mailbox · {page}/{pages}"
+    previous: "§ePrevious page"
+    next: "§eNext page"
+    collect:
+      title: "§aCollect all"
+      lore: "§7There are §f{count} §7pending item entries"
+    item:
+      quantity: "§7Remaining: §f{quantity}"
+      source: "§7Source: §f{type} {ref}"
+      reason: "§7Stored because: §f{reason}"
   market:
     title:
       main: "Market Center"

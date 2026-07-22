@@ -1172,7 +1172,7 @@ class RuntimeConfigService {
       templates.put("market_buy_escrow_refund", "Buy order #{listingId} escrow was refunded: {amountText}.");
       templates.put("delivery_wait_claim_order", "Auto delivery for order {token} failed. Run /ws claim {token} in-game. Reason: {reason}");
       templates.put("delivery_wait_claim_market", "Auto delivery for market item failed. Run /ws claim {token} in-game. Reason: {reason}");
-      templates.put("mailbox_pending", "Inventory was unavailable during auto delivery, item moved to mailbox. Run /ws mailbox claim in-game. Source: {sourceType} {sourceRef}");
+      templates.put("mailbox_pending", "Inventory was unavailable during auto delivery, item moved to mailbox. Run /ws mailbox in-game to view it. Source: {sourceType} {sourceRef}");
       return templates;
     }
 

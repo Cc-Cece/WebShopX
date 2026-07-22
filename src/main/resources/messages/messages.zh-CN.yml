@@ -26,7 +26,7 @@ command:
     failed: "§c领取失败：{reason}"
   mailbox:
     player_only: "§c仅玩家可使用游戏信箱。"
-    usage: "§e用法：/webshopx mailbox claim"
+    usage: "§e用法：/webshopx mailbox [collect]"
     none: "§e当前信箱没有可领取的物品。"
     pending: "§6你有 §f{count} §6份信箱物品待领取。"
     partial: "§6信箱领取完成：成功 §a{success} §6份，失败 §c{failed} §6份，剩余 §e{remaining} §6份。"
@@ -47,26 +47,9 @@ command:
   reload:
     success: "§aWebShopX 配置已重载。"
     failed: "§c重载失败，请查看控制台日志。"
-  redeem:
-    usage: "§e用法：/webshopx redeem create <shopCoin> <gameCoin> [maxUses] [perUserMaxUses] [minutes] [code]"
-    created: "§a兑换码已创建：§f{code}"
-    number: "§c参数必须为有效数字。"
-    failed: "§c创建失败：{reason}"
   recharge:
-    player_only: "§c只有玩家可以创建充值订单。"
-    usage: "§e用法：/webshopx recharge <金额>"
     fix_usage: "§e用法：/webshopx recharge fix <订单号>"
-    creating: "§7[WebShopX] 正在创建充值订单..."
     fixing: "§7[WebShopX] 正在查询支付服务并补单..."
-    not_bound: "§c请先在游戏内执行 /webshopx password <新密码> 后再充值。"
-    created: "§a[WebShopX] 充值订单已创建"
-    amount: "§7金额：§f{amount} {currency}"
-    coins: "§7获得：§f{coins} ShopCoin"
-    expires: "§7过期时间：§f{time}"
-    pay_link: "[WebShopX] 点击这里完成支付"
-    pay_url: "§7{url}"
-    no_pay_url: "§c支付服务未返回支付链接。"
-    failed: "§c充值失败：{reason}"
     fix_success: "§a补单完成：订单={order}，状态={status}，已补发={fixed}"
     fix_failed: "§c补单失败：订单={order}，错误码={code}，原因={message}"
   wallet:
@@ -81,15 +64,16 @@ command:
       - "§e/webshopx home §7- 打开服务器主页"
       - "§e/webshopx help §7- 查看帮助"
       - "§e/webshopx password <新密码> §7- 在游戏内创建或重置网页登录密码"
-      - "§e/webshopx market [gui] §7- 打开市场 GUI（创建上架与管理）"
+      - "§e/webshopx §7- 打开市场 GUI"
+      - "§e/webshopx gui §7- 打开市场 GUI"
+      - "§e/webshopx market §7- 打开市场 GUI（创建上架与管理）"
       - "§e/webshopx market sell <price> [amount] [currency] §7- 兼容旧式上架命令"
       - "§e/webshopx market logs [count] §7- 查看自己店铺最近成交记录"
-      - "§e/webshopx recharge <金额> §7- 创建支付充值订单"
       - "§e/webshopx claim [all|ODR-...|MKT-...|CLM-...|MCL-...] §7- 领取待发货内容"
-      - "§e/webshopx mailbox claim §7- 领取游戏信箱中的缓冲物品"
+      - "§e/webshopx mailbox §7- 打开游戏信箱 GUI"
+      - "§e/webshopx mailbox collect §7- 快速收取游戏信箱中的物品"
     admin:
       - "§e/webshopx reload §7- 重载配置与内置网页"
-      - "§e/webshopx redeem create <shop> <game> [max] [perUserMax] [minutes] [code] §7- 创建兑换码"
       - "§e/webshopx recharge fix <orderId> §7- 查询支付服务并修复充值订单"
       - "§e/webshopx gamecoin <用户> <±数量> [原因] §7- 变动配置中的游戏币余额"
       - "§e/webshopx shopcoin <用户> <±数量> [原因] §7- 变动配置中的商城币余额"
@@ -189,12 +173,12 @@ notify:
     wait_claim_market_title: "市场物品待领取提醒"
     wait_claim_market_content: "市场物品自动发货失败，请在游戏内执行 /ws claim {token} 领取。原因：{reason}"
     mailbox_pending_title: "信箱待领取提醒"
-    mailbox_pending_content: "自动发货时背包不可用，物品已存入游戏信箱。请在游戏内执行 /ws mailbox claim 领取。来源：{sourceType} {sourceDetail}"
+    mailbox_pending_content: "自动发货时背包不可用，物品已存入游戏信箱。请在游戏内执行 /ws mailbox 查看。来源：{sourceType} {sourceDetail}"
 
 chat:
   delivery:
     claim_hint: "§e你有 {count} 条待领取发货，请输入 /ws claim"
-    mailbox_hint: "§e你有 {count} 份信箱物品待领取，请输入 /ws mailbox claim"
+    mailbox_hint: "§e你有 {count} 份信箱物品待领取，请输入 /ws mailbox 查看"
     claim_success_order: "领取成功：{orderNo}"
     deliver_success_order: "发货成功：{orderNo}"
     claim_success_market: "领取成功：{token}"
@@ -235,6 +219,17 @@ chat:
     supply_paused_external: "§e供货箱已失效，对应上架 #{listingId} 已自动暂停。"
 
 gui:
+  mailbox:
+    title: "游戏信箱 · {page}/{pages}"
+    previous: "§e上一页"
+    next: "§e下一页"
+    collect:
+      title: "§a收取全部"
+      lore: "§7当前共有 §f{count} §7份待收取物品"
+    item:
+      quantity: "§7剩余数量：§f{quantity}"
+      source: "§7来源：§f{type} {ref}"
+      reason: "§7存入原因：§f{reason}"
   market:
     title:
       main: "市场中心"

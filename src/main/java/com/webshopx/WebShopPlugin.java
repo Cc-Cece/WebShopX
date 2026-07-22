@@ -51,6 +51,7 @@ public class WebShopPlugin extends JavaPlugin {
   private UserMarketSettingsService userMarketSettingsService;
   private NotificationService notificationService;
   private MailboxService mailboxService;
+  private MailboxGuiService mailboxGuiService;
   private BroadcastService broadcastService;
   private MarketGuiService marketGuiService;
   private DeliveryService deliveryService;
@@ -130,6 +131,7 @@ public class WebShopPlugin extends JavaPlugin {
           schedulerBridge);
       notificationService = new NotificationService(databaseManager);
       mailboxService = new MailboxService(databaseManager);
+      mailboxGuiService = new MailboxGuiService(mailboxService, messageService);
       broadcastService = new BroadcastService(this, this::settings, schedulerBridge);
       broadcastService.reload();
       clusterEventBusService.reload();
@@ -207,6 +209,7 @@ public class WebShopPlugin extends JavaPlugin {
       getServer().getPluginManager().registerEvents(
           new MarketGuiListener(marketGuiService, marketService, messageService, schedulerBridge),
           this);
+      getServer().getPluginManager().registerEvents(mailboxGuiService, this);
       synchronizeOnlinePresence();
       startDeliveryLoop();
       startMaintenanceLoop();
@@ -372,13 +375,13 @@ public class WebShopPlugin extends JavaPlugin {
     ShopCommand shopCommandHandler = new ShopCommand(
         this,
         authService,
-        redeemCodeService,
         rechargeService,
         adminService,
         marketService,
         marketGuiService,
         deliveryService,
         mailboxService,
+        mailboxGuiService,
         runtimeConfigService,
         homepageService,
         messageService,
