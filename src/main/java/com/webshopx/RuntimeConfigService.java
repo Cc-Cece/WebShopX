@@ -30,6 +30,7 @@ class RuntimeConfigService {
   private static final String KEY_LEADERBOARD = "leaderboard";
   private static final String KEY_CURRENCY_DISPLAY = "currency_display";
   private static final String KEY_WEBSHOP_RUNTIME = "webshop_runtime";
+  private static final String KEY_HOME_LINK = "home_link";
   private static final String KEY_MARKET_RUNTIME = "market_runtime";
   private static final String KEY_MARKET_TAGS = "market_tags";
   private static final String KEY_MARKET_LIMITATION = "market_limitation";
@@ -69,6 +70,7 @@ class RuntimeConfigService {
           KEY_CURRENCY_DISPLAY,
           serializeCurrencyDisplay(settings.currencyDisplaySettings()));
       upsertConfig(connection, KEY_WEBSHOP_RUNTIME, serializeWebshopRuntime(settings));
+      upsertConfig(connection, KEY_HOME_LINK, serializeHomeLink(defaultHomeUrl(settings)));
       upsertConfig(connection, KEY_MARKET_RUNTIME, serializeMarketRuntime(settings));
       upsertConfig(connection, KEY_MARKET_TAGS, EMPTY_JSON_OBJECT);
       upsertConfig(connection, KEY_MARKET_LIMITATION, EMPTY_JSON_OBJECT);
@@ -103,6 +105,7 @@ class RuntimeConfigService {
           KEY_CURRENCY_DISPLAY,
           serializeCurrencyDisplay(settings.currencyDisplaySettings()));
       insertIfMissing(connection, KEY_WEBSHOP_RUNTIME, serializeWebshopRuntime(settings));
+      insertIfMissing(connection, KEY_HOME_LINK, serializeHomeLink(defaultHomeUrl(settings)));
       insertIfMissing(connection, KEY_MARKET_RUNTIME, serializeMarketRuntime(settings));
       insertIfMissing(connection, KEY_MARKET_TAGS, EMPTY_JSON_OBJECT);
       insertIfMissing(connection, KEY_MARKET_LIMITATION, EMPTY_JSON_OBJECT);
@@ -192,6 +195,34 @@ class RuntimeConfigService {
   long updateWebshopRuntime(RuntimeSettingsUpdate update) {
     return databaseManager.inTransaction(connection ->
         updateConfig(connection, KEY_WEBSHOP_RUNTIME, serializeWebshopRuntime(update)));
+  }
+
+  String homeUrl(PluginSettings settings) {
+    return databaseManager.withConnection(connection -> {
+      ConfigDocument document = readConfigObject(
+          connection,
+          KEY_HOME_LINK,
+          serializeHomeLink(defaultHomeUrl(settings)));
+      return readString(document.config(), "homeUrl", defaultHomeUrl(settings)).trim();
+    });
+  }
+
+  long updateHomeUrl(String homeUrl) {
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_HOME_LINK, serializeHomeLink(homeUrl)));
+  }
+
+  private String serializeHomeLink(String homeUrl) {
+    JsonObject root = new JsonObject();
+    root.addProperty("homeUrl", homeUrl == null ? "" : homeUrl.trim());
+    return gson.toJson(root);
+  }
+
+  private String defaultHomeUrl(PluginSettings settings) {
+    String publicUrl = settings.embeddedWebSettings().publicUrl();
+    return publicUrl == null || publicUrl.isBlank()
+        ? ""
+        : publicUrl.replaceAll("/+$", "") + "/home";
   }
 
   long updateMarketRuntime(int marketMaxActiveListings, PluginSettings.MarketSupplySettings marketSupplySettings) {

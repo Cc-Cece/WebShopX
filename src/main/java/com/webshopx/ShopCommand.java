@@ -32,7 +32,6 @@ class ShopCommand implements CommandExecutor, TabCompleter {
   private final MailboxService mailboxService;
   private final MailboxGuiService mailboxGuiService;
   private final RuntimeConfigService runtimeConfigService;
-  private final HomepageService homepageService;
   private final MessageService messageService;
   private final SchedulerBridge schedulerBridge;
   private final Supplier<PluginSettings> settingsSupplier;
@@ -48,7 +47,6 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       MailboxService mailboxService,
       MailboxGuiService mailboxGuiService,
       RuntimeConfigService runtimeConfigService,
-      HomepageService homepageService,
       MessageService messageService,
       SchedulerBridge schedulerBridge,
       Supplier<PluginSettings> settingsSupplier) {
@@ -62,7 +60,6 @@ class ShopCommand implements CommandExecutor, TabCompleter {
     this.mailboxService = mailboxService;
     this.mailboxGuiService = mailboxGuiService;
     this.runtimeConfigService = runtimeConfigService;
-    this.homepageService = homepageService;
     this.messageService = messageService;
     this.schedulerBridge = schedulerBridge;
     this.settingsSupplier = settingsSupplier;
@@ -229,23 +226,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
   }
 
   private boolean handleHome(CommandSender sender) {
-    JsonObject homepage = homepageService.publicDocument();
-    if (!homepage.has("enabled") || !homepage.get("enabled").getAsBoolean()) {
-      sender.sendMessage(msg(sender, "command.home.not_configured"));
-      return true;
-    }
-
-    String shopUrl = homepage.has("homeUrl") ? homepage.get("homeUrl").getAsString().trim() : "";
-    if (shopUrl.startsWith("/")) {
-      String publicUrl = settingsSupplier.get().embeddedWebSettings().publicUrl();
-      shopUrl = publicUrl.isBlank() ? "" : publicUrl.replaceAll("/+$", "") + shopUrl;
-    }
-    if (shopUrl.isBlank()) {
-      String publicUrl = settingsSupplier.get().embeddedWebSettings().publicUrl();
-      if (!publicUrl.isBlank()) {
-        shopUrl = publicUrl.replaceAll("/+$", "") + "/home";
-      }
-    }
+    String shopUrl = runtimeConfigService.homeUrl(settingsSupplier.get());
     if (shopUrl.isBlank()) {
       sender.sendMessage(msg(sender, "command.home.not_configured"));
       return true;

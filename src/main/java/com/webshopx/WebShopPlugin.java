@@ -385,7 +385,6 @@ public class WebShopPlugin extends JavaPlugin {
         mailboxService,
         mailboxGuiService,
         runtimeConfigService,
-        homepageService,
         messageService,
         schedulerBridge,
         this::settings);

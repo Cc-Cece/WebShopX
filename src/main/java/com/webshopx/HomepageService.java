@@ -263,7 +263,7 @@ final class HomepageService {
     }
   }
 
-  private JsonObject disabledDocument() { JsonObject result=new JsonObject(); result.addProperty("schemaVersion",2); result.addProperty("enabled",false); result.addProperty("homeUrl",""); result.add("site",new JsonObject()); result.add("theme",new JsonObject()); result.add("sections",new JsonArray()); return result; }
+  private JsonObject disabledDocument() { JsonObject result=new JsonObject(); result.addProperty("schemaVersion",2); result.addProperty("enabled",false); result.add("site",new JsonObject()); result.add("theme",new JsonObject()); result.add("sections",new JsonArray()); return result; }
   private String string(JsonObject object,String key){return object.has(key)&&!object.get(key).isJsonNull()?object.get(key).getAsString().trim():"";}
   private String safeAuthor(String author){return author==null||author.isBlank()?"system":author.substring(0,Math.min(128,author.length()));}
   private void execute(Connection connection,String sql)throws SQLException{try(PreparedStatement statement=connection.prepareStatement(sql)){statement.execute();}}

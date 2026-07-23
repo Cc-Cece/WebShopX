@@ -231,6 +231,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/market/tags-config", this::handleAdminMarketTagsConfig);
     server.createContext("/api/admin/market/limitation-config", this::handleAdminMarketLimitationConfig);
     server.createContext("/api/admin/system/webshop", this::handleAdminWebshopRuntimeUpdate);
+    server.createContext("/api/admin/system/home-link", this::handleAdminHomeLinkUpdate);
     server.createContext("/api/admin/system/market", this::handleAdminMarketRuntimeUpdate);
     server.createContext("/api/admin/system/auction-display", this::handleAdminAuctionDisplayUpdate);
     server.createContext("/api/admin/system/maintenance", this::handleAdminMaintenanceSettingsUpdate);
@@ -1311,6 +1312,7 @@ class EmbeddedWebServer {
     json.addProperty("refundUndeliveredEnabled", settings.refundUndeliveredEnabled());
     json.addProperty("advancedRecycleEnabled", settings.advancedRecycleEnabled());
     json.addProperty("timeZone", settings.timeZone().getId());
+    json.addProperty("homeUrl", runtimeConfigService.homeUrl(settings));
     return json;
   }
 
@@ -5333,6 +5335,42 @@ class EmbeddedWebServer {
       rates.add(new PluginSettings.RechargeRate(providerId, method, currency, coinsPerUnit));
     }
     return rates;
+  }
+
+  private void handleAdminHomeLinkUpdate(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.HOMEPAGE_MANAGE);
+      String homeUrl = getString(payload, "homeUrl").trim();
+      if (!homeUrl.isBlank()) {
+        try {
+          java.net.URI uri = java.net.URI.create(homeUrl);
+          if (!uri.isAbsolute()
+              || (!"http".equalsIgnoreCase(uri.getScheme()) && !"https".equalsIgnoreCase(uri.getScheme()))) {
+            throw new IllegalArgumentException();
+          }
+        } catch (IllegalArgumentException exception) {
+          throw new ServiceException("bad_request", "homeUrl must be an absolute HTTP(S) URL");
+        }
+      }
+      long version = runtimeConfigService.updateHomeUrl(homeUrl);
+      publishRuntimeConfigRefresh(version);
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("homeUrl", homeUrl);
+      adminAuditService.log(admin, "HOME_LINK_UPDATE", "home_link", null, detail, clientIp(exchange));
+
+      JsonObject response = new JsonObject();
+      response.addProperty("status", "ok");
+      response.addProperty("version", version);
+      sendJson(exchange, 200, response);
+    });
   }
 
   private void validatePaymentRoutes(List<PluginSettings.RechargeRate> routes) {
