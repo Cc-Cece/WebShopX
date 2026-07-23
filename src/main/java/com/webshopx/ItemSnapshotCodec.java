@@ -138,7 +138,7 @@ final class ItemSnapshotCodec {
     return result;
   }
 
-  private String sha256Hex(byte[] data) {
+  static String sha256Hex(byte[] data) {
     try {
       MessageDigest digest = MessageDigest.getInstance("SHA-256");
       byte[] hash = digest.digest(data);

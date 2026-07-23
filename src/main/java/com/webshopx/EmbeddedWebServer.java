@@ -49,6 +49,8 @@ import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 
 class EmbeddedWebServer {
@@ -77,6 +79,9 @@ class EmbeddedWebServer {
   private final BStatsTelemetryService bStatsTelemetryService;
   private final PluginUpdateService pluginUpdateService;
   private final Gson gson;
+  private final ItemSnapshotCodec inventoryItemCodec = new ItemSnapshotCodec();
+  private final InventoryService inventoryService = new InventoryService(inventoryItemCodec);
+  private final InventoryOperationService inventoryOperationService;
   private static final int MATERIAL_ICON_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
   private static final Set<String> MATERIAL_ICON_ALLOWED_EXTENSIONS =
       Set.of("png", "webp", "jpg", "jpeg", "gif");
@@ -117,6 +122,7 @@ class EmbeddedWebServer {
     this.plugin = plugin;
     this.schedulerBridge = schedulerBridge;
     this.databaseManager = databaseManager;
+    this.inventoryOperationService = new InventoryOperationService(databaseManager);
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
     this.walletService = walletService;
@@ -204,6 +210,10 @@ class EmbeddedWebServer {
     server.createContext("/api/market/settings", this::handleMarketSettings);
     server.createContext("/api/market/icon/upload", this::handleMarketIconUpload);
     server.createContext("/api/market/supply/refresh", this::handleMarketSupplyRefresh);
+    server.createContext("/api/inventory/snapshot", this::handleInventorySnapshot);
+    server.createContext("/api/inventory/list", this::handleInventoryList);
+    server.createContext("/api/inventory/matches", this::handleInventoryMatches);
+    server.createContext("/api/inventory/fulfill", this::handleInventoryFulfill);
     server.createContext("/api/admin/auth/login", this::handleAdminLogin);
     server.createContext("/api/admin/auth/me", this::handleAdminMe);
     server.createContext("/api/admin/auth/logout", this::handleAdminLogout);
@@ -2672,6 +2682,287 @@ class EmbeddedWebServer {
       response.add("locales", localeCenterService.listPublicWebLocales());
       sendJson(exchange, 200, response);
     });
+  }
+
+  private void handleInventorySnapshot(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, null);
+      JsonObject response = awaitPlayerTask(user.boundUuid(), player -> inventorySnapshotJson(player));
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleInventoryList(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      int slot = (int) getLong(payload, "slot", -1L);
+      int quantity = (int) getLong(payload, "quantity", 1L);
+      String fingerprint = getString(payload, "fingerprint");
+      String revision = getString(payload, "revision");
+      long price = getLong(payload, "price", 0L);
+      CurrencyType currency = CurrencyType.fromConfig(
+          getOptionalString(payload, "currency").orElse("SHOP_COIN"));
+      List<String> tags = getStringList(payload, "tags");
+      String action = getOptionalString(payload, "action").orElse("LIST").toUpperCase(Locale.ROOT);
+      boolean auction = "AUCTION".equals(action);
+      String idempotencyKey = getString(payload, "idempotencyKey");
+      InventoryOperationService.Existing existing = inventoryOperationService.find(user.id(), idempotencyKey);
+      if (existing != null) {
+        sendJson(exchange, 200, inventoryExistingJson(existing));
+        return;
+      }
+      inventoryOperationService.begin(
+          user.id(), idempotencyKey, action, slot,
+          payload.has("containerSlot") && !payload.get("containerSlot").isJsonNull()
+              ? payload.get("containerSlot").getAsInt() : null,
+          fingerprint, quantity);
+      MarketService.ListingCreateResult result;
+      try {
+        result = awaitPlayerTask(user.boundUuid(), player -> {
+        Integer containerSlot = payload.has("containerSlot") && !payload.get("containerSlot").isJsonNull()
+            ? payload.get("containerSlot").getAsInt() : null;
+        InventoryService.Withdrawal withdrawal = inventoryService.withdraw(
+            player.getInventory(), revision, slot, containerSlot, fingerprint, quantity);
+        try {
+          JsonObject dynamicParams = payload.has("dynamicParams") && payload.get("dynamicParams").isJsonObject()
+              ? payload.getAsJsonObject("dynamicParams") : new JsonObject();
+          JsonObject auctionParams = payload.has("auctionParams") && payload.get("auctionParams").isJsonObject()
+              ? payload.getAsJsonObject("auctionParams") : new JsonObject();
+          MarketService.InventoryListingConfig config = new MarketService.InventoryListingConfig(
+              auction ? "AUCTION" : "DIRECT",
+              !auction && payload.has("dynamicPricingEnabled")
+                  && payload.get("dynamicPricingEnabled").getAsBoolean(),
+              getOptionalString(payload, "dynamicAlgorithm").orElse(null),
+              getOptionalString(payload, "dynamicPricingMode").orElse(null),
+              gson.toJson(dynamicParams),
+              getOptionalPositiveLong(payload, "dynamicBasePrice"),
+              getOptionalPositiveLong(payload, "dynamicFloorPrice"),
+              getOptionalPositiveLong(payload, "dynamicCapPrice"),
+              getOptionalPositiveLong(payload, "dynamicPriceStep"),
+              getOptionalString(payload, "auctionAlgorithm").orElse(null),
+              gson.toJson(auctionParams),
+              getOptionalPositiveLong(payload, "auctionStartPrice"),
+              getOptionalPositiveLong(payload, "auctionMinIncrement"),
+              getOptionalDateTime(payload, "auctionEndAt"),
+              getOptionalString(payload, "remark").orElse(null),
+              getOptionalString(payload, "displayName").orElse(null),
+              getOptionalString(payload, "displayMaterial").orElse(null));
+          return marketService.createConfiguredListingFromStack(
+              player, withdrawal.item(), price, currency, tags, config, idempotencyKey);
+        } catch (RuntimeException exception) {
+          withdrawal.restore().run();
+          throw exception;
+        }
+        });
+      } catch (RuntimeException exception) {
+        inventoryOperationService.reject(user.id(), idempotencyKey, serviceErrorCode(exception));
+        throw exception;
+      }
+      JsonObject response = new JsonObject();
+      response.addProperty("listingId", result.listingId());
+      response.addProperty("state", "SUCCESS");
+      response.addProperty("revision", "refresh-required");
+      inventoryOperationService.complete(user.id(), idempotencyKey, result.listingId(), gson.toJson(response));
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleInventoryMatches(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) return;
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      int slot = (int) getLong(payload, "slot", -1L);
+      int quantity = (int) getLong(payload, "quantity", 1L);
+      String fingerprint = getString(payload, "fingerprint");
+      String revision = getString(payload, "revision");
+      Integer containerSlot = payload.has("containerSlot") && !payload.get("containerSlot").isJsonNull()
+          ? payload.get("containerSlot").getAsInt() : null;
+      ItemStack item = awaitPlayerTask(user.boundUuid(), player ->
+          inventoryService.resolve(player.getInventory(), revision, slot, containerSlot, fingerprint));
+      JsonArray matches = new JsonArray();
+      if (!item.hasItemMeta()) {
+        for (ProductService.ProductView product : productService.listActiveProductsForUser(user.id())) {
+          if (product.productType() != ProductService.ProductType.RECYCLE_ITEM
+              || !item.getType().name().equalsIgnoreCase(product.itemMaterial())) continue;
+          ProductService.ProductPriceQuote quote;
+          try {
+            quote = productService.quoteOrderPrice(product, quantity);
+          } catch (ServiceException ignored) {
+            continue;
+          }
+          JsonObject row = new JsonObject();
+          row.addProperty("id", "official:" + product.id());
+          row.addProperty("source", "官方商城 · " + product.title());
+          row.addProperty("remaining", product.personalLimitRemaining() == null
+              ? 2147483647 : product.personalLimitRemaining());
+          row.addProperty("currency", product.currency().name());
+          row.addProperty("unitPrice", quote.averageUnitPrice());
+          row.addProperty("sellerReceive", quote.totalAmount());
+          row.addProperty("fee", 0);
+          row.addProperty("quotedQuantity", quantity);
+          matches.add(row);
+        }
+      }
+      for (MarketService.BuyOrderMatch match : marketService.listMatchingBuyOrders(user.id(), item, quantity)) {
+        JsonObject row = new JsonObject();
+        row.addProperty("id", String.valueOf(match.listingId()));
+        row.addProperty("source", "玩家 " + match.buyerName() + " 的收购单");
+        row.addProperty("remaining", match.remaining());
+        row.addProperty("currency", match.currency().name());
+        row.addProperty("unitPrice", match.unitPrice());
+        row.addProperty("sellerReceive", match.sellerReceive());
+        row.addProperty("fee", match.feeAmount());
+        row.addProperty("quotedQuantity", match.quotedQuantity());
+        matches.add(row);
+      }
+      JsonObject response = new JsonObject();
+      response.add("matches", matches);
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleInventoryFulfill(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) return;
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      int slot = (int) getLong(payload, "slot", -1L);
+      int quantity = (int) getLong(payload, "quantity", 1L);
+      String targetId = getString(payload, "listingId");
+      String fingerprint = getString(payload, "fingerprint");
+      String revision = getString(payload, "revision");
+      String idempotencyKey = getString(payload, "idempotencyKey");
+      Long expectedUnitPrice = getOptionalPositiveLong(payload, "expectedUnitPrice");
+      Long expectedBuyerTotal = getOptionalPositiveLong(payload, "expectedBuyerTotal");
+      Integer containerSlot = payload.has("containerSlot") && !payload.get("containerSlot").isJsonNull()
+          ? payload.get("containerSlot").getAsInt() : null;
+      InventoryOperationService.Existing existing = inventoryOperationService.find(user.id(), idempotencyKey);
+      if (existing != null) {
+        sendJson(exchange, 200, inventoryExistingJson(existing));
+        return;
+      }
+      inventoryOperationService.begin(
+          user.id(), idempotencyKey, "FULFILL", slot, containerSlot, fingerprint, quantity);
+      JsonObject response;
+      long referenceId;
+      try {
+        response = awaitPlayerTask(user.boundUuid(), player -> {
+        InventoryService.Withdrawal withdrawal = inventoryService.withdraw(
+            player.getInventory(), revision, slot, containerSlot, fingerprint, quantity);
+        try {
+          JsonObject resultJson = new JsonObject();
+          if (targetId.startsWith("official:")) {
+            long productId = Long.parseLong(targetId.substring("official:".length()));
+            OrderService.OrderPlacementResult result = orderService.placeRecycleOrderFromStack(
+                user.id(), productId, withdrawal.item(), quantity, idempotencyKey);
+            resultJson.addProperty("state", "SUCCESS");
+            resultJson.addProperty("orderNo", result.orderNo());
+            resultJson.addProperty("totalAmount", result.totalAmount());
+          } else {
+            long listingId = Long.parseLong(targetId);
+            MarketService.TradeResult result = marketService.fulfillBuyOrderFromStack(
+                user.id(), listingId, withdrawal.item(), quantity, idempotencyKey,
+                expectedUnitPrice, expectedBuyerTotal);
+            resultJson = toTradeResultJson(result);
+            resultJson.addProperty("state", "SUCCESS");
+          }
+          return resultJson;
+        } catch (RuntimeException exception) {
+          withdrawal.restore().run();
+          throw exception;
+        }
+        });
+        referenceId = targetId.startsWith("official:")
+            ? Long.parseLong(targetId.substring("official:".length()))
+            : Long.parseLong(targetId);
+      } catch (RuntimeException exception) {
+        inventoryOperationService.reject(user.id(), idempotencyKey, serviceErrorCode(exception));
+        throw exception;
+      }
+      inventoryOperationService.complete(user.id(), idempotencyKey, referenceId, gson.toJson(response));
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private JsonObject inventorySnapshotJson(Player player) {
+    InventoryService.Snapshot snapshot = inventoryService.snapshot(player.getInventory());
+    JsonObject response = new JsonObject();
+    JsonArray slots = new JsonArray();
+    for (InventoryService.SlotView slot : snapshot.slots()) {
+      JsonObject row = new JsonObject();
+      row.addProperty("kind", slot.kind());
+      row.addProperty("index", slot.index());
+      row.addProperty("label", slot.label());
+      if (slot.item() == null) {
+        row.add("item", JsonNull.INSTANCE);
+      } else {
+        row.add("item", inventoryItemJson(slot.item()));
+      }
+      slots.add(row);
+    }
+    response.addProperty("online", true);
+    response.addProperty("revision", snapshot.revision());
+    response.addProperty("refreshedAt", TimeSupport.utcNow().toString());
+    response.add("slots", slots);
+    return response;
+  }
+
+  private JsonObject inventoryItemJson(InventoryService.ItemView item) {
+    JsonObject view = new JsonObject();
+    view.addProperty("material", item.material());
+    view.addProperty("name", item.name());
+    view.addProperty("amount", item.amount());
+    view.addProperty("maxStackSize", item.maxStackSize());
+    view.addProperty("fingerprint", item.fingerprint());
+    view.add("lore", gson.toJsonTree(item.lore()));
+    view.add("enchantments", gson.toJsonTree(item.enchantments()));
+    view.addProperty("recyclable", true);
+    view.addProperty("listable", true);
+    JsonArray contents = new JsonArray();
+    for (InventoryService.ItemView child : item.containerItems()) {
+      JsonObject entry = new JsonObject();
+      entry.addProperty("slot", child.containerSlot());
+      entry.add("item", inventoryItemJson(child));
+      contents.add(entry);
+    }
+    if (!contents.isEmpty()) view.add("containerItems", contents);
+    return view;
+  }
+
+  private JsonObject inventoryExistingJson(InventoryOperationService.Existing existing) {
+    if ("SUCCESS".equals(existing.state()) && existing.resultJson() != null) {
+      return JsonParser.parseString(existing.resultJson()).getAsJsonObject();
+    }
+    if ("SUCCESS".equals(existing.state())) {
+      JsonObject response = new JsonObject();
+      response.addProperty("state", "SUCCESS");
+      response.addProperty("idempotentReplay", true);
+      response.addProperty("referenceId", existing.referenceId());
+      return response;
+    }
+    if ("PENDING".equals(existing.state())) {
+      throw new ServiceException("operation_pending", "The same inventory operation is still pending");
+    }
+    throw new ServiceException(
+        existing.errorCode() == null ? "operation_rejected" : existing.errorCode(),
+        "The same inventory operation was already rejected");
+  }
+
+  private String serviceErrorCode(RuntimeException exception) {
+    if (exception instanceof ServiceException serviceException) {
+      return serviceException.code();
+    }
+    Throwable cause = exception.getCause();
+    if (cause instanceof ServiceException serviceException) return serviceException.code();
+    return "internal_error";
   }
 
   private void handlePublicHomepage(HttpExchange exchange) throws IOException {

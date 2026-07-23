@@ -527,3 +527,25 @@ CREATE TABLE IF NOT EXISTS product_user_usage (
 );
 CREATE INDEX IF NOT EXISTS idx_product_user_usage_user ON product_user_usage (user_id);
 
+CREATE TABLE IF NOT EXISTS inventory_operations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  action TEXT NOT NULL,
+  state TEXT NOT NULL,
+  slot_index INTEGER NOT NULL,
+  container_slot INTEGER NULL,
+  item_fingerprint TEXT NOT NULL,
+  quantity INTEGER NOT NULL,
+  reference_id INTEGER NULL,
+  result_json TEXT NULL,
+  error_code TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_inventory_operation_user FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_inventory_operation_key
+  ON inventory_operations (user_id, idempotency_key);
+CREATE INDEX IF NOT EXISTS idx_inventory_operation_user_time
+  ON inventory_operations (user_id, created_at);
+

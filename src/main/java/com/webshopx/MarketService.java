@@ -278,7 +278,8 @@ class MarketService {
             normalizedIdempotency,
             deliveryModeRaw,
             expectedUnitPrice,
-            expectedBuyerTotal));
+            expectedBuyerTotal,
+            null));
     if (result.state() == TradeState.CREATED) {
       publishTradeCreatedEvent(result.tradeId());
       plugin.getLogger()
@@ -299,6 +300,25 @@ class MarketService {
               "price",
               result.unitPrice())));
     }
+    return result;
+  }
+
+  TradeResult fulfillBuyOrderFromStack(
+      long sellerUserId,
+      long listingId,
+      ItemStack suppliedItem,
+      int quantity,
+      String idempotencyKey,
+      Long expectedUnitPrice,
+      Long expectedBuyerTotal) {
+    if (suppliedItem == null || suppliedItem.getType() == Material.AIR || suppliedItem.getAmount() != quantity) {
+      throw new ServiceException("invalid_item", "Withdrawn inventory item is invalid");
+    }
+    String normalizedIdempotency = normalizeIdempotencyKey(idempotencyKey);
+    TradeResult result = databaseManager.inTransaction(connection -> fulfillBuyOrderInTransaction(
+        connection, sellerUserId, listingId, quantity, normalizedIdempotency, "IMMEDIATE",
+        expectedUnitPrice, expectedBuyerTotal, suppliedItem));
+    if (result.state() == TradeState.CREATED) publishTradeCreatedEvent(result.tradeId());
     return result;
   }
 
@@ -447,6 +467,64 @@ class MarketService {
       ItemStack listingItem,
       long price,
       CurrencyType currency) {
+    return createListingFromStack(player, listingItem, price, currency, Collections.emptyList());
+  }
+
+  List<BuyOrderMatch> listMatchingBuyOrders(long actorUserId, ItemStack item, int quantity) {
+    if (item == null || item.getType() == Material.AIR) return List.of();
+    ItemStack unit = item.clone();
+    unit.setAmount(1);
+    String fingerprint = itemSnapshotCodec.serialize(unit).itemHash();
+    List<BuyOrderCandidate> candidates = databaseManager.withConnection(connection -> {
+      List<BuyOrderCandidate> rowsOut = new ArrayList<>();
+      String sql = """
+          SELECT ml.id, u.username, ml.raw_item_blob, ml.quantity
+          FROM market_listings ml
+          JOIN web_users u ON u.id = ml.seller_user_id
+          WHERE ml.market_side = 'BUY' AND ml.status = 'ACTIVE'
+            AND ml.quantity > 0 AND ml.item_material = ? AND ml.seller_user_id <> ?
+          ORDER BY ml.price DESC, ml.id ASC
+          LIMIT 50
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, unit.getType().name());
+        statement.setLong(2, actorUserId);
+        try (ResultSet rows = statement.executeQuery()) {
+          while (rows.next()) {
+            ItemStack template = itemSnapshotCodec.deserialize(rows.getBytes("raw_item_blob"));
+            template.setAmount(1);
+            if (!itemSnapshotCodec.serialize(template).itemHash().equals(fingerprint)) continue;
+            long listingId = rows.getLong("id");
+            int available = rows.getInt("quantity");
+            int quotedQuantity = Math.min(Math.max(1, quantity), available);
+            rowsOut.add(new BuyOrderCandidate(
+                listingId, rows.getString("username"), available, quotedQuantity));
+          }
+        }
+      }
+      return rowsOut;
+    });
+    List<BuyOrderMatch> matches = new ArrayList<>();
+    for (BuyOrderCandidate candidate : candidates) {
+      PurchaseQuote quote;
+      try {
+        quote = quotePurchase(actorUserId, candidate.listingId(), candidate.quotedQuantity());
+      } catch (ServiceException ignored) {
+        continue;
+      }
+      matches.add(new BuyOrderMatch(
+          candidate.listingId(), candidate.buyerName(), candidate.remaining(), quote.currency(),
+          quote.unitPrice(), quote.sellerReceive(), quote.feeAmount(), candidate.quotedQuantity()));
+    }
+    return matches;
+  }
+
+  ListingCreateResult createListingFromStack(
+      Player player,
+      ItemStack listingItem,
+      long price,
+      CurrencyType currency,
+      List<String> requestedTags) {
     if (price <= 0L) {
       throw new ServiceException("invalid_price", "Price must be positive");
     }
@@ -472,9 +550,54 @@ class MarketService {
         snapshot,
         listingLimit,
         SupplyConfig.manual(),
-        null,
+        requestedTags,
         quantity));
     publishListingCreatedEvent(boundUser.userId(), player.getName(), result, TradeMode.DIRECT);
+    return result;
+  }
+
+  ListingCreateResult createConfiguredListingFromStack(
+      Player player,
+      ItemStack listingItem,
+      long price,
+      CurrencyType currency,
+      List<String> requestedTags,
+      InventoryListingConfig config,
+      String idempotencyKey) {
+    if (price <= 0L || listingItem == null || listingItem.getType() == Material.AIR
+        || listingItem.getAmount() <= 0) {
+      throw new ServiceException("invalid_listing", "Listing item and price must be valid");
+    }
+    int quantity = listingItem.getAmount();
+    ItemStack storedItem = listingItem.clone();
+    storedItem.setAmount(1);
+    ItemSnapshotCodec.Snapshot snapshot = itemSnapshotCodec.serialize(storedItem);
+    BoundUser seller = databaseManager.withConnection(connection ->
+        readBoundUserByUuid(connection, player.getUniqueId(), false));
+    if (seller == null) throw new ServiceException("not_bound", "Player account is not bound");
+    int listingLimit = resolveListingLimit(seller);
+    ListingCreateResult result = databaseManager.inTransaction(connection -> {
+      ListingCreateResult created = createSellListingInTransaction(
+          connection, seller, currency, price, storedItem, snapshot, listingLimit,
+          SupplyConfig.manual(), requestedTags, quantity);
+      if (config != null) {
+        updateListingSettingsInTransaction(
+            connection, seller.userId(), created.listingId(), price, currency, requestedTags,
+            config.remark(), config.displayName(), config.displayMaterial(), null,
+            null, null, null, config.tradeMode(), config.dynamicEnabled(),
+            config.dynamicAlgorithm(), config.dynamicPricingMode(), config.dynamicParamsJson(),
+            config.dynamicBasePrice(), config.dynamicFloorPrice(), config.dynamicCapPrice(),
+            config.dynamicPriceStep(), config.auctionAlgorithm(), config.auctionParamsJson(),
+            config.auctionStartPrice(), config.auctionMinIncrement(), config.auctionEndAt());
+      }
+      completeInventoryOperation(
+          connection, seller.userId(), idempotencyKey,
+          config != null && "AUCTION".equalsIgnoreCase(config.tradeMode()) ? "AUCTION" : "LIST",
+          created.listingId());
+      return created;
+    });
+    publishListingCreatedEvent(seller.userId(), player.getName(), result,
+        config != null && "AUCTION".equalsIgnoreCase(config.tradeMode()) ? TradeMode.AUCTION : TradeMode.DIRECT);
     return result;
   }
 
@@ -2025,11 +2148,22 @@ class MarketService {
       String idempotencyKey,
       String deliveryModeRaw,
       Long expectedUnitPrice,
-      Long expectedBuyerTotal) throws SQLException {
+      Long expectedBuyerTotal,
+      ItemStack suppliedItem) throws SQLException {
     int cooldownSeconds = normalizedOrderCooldownSeconds();
     MarketListing listing = readListingForUpdate(connection, listingId);
     if (listing.marketSide() != MarketSide.BUY) {
       throw new ServiceException("buy_order_not_active", "Only BUY listings can be fulfilled");
+    }
+    if (suppliedItem != null) {
+      ItemStack suppliedUnit = suppliedItem.clone();
+      suppliedUnit.setAmount(1);
+      ItemStack expectedUnit = itemSnapshotCodec.deserialize(listing.rawItemBlob());
+      expectedUnit.setAmount(1);
+      if (!itemSnapshotCodec.serialize(suppliedUnit).itemHash()
+          .equals(itemSnapshotCodec.serialize(expectedUnit).itemHash())) {
+        throw new ServiceException("fulfill_item_not_match", "Selected item does not match the buy order");
+      }
     }
     String fulfillIdempotency = "fulfill:" + sellerUserId + ":" + idempotencyKey;
     ExistingTrade existingTrade = readExistingTrade(connection, listing.sellerUserId(), fulfillIdempotency);
@@ -2088,8 +2222,10 @@ class MarketService {
     String tradeStatus = deliveryMode == DeliveryMode.CLAIM ? "WAIT_CLAIM" : "PENDING";
     boolean consumedItems = false;
     try {
-      consumeBuyFulfillItems(seller.boundUuid(), listing.rawItemBlob(), fulfillQuantity);
-      consumedItems = true;
+      if (suppliedItem == null) {
+        consumeBuyFulfillItems(seller.boundUuid(), listing.rawItemBlob(), fulfillQuantity);
+        consumedItems = true;
+      }
 
       long tradeId = insertTrade(
           connection,
@@ -2145,6 +2281,10 @@ class MarketService {
           DeliveryType.SALE,
           deliveryMode == DeliveryMode.CLAIM ? "WAIT_CLAIM" : "PENDING",
           deliveryAt);
+      if (suppliedItem != null) {
+        completeInventoryOperation(
+            connection, sellerUserId, idempotencyKey, "FULFILL", tradeId);
+      }
       return new TradeResult(
           TradeState.CREATED,
           tradeId,
@@ -5957,6 +6097,57 @@ class MarketService {
       Long auctionHighestBidderUserId,
       int limit) {
   }
+
+  private void completeInventoryOperation(
+      Connection connection,
+      long userId,
+      String idempotencyKey,
+      String action,
+      long referenceId) throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement("""
+        UPDATE inventory_operations
+        SET state = 'SUCCESS', action = ?, reference_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = ? AND idempotency_key = ? AND state = 'PENDING'
+        """)) {
+      statement.setString(1, action);
+      statement.setLong(2, referenceId);
+      statement.setLong(3, userId);
+      statement.setString(4, idempotencyKey);
+      if (statement.executeUpdate() != 1) {
+        throw new ServiceException("idempotency_conflict", "Inventory operation is not pending");
+      }
+    }
+  }
+
+  record BuyOrderMatch(
+      long listingId,
+      String buyerName,
+      int remaining,
+      CurrencyType currency,
+      long unitPrice,
+      long sellerReceive,
+      long feeAmount,
+      int quotedQuantity) {}
+  private record BuyOrderCandidate(long listingId, String buyerName, int remaining, int quotedQuantity) {}
+
+  record InventoryListingConfig(
+      String tradeMode,
+      Boolean dynamicEnabled,
+      String dynamicAlgorithm,
+      String dynamicPricingMode,
+      String dynamicParamsJson,
+      Long dynamicBasePrice,
+      Long dynamicFloorPrice,
+      Long dynamicCapPrice,
+      Long dynamicPriceStep,
+      String auctionAlgorithm,
+      String auctionParamsJson,
+      Long auctionStartPrice,
+      Long auctionMinIncrement,
+      LocalDateTime auctionEndAt,
+      String remark,
+      String displayName,
+      String displayMaterial) {}
 
   record ListingView(
       long id,

@@ -57,6 +57,7 @@ class SchemaManager {
     createMarketListingTags(connection);
     resetMarketTagsV2IfNeeded(connection);
     createMarketTrades(connection);
+    createInventoryOperations(connection);
     migrateMarketTrades(connection);
     createMarketBids(connection);
     migrateMarketBids(connection);
@@ -1515,6 +1516,32 @@ class SchemaManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
+  }
+
+  private void createInventoryOperations(Connection connection) throws SQLException {
+    execute(connection, """
+        CREATE TABLE IF NOT EXISTS inventory_operations (
+          id BIGINT NOT NULL AUTO_INCREMENT,
+          user_id BIGINT NOT NULL,
+          idempotency_key VARCHAR(96) NOT NULL,
+          action VARCHAR(24) NOT NULL,
+          state VARCHAR(24) NOT NULL,
+          slot_index INT NOT NULL,
+          container_slot INT NULL,
+          item_fingerprint VARCHAR(128) NOT NULL,
+          quantity INT NOT NULL,
+          reference_id BIGINT NULL,
+          result_json TEXT NULL,
+          error_code VARCHAR(64) NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uniq_inventory_operation_key (user_id, idempotency_key),
+          KEY idx_inventory_operation_user_time (user_id, created_at),
+          CONSTRAINT fk_inventory_operation_user
+            FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """);
   }
 
   private void migrateMarketBids(Connection connection) throws SQLException {

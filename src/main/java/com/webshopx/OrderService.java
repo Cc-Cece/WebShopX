@@ -471,6 +471,68 @@ class OrderService {
     }
   }
 
+  OrderPlacementResult placeRecycleOrderFromStack(
+      long userId,
+      long productId,
+      ItemStack suppliedItem,
+      int quantity,
+      String idempotencyKey) {
+    if (suppliedItem == null || suppliedItem.getType() == Material.AIR
+        || suppliedItem.getAmount() != quantity || quantity <= 0) {
+      throw new ServiceException("invalid_item", "Withdrawn recycle item is invalid");
+    }
+    String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
+    return databaseManager.inTransaction(connection -> {
+      ExistingOrder existing = readExistingOrder(connection, userId, normalizedKey);
+      if (existing != null) {
+        return new OrderPlacementResult(
+            PlacementState.EXISTING, existing.orderNo(), CurrencyType.valueOf(existing.currency()),
+            existing.totalAmount(), existing.status(), existing.refundDeadline(), 0,
+            existing.groupBuyVoucherCode(), existing.groupBuyVoucherStatus(),
+            existing.groupBuyVoucherConsumedAt());
+      }
+      ProductService.ProductView product = productService.readActiveProduct(connection, productId, true);
+      if (product.productType() != ProductService.ProductType.RECYCLE_ITEM) {
+        throw new ServiceException(
+            "unsupported_web_recycle",
+            "Web inventory only supports standard item recycle products");
+      }
+      Material expected = resolveVanillaMaterial(product.itemMaterial());
+      if (expected == null || suppliedItem.getType() != expected) {
+        throw new ServiceException("recycle_item_not_match", "Selected item does not match recycle product");
+      }
+      validatePurchaseQuantity(quantity, resolveProductMaxQuantity(product));
+      UUID playerUuid = readBoundUuidForUpdate(connection, userId);
+      String targetServerId = resolveTargetServerId(connection, playerUuid);
+      ProductService.ProductPriceQuote quote = productService.quoteOrderPrice(product, quantity);
+      String orderNo = newOrderNo();
+      walletService.applyDelta(
+          connection, userId, product.currency(), quote.totalAmount(),
+          "RECYCLE_CREDIT", orderNo, false);
+      long orderId = insertOrder(
+          connection, orderNo, userId, playerUuid, product.currency(), quote.totalAmount(),
+          "RECYCLED", normalizedKey, null, targetServerId);
+      insertOrderItem(connection, orderId, product.id(), quantity, quote.averageUnitPrice());
+      productService.applyDynamicPriceEvent(
+          connection, product, quantity, ProductService.DynamicPriceEvent.RECYCLE);
+      try (PreparedStatement statement = connection.prepareStatement("""
+          UPDATE inventory_operations
+          SET state = 'SUCCESS', action = 'FULFILL', reference_id = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = ? AND idempotency_key = ? AND state = 'PENDING'
+          """)) {
+        statement.setLong(1, product.id());
+        statement.setLong(2, userId);
+        statement.setString(3, normalizedKey);
+        if (statement.executeUpdate() != 1) {
+          throw new ServiceException("idempotency_conflict", "Inventory operation is not pending");
+        }
+      }
+      return new OrderPlacementResult(
+          PlacementState.CREATED, orderNo, product.currency(), quote.totalAmount(),
+          "RECYCLED", null, 0, null, null, null);
+    });
+  }
+
   private void consumePersonalLimitQuota(
       Connection connection,
       long userId,
