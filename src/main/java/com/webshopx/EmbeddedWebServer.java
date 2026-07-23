@@ -19,6 +19,9 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,6 +32,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
+import java.time.Duration;
 import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.Collections;
@@ -79,6 +83,7 @@ class EmbeddedWebServer {
   private final BStatsTelemetryService bStatsTelemetryService;
   private final PluginUpdateService pluginUpdateService;
   private final Gson gson;
+  private final HttpClient textureHttpClient;
   private final ItemSnapshotCodec inventoryItemCodec = new ItemSnapshotCodec();
   private final InventoryService inventoryService = new InventoryService(inventoryItemCodec);
   private final InventoryOperationService inventoryOperationService;
@@ -144,6 +149,10 @@ class EmbeddedWebServer {
     this.bStatsTelemetryService = bStatsTelemetryService;
     this.pluginUpdateService = new PluginUpdateService(plugin);
     this.gson = new GsonBuilder().disableHtmlEscaping().create();
+    this.textureHttpClient = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(10))
+        .followRedirects(HttpClient.Redirect.NORMAL)
+        .build();
     this.localeCenterService = new LocaleCenterService(plugin, () -> this.webUserRoot);
   }
 
@@ -276,6 +285,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/admin-users/upsert", this::handleAdminAdminUsersUpsert);
     server.createContext("/api/admin/admin-users/active", this::handleAdminAdminUsersActive);
     server.createContext("/home-assets/", this::handleHomepageAsset);
+    server.createContext("/textures/", this::handleTextureAsset);
 
     // Only serve static files in INTERNAL mode
     if (serverMode == PluginSettings.ServerMode.INTERNAL) {
@@ -2690,7 +2700,15 @@ class EmbeddedWebServer {
     }
     withServiceHandling(exchange, () -> {
       AuthService.AuthUser user = requireAuth(exchange, null);
-      JsonObject response = awaitPlayerTask(user.boundUuid(), player -> inventorySnapshotJson(player));
+      JsonObject response;
+      try {
+        response = awaitPlayerTask(user.boundUuid(), player -> inventorySnapshotJson(player));
+      } catch (ServiceException exception) {
+        if (!"player_offline".equals(exception.code())) {
+          throw exception;
+        }
+        response = inventorySnapshotJson(inventoryService.offlineSnapshot(), false);
+      }
       sendJson(exchange, 200, response);
     });
   }
@@ -2893,7 +2911,10 @@ class EmbeddedWebServer {
   }
 
   private JsonObject inventorySnapshotJson(Player player) {
-    InventoryService.Snapshot snapshot = inventoryService.snapshot(player.getInventory());
+    return inventorySnapshotJson(inventoryService.snapshot(player.getInventory()), true);
+  }
+
+  private JsonObject inventorySnapshotJson(InventoryService.Snapshot snapshot, boolean online) {
     JsonObject response = new JsonObject();
     JsonArray slots = new JsonArray();
     for (InventoryService.SlotView slot : snapshot.slots()) {
@@ -2908,7 +2929,7 @@ class EmbeddedWebServer {
       }
       slots.add(row);
     }
-    response.addProperty("online", true);
+    response.addProperty("online", online);
     response.addProperty("revision", snapshot.revision());
     response.addProperty("refreshedAt", TimeSupport.utcNow().toString());
     response.add("slots", slots);
@@ -5223,6 +5244,80 @@ class EmbeddedWebServer {
     }
   }
 
+  private void handleTextureAsset(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "GET")) {
+      return;
+    }
+    String path = exchange.getRequestURI().getPath();
+    String relative = path.startsWith("/textures/")
+        ? path.substring("/textures/".length())
+        : "";
+    if (!relative.matches("(?:item|block)/[a-z0-9_./-]+\\.png")
+        || relative.contains("..")) {
+      sendJson(exchange, 400, errorJson("bad_request", "Invalid texture path"));
+      return;
+    }
+    Path textureRoot = staticRoot.resolve("textures").normalize();
+    Path target = textureRoot.resolve(relative).normalize();
+    if (!target.startsWith(textureRoot)) {
+      sendJson(exchange, 400, errorJson("bad_request", "Invalid texture path"));
+      return;
+    }
+    byte[] content;
+    if (Files.isRegularFile(target)) {
+      content = Files.readAllBytes(target);
+    } else {
+      content = downloadTextureAsset(relative);
+      if (content == null) {
+        sendJson(exchange, 404, errorJson("not_found", "Texture not found"));
+        return;
+      }
+      try {
+        Files.createDirectories(target.getParent());
+        Files.write(target, content);
+      } catch (IOException exception) {
+        plugin.getLogger().fine("Could not cache texture " + relative + ": " + exception.getMessage());
+      }
+    }
+    exchange.getResponseHeaders().set("Content-Type", "image/png");
+    exchange.getResponseHeaders().set("Cache-Control", "public, max-age=604800, immutable");
+    applyCorsHeaders(exchange);
+    exchange.sendResponseHeaders(200, content.length);
+    try (OutputStream outputStream = exchange.getResponseBody()) {
+      outputStream.write(content);
+    }
+  }
+
+  private byte[] downloadTextureAsset(String relative) {
+    String minecraftVersion = plugin.getServer().getMinecraftVersion();
+    List<String> versions = minecraftVersion.startsWith("1.21")
+        ? List.of(minecraftVersion, "1.21")
+        : List.of(minecraftVersion, "1.20.6");
+    for (String version : versions) {
+      String url = "https://mcasset.cloud/" + version
+          + "/assets/minecraft/textures/" + relative;
+      try {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+            .timeout(Duration.ofSeconds(15))
+            .GET()
+            .build();
+        HttpResponse<byte[]> response =
+            textureHttpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        if (response.statusCode() == 200
+            && response.body().length > 0
+            && response.body().length <= 2 * 1024 * 1024) {
+          return response.body();
+        }
+      } catch (InterruptedException exception) {
+        Thread.currentThread().interrupt();
+        return null;
+      } catch (Exception ignored) {
+        // Try the compatible fallback version.
+      }
+    }
+    return null;
+  }
+
   private Path resolveStaticFile(String relativePath) {
     Path userCandidate = resolveUnderRoot(webUserRoot, relativePath);
     if (userCandidate != null && Files.isRegularFile(userCandidate)) {
@@ -5753,7 +5848,11 @@ class EmbeddedWebServer {
     try {
       runnable.run();
     } catch (ServiceException exception) {
-      sendJson(exchange, 400, errorJson(exception.code(), exception.getMessage()));
+      int status = switch (exception.code()) {
+        case "player_offline", "inventory_changed", "operation_pending" -> 409;
+        default -> 400;
+      };
+      sendJson(exchange, status, errorJson(exception.code(), exception.getMessage()));
     } catch (Exception exception) {
       plugin.getLogger().log(java.util.logging.Level.SEVERE, "HTTP request failed", exception);
       sendJson(exchange, 500, errorJson("internal_error", "Server internal error"));
@@ -6557,6 +6656,10 @@ class EmbeddedWebServer {
       throw new ServiceException("sync_timeout", "Player task timed out");
     } catch (ExecutionException exception) {
       Throwable cause = exception.getCause();
+      if (cause instanceof IllegalStateException
+          && "player is offline".equalsIgnoreCase(cause.getMessage())) {
+        throw new ServiceException("player_offline", "Player is offline");
+      }
       if (cause instanceof RuntimeException runtimeException) {
         throw runtimeException;
       }

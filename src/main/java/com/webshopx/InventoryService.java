@@ -29,6 +29,14 @@ final class InventoryService {
     return new Snapshot(ItemSnapshotCodec.sha256Hex(evidence.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)), slots);
   }
 
+  Snapshot offlineSnapshot() {
+    List<SlotView> slots = new ArrayList<>();
+    for (int slot = 0; slot <= 40; slot++) {
+      slots.add(new SlotView(kind(slot), slot, label(slot), null));
+    }
+    return new Snapshot("", slots);
+  }
+
   Withdrawal withdraw(
       PlayerInventory inventory,
       String expectedRevision,
