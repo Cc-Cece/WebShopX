@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -42,6 +43,8 @@ class RelayConnectorService implements AutoCloseable {
   private final AtomicLong requestsReceived = new AtomicLong();
   private final AtomicLong requestsSucceeded = new AtomicLong();
   private final AtomicLong requestsFailed = new AtomicLong();
+  private final Object sendLock = new Object();
+  private CompletableFuture<Void> sendTail = CompletableFuture.completedFuture(null);
 
   private volatile WebSocket webSocket;
   private volatile Instant connectedAt;
@@ -166,7 +169,11 @@ class RelayConnectorService implements AutoCloseable {
       capabilities.add(capability);
     }
     hello.add("capabilities", capabilities);
-    socket.sendText(gson.toJson(hello), true);
+    sendText(socket, hello)
+        .exceptionally(throwable -> {
+          handleDisconnect(socket, "hello_failed: " + rootMessage(throwable), throwable);
+          return null;
+        });
   }
 
   private void scheduleHeartbeat() {
@@ -183,7 +190,7 @@ class RelayConnectorService implements AutoCloseable {
           JsonObject ping = new JsonObject();
           ping.addProperty("type", "ping");
           ping.addProperty("time", Instant.now().toString());
-          socket.sendText(gson.toJson(ping), true)
+          sendText(socket, ping)
               .exceptionally(throwable -> {
                 handleDisconnect(socket, "heartbeat_failed: " + rootMessage(throwable), throwable);
                 return null;
@@ -372,7 +379,11 @@ class RelayConnectorService implements AutoCloseable {
       pong.addProperty("time", Instant.now().toString());
       WebSocket socket = webSocket;
       if (socket != null) {
-        socket.sendText(gson.toJson(pong), true);
+        sendText(socket, pong)
+            .exceptionally(throwable -> {
+              handleDisconnect(socket, "pong_failed: " + rootMessage(throwable), throwable);
+              return null;
+            });
       }
       return;
     }
@@ -409,12 +420,22 @@ class RelayConnectorService implements AutoCloseable {
       lastError = "Cannot send RPC response because websocket is closed";
       return;
     }
-    socket.sendText(gson.toJson(outbound), true)
+    sendText(socket, outbound)
         .exceptionally(throwable -> {
           requestsFailed.incrementAndGet();
           handleDisconnect(socket, "send_failed: " + rootMessage(throwable), throwable);
           return null;
         });
+  }
+
+  private CompletionStage<Void> sendText(WebSocket socket, JsonObject message) {
+    String text = gson.toJson(message);
+    synchronized (sendLock) {
+      sendTail = sendTail
+          .handle((ignored, previousError) -> null)
+          .thenCompose(ignored -> socket.sendText(text, true).thenApply(sent -> null));
+      return sendTail;
+    }
   }
 
   private RelayRpcRequest parseRpcRequest(JsonObject message) {

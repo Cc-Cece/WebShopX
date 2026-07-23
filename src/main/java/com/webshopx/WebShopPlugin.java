@@ -346,8 +346,11 @@ public class WebShopPlugin extends JavaPlugin {
       }
       startMaintenanceLoop();
       startMarketCycleLoop();
-      restartWebRuntime();
-      restartRelayConnector();
+      // Database-backed business settings are consumed through the live settings
+      // supplier. Restarting the HTTP server or Relay connector here can terminate
+      // the request that triggered this refresh after its data was already saved.
+      // Deployment changes still use reloadRuntimeConfig(), which performs the
+      // required web and connector restart.
     } catch (Exception exception) {
       getLogger().log(Level.WARNING, messageService.getConsole("console.failed_reload_runtime_business_settings"), exception);
     }

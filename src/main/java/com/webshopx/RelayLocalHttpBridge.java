@@ -52,21 +52,30 @@ class RelayLocalHttpBridge {
       if (request.idempotencyKey() != null && !request.idempotencyKey().isBlank()) {
         builder.header("Idempotency-Key", request.idempotencyKey().trim());
       }
-      if ("GET".equals(method)) {
-        builder.GET();
-      } else if ("POST".equals(method)) {
-        builder.POST(HttpRequest.BodyPublishers.ofByteArray(body.bytes()));
-      } else {
-        return RelayRpcResponse.error(request.id(), 405, "method_not_allowed", "Method not allowed");
+      switch (method) {
+        case "GET" -> builder.GET();
+        case "HEAD" -> builder.method("HEAD", HttpRequest.BodyPublishers.noBody());
+        case "POST", "PUT", "PATCH" ->
+            builder.method(method, HttpRequest.BodyPublishers.ofByteArray(body.bytes()));
+        case "DELETE" -> builder.method(
+            "DELETE",
+            body.bytes().length == 0
+                ? HttpRequest.BodyPublishers.noBody()
+                : HttpRequest.BodyPublishers.ofByteArray(body.bytes()));
+        default -> {
+          return RelayRpcResponse.error(request.id(), 405, "method_not_allowed", "Method not allowed");
+        }
       }
       HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       JsonObject payload = parseJsonResponse(response.body());
       if (response.statusCode() >= 200 && response.statusCode() < 300) {
         return RelayRpcResponse.ok(request.id(), response.statusCode(), payload);
       }
-      String code = payload.has("error") && !payload.get("error").isJsonNull()
-          ? payload.get("error").getAsString()
-          : "relay_http_error";
+      String code = payload.has("code") && !payload.get("code").isJsonNull()
+          ? payload.get("code").getAsString()
+          : (payload.has("error") && !payload.get("error").isJsonNull()
+              ? payload.get("error").getAsString()
+              : "relay_http_error");
       String message = payload.has("message") && !payload.get("message").isJsonNull()
           ? payload.get("message").getAsString()
           : "Local WebShopX API returned " + response.statusCode();
