@@ -560,3 +560,21 @@ CREATE TABLE IF NOT EXISTS inventory_read_snapshots (
 CREATE INDEX IF NOT EXISTS idx_inventory_read_snapshot_captured
   ON inventory_read_snapshots (captured_epoch_ms);
 
+CREATE TABLE IF NOT EXISTS visual_packs (
+  pack_id TEXT PRIMARY KEY,
+  pack_name TEXT NOT NULL,
+  version_id TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  icons_enabled INTEGER NOT NULL DEFAULT 1,
+  translations_enabled INTEGER NOT NULL DEFAULT 0,
+  manifest_json TEXT NOT NULL,
+  file_size INTEGER NOT NULL DEFAULT 0,
+  entry_count INTEGER NOT NULL DEFAULT 0,
+  uploaded_by TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_visual_packs_order
+  ON visual_packs (enabled, sort_order);
+
