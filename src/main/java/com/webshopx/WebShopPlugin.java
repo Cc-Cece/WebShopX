@@ -60,6 +60,9 @@ public class WebShopPlugin extends JavaPlugin {
   private AdminAuditService adminAuditService;
   private LeaderboardService leaderboardService;
   private InventoryReadSnapshotService inventoryReadSnapshotService;
+  private InventoryLockManager inventoryLockManager;
+  private OfflineInventoryFeatureService offlineInventoryFeatureService;
+  private PlayerDataInventoryService playerDataInventoryService;
   private EmbeddedWebServer embeddedWebServer;
   private RelayConnectorService relayConnectorService;
   private RelaySetupService relaySetupService;
@@ -99,6 +102,13 @@ public class WebShopPlugin extends JavaPlugin {
       enforceDatabaseModeGuard();
       initializeDatabase();
       runtimeConfigService = new RuntimeConfigService(databaseManager);
+      inventoryLockManager = new InventoryLockManager();
+      offlineInventoryFeatureService =
+          new OfflineInventoryFeatureService(this, runtimeConfigService);
+      playerDataInventoryService = new PlayerDataInventoryService(
+          this, inventoryLockManager, new ItemSnapshotCodec());
+      playerDataInventoryService.recoverPending(
+          new InventoryOperationService(databaseManager));
       inventoryReadSnapshotService = new InventoryReadSnapshotService(
           databaseManager,
           new com.google.gson.GsonBuilder().disableHtmlEscaping().create(),
@@ -201,7 +211,9 @@ public class WebShopPlugin extends JavaPlugin {
           homepageService,
           clusterEventBusService,
           bStatsTelemetryService,
-          inventoryReadSnapshotService);
+          inventoryReadSnapshotService,
+          offlineInventoryFeatureService,
+          playerDataInventoryService);
 
       // Products are managed via admin backend; no seed import from config.
       adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());
@@ -227,6 +239,8 @@ public class WebShopPlugin extends JavaPlugin {
       getServer().getPluginManager().registerEvents(
           new MarketGuiListener(marketGuiService, marketService, messageService, schedulerBridge),
           this);
+      getServer().getPluginManager().registerEvents(
+          new PlayerDataGate(inventoryLockManager), this);
       getServer().getPluginManager().registerEvents(mailboxGuiService, this);
       synchronizeOnlinePresence();
       startDeliveryLoop();

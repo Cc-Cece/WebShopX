@@ -40,6 +40,7 @@ class RuntimeConfigService {
   private static final String KEY_BROADCAST = "broadcast";
   private static final String KEY_NOTIFICATION = "notification";
   private static final String KEY_PAYMENT_RECHARGE = "payment_recharge";
+  private static final String KEY_OFFLINE_INVENTORY = "offline_inventory";
 
   private final DatabaseManager databaseManager;
   private final SqlProvider sqlProvider;
@@ -79,6 +80,7 @@ class RuntimeConfigService {
       upsertConfig(connection, KEY_BROADCAST, serializeBroadcast(settings.broadcastSettings()));
       upsertConfig(connection, KEY_NOTIFICATION, serializeDefaultNotificationConfig());
       upsertConfig(connection, KEY_PAYMENT_RECHARGE, serializePaymentRecharge(settings.paymentSettings()));
+      upsertConfig(connection, KEY_OFFLINE_INVENTORY, defaultOfflineInventoryConfig());
       writeMetaValue(connection, META_LEGACY_MIGRATED, "1");
       return true;
     });
@@ -115,6 +117,7 @@ class RuntimeConfigService {
       insertIfMissing(connection, KEY_BROADCAST, serializeBroadcast(settings.broadcastSettings()));
       insertIfMissing(connection, KEY_NOTIFICATION, serializeDefaultNotificationConfig());
       insertIfMissing(connection, KEY_PAYMENT_RECHARGE, serializePaymentRecharge(settings.paymentSettings()));
+      insertIfMissing(connection, KEY_OFFLINE_INVENTORY, defaultOfflineInventoryConfig());
       return null;
     });
   }
@@ -195,6 +198,27 @@ class RuntimeConfigService {
   long updateWebshopRuntime(RuntimeSettingsUpdate update) {
     return databaseManager.inTransaction(connection ->
         updateConfig(connection, KEY_WEBSHOP_RUNTIME, serializeWebshopRuntime(update)));
+  }
+
+  ConfigDocument readOfflineInventoryConfig() {
+    return databaseManager.withConnection(connection ->
+        readConfigObject(connection, KEY_OFFLINE_INVENTORY, defaultOfflineInventoryConfig()));
+  }
+
+  long updateOfflineInventoryConfig(JsonObject config) {
+    JsonObject normalized = config == null ? new JsonObject() : config.deepCopy();
+    if (!normalized.has("enabled")) {
+      normalized.addProperty("enabled", false);
+    }
+    return databaseManager.inTransaction(connection ->
+        updateConfig(connection, KEY_OFFLINE_INVENTORY, gson.toJson(normalized)));
+  }
+
+  private String defaultOfflineInventoryConfig() {
+    JsonObject root = new JsonObject();
+    root.addProperty("enabled", false);
+    root.addProperty("riskAckVersion", 0);
+    return gson.toJson(root);
   }
 
   String homeUrl(PluginSettings settings) {

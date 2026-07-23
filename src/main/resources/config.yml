@@ -90,3 +90,7 @@ redis:
   # 旧版别名（可选）
   channel: webshopx:market:broadcast
 
+# Emergency local override. When true, database/admin settings cannot enable
+# offline playerdata writes.
+safety:
+  force-disable-offline-inventory-write: false

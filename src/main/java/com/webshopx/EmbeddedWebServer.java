@@ -83,6 +83,8 @@ class EmbeddedWebServer {
   private final BStatsTelemetryService bStatsTelemetryService;
   private final PluginUpdateService pluginUpdateService;
   private final InventoryReadSnapshotService inventoryReadSnapshotService;
+  private final OfflineInventoryFeatureService offlineInventoryFeatureService;
+  private final PlayerDataInventoryService playerDataInventoryService;
   private final Gson gson;
   private final HttpClient textureHttpClient;
   private final VisualPackService visualPackService;
@@ -128,7 +130,9 @@ class EmbeddedWebServer {
       HomepageService homepageService,
       ClusterEventBusService clusterEventBusService,
       BStatsTelemetryService bStatsTelemetryService,
-      InventoryReadSnapshotService inventoryReadSnapshotService) {
+      InventoryReadSnapshotService inventoryReadSnapshotService,
+      OfflineInventoryFeatureService offlineInventoryFeatureService,
+      PlayerDataInventoryService playerDataInventoryService) {
     this.plugin = plugin;
     this.schedulerBridge = schedulerBridge;
     this.databaseManager = databaseManager;
@@ -154,6 +158,8 @@ class EmbeddedWebServer {
     this.clusterEventBusService = clusterEventBusService;
     this.bStatsTelemetryService = bStatsTelemetryService;
     this.inventoryReadSnapshotService = inventoryReadSnapshotService;
+    this.offlineInventoryFeatureService = offlineInventoryFeatureService;
+    this.playerDataInventoryService = playerDataInventoryService;
     this.pluginUpdateService = new PluginUpdateService(plugin);
     this.gson = new GsonBuilder().disableHtmlEscaping().create();
     this.inventorySnapshotJsonCodec = new InventorySnapshotJsonCodec(gson);
@@ -265,6 +271,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/system/logging", this::handleAdminLoggingSettingsUpdate);
     server.createContext("/api/admin/system/broadcast", this::handleAdminBroadcastSettingsUpdate);
     server.createContext("/api/admin/system/notification", this::handleAdminNotificationSettingsUpdate);
+    server.createContext("/api/admin/system/offline-inventory", this::handleAdminOfflineInventory);
     server.createContext("/api/admin/system/update", this::handleAdminPluginUpdate);
     server.createContext("/api/admin/homepage/draft", this::handleAdminHomepageDraft);
     server.createContext("/api/admin/homepage/publish", this::handleAdminHomepagePublish);
@@ -2797,43 +2804,47 @@ class EmbeddedWebServer {
           fingerprint, quantity);
       MarketService.ListingCreateResult result;
       try {
-        result = awaitPlayerTask(user.boundUuid(), player -> {
-        Integer containerSlot = payload.has("containerSlot") && !payload.get("containerSlot").isJsonNull()
-            ? payload.get("containerSlot").getAsInt() : null;
-        InventoryService.Withdrawal withdrawal = inventoryService.withdraw(
-            playerInventory(player, source), source, revision, slot, containerSlot,
-            fingerprint, quantity);
         try {
-          JsonObject dynamicParams = payload.has("dynamicParams") && payload.get("dynamicParams").isJsonObject()
-              ? payload.getAsJsonObject("dynamicParams") : new JsonObject();
-          JsonObject auctionParams = payload.has("auctionParams") && payload.get("auctionParams").isJsonObject()
-              ? payload.getAsJsonObject("auctionParams") : new JsonObject();
-          MarketService.InventoryListingConfig config = new MarketService.InventoryListingConfig(
-              auction ? "AUCTION" : "DIRECT",
-              !auction && payload.has("dynamicPricingEnabled")
-                  && payload.get("dynamicPricingEnabled").getAsBoolean(),
-              getOptionalString(payload, "dynamicAlgorithm").orElse(null),
-              getOptionalString(payload, "dynamicPricingMode").orElse(null),
-              gson.toJson(dynamicParams),
-              getOptionalPositiveLong(payload, "dynamicBasePrice"),
-              getOptionalPositiveLong(payload, "dynamicFloorPrice"),
-              getOptionalPositiveLong(payload, "dynamicCapPrice"),
-              getOptionalPositiveLong(payload, "dynamicPriceStep"),
-              getOptionalString(payload, "auctionAlgorithm").orElse(null),
-              gson.toJson(auctionParams),
-              getOptionalPositiveLong(payload, "auctionStartPrice"),
-              getOptionalPositiveLong(payload, "auctionMinIncrement"),
-              getOptionalDateTime(payload, "auctionEndAt"),
-              getOptionalString(payload, "remark").orElse(null),
-              getOptionalString(payload, "displayName").orElse(null),
-              getOptionalString(payload, "displayMaterial").orElse(null));
-          return marketService.createConfiguredListingFromStack(
-              player, withdrawal.item(), price, currency, tags, config, idempotencyKey);
-        } catch (RuntimeException exception) {
-          withdrawal.restore().run();
-          throw exception;
+          result = awaitPlayerTask(user.boundUuid(), player -> {
+            Integer containerSlot = payload.has("containerSlot")
+                    && !payload.get("containerSlot").isJsonNull()
+                ? payload.get("containerSlot").getAsInt() : null;
+            InventoryService.Withdrawal withdrawal = inventoryService.withdraw(
+                playerInventory(player, source), source, revision, slot, containerSlot,
+                fingerprint, quantity);
+            try {
+              return marketService.createConfiguredListingFromStack(
+                  player, withdrawal.item(), price, currency, tags,
+                  inventoryListingConfig(payload, auction), idempotencyKey);
+            } catch (RuntimeException exception) {
+              withdrawal.restore().run();
+              throw exception;
+            }
+          });
+        } catch (ServiceException exception) {
+          if (!"player_offline".equals(exception.code())) {
+            throw exception;
+          }
+          if (payload.has("containerSlot") && !payload.get("containerSlot").isJsonNull()) {
+            throw new ServiceException(
+                "unsupported_offline_item", "Nested container listing is not supported while offline");
+          }
+          offlineInventoryFeatureService.requireWriteEnabled();
+          try (PlayerDataInventoryService.OfflineWithdrawal withdrawal =
+                   playerDataInventoryService.withdraw(
+                       user.boundUuid(), source, revision, slot, fingerprint, quantity,
+                       user.id(), idempotencyKey)) {
+            try {
+              result = marketService.createConfiguredListingFromStack(
+                  user.boundUuid(), user.username(), withdrawal.item(), price, currency, tags,
+                  inventoryListingConfig(payload, auction), idempotencyKey);
+              withdrawal.commit();
+            } catch (RuntimeException marketFailure) {
+              withdrawal.rollback();
+              throw marketFailure;
+            }
+          }
         }
-        });
       } catch (RuntimeException exception) {
         inventoryOperationService.reject(user.id(), idempotencyKey, serviceErrorCode(exception));
         throw exception;
@@ -2845,6 +2856,35 @@ class EmbeddedWebServer {
       inventoryOperationService.complete(user.id(), idempotencyKey, result.listingId(), gson.toJson(response));
       sendJson(exchange, 200, response);
     });
+  }
+
+  private MarketService.InventoryListingConfig inventoryListingConfig(
+      JsonObject payload, boolean auction) {
+    JsonObject dynamicParams = payload.has("dynamicParams")
+            && payload.get("dynamicParams").isJsonObject()
+        ? payload.getAsJsonObject("dynamicParams") : new JsonObject();
+    JsonObject auctionParams = payload.has("auctionParams")
+            && payload.get("auctionParams").isJsonObject()
+        ? payload.getAsJsonObject("auctionParams") : new JsonObject();
+    return new MarketService.InventoryListingConfig(
+        auction ? "AUCTION" : "DIRECT",
+        !auction && payload.has("dynamicPricingEnabled")
+            && payload.get("dynamicPricingEnabled").getAsBoolean(),
+        getOptionalString(payload, "dynamicAlgorithm").orElse(null),
+        getOptionalString(payload, "dynamicPricingMode").orElse(null),
+        gson.toJson(dynamicParams),
+        getOptionalPositiveLong(payload, "dynamicBasePrice"),
+        getOptionalPositiveLong(payload, "dynamicFloorPrice"),
+        getOptionalPositiveLong(payload, "dynamicCapPrice"),
+        getOptionalPositiveLong(payload, "dynamicPriceStep"),
+        getOptionalString(payload, "auctionAlgorithm").orElse(null),
+        gson.toJson(auctionParams),
+        getOptionalPositiveLong(payload, "auctionStartPrice"),
+        getOptionalPositiveLong(payload, "auctionMinIncrement"),
+        getOptionalDateTime(payload, "auctionEndAt"),
+        getOptionalString(payload, "remark").orElse(null),
+        getOptionalString(payload, "displayName").orElse(null),
+        getOptionalString(payload, "displayMaterial").orElse(null));
   }
 
   private void handleInventoryMatches(HttpExchange exchange) throws IOException {
@@ -3005,6 +3045,15 @@ class EmbeddedWebServer {
   private JsonObject offlineInventorySnapshotJson(
       UUID playerUuid,
       InventoryService.InventorySource source) {
+    OfflineInventoryFeatureService.State feature = offlineInventoryFeatureService.state();
+    if (feature.enabled()) {
+      InventoryService.Snapshot snapshot = playerDataInventoryService.read(playerUuid, source);
+      JsonObject response = inventorySnapshotJson(snapshot, false, source);
+      response.addProperty("readOnly", false);
+      response.addProperty("snapshotSource", "PLAYERDATA");
+      response.addProperty("offlineWriteEnabled", true);
+      return response;
+    }
     Optional<InventoryReadSnapshotService.StoredSnapshot> stored =
         inventoryReadSnapshotService.find(playerUuid, source);
     if (stored.isEmpty()) {
@@ -3019,6 +3068,7 @@ class EmbeddedWebServer {
       response.addProperty("inventory", source.name());
       response.addProperty("capturedAt", value.capturedAt().toString());
       response.addProperty("refreshedAt", value.capturedAt().toString());
+      response.addProperty("offlineWriteEnabled", false);
       return response;
     } catch (Exception exception) {
       plugin.getLogger().warning(
@@ -3794,6 +3844,7 @@ class EmbeddedWebServer {
       response.add("logging", loggingSettingsJson(settings.loggingSettings()));
       response.add("broadcast", broadcastSettingsJson(settings.broadcastSettings()));
       response.add("notification", notificationSettingsJson(runtimeConfigService.readNotificationSettings()));
+      response.add("offlineInventory", offlineInventoryStateJson());
       response.add("visual", visualSettingsJson(visualCustomizationService.readSettings()));
       sendJson(exchange, 200, response);
 
@@ -5328,6 +5379,54 @@ class EmbeddedWebServer {
     try (OutputStream outputStream = exchange.getResponseBody()) {
       outputStream.write(content);
     }
+  }
+
+  private void handleAdminOfflineInventory(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (exchange.getRequestMethod().equalsIgnoreCase("GET")) {
+      withServiceHandling(exchange, () -> {
+        requireAdmin(exchange, null, AdminPermission.ECONOMY_MANAGE);
+        sendJson(exchange, 200, offlineInventoryStateJson());
+      });
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      boolean enabled = getBoolean(payload, "enabled");
+      boolean acknowledged = getBoolean(payload, "acknowledged");
+      long version =
+          offlineInventoryFeatureService.update(enabled, acknowledged, admin.username());
+      publishRuntimeConfigRefresh(version);
+
+      JsonObject detail = new JsonObject();
+      detail.addProperty("enabled", enabled);
+      detail.addProperty("riskAckVersion", OfflineInventoryFeatureService.RISK_ACK_VERSION);
+      adminAuditService.log(
+          admin, enabled ? "OFFLINE_INVENTORY_ENABLE" : "OFFLINE_INVENTORY_DISABLE",
+          "offline_inventory", null, detail, clientIp(exchange));
+      sendJson(exchange, 200, offlineInventoryStateJson());
+    });
+  }
+
+  private JsonObject offlineInventoryStateJson() {
+    OfflineInventoryFeatureService.State state = offlineInventoryFeatureService.state();
+    JsonObject response = new JsonObject();
+    response.addProperty("enabled", state.enabled());
+    response.addProperty("requested", state.requested());
+    response.addProperty("forceDisabled", state.forceDisabled());
+    response.addProperty("riskAckVersion", state.riskAckVersion());
+    response.addProperty("requiredRiskAckVersion", OfflineInventoryFeatureService.RISK_ACK_VERSION);
+    response.addProperty("version", state.version());
+    if (state.enabledAt() != null) response.addProperty("enabledAt", state.enabledAt());
+    if (state.enabledBy() != null) response.addProperty("enabledBy", state.enabledBy());
+    return response;
   }
 
   private void handleAdminVisualPacks(HttpExchange exchange) throws IOException {

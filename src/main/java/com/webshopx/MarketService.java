@@ -564,6 +564,20 @@ class MarketService {
       List<String> requestedTags,
       InventoryListingConfig config,
       String idempotencyKey) {
+    return createConfiguredListingFromStack(
+        player.getUniqueId(), player.getName(), listingItem, price, currency,
+        requestedTags, config, idempotencyKey);
+  }
+
+  ListingCreateResult createConfiguredListingFromStack(
+      UUID playerUuid,
+      String playerName,
+      ItemStack listingItem,
+      long price,
+      CurrencyType currency,
+      List<String> requestedTags,
+      InventoryListingConfig config,
+      String idempotencyKey) {
     if (price <= 0L || listingItem == null || listingItem.getType() == Material.AIR
         || listingItem.getAmount() <= 0) {
       throw new ServiceException("invalid_listing", "Listing item and price must be valid");
@@ -573,7 +587,7 @@ class MarketService {
     storedItem.setAmount(1);
     ItemSnapshotCodec.Snapshot snapshot = itemSnapshotCodec.serialize(storedItem);
     BoundUser seller = databaseManager.withConnection(connection ->
-        readBoundUserByUuid(connection, player.getUniqueId(), false));
+        readBoundUserByUuid(connection, playerUuid, false));
     if (seller == null) throw new ServiceException("not_bound", "Player account is not bound");
     int listingLimit = resolveListingLimit(seller);
     ListingCreateResult result = databaseManager.inTransaction(connection -> {
@@ -596,7 +610,7 @@ class MarketService {
           created.listingId());
       return created;
     });
-    publishListingCreatedEvent(seller.userId(), player.getName(), result,
+    publishListingCreatedEvent(seller.userId(), playerName, result,
         config != null && "AUCTION".equalsIgnoreCase(config.tradeMode()) ? TradeMode.AUCTION : TradeMode.DIRECT);
     return result;
   }
