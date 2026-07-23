@@ -9,10 +9,22 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 class VisualCustomizationService {
   private static final String SETTINGS_KEY = "visual_customization";
+  private static final List<String> DEFAULT_ICON_PRIORITY = List.of(
+      "ADMIN_MATERIAL", "OFFICIAL_PRODUCT", "MARKET_LISTING",
+      "VISUAL_PACK", "BUILTIN", "FALLBACK");
+  private static final List<String> DEFAULT_NAME_PRIORITY = List.of(
+      "ITEM_CUSTOM_NAME", "ADMIN_MATERIAL", "OFFICIAL_PRODUCT", "MARKET_LISTING",
+      "VISUAL_PACK", "BUILTIN_LOCALE", "EN_US", "FORMATTED_ID");
+  private static final Set<String> ICON_SOURCES = Set.copyOf(DEFAULT_ICON_PRIORITY);
+  private static final Set<String> NAME_SOURCES = Set.copyOf(DEFAULT_NAME_PRIORITY);
 
   private final DatabaseManager databaseManager;
   private final SqlProvider sqlProvider;
@@ -130,7 +142,9 @@ class VisualCustomizationService {
           readBoolean(root, "marketListingCustomNameEnabled", true),
           readBoolean(root, "marketListingUploadImageEnabled", true),
           VisualPolicyMode.fromRaw(readString(root, "iconPolicyMode", "SOFT")),
-          VisualPolicyMode.fromRaw(readString(root, "namePolicyMode", "SOFT"))));
+          VisualPolicyMode.fromRaw(readString(root, "namePolicyMode", "SOFT")),
+          readPriority(root, "iconPriority", DEFAULT_ICON_PRIORITY, ICON_SOURCES),
+          readPriority(root, "namePriority", DEFAULT_NAME_PRIORITY, NAME_SOURCES)));
     } catch (Exception exception) {
       return VisualSettings.defaults();
     }
@@ -148,6 +162,8 @@ class VisualCustomizationService {
     root.addProperty("marketListingUploadImageEnabled", settings.marketListingUploadImageEnabled());
     root.addProperty("iconPolicyMode", settings.iconPolicyMode().name());
     root.addProperty("namePolicyMode", settings.namePolicyMode().name());
+    root.add("iconPriority", gson.toJsonTree(settings.iconPriority()));
+    root.add("namePriority", gson.toJsonTree(settings.namePriority()));
     return gson.toJson(root);
   }
 
@@ -165,7 +181,37 @@ class VisualCustomizationService {
         settings.marketListingCustomNameEnabled(),
         settings.marketListingUploadImageEnabled(),
         settings.iconPolicyMode() == null ? VisualPolicyMode.SOFT : settings.iconPolicyMode(),
-        settings.namePolicyMode() == null ? VisualPolicyMode.SOFT : settings.namePolicyMode());
+        settings.namePolicyMode() == null ? VisualPolicyMode.SOFT : settings.namePolicyMode(),
+        normalizePriority(settings.iconPriority(), DEFAULT_ICON_PRIORITY, ICON_SOURCES),
+        normalizePriority(settings.namePriority(), DEFAULT_NAME_PRIORITY, NAME_SOURCES));
+  }
+
+  private List<String> readPriority(
+      JsonObject root, String key, List<String> fallback, Set<String> allowed) {
+    if (!root.has(key) || !root.get(key).isJsonArray()) {
+      return fallback;
+    }
+    List<String> values = new ArrayList<>();
+    root.getAsJsonArray(key).forEach(element -> values.add(element.getAsString()));
+    return normalizePriority(values, fallback, allowed);
+  }
+
+  private List<String> normalizePriority(
+      List<String> values, List<String> fallback, Set<String> allowed) {
+    if (values == null || values.size() != allowed.size()) {
+      return fallback;
+    }
+    List<String> normalized = values.stream()
+        .map(value -> value == null ? "" : value.trim().toUpperCase(Locale.ROOT))
+        .toList();
+    if (!new HashSet<>(normalized).equals(allowed)) {
+      throw new ServiceException("bad_request", "Visual priority must contain every source once");
+    }
+    String requiredLast = allowed.equals(ICON_SOURCES) ? "FALLBACK" : "FORMATTED_ID";
+    if (!requiredLast.equals(normalized.get(normalized.size() - 1))) {
+      throw new ServiceException("bad_request", requiredLast + " must remain the final fallback");
+    }
+    return List.copyOf(normalized);
   }
 
   private UserVisualPermission readUserPermission(Connection connection, long userId) throws SQLException {
@@ -302,7 +348,9 @@ class VisualCustomizationService {
       boolean marketListingCustomNameEnabled,
       boolean marketListingUploadImageEnabled,
       VisualPolicyMode iconPolicyMode,
-      VisualPolicyMode namePolicyMode) {
+      VisualPolicyMode namePolicyMode,
+      List<String> iconPriority,
+      List<String> namePriority) {
     static VisualSettings defaults() {
       return new VisualSettings(
           true,
@@ -314,7 +362,9 @@ class VisualCustomizationService {
           true,
           true,
           VisualPolicyMode.SOFT,
-          VisualPolicyMode.SOFT);
+          VisualPolicyMode.SOFT,
+          DEFAULT_ICON_PRIORITY,
+          DEFAULT_NAME_PRIORITY);
     }
   }
 

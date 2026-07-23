@@ -1489,6 +1489,12 @@ class EmbeddedWebServer {
     json.addProperty("marketListingUploadImageEnabled", normalized.marketListingUploadImageEnabled());
     json.addProperty("iconPolicyMode", normalized.iconPolicyMode().name());
     json.addProperty("namePolicyMode", normalized.namePolicyMode().name());
+    JsonArray iconPriority = new JsonArray();
+    normalized.iconPriority().forEach(iconPriority::add);
+    json.add("iconPriority", iconPriority);
+    JsonArray namePriority = new JsonArray();
+    normalized.namePriority().forEach(namePriority::add);
+    json.add("namePriority", namePriority);
     return json;
   }
 
@@ -4352,6 +4358,8 @@ class EmbeddedWebServer {
     withServiceHandling(exchange, () -> {
       JsonObject payload = readJson(exchange);
       AdminService.AdminUser admin = requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      VisualCustomizationService.VisualSettings current =
+          visualCustomizationService.readSettings();
       VisualCustomizationService.VisualSettings settings = new VisualCustomizationService.VisualSettings(
           getBoolean(payload, "globalCustomIconEnabled"),
           getBoolean(payload, "globalCustomNameEnabled"),
@@ -4376,7 +4384,9 @@ class EmbeddedWebServer {
           VisualCustomizationService.VisualPolicyMode.fromRaw(
               getOptionalString(payload, "iconPolicyMode").orElse("SOFT")),
           VisualCustomizationService.VisualPolicyMode.fromRaw(
-              getOptionalString(payload, "namePolicyMode").orElse("SOFT")));
+              getOptionalString(payload, "namePolicyMode").orElse("SOFT")),
+          payload.has("iconPriority") ? getStringArray(payload, "iconPriority") : current.iconPriority(),
+          payload.has("namePriority") ? getStringArray(payload, "namePriority") : current.namePriority());
       long version = visualCustomizationService.updateSettings(settings);
       publishRuntimeConfigRefresh(version);
 
