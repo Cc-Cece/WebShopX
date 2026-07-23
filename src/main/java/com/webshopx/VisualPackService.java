@@ -38,6 +38,8 @@ final class VisualPackService {
   private static final int MAX_FILES = 12_000;
   private static final int MAX_ENTRIES = 10_000;
   private static final int MAX_ICON_BYTES = 2 * 1024 * 1024;
+  private static final int MAX_LOCALES = 256;
+  private static final int MAX_TRANSLATION_BYTES = 8 * 1024 * 1024;
   private static final Set<String> OPTIONAL_FILES = Set.of("metadata/export-report.json");
 
   private final DatabaseManager databaseManager;
@@ -237,8 +239,10 @@ final class VisualPackService {
         if (entry.isDirectory()) {
           continue;
         }
-        if (!(name.equals("manifest.json") || OPTIONAL_FILES.contains(name)
-            || name.matches("icons/[a-z0-9._/-]+\\.png"))) {
+        if (!(name.equals("manifest.json") || name.equals("catalog/items.json")
+            || OPTIONAL_FILES.contains(name)
+            || name.matches("icons/[a-z0-9._/-]+\\.png")
+            || name.matches("translations/[a-z0-9_]{2,32}\\.json"))) {
           throw new ServiceException("visual_pack_invalid", "Unsupported file: " + name);
         }
         long size = entry.getSize();
@@ -259,7 +263,7 @@ final class VisualPackService {
           zip.getInputStream(manifestEntry), StandardCharsets.UTF_8)) {
         manifest = JsonParser.parseReader(reader).getAsJsonObject();
       }
-      if (!manifest.has("schemaVersion") || manifest.get("schemaVersion").getAsInt() != 1) {
+      if (!manifest.has("schemaVersion") || manifest.get("schemaVersion").getAsInt() != 2) {
         throw new ServiceException("visual_pack_invalid", "Unsupported schemaVersion");
       }
       JsonObject pack = manifest.getAsJsonObject("pack");
@@ -272,6 +276,25 @@ final class VisualPackService {
       if (entries == null || entries.size() == 0 || entries.size() > MAX_ENTRIES) {
         throw new ServiceException("visual_pack_invalid", "Invalid visual entry count");
       }
+      JsonArray localeArray = manifest.getAsJsonArray("locales");
+      if (localeArray == null || localeArray.size() == 0 || localeArray.size() > MAX_LOCALES) {
+        throw new ServiceException("visual_pack_invalid", "Invalid locale count");
+      }
+      List<String> locales = new ArrayList<>();
+      for (JsonElement element : localeArray) {
+        String locale = normalizeLocale(element.getAsString());
+        if (locales.contains(locale)) {
+          throw new ServiceException("visual_pack_invalid", "Duplicate locale: " + locale);
+        }
+        locales.add(locale);
+      }
+
+      ZipEntry catalogEntry = files.get("catalog/items.json");
+      if (catalogEntry == null || catalogEntry.getSize() <= 0
+          || catalogEntry.getSize() > MAX_TRANSLATION_BYTES) {
+        throw new ServiceException("visual_pack_invalid", "Missing or oversized item catalog");
+      }
+      JsonObject catalog = readJsonObject(zip, catalogEntry, "catalog/items.json");
       Map<String, VisualEntry> validatedEntries = new LinkedHashMap<>();
       for (JsonElement element : entries) {
         JsonObject row = element.getAsJsonObject();
@@ -293,11 +316,51 @@ final class VisualPackService {
           throw new ServiceException("visual_pack_invalid", "Icon hash mismatch: " + icon);
         }
         validatePng(bytes, icon);
-        if (validatedEntries.putIfAbsent(itemId, new VisualEntry(itemId, icon)) != null) {
+        String translationKey = row.get("translationKey").getAsString().trim();
+        if (!translationKey.matches("[a-zA-Z0-9_.:/-]{1,255}")) {
+          throw new ServiceException("visual_pack_invalid", "Invalid translation key");
+        }
+        JsonObject catalogRow = catalog.has(itemId) && catalog.get(itemId).isJsonObject()
+            ? catalog.getAsJsonObject(itemId) : null;
+        if (catalogRow == null
+            || !translationKey.equals(catalogRow.get("translationKey").getAsString())) {
+          throw new ServiceException("visual_pack_invalid", "Catalog mismatch: " + itemId);
+        }
+        if (validatedEntries.putIfAbsent(
+            itemId, new VisualEntry(itemId, icon, translationKey)) != null) {
           throw new ServiceException("visual_pack_invalid", "Duplicate itemId: " + itemId);
         }
       }
-      return new ValidatedPack(packId, packName, manifest, List.copyOf(validatedEntries.values()));
+      if (catalog.size() != validatedEntries.size()) {
+        throw new ServiceException("visual_pack_invalid", "Catalog entry count mismatch");
+      }
+      Map<String, Map<String, String>> translations = new LinkedHashMap<>();
+      for (String locale : locales) {
+        String path = "translations/" + locale + ".json";
+        ZipEntry translationEntry = files.get(path);
+        if (translationEntry == null || translationEntry.getSize() < 0
+            || translationEntry.getSize() > MAX_TRANSLATION_BYTES) {
+          throw new ServiceException("visual_pack_invalid", "Missing translation file: " + locale);
+        }
+        JsonObject language = readJsonObject(zip, translationEntry, path);
+        Map<String, String> names = new LinkedHashMap<>();
+        for (Map.Entry<String, JsonElement> translated : language.entrySet()) {
+          String itemId = translated.getKey().toLowerCase(Locale.ROOT);
+          if (!validatedEntries.containsKey(itemId) || !translated.getValue().isJsonPrimitive()) {
+            throw new ServiceException("visual_pack_invalid",
+                "Unknown translated item: " + translated.getKey());
+          }
+          String name = translated.getValue().getAsString().trim();
+          if (name.isBlank() || name.length() > 512) {
+            throw new ServiceException("visual_pack_invalid", "Invalid translated item name");
+          }
+          names.put(itemId, name);
+        }
+        translations.put(locale, Map.copyOf(names));
+      }
+      return new ValidatedPack(
+          packId, packName, manifest, List.copyOf(validatedEntries.values()),
+          List.copyOf(locales), Map.copyOf(translations));
     }
   }
 
@@ -305,8 +368,10 @@ final class VisualPackService {
     try (ZipFile zip = new ZipFile(zipPath.toFile(), StandardCharsets.UTF_8)) {
       Set<String> allowed = new java.util.HashSet<>();
       allowed.add("manifest.json");
+      allowed.add("catalog/items.json");
       allowed.addAll(OPTIONAL_FILES);
       pack.entries().forEach(entry -> allowed.add(entry.iconPath()));
+      pack.locales().forEach(locale -> allowed.add("translations/" + locale + ".json"));
       for (String name : allowed) {
         ZipEntry entry = zip.getEntry(name);
         if (entry == null) {
@@ -338,7 +403,7 @@ final class VisualPackService {
           INSERT INTO visual_packs (
             pack_id, pack_name, version_id, enabled, sort_order, icons_enabled,
             translations_enabled, manifest_json, file_size, entry_count, uploaded_by
-          ) VALUES (?, ?, ?, FALSE, ?, TRUE, FALSE, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, FALSE, ?, TRUE, TRUE, ?, ?, ?, ?)
           ON CONFLICT(pack_id) DO UPDATE SET
             pack_name = excluded.pack_name, version_id = excluded.version_id,
             manifest_json = excluded.manifest_json, file_size = excluded.file_size,
@@ -348,7 +413,7 @@ final class VisualPackService {
           INSERT INTO visual_packs (
             pack_id, pack_name, version_id, enabled, sort_order, icons_enabled,
             translations_enabled, manifest_json, file_size, entry_count, uploaded_by
-          ) VALUES (?, ?, ?, FALSE, ?, TRUE, FALSE, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, FALSE, ?, TRUE, TRUE, ?, ?, ?, ?)
           ON DUPLICATE KEY UPDATE
             pack_name = VALUES(pack_name), version_id = VALUES(version_id),
             manifest_json = VALUES(manifest_json), file_size = VALUES(file_size),
@@ -371,23 +436,48 @@ final class VisualPackService {
   }
 
   private synchronized void rebuildIndex() {
-    Map<String, ResolvedVisual> next = new LinkedHashMap<>();
+    Map<String, ResolvedVisualBuilder> builders = new LinkedHashMap<>();
     for (PackRecord pack : list()) {
-      if (!pack.enabled() || !pack.iconsEnabled()) {
+      if (!pack.enabled() || (!pack.iconsEnabled() && !pack.translationsEnabled())) {
         continue;
       }
-      JsonArray entries = JsonParser.parseString(pack.manifestJson())
-          .getAsJsonObject().getAsJsonArray("entries");
+      JsonObject manifest = JsonParser.parseString(pack.manifestJson()).getAsJsonObject();
+      JsonArray entries = manifest.getAsJsonArray("entries");
       for (JsonElement element : entries) {
         JsonObject row = element.getAsJsonObject();
         String itemId = row.get("itemId").getAsString().toLowerCase(Locale.ROOT);
-        next.putIfAbsent(itemId, new ResolvedVisual(
-            itemId,
-            "/visual-packs/" + pack.packId() + "/" + pack.versionId() + "/"
-                + row.get("icon").getAsString(),
-            pack.packId()));
+        ResolvedVisualBuilder builder =
+            builders.computeIfAbsent(itemId, ignored -> new ResolvedVisualBuilder(itemId));
+        if (pack.iconsEnabled() && builder.iconPath == null) {
+          builder.iconPath = "/visual-packs/" + pack.packId() + "/" + pack.versionId() + "/"
+              + row.get("icon").getAsString();
+          builder.packId = pack.packId();
+        }
+        if (pack.translationsEnabled() && builder.translationKey == null) {
+          builder.translationKey = row.get("translationKey").getAsString();
+          if (builder.packId == null) {
+            builder.packId = pack.packId();
+          }
+        }
+      }
+      if (pack.translationsEnabled()) {
+        JsonArray locales = manifest.getAsJsonArray("locales");
+        for (JsonElement localeElement : locales) {
+          String locale = normalizeLocale(localeElement.getAsString());
+          Path path = root.resolve(pack.packId()).resolve(pack.versionId())
+              .resolve("translations").resolve(locale + ".json");
+          readJsonFile(path).ifPresent(language -> language.entrySet().forEach(entry -> {
+            String itemId = entry.getKey().toLowerCase(Locale.ROOT);
+            ResolvedVisualBuilder builder = builders.get(itemId);
+            if (builder != null && !builder.localizedNames.containsKey(locale)) {
+              builder.localizedNames.put(locale, entry.getValue().getAsString());
+            }
+          }));
+        }
       }
     }
+    Map<String, ResolvedVisual> next = new LinkedHashMap<>();
+    builders.forEach((itemId, builder) -> next.put(itemId, builder.build()));
     resolved = Map.copyOf(next);
   }
 
@@ -422,6 +512,32 @@ final class VisualPackService {
     }
   }
 
+  private static JsonObject readJsonObject(ZipFile zip, ZipEntry entry, String path)
+      throws IOException {
+    try (var reader = new java.io.InputStreamReader(
+        zip.getInputStream(entry), StandardCharsets.UTF_8)) {
+      JsonElement parsed = JsonParser.parseReader(reader);
+      if (!parsed.isJsonObject()) {
+        throw new ServiceException("visual_pack_invalid", "Expected JSON object: " + path);
+      }
+      return parsed.getAsJsonObject();
+    } catch (com.google.gson.JsonParseException | IllegalStateException exception) {
+      throw new ServiceException("visual_pack_invalid", "Invalid JSON: " + path);
+    }
+  }
+
+  private static Optional<JsonObject> readJsonFile(Path path) {
+    try {
+      if (!Files.isRegularFile(path)) {
+        return Optional.empty();
+      }
+      JsonElement parsed = JsonParser.parseString(Files.readString(path, StandardCharsets.UTF_8));
+      return parsed.isJsonObject() ? Optional.of(parsed.getAsJsonObject()) : Optional.empty();
+    } catch (Exception ignored) {
+      return Optional.empty();
+    }
+  }
+
   private static void validateZipPath(String name) {
     if (name.isBlank() || name.startsWith("/") || name.contains("../")
         || name.contains(":/") || name.indexOf('\0') >= 0) {
@@ -433,6 +549,15 @@ final class VisualPackService {
     String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     if (!normalized.matches("[a-z0-9][a-z0-9._-]{0,127}")) {
       throw new ServiceException("bad_request", "Invalid visual pack id");
+    }
+    return normalized;
+  }
+
+  private static String normalizeLocale(String value) {
+    String normalized = value == null
+        ? "" : value.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+    if (!normalized.matches("[a-z0-9_]{2,32}")) {
+      throw new ServiceException("visual_pack_invalid", "Invalid locale: " + value);
     }
     return normalized;
   }
@@ -499,13 +624,40 @@ final class VisualPackService {
       LocalDateTime updatedAt) {
   }
 
-  record ResolvedVisual(String itemId, String iconPath, String packId) {
+  record ResolvedVisual(
+      String itemId,
+      String iconPath,
+      String packId,
+      String translationKey,
+      Map<String, String> localizedNames) {
   }
 
-  private record VisualEntry(String itemId, String iconPath) {
+  private record VisualEntry(String itemId, String iconPath, String translationKey) {
   }
 
   private record ValidatedPack(
-      String packId, String packName, JsonObject manifest, List<VisualEntry> entries) {
+      String packId,
+      String packName,
+      JsonObject manifest,
+      List<VisualEntry> entries,
+      List<String> locales,
+      Map<String, Map<String, String>> translations) {
+  }
+
+  private static final class ResolvedVisualBuilder {
+    private final String itemId;
+    private String iconPath;
+    private String packId;
+    private String translationKey;
+    private final Map<String, String> localizedNames = new LinkedHashMap<>();
+
+    private ResolvedVisualBuilder(String itemId) {
+      this.itemId = itemId;
+    }
+
+    private ResolvedVisual build() {
+      return new ResolvedVisual(
+          itemId, iconPath, packId, translationKey, Map.copyOf(localizedNames));
+    }
   }
 }

@@ -1191,13 +1191,28 @@ class EmbeddedWebServer {
       return;
     }
     withServiceHandling(exchange, () -> {
+      String requestedLocale = normalizeVisualLocale(parseQuery(exchange).get("locale"));
       JsonObject response = new JsonObject();
       JsonArray overrides = new JsonArray();
       for (VisualPackService.ResolvedVisual visual : visualPackService.resolvedVisuals()) {
         JsonObject row = new JsonObject();
         row.addProperty("materialKey", visual.itemId());
+        row.addProperty("itemId", visual.itemId());
+        if (visual.iconPath() == null) {
+          row.add("iconPath", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("iconPath", visual.iconPath());
+        }
+        if (visual.translationKey() == null) {
+          row.add("translationKey", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("translationKey", visual.translationKey());
+        }
+        JsonObject localizedNames = new JsonObject();
+        addLocalizedName(localizedNames, visual.localizedNames(), requestedLocale);
+        addLocalizedName(localizedNames, visual.localizedNames(), "en_us");
+        row.add("localizedNames", localizedNames);
         row.add("displayNameOverride", JsonNull.INSTANCE);
-        row.addProperty("iconPath", visual.iconPath());
         row.addProperty("source", "visual-pack");
         row.addProperty("packId", visual.packId());
         overrides.add(row);
@@ -5507,7 +5522,7 @@ class EmbeddedWebServer {
     String itemId = withoutExtension.substring(0, slash) + ":"
         + withoutExtension.substring(slash + 1);
     Optional<VisualPackService.ResolvedVisual> resolved = visualPackService.resolve(itemId);
-    if (resolved.isEmpty()) {
+    if (resolved.isEmpty() || resolved.get().iconPath() == null) {
       sendJson(exchange, 404, errorJson("not_found", "Resolved texture not found"));
       return;
     }
@@ -6653,6 +6668,26 @@ class EmbeddedWebServer {
     return array;
   }
 
+  private void addLocalizedName(
+      JsonObject target, Map<String, String> localizedNames, String locale) {
+    if (locale == null || locale.isBlank() || target.has(locale)) {
+      return;
+    }
+    String value = localizedNames.get(locale);
+    if (value == null && locale.contains("_")) {
+      value = localizedNames.get(locale.substring(0, locale.indexOf('_')));
+    }
+    if (value != null && !value.isBlank()) {
+      target.addProperty(locale, value);
+    }
+  }
+
+  private String normalizeVisualLocale(String value) {
+    String normalized = value == null
+        ? "" : value.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+    return normalized.matches("[a-z0-9_]{2,32}") ? normalized : "en_us";
+  }
+
   private JsonObject visualPackJson(VisualPackService.PackRecord pack) {
     JsonObject row = new JsonObject();
     row.addProperty("packId", pack.packId());
@@ -6672,6 +6707,7 @@ class EmbeddedWebServer {
       row.add("environment", manifest.has("environment")
           ? manifest.get("environment") : new JsonObject());
       row.add("render", manifest.has("render") ? manifest.get("render") : new JsonObject());
+      row.add("locales", manifest.has("locales") ? manifest.get("locales") : new JsonArray());
     } catch (Exception ignored) {
       row.add("environment", new JsonObject());
       row.add("render", new JsonObject());
