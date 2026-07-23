@@ -48,6 +48,7 @@ public class WebShopPlugin extends JavaPlugin {
   private MarketService marketService;
   private MaterialVisualService materialVisualService;
   private VisualCustomizationService visualCustomizationService;
+  private VisualPackService visualPackService;
   private UserMarketSettingsService userMarketSettingsService;
   private NotificationService notificationService;
   private MailboxService mailboxService;
@@ -157,6 +158,10 @@ public class WebShopPlugin extends JavaPlugin {
           schedulerBridge);
       materialVisualService = new MaterialVisualService(databaseManager);
       visualCustomizationService = new VisualCustomizationService(databaseManager);
+      visualPackService = new VisualPackService(
+          databaseManager,
+          this,
+          new com.google.gson.GsonBuilder().disableHtmlEscaping().create());
       marketGuiService = new MarketGuiService(marketService, this::settings, messageService);
       deliveryService = new DeliveryService(
           this,
@@ -190,6 +195,7 @@ public class WebShopPlugin extends JavaPlugin {
           leaderboardService,
           materialVisualService,
           visualCustomizationService,
+          visualPackService,
           userMarketSettingsService,
           runtimeConfigService,
           homepageService,

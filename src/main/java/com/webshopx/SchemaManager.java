@@ -40,6 +40,7 @@ class SchemaManager {
     migrateUserMarketSettings(connection);
     createMaterialVisualOverrides(connection);
     migrateMaterialVisualOverrides(connection);
+    createVisualPacks(connection);
     createProducts(connection);
     migrateProducts(connection);
     createProductUserUsage(connection);
@@ -70,6 +71,35 @@ class SchemaManager {
     createNotifications(connection);
     migrateNotifications(connection);
     return null;
+  }
+
+  private void createVisualPacks(Connection connection) throws SQLException {
+    String sql = """
+        CREATE TABLE IF NOT EXISTS visual_packs (
+          pack_id VARCHAR(128) PRIMARY KEY,
+          pack_name VARCHAR(255) NOT NULL,
+          version_id VARCHAR(96) NOT NULL,
+          enabled BOOLEAN NOT NULL DEFAULT FALSE,
+          sort_order INT NOT NULL DEFAULT 0,
+          icons_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+          translations_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+          manifest_json LONGTEXT NOT NULL,
+          file_size BIGINT NOT NULL DEFAULT 0,
+          entry_count INT NOT NULL DEFAULT 0,
+          uploaded_by VARCHAR(64),
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """;
+    try (java.sql.Statement statement = connection.createStatement()) {
+      statement.executeUpdate(sql);
+      try {
+        statement.executeUpdate(
+            "CREATE INDEX idx_visual_packs_order ON visual_packs(enabled, sort_order)");
+      } catch (SQLException ignored) {
+        // Index already exists (portable across SQLite/MySQL).
+      }
+    }
   }
 
   private void createWebUsers(Connection connection) throws SQLException {

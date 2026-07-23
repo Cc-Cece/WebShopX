@@ -85,7 +85,7 @@ class EmbeddedWebServer {
   private final InventoryReadSnapshotService inventoryReadSnapshotService;
   private final Gson gson;
   private final HttpClient textureHttpClient;
-  private final ResourcePackTextureManager resourcePackTextureManager;
+  private final VisualPackService visualPackService;
   private final ItemSnapshotCodec inventoryItemCodec = new ItemSnapshotCodec();
   private final InventoryService inventoryService = new InventoryService(inventoryItemCodec);
   private final InventorySnapshotJsonCodec inventorySnapshotJsonCodec;
@@ -122,6 +122,7 @@ class EmbeddedWebServer {
       LeaderboardService leaderboardService,
       MaterialVisualService materialVisualService,
       VisualCustomizationService visualCustomizationService,
+      VisualPackService visualPackService,
       UserMarketSettingsService userMarketSettingsService,
       RuntimeConfigService runtimeConfigService,
       HomepageService homepageService,
@@ -146,6 +147,7 @@ class EmbeddedWebServer {
     this.leaderboardService = leaderboardService;
     this.materialVisualService = materialVisualService;
     this.visualCustomizationService = visualCustomizationService;
+    this.visualPackService = visualPackService;
     this.userMarketSettingsService = userMarketSettingsService;
     this.runtimeConfigService = runtimeConfigService;
     this.homepageService = homepageService;
@@ -159,7 +161,6 @@ class EmbeddedWebServer {
         .connectTimeout(Duration.ofSeconds(10))
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build();
-    this.resourcePackTextureManager = new ResourcePackTextureManager(plugin);
     this.localeCenterService = new LocaleCenterService(plugin, () -> this.webUserRoot);
   }
 
@@ -167,7 +168,6 @@ class EmbeddedWebServer {
     stop();
     this.staticRoot = staticRoot.toAbsolutePath().normalize();
     this.webUserRoot = webUserRoot.toAbsolutePath().normalize();
-    resourcePackTextureManager.reload();
     PluginSettings.EmbeddedWebSettings webSettings = settingsSupplier.get().embeddedWebSettings();
     PluginSettings.ServerMode serverMode = settingsSupplier.get().serverMode();
 
@@ -272,6 +272,12 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/homepage/restore", this::handleAdminHomepageRestore);
     server.createContext("/api/admin/homepage/assets", this::handleAdminHomepageAssets);
     server.createContext("/api/admin/visual/settings", this::handleAdminVisualSettingsUpdate);
+    server.createContext("/api/admin/visual-packs", this::handleAdminVisualPacks);
+    server.createContext("/api/admin/visual-packs/upload", this::handleAdminVisualPackUpload);
+    server.createContext("/api/admin/visual-packs/state", this::handleAdminVisualPackState);
+    server.createContext("/api/admin/visual-packs/move", this::handleAdminVisualPackMove);
+    server.createContext("/api/admin/visual-packs/delete", this::handleAdminVisualPackDelete);
+    server.createContext("/api/admin/visual-packs/download", this::handleAdminVisualPackDownload);
     server.createContext("/api/admin/material-overrides/list", this::handleAdminMaterialOverridesList);
     server.createContext("/api/admin/material-overrides/upsert", this::handleAdminMaterialOverridesUpsert);
     server.createContext("/api/admin/material-overrides/delete", this::handleAdminMaterialOverridesDelete);
@@ -294,6 +300,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/admin-users/active", this::handleAdminAdminUsersActive);
     server.createContext("/home-assets/", this::handleHomepageAsset);
     server.createContext("/textures/", this::handleTextureAsset);
+    server.createContext("/visual-packs/", this::handleVisualPackAsset);
 
     // Only serve static files in INTERNAL mode
     if (serverMode == PluginSettings.ServerMode.INTERNAL) {
@@ -317,7 +324,6 @@ class EmbeddedWebServer {
     }
     staticRoot = null;
     webUserRoot = null;
-    resourcePackTextureManager.close();
   }
 
   private void handleHealth(HttpExchange exchange) throws IOException {
@@ -1186,7 +1192,20 @@ class EmbeddedWebServer {
     }
     withServiceHandling(exchange, () -> {
       JsonObject response = new JsonObject();
-      response.add("overrides", materialOverrideListJson(materialVisualService.listAll()));
+      JsonArray overrides = new JsonArray();
+      for (VisualPackService.ResolvedVisual visual : visualPackService.resolvedVisuals()) {
+        JsonObject row = new JsonObject();
+        row.addProperty("materialKey", visual.itemId());
+        row.add("displayNameOverride", JsonNull.INSTANCE);
+        row.addProperty("iconPath", visual.iconPath());
+        row.addProperty("source", "visual-pack");
+        row.addProperty("packId", visual.packId());
+        overrides.add(row);
+      }
+      for (JsonElement row : materialOverrideListJson(materialVisualService.listAll())) {
+        overrides.add(row);
+      }
+      response.add("overrides", overrides);
       response.add("policy", visualSettingsJson(visualCustomizationService.readSettings()));
       sendJson(exchange, 200, response);
     });
@@ -5286,6 +5305,125 @@ class EmbeddedWebServer {
     }
   }
 
+  private void handleAdminVisualPacks(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      requireAdmin(exchange, null, AdminPermission.ECONOMY_MANAGE);
+      JsonObject response = new JsonObject();
+      JsonArray packs = new JsonArray();
+      for (VisualPackService.PackRecord pack : visualPackService.list()) {
+        packs.add(visualPackJson(pack));
+      }
+      response.add("packs", packs);
+      response.addProperty("priorityRule", "FIRST_ENABLED_MATCH");
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminVisualPackUpload(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, null, AdminPermission.ECONOMY_MANAGE);
+      byte[] bytes = readRequestBodyWithLimit(exchange, VisualPackService.MAX_UPLOAD_BYTES);
+      VisualPackService.PackRecord pack = visualPackService.install(bytes, admin.username());
+      adminAuditService.log(
+          admin, "VISUAL_PACK_UPLOAD", "visual_pack", pack.packId(),
+          visualPackJson(pack), clientIp(exchange));
+      sendJson(exchange, 200, visualPackJson(pack));
+    });
+  }
+
+  private void handleAdminVisualPackState(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      String packId = getString(payload, "packId");
+      Boolean enabled = payload.has("enabled") ? getBoolean(payload, "enabled") : null;
+      Boolean iconsEnabled =
+          payload.has("iconsEnabled") ? getBoolean(payload, "iconsEnabled") : null;
+      Boolean translationsEnabled =
+          payload.has("translationsEnabled") ? getBoolean(payload, "translationsEnabled") : null;
+      VisualPackService.PackRecord pack = visualPackService.updateState(
+          packId, enabled, iconsEnabled, translationsEnabled);
+      adminAuditService.log(
+          admin, "VISUAL_PACK_STATE", "visual_pack", pack.packId(),
+          visualPackJson(pack), clientIp(exchange));
+      sendJson(exchange, 200, visualPackJson(pack));
+    });
+  }
+
+  private void handleAdminVisualPackMove(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      String packId = getString(payload, "packId");
+      String direction = getString(payload, "direction").trim().toUpperCase(Locale.ROOT);
+      if (!direction.equals("UP") && !direction.equals("DOWN")) {
+        throw new ServiceException("bad_request", "direction must be UP or DOWN");
+      }
+      visualPackService.move(packId, direction.equals("UP") ? -1 : 1);
+      JsonObject detail = new JsonObject();
+      detail.addProperty("direction", direction);
+      adminAuditService.log(
+          admin, "VISUAL_PACK_MOVE", "visual_pack", packId,
+          detail, clientIp(exchange));
+      sendJson(exchange, 200, detail);
+    });
+  }
+
+  private void handleAdminVisualPackDelete(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      String packId = getString(payload, "packId");
+      boolean deleted = visualPackService.delete(packId);
+      JsonObject response = new JsonObject();
+      response.addProperty("packId", packId);
+      response.addProperty("deleted", deleted);
+      adminAuditService.log(
+          admin, "VISUAL_PACK_DELETE", "visual_pack", packId,
+          response, clientIp(exchange));
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleAdminVisualPackDownload(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      requireAdmin(exchange, null, AdminPermission.ECONOMY_MANAGE);
+      String packId = parseQuery(exchange).get("packId");
+      byte[] bytes = visualPackService.readOriginal(packId)
+          .orElseThrow(() -> new ServiceException("not_found", "Visual pack not found"));
+      exchange.getResponseHeaders().set("Content-Type", "application/zip");
+      exchange.getResponseHeaders().set(
+          "Content-Disposition", "attachment; filename=\"" + packId + ".zip\"");
+      applyCorsHeaders(exchange);
+      exchange.sendResponseHeaders(200, bytes.length);
+      try (OutputStream output = exchange.getResponseBody()) {
+        output.write(bytes);
+      }
+    });
+  }
+
   private void handleTextureAsset(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange) || !ensureMethod(exchange, "GET")) {
       return;
@@ -5334,6 +5472,31 @@ class EmbeddedWebServer {
     }
   }
 
+  private void handleVisualPackAsset(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "GET")) {
+      return;
+    }
+    String path = exchange.getRequestURI().getPath();
+    String relative = path.substring("/visual-packs/".length());
+    String[] parts = relative.split("/", 3);
+    if (parts.length != 3) {
+      sendJson(exchange, 404, errorJson("not_found", "Visual asset not found"));
+      return;
+    }
+    Optional<byte[]> bytes = visualPackService.readAsset(parts[0], parts[1], parts[2]);
+    if (bytes.isEmpty()) {
+      sendJson(exchange, 404, errorJson("not_found", "Visual asset not found"));
+      return;
+    }
+    exchange.getResponseHeaders().set("Content-Type", "image/png");
+    exchange.getResponseHeaders().set("Cache-Control", "public, max-age=31536000, immutable");
+    applyCorsHeaders(exchange);
+    exchange.sendResponseHeaders(200, bytes.get().length);
+    try (OutputStream output = exchange.getResponseBody()) {
+      output.write(bytes.get());
+    }
+  }
+
   private void handleResolvedTexture(HttpExchange exchange, String relative) throws IOException {
     if (!relative.matches("[a-z0-9_.-]+/[a-z0-9_./-]+\\.png") || relative.contains("..")) {
       sendJson(exchange, 400, errorJson("bad_request", "Invalid resolved texture path"));
@@ -5343,31 +5506,23 @@ class EmbeddedWebServer {
     int slash = withoutExtension.indexOf('/');
     String itemId = withoutExtension.substring(0, slash) + ":"
         + withoutExtension.substring(slash + 1);
-    Integer customModelData = null;
-    String rawCmd = parseQuery(exchange).get("cmd");
-    String explicitModel = parseQuery(exchange).get("model");
-    if (rawCmd != null && rawCmd.matches("\\d{1,10}")) {
-      try {
-        customModelData = Integer.valueOf(rawCmd);
-      } catch (NumberFormatException ignored) {
-        customModelData = null;
-      }
-    }
-    Optional<ResourcePackTextureManager.ResolvedTexture> resolved =
-        resourcePackTextureManager.resolve(itemId, customModelData, explicitModel);
+    Optional<VisualPackService.ResolvedVisual> resolved = visualPackService.resolve(itemId);
     if (resolved.isEmpty()) {
       sendJson(exchange, 404, errorJson("not_found", "Resolved texture not found"));
       return;
     }
-    ResourcePackTextureManager.ResolvedTexture texture = resolved.get();
+    VisualPackService.ResolvedVisual visual = resolved.get();
+    String assetPath = visual.iconPath().substring("/visual-packs/".length());
+    String[] assetParts = assetPath.split("/", 3);
+    byte[] bytes = visualPackService.readAsset(assetParts[0], assetParts[1], assetParts[2])
+        .orElseThrow(() -> new ServiceException("not_found", "Resolved texture not found"));
     exchange.getResponseHeaders().set("Content-Type", "image/png");
-    exchange.getResponseHeaders().set("Cache-Control", "public, max-age=3600");
-    exchange.getResponseHeaders().set("ETag", "\"" + texture.revision() + "\"");
-    exchange.getResponseHeaders().set("X-WebShopX-Texture-Source", texture.source());
+    exchange.getResponseHeaders().set("Cache-Control", "public, max-age=31536000, immutable");
+    exchange.getResponseHeaders().set("X-WebShopX-Texture-Source", "visual-pack");
     applyCorsHeaders(exchange);
-    exchange.sendResponseHeaders(200, texture.bytes().length);
+    exchange.sendResponseHeaders(200, bytes.length);
     try (OutputStream outputStream = exchange.getResponseBody()) {
-      outputStream.write(texture.bytes());
+      outputStream.write(bytes);
     }
   }
 
@@ -6496,6 +6651,32 @@ class EmbeddedWebServer {
       array.add(materialOverrideJson(entry));
     }
     return array;
+  }
+
+  private JsonObject visualPackJson(VisualPackService.PackRecord pack) {
+    JsonObject row = new JsonObject();
+    row.addProperty("packId", pack.packId());
+    row.addProperty("name", pack.packName());
+    row.addProperty("versionId", pack.versionId());
+    row.addProperty("enabled", pack.enabled());
+    row.addProperty("sortOrder", pack.sortOrder());
+    row.addProperty("iconsEnabled", pack.iconsEnabled());
+    row.addProperty("translationsEnabled", pack.translationsEnabled());
+    row.addProperty("fileSize", pack.fileSize());
+    row.addProperty("entryCount", pack.entryCount());
+    row.addProperty("uploadedBy", pack.uploadedBy());
+    row.addProperty("createdAt", pack.createdAt() == null ? null : pack.createdAt().toString());
+    row.addProperty("updatedAt", pack.updatedAt() == null ? null : pack.updatedAt().toString());
+    try {
+      JsonObject manifest = JsonParser.parseString(pack.manifestJson()).getAsJsonObject();
+      row.add("environment", manifest.has("environment")
+          ? manifest.get("environment") : new JsonObject());
+      row.add("render", manifest.has("render") ? manifest.get("render") : new JsonObject());
+    } catch (Exception ignored) {
+      row.add("environment", new JsonObject());
+      row.add("render", new JsonObject());
+    }
+    return row;
   }
 
   private JsonObject materialOverrideJson(MaterialVisualService.MaterialVisualEntry entry) {
