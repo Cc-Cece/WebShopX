@@ -5,7 +5,7 @@ import java.util.List;
 import org.bukkit.Material;
 import org.bukkit.block.Container;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.meta.BlockStateMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 
@@ -16,35 +16,37 @@ final class InventoryService {
     this.codec = codec;
   }
 
-  Snapshot snapshot(PlayerInventory inventory) {
+  Snapshot snapshot(Inventory inventory, InventorySource source) {
     List<SlotView> slots = new ArrayList<>();
-    StringBuilder evidence = new StringBuilder();
+    StringBuilder evidence = new StringBuilder(source.name()).append(':');
     for (int slot = 0; slot < inventory.getSize(); slot++) {
       ItemStack stack = inventory.getItem(slot);
       ItemView item = view(stack);
-      slots.add(new SlotView(kind(slot), slot, label(slot), item));
+      slots.add(new SlotView(kind(source, slot), slot, label(source, slot), item));
       evidence.append(slot).append(':')
           .append(item == null ? "-" : item.fingerprint() + ":" + item.amount()).append(';');
     }
     return new Snapshot(ItemSnapshotCodec.sha256Hex(evidence.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)), slots);
   }
 
-  Snapshot offlineSnapshot() {
+  Snapshot offlineSnapshot(InventorySource source) {
     List<SlotView> slots = new ArrayList<>();
-    for (int slot = 0; slot <= 40; slot++) {
-      slots.add(new SlotView(kind(slot), slot, label(slot), null));
+    int size = source == InventorySource.ENDER_CHEST ? 27 : 41;
+    for (int slot = 0; slot < size; slot++) {
+      slots.add(new SlotView(kind(source, slot), slot, label(source, slot), null));
     }
     return new Snapshot("", slots);
   }
 
   Withdrawal withdraw(
-      PlayerInventory inventory,
+      Inventory inventory,
+      InventorySource source,
       String expectedRevision,
       int slot,
       Integer containerSlot,
       String fingerprint,
       int quantity) {
-    if (!snapshot(inventory).revision().equals(expectedRevision)) {
+    if (!snapshot(inventory, source).revision().equals(expectedRevision)) {
       throw new ServiceException("inventory_changed", "Inventory changed; refresh and select the item again");
     }
     if (slot < 0 || slot >= inventory.getSize() || quantity <= 0) {
@@ -83,12 +85,13 @@ final class InventoryService {
   }
 
   ItemStack resolve(
-      PlayerInventory inventory,
+      Inventory inventory,
+      InventorySource source,
       String expectedRevision,
       int slot,
       Integer containerSlot,
       String fingerprint) {
-    if (!snapshot(inventory).revision().equals(expectedRevision)) {
+    if (!snapshot(inventory, source).revision().equals(expectedRevision)) {
       throw new ServiceException("inventory_changed", "Inventory changed; refresh and select the item again");
     }
     if (slot < 0 || slot >= inventory.getSize()) {
@@ -141,18 +144,34 @@ final class InventoryService {
         meta != null && meta.hasLore() ? List.copyOf(meta.getLore()) : List.of(),
         stack.getEnchantments().entrySet().stream()
             .map(entry -> entry.getKey().getKey().getKey() + " " + entry.getValue()).toList(),
+        meta != null && meta.hasCustomModelData() ? meta.getCustomModelData() : null,
+        resolveItemModel(meta),
         contents,
         null);
   }
 
-  private String kind(int slot) {
+  private String resolveItemModel(ItemMeta meta) {
+    if (meta == null) {
+      return null;
+    }
+    try {
+      Object value = meta.getClass().getMethod("getItemModel").invoke(meta);
+      return value == null ? null : value.toString();
+    } catch (ReflectiveOperationException ignored) {
+      return null;
+    }
+  }
+
+  private String kind(InventorySource source, int slot) {
+    if (source == InventorySource.ENDER_CHEST) return "ENDER_CHEST";
     if (slot < 9) return "HOTBAR";
     if (slot < 36) return "MAIN";
     if (slot == 40) return "OFFHAND";
     return "ARMOR";
   }
 
-  private String label(int slot) {
+  private String label(InventorySource source, int slot) {
+    if (source == InventorySource.ENDER_CHEST) return "末影箱第 " + (slot + 1) + " 格";
     if (slot < 9) return "快捷栏第 " + (slot + 1) + " 格";
     if (slot < 36) return "背包第 " + (slot + 1) + " 格";
     if (slot == 40) return "副手";
@@ -162,6 +181,14 @@ final class InventoryService {
   record Snapshot(String revision, List<SlotView> slots) {}
   record SlotView(String kind, int index, String label, ItemView item) {}
   record Withdrawal(ItemStack item, Runnable restore) {}
+  enum InventorySource {
+    PLAYER,
+    ENDER_CHEST;
+
+    static InventorySource parse(String value) {
+      return "ENDER_CHEST".equalsIgnoreCase(String.valueOf(value)) ? ENDER_CHEST : PLAYER;
+    }
+  }
   record ItemView(
       String material,
       String name,
@@ -170,10 +197,13 @@ final class InventoryService {
       String fingerprint,
       List<String> lore,
       List<String> enchantments,
+      Integer customModelData,
+      String itemModel,
       List<ItemView> containerItems,
       Integer containerSlot) {
     ItemView withContainerSlot(int slot) {
-      return new ItemView(material, name, amount, maxStackSize, fingerprint, lore, enchantments, containerItems, slot);
+      return new ItemView(material, name, amount, maxStackSize, fingerprint, lore, enchantments,
+          customModelData, itemModel, containerItems, slot);
     }
   }
 }

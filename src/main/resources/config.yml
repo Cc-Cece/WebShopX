@@ -37,6 +37,10 @@ webshop:
       # 允许跨域的域名列表。使用 "*" 允许所有域名跨域访问。
       allowed-origins:
         - "*"
+  textures:
+    # 按 priority 从高到低覆盖。支持标准资源包 ZIP 或已解压目录。
+    # 相对路径从服务器根目录解析；列表留空时自动扫描 plugins/WebShopX/resourcepacks。
+    resource-packs: []
   business-ledger:
     enabled: true
     directory: logs/business-ledger

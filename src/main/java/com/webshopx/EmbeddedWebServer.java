@@ -84,6 +84,7 @@ class EmbeddedWebServer {
   private final PluginUpdateService pluginUpdateService;
   private final Gson gson;
   private final HttpClient textureHttpClient;
+  private final ResourcePackTextureManager resourcePackTextureManager;
   private final ItemSnapshotCodec inventoryItemCodec = new ItemSnapshotCodec();
   private final InventoryService inventoryService = new InventoryService(inventoryItemCodec);
   private final InventoryOperationService inventoryOperationService;
@@ -153,6 +154,7 @@ class EmbeddedWebServer {
         .connectTimeout(Duration.ofSeconds(10))
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build();
+    this.resourcePackTextureManager = new ResourcePackTextureManager(plugin);
     this.localeCenterService = new LocaleCenterService(plugin, () -> this.webUserRoot);
   }
 
@@ -160,6 +162,7 @@ class EmbeddedWebServer {
     stop();
     this.staticRoot = staticRoot.toAbsolutePath().normalize();
     this.webUserRoot = webUserRoot.toAbsolutePath().normalize();
+    resourcePackTextureManager.reload();
     PluginSettings.EmbeddedWebSettings webSettings = settingsSupplier.get().embeddedWebSettings();
     PluginSettings.ServerMode serverMode = settingsSupplier.get().serverMode();
 
@@ -309,6 +312,7 @@ class EmbeddedWebServer {
     }
     staticRoot = null;
     webUserRoot = null;
+    resourcePackTextureManager.close();
   }
 
   private void handleHealth(HttpExchange exchange) throws IOException {
@@ -2700,14 +2704,18 @@ class EmbeddedWebServer {
     }
     withServiceHandling(exchange, () -> {
       AuthService.AuthUser user = requireAuth(exchange, null);
+      InventoryService.InventorySource source = InventoryService.InventorySource.parse(
+          parseQuery(exchange).get("inventory"));
       JsonObject response;
       try {
-        response = awaitPlayerTask(user.boundUuid(), player -> inventorySnapshotJson(player));
+        response = awaitPlayerTask(
+            user.boundUuid(),
+            player -> inventorySnapshotJson(player, source));
       } catch (ServiceException exception) {
         if (!"player_offline".equals(exception.code())) {
           throw exception;
         }
-        response = inventorySnapshotJson(inventoryService.offlineSnapshot(), false);
+        response = inventorySnapshotJson(inventoryService.offlineSnapshot(source), false, source);
       }
       sendJson(exchange, 200, response);
     });
@@ -2731,6 +2739,7 @@ class EmbeddedWebServer {
       String action = getOptionalString(payload, "action").orElse("LIST").toUpperCase(Locale.ROOT);
       boolean auction = "AUCTION".equals(action);
       String idempotencyKey = getString(payload, "idempotencyKey");
+      InventoryService.InventorySource source = inventorySource(payload);
       InventoryOperationService.Existing existing = inventoryOperationService.find(user.id(), idempotencyKey);
       if (existing != null) {
         sendJson(exchange, 200, inventoryExistingJson(existing));
@@ -2747,7 +2756,8 @@ class EmbeddedWebServer {
         Integer containerSlot = payload.has("containerSlot") && !payload.get("containerSlot").isJsonNull()
             ? payload.get("containerSlot").getAsInt() : null;
         InventoryService.Withdrawal withdrawal = inventoryService.withdraw(
-            player.getInventory(), revision, slot, containerSlot, fingerprint, quantity);
+            playerInventory(player, source), source, revision, slot, containerSlot,
+            fingerprint, quantity);
         try {
           JsonObject dynamicParams = payload.has("dynamicParams") && payload.get("dynamicParams").isJsonObject()
               ? payload.getAsJsonObject("dynamicParams") : new JsonObject();
@@ -2801,10 +2811,12 @@ class EmbeddedWebServer {
       int quantity = (int) getLong(payload, "quantity", 1L);
       String fingerprint = getString(payload, "fingerprint");
       String revision = getString(payload, "revision");
+      InventoryService.InventorySource source = inventorySource(payload);
       Integer containerSlot = payload.has("containerSlot") && !payload.get("containerSlot").isJsonNull()
           ? payload.get("containerSlot").getAsInt() : null;
       ItemStack item = awaitPlayerTask(user.boundUuid(), player ->
-          inventoryService.resolve(player.getInventory(), revision, slot, containerSlot, fingerprint));
+          inventoryService.resolve(
+              playerInventory(player, source), source, revision, slot, containerSlot, fingerprint));
       JsonArray matches = new JsonArray();
       if (!item.hasItemMeta()) {
         for (ProductService.ProductView product : productService.listActiveProductsForUser(user.id())) {
@@ -2862,6 +2874,7 @@ class EmbeddedWebServer {
       Long expectedBuyerTotal = getOptionalPositiveLong(payload, "expectedBuyerTotal");
       Integer containerSlot = payload.has("containerSlot") && !payload.get("containerSlot").isJsonNull()
           ? payload.get("containerSlot").getAsInt() : null;
+      InventoryService.InventorySource source = inventorySource(payload);
       InventoryOperationService.Existing existing = inventoryOperationService.find(user.id(), idempotencyKey);
       if (existing != null) {
         sendJson(exchange, 200, inventoryExistingJson(existing));
@@ -2874,7 +2887,8 @@ class EmbeddedWebServer {
       try {
         response = awaitPlayerTask(user.boundUuid(), player -> {
         InventoryService.Withdrawal withdrawal = inventoryService.withdraw(
-            player.getInventory(), revision, slot, containerSlot, fingerprint, quantity);
+            playerInventory(player, source), source, revision, slot, containerSlot,
+            fingerprint, quantity);
         try {
           JsonObject resultJson = new JsonObject();
           if (targetId.startsWith("official:")) {
@@ -2910,11 +2924,19 @@ class EmbeddedWebServer {
     });
   }
 
-  private JsonObject inventorySnapshotJson(Player player) {
-    return inventorySnapshotJson(inventoryService.snapshot(player.getInventory()), true);
+  private JsonObject inventorySnapshotJson(
+      Player player,
+      InventoryService.InventorySource source) {
+    return inventorySnapshotJson(
+        inventoryService.snapshot(playerInventory(player, source), source),
+        true,
+        source);
   }
 
-  private JsonObject inventorySnapshotJson(InventoryService.Snapshot snapshot, boolean online) {
+  private JsonObject inventorySnapshotJson(
+      InventoryService.Snapshot snapshot,
+      boolean online,
+      InventoryService.InventorySource source) {
     JsonObject response = new JsonObject();
     JsonArray slots = new JsonArray();
     for (InventoryService.SlotView slot : snapshot.slots()) {
@@ -2930,10 +2952,24 @@ class EmbeddedWebServer {
       slots.add(row);
     }
     response.addProperty("online", online);
+    response.addProperty("inventory", source.name());
     response.addProperty("revision", snapshot.revision());
-    response.addProperty("refreshedAt", TimeSupport.utcNow().toString());
+    response.addProperty("refreshedAt", java.time.Instant.now().toString());
     response.add("slots", slots);
     return response;
+  }
+
+  private InventoryService.InventorySource inventorySource(JsonObject payload) {
+    return InventoryService.InventorySource.parse(
+        getOptionalString(payload, "inventory").orElse("PLAYER"));
+  }
+
+  private org.bukkit.inventory.Inventory playerInventory(
+      Player player,
+      InventoryService.InventorySource source) {
+    return source == InventoryService.InventorySource.ENDER_CHEST
+        ? player.getEnderChest()
+        : player.getInventory();
   }
 
   private JsonObject inventoryItemJson(InventoryService.ItemView item) {
@@ -2945,6 +2981,12 @@ class EmbeddedWebServer {
     view.addProperty("fingerprint", item.fingerprint());
     view.add("lore", gson.toJsonTree(item.lore()));
     view.add("enchantments", gson.toJsonTree(item.enchantments()));
+    if (item.customModelData() != null) {
+      view.addProperty("customModelData", item.customModelData());
+    }
+    if (item.itemModel() != null) {
+      view.addProperty("itemModel", item.itemModel());
+    }
     view.addProperty("recyclable", true);
     view.addProperty("listable", true);
     JsonArray contents = new JsonArray();
@@ -5252,6 +5294,10 @@ class EmbeddedWebServer {
     String relative = path.startsWith("/textures/")
         ? path.substring("/textures/".length())
         : "";
+    if (relative.startsWith("resolved/")) {
+      handleResolvedTexture(exchange, relative.substring("resolved/".length()));
+      return;
+    }
     if (!relative.matches("(?:item|block)/[a-z0-9_./-]+\\.png")
         || relative.contains("..")) {
       sendJson(exchange, 400, errorJson("bad_request", "Invalid texture path"));
@@ -5285,6 +5331,43 @@ class EmbeddedWebServer {
     exchange.sendResponseHeaders(200, content.length);
     try (OutputStream outputStream = exchange.getResponseBody()) {
       outputStream.write(content);
+    }
+  }
+
+  private void handleResolvedTexture(HttpExchange exchange, String relative) throws IOException {
+    if (!relative.matches("[a-z0-9_.-]+/[a-z0-9_./-]+\\.png") || relative.contains("..")) {
+      sendJson(exchange, 400, errorJson("bad_request", "Invalid resolved texture path"));
+      return;
+    }
+    String withoutExtension = relative.substring(0, relative.length() - 4);
+    int slash = withoutExtension.indexOf('/');
+    String itemId = withoutExtension.substring(0, slash) + ":"
+        + withoutExtension.substring(slash + 1);
+    Integer customModelData = null;
+    String rawCmd = parseQuery(exchange).get("cmd");
+    String explicitModel = parseQuery(exchange).get("model");
+    if (rawCmd != null && rawCmd.matches("\\d{1,10}")) {
+      try {
+        customModelData = Integer.valueOf(rawCmd);
+      } catch (NumberFormatException ignored) {
+        customModelData = null;
+      }
+    }
+    Optional<ResourcePackTextureManager.ResolvedTexture> resolved =
+        resourcePackTextureManager.resolve(itemId, customModelData, explicitModel);
+    if (resolved.isEmpty()) {
+      sendJson(exchange, 404, errorJson("not_found", "Resolved texture not found"));
+      return;
+    }
+    ResourcePackTextureManager.ResolvedTexture texture = resolved.get();
+    exchange.getResponseHeaders().set("Content-Type", "image/png");
+    exchange.getResponseHeaders().set("Cache-Control", "public, max-age=3600");
+    exchange.getResponseHeaders().set("ETag", "\"" + texture.revision() + "\"");
+    exchange.getResponseHeaders().set("X-WebShopX-Texture-Source", texture.source());
+    applyCorsHeaders(exchange);
+    exchange.sendResponseHeaders(200, texture.bytes().length);
+    try (OutputStream outputStream = exchange.getResponseBody()) {
+      outputStream.write(texture.bytes());
     }
   }
 
