@@ -549,3 +549,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS uniq_inventory_operation_key
 CREATE INDEX IF NOT EXISTS idx_inventory_operation_user_time
   ON inventory_operations (user_id, created_at);
 
+CREATE TABLE IF NOT EXISTS inventory_read_snapshots (
+  player_uuid TEXT NOT NULL,
+  inventory_source TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  captured_epoch_ms INTEGER NOT NULL,
+  captured_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (player_uuid, inventory_source)
+);
+CREATE INDEX IF NOT EXISTS idx_inventory_read_snapshot_captured
+  ON inventory_read_snapshots (captured_epoch_ms);
+

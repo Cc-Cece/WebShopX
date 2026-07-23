@@ -58,6 +58,7 @@ public class WebShopPlugin extends JavaPlugin {
   private AdminService adminService;
   private AdminAuditService adminAuditService;
   private LeaderboardService leaderboardService;
+  private InventoryReadSnapshotService inventoryReadSnapshotService;
   private EmbeddedWebServer embeddedWebServer;
   private RelayConnectorService relayConnectorService;
   private RelaySetupService relaySetupService;
@@ -97,6 +98,10 @@ public class WebShopPlugin extends JavaPlugin {
       enforceDatabaseModeGuard();
       initializeDatabase();
       runtimeConfigService = new RuntimeConfigService(databaseManager);
+      inventoryReadSnapshotService = new InventoryReadSnapshotService(
+          databaseManager,
+          new com.google.gson.GsonBuilder().disableHtmlEscaping().create(),
+          this);
       boolean migratedLegacyConfig = runtimeConfigService.bootstrapFromLegacyConfigIfNeeded(settings);
       if (migratedLegacyConfig || runtimeConfigService.isLegacyMigrationCompleted()) {
         pruneLegacyBusinessConfigAndBackup();
@@ -189,7 +194,8 @@ public class WebShopPlugin extends JavaPlugin {
           runtimeConfigService,
           homepageService,
           clusterEventBusService,
-          bStatsTelemetryService);
+          bStatsTelemetryService,
+          inventoryReadSnapshotService);
 
       // Products are managed via admin backend; no seed import from config.
       adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());
@@ -206,7 +212,11 @@ public class WebShopPlugin extends JavaPlugin {
               schedulerBridge),
           this);
       getServer().getPluginManager().registerEvents(
-          new PlayerQuitListener(this, playerPresenceService, schedulerBridge),
+          new PlayerQuitListener(
+              this,
+              playerPresenceService,
+              schedulerBridge,
+              inventoryReadSnapshotService),
           this);
       getServer().getPluginManager().registerEvents(
           new MarketGuiListener(marketGuiService, marketService, messageService, schedulerBridge),

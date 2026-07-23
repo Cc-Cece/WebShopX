@@ -58,6 +58,7 @@ class SchemaManager {
     resetMarketTagsV2IfNeeded(connection);
     createMarketTrades(connection);
     createInventoryOperations(connection);
+    createInventoryReadSnapshots(connection);
     migrateMarketTrades(connection);
     createMarketBids(connection);
     migrateMarketBids(connection);
@@ -1540,6 +1541,20 @@ class SchemaManager {
           KEY idx_inventory_operation_user_time (user_id, created_at),
           CONSTRAINT fk_inventory_operation_user
             FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """);
+  }
+
+  private void createInventoryReadSnapshots(Connection connection) throws SQLException {
+    execute(connection, """
+        CREATE TABLE IF NOT EXISTS inventory_read_snapshots (
+          player_uuid CHAR(36) NOT NULL,
+          inventory_source VARCHAR(24) NOT NULL,
+          snapshot_json LONGTEXT NOT NULL,
+          captured_epoch_ms BIGINT NOT NULL,
+          captured_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (player_uuid, inventory_source),
+          KEY idx_inventory_read_snapshot_captured (captured_epoch_ms)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """);
   }

@@ -82,11 +82,13 @@ class EmbeddedWebServer {
   private final ClusterEventBusService clusterEventBusService;
   private final BStatsTelemetryService bStatsTelemetryService;
   private final PluginUpdateService pluginUpdateService;
+  private final InventoryReadSnapshotService inventoryReadSnapshotService;
   private final Gson gson;
   private final HttpClient textureHttpClient;
   private final ResourcePackTextureManager resourcePackTextureManager;
   private final ItemSnapshotCodec inventoryItemCodec = new ItemSnapshotCodec();
   private final InventoryService inventoryService = new InventoryService(inventoryItemCodec);
+  private final InventorySnapshotJsonCodec inventorySnapshotJsonCodec;
   private final InventoryOperationService inventoryOperationService;
   private static final int MATERIAL_ICON_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
   private static final Set<String> MATERIAL_ICON_ALLOWED_EXTENSIONS =
@@ -124,7 +126,8 @@ class EmbeddedWebServer {
       RuntimeConfigService runtimeConfigService,
       HomepageService homepageService,
       ClusterEventBusService clusterEventBusService,
-      BStatsTelemetryService bStatsTelemetryService) {
+      BStatsTelemetryService bStatsTelemetryService,
+      InventoryReadSnapshotService inventoryReadSnapshotService) {
     this.plugin = plugin;
     this.schedulerBridge = schedulerBridge;
     this.databaseManager = databaseManager;
@@ -148,8 +151,10 @@ class EmbeddedWebServer {
     this.homepageService = homepageService;
     this.clusterEventBusService = clusterEventBusService;
     this.bStatsTelemetryService = bStatsTelemetryService;
+    this.inventoryReadSnapshotService = inventoryReadSnapshotService;
     this.pluginUpdateService = new PluginUpdateService(plugin);
     this.gson = new GsonBuilder().disableHtmlEscaping().create();
+    this.inventorySnapshotJsonCodec = new InventorySnapshotJsonCodec(gson);
     this.textureHttpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(10))
         .followRedirects(HttpClient.Redirect.NORMAL)
@@ -2715,7 +2720,7 @@ class EmbeddedWebServer {
         if (!"player_offline".equals(exception.code())) {
           throw exception;
         }
-        response = inventorySnapshotJson(inventoryService.offlineSnapshot(source), false, source);
+        response = offlineInventorySnapshotJson(user.boundUuid(), source);
       }
       sendJson(exchange, 200, response);
     });
@@ -2927,36 +2932,59 @@ class EmbeddedWebServer {
   private JsonObject inventorySnapshotJson(
       Player player,
       InventoryService.InventorySource source) {
-    return inventorySnapshotJson(
-        inventoryService.snapshot(playerInventory(player, source), source),
-        true,
-        source);
+    InventoryService.Snapshot snapshot =
+        inventoryService.snapshot(playerInventory(player, source), source);
+    UUID playerUuid = player.getUniqueId();
+    schedulerBridge.runAsync(() -> {
+      try {
+        inventoryReadSnapshotService.save(playerUuid, source, snapshot);
+      } catch (Exception exception) {
+        plugin.getLogger().warning(
+            "Could not update inventory read snapshot: " + exception.getMessage());
+      }
+    });
+    return inventorySnapshotJson(snapshot, true, source);
   }
 
   private JsonObject inventorySnapshotJson(
       InventoryService.Snapshot snapshot,
       boolean online,
       InventoryService.InventorySource source) {
-    JsonObject response = new JsonObject();
-    JsonArray slots = new JsonArray();
-    for (InventoryService.SlotView slot : snapshot.slots()) {
-      JsonObject row = new JsonObject();
-      row.addProperty("kind", slot.kind());
-      row.addProperty("index", slot.index());
-      row.addProperty("label", slot.label());
-      if (slot.item() == null) {
-        row.add("item", JsonNull.INSTANCE);
-      } else {
-        row.add("item", inventoryItemJson(slot.item()));
-      }
-      slots.add(row);
-    }
+    JsonObject response = inventorySnapshotJsonCodec.encode(snapshot);
     response.addProperty("online", online);
+    response.addProperty("readOnly", !online);
+    response.addProperty("snapshotSource", online ? "LIVE" : "NONE");
     response.addProperty("inventory", source.name());
     response.addProperty("revision", snapshot.revision());
-    response.addProperty("refreshedAt", java.time.Instant.now().toString());
-    response.add("slots", slots);
+    String now = java.time.Instant.now().toString();
+    response.addProperty("refreshedAt", now);
+    response.addProperty("capturedAt", now);
     return response;
+  }
+
+  private JsonObject offlineInventorySnapshotJson(
+      UUID playerUuid,
+      InventoryService.InventorySource source) {
+    Optional<InventoryReadSnapshotService.StoredSnapshot> stored =
+        inventoryReadSnapshotService.find(playerUuid, source);
+    if (stored.isEmpty()) {
+      return inventorySnapshotJson(inventoryService.offlineSnapshot(source), false, source);
+    }
+    try {
+      InventoryReadSnapshotService.StoredSnapshot value = stored.get();
+      JsonObject response = JsonParser.parseString(value.snapshotJson()).getAsJsonObject();
+      response.addProperty("online", false);
+      response.addProperty("readOnly", true);
+      response.addProperty("snapshotSource", "LAST_ONLINE");
+      response.addProperty("inventory", source.name());
+      response.addProperty("capturedAt", value.capturedAt().toString());
+      response.addProperty("refreshedAt", value.capturedAt().toString());
+      return response;
+    } catch (Exception exception) {
+      plugin.getLogger().warning(
+          "Could not read inventory snapshot for " + playerUuid + ": " + exception.getMessage());
+      return inventorySnapshotJson(inventoryService.offlineSnapshot(source), false, source);
+    }
   }
 
   private InventoryService.InventorySource inventorySource(JsonObject payload) {
@@ -2970,34 +2998,6 @@ class EmbeddedWebServer {
     return source == InventoryService.InventorySource.ENDER_CHEST
         ? player.getEnderChest()
         : player.getInventory();
-  }
-
-  private JsonObject inventoryItemJson(InventoryService.ItemView item) {
-    JsonObject view = new JsonObject();
-    view.addProperty("material", item.material());
-    view.addProperty("name", item.name());
-    view.addProperty("amount", item.amount());
-    view.addProperty("maxStackSize", item.maxStackSize());
-    view.addProperty("fingerprint", item.fingerprint());
-    view.add("lore", gson.toJsonTree(item.lore()));
-    view.add("enchantments", gson.toJsonTree(item.enchantments()));
-    if (item.customModelData() != null) {
-      view.addProperty("customModelData", item.customModelData());
-    }
-    if (item.itemModel() != null) {
-      view.addProperty("itemModel", item.itemModel());
-    }
-    view.addProperty("recyclable", true);
-    view.addProperty("listable", true);
-    JsonArray contents = new JsonArray();
-    for (InventoryService.ItemView child : item.containerItems()) {
-      JsonObject entry = new JsonObject();
-      entry.addProperty("slot", child.containerSlot());
-      entry.add("item", inventoryItemJson(child));
-      contents.add(entry);
-    }
-    if (!contents.isEmpty()) view.add("containerItems", contents);
-    return view;
   }
 
   private JsonObject inventoryExistingJson(InventoryOperationService.Existing existing) {
