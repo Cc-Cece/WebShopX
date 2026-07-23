@@ -60,6 +60,7 @@ public class WebShopPlugin extends JavaPlugin {
   private LeaderboardService leaderboardService;
   private EmbeddedWebServer embeddedWebServer;
   private RelayConnectorService relayConnectorService;
+  private RelaySetupService relaySetupService;
   private Path webStaticRoot;
   private Path webUserRoot;
   private StaticAssetInstaller staticAssetInstaller;
@@ -80,6 +81,7 @@ public class WebShopPlugin extends JavaPlugin {
   public void onEnable() {
     refreshMainConfig();
     schedulerBridge = SchedulerBridge.create(this);
+    relaySetupService = new RelaySetupService(this, schedulerBridge);
 
     try {
       settings = PluginSettings.fromConfig(getConfig());
@@ -564,6 +566,32 @@ public class WebShopPlugin extends JavaPlugin {
     } catch (Exception exception) {
       throw new IllegalStateException("Failed to start embedded HTTP server", exception);
     }
+  }
+
+  RelaySetupService relaySetupService() {
+    return relaySetupService;
+  }
+
+  void saveRelayAccessKey(String accessKey) {
+    if (accessKey == null || accessKey.isBlank()) {
+      throw new IllegalArgumentException("Relay access key is empty");
+    }
+    getConfig().set("relay.access-key", accessKey.trim());
+    saveConfig();
+    reloadRuntimeConfig();
+  }
+
+  void switchServerMode(String mode) {
+    String normalized = mode == null ? "" : mode.trim().toLowerCase(Locale.ROOT);
+    if (!normalized.equals("relay") && !normalized.equals("internal") && !normalized.equals("external")) {
+      throw new IllegalArgumentException("Unsupported server mode");
+    }
+    if (normalized.equals("relay") && settings.relaySettings().accessKey().isBlank()) {
+      throw new IllegalStateException("Relay access key is not configured");
+    }
+    getConfig().set("webshop.server-mode", normalized);
+    saveConfig();
+    reloadRuntimeConfig();
   }
 
   private void restartRelayConnector() {

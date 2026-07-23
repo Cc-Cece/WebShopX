@@ -66,7 +66,7 @@ class RelayConnectorService implements AutoCloseable {
     this.reconnectMaxSeconds = settings.reconnectMaxSeconds();
     this.rpcTimeoutSeconds = settings.rpcTimeoutSeconds();
     loadCachedConnectionPolicy();
-    this.installationId = loadInstallationId();
+    this.installationId = loadInstallationId(plugin);
     this.httpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(Math.max(2, rpcTimeoutSeconds)))
         .build();
@@ -253,7 +253,7 @@ class RelayConnectorService implements AutoCloseable {
     return URI.create(scheme + rest + "/connector/ws");
   }
 
-  private String loadInstallationId() {
+  static String loadInstallationId(JavaPlugin plugin) {
     Path file = plugin.getDataFolder().toPath().resolve("relay-installation-id");
     try {
       if (Files.isRegularFile(file)) {

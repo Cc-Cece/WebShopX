@@ -92,6 +92,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       case "claim" -> handleClaim(sender, args);
       case "mailbox" -> handleMailbox(sender, args);
       case "reload" -> handleReload(sender);
+      case "mode" -> handleMode(sender, args);
       case "recharge" -> handleRecharge(sender, args);
       case "gamecoin" -> handleWalletDelta(sender, args, CurrencyType.GAME_COIN);
       case "shopcoin" -> handleWalletDelta(sender, args, CurrencyType.SHOP_COIN);
@@ -119,6 +120,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       options.add("mailbox");
       if (sender.hasPermission("webshop.admin")) {
         options.add("reload");
+        options.add("mode");
         options.add("recharge");
         options.add("gamecoin");
         options.add("shopcoin");
@@ -173,6 +175,19 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       return List.of();
     }
 
+    if (top.equals("mode") && sender.hasPermission("webshop.admin")) {
+      if (args.length == 2) {
+        return filterByPrefix(List.of("setup", "switch"), args[1]);
+      }
+      if (args.length == 3 && args[1].equalsIgnoreCase("setup")) {
+        return filterByPrefix(List.of("relay"), args[2]);
+      }
+      if (args.length == 3 && args[1].equalsIgnoreCase("switch")) {
+        return filterByPrefix(List.of("relay", "internal", "external"), args[2]);
+      }
+      return List.of();
+    }
+
     if ((top.equals("gamecoin") || top.equals("shopcoin")) && sender.hasPermission("webshop.admin")) {
       if (args.length == 2) {
         return filterByPrefix(plugin.getServer().getOnlinePlayers().stream()
@@ -219,6 +234,7 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       sender.sendMessage(msg(sender, "command.home.not_configured"));
       return true;
     }
+
     String shopUrl = homepage.has("homeUrl") ? homepage.get("homeUrl").getAsString().trim() : "";
     if (shopUrl.startsWith("/")) {
       String publicUrl = settingsSupplier.get().embeddedWebSettings().publicUrl();
@@ -428,6 +444,54 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       return handleRechargeFix(sender, args);
     }
     sender.sendMessage(msg(sender, "command.unknown_subcommand"));
+    return true;
+  }
+
+  private boolean handleMode(CommandSender sender, String[] args) {
+    if (!sender.hasPermission("webshop.admin")) {
+      sender.sendMessage(msg(sender, "command.common.no_permission"));
+      return true;
+    }
+    if (args.length == 3
+        && args[1].equalsIgnoreCase("setup")
+        && args[2].equalsIgnoreCase("relay")) {
+      if (!(sender instanceof Player player)) {
+        sender.sendMessage(msg(sender, "command.relay.player_required"));
+        return true;
+      }
+      String endpoint = settingsSupplier.get().relaySettings().endpoint();
+      boolean started = plugin.relaySetupService().start(endpoint, event -> {
+        if (event.status().equals("created")) {
+          player.sendMessage(Component.text(msg(player, "command.relay.open_authorization"), NamedTextColor.AQUA)
+              .clickEvent(ClickEvent.openUrl(event.authorizationUrl())));
+          player.sendMessage(msg(player, "command.relay.waiting"));
+        } else if (event.status().equals("authorized")) {
+          try {
+            plugin.saveRelayAccessKey(event.accessKey());
+            player.sendMessage(msg(player, "command.relay.saved"));
+            player.sendMessage(msg(player, "command.relay.switch_hint"));
+          } catch (Exception exception) {
+            player.sendMessage(msg(player, "command.relay.failed", Map.of("reason", exception.getMessage())));
+          }
+        } else {
+          player.sendMessage(msg(player, "command.relay.failed", Map.of("reason", event.error() == null ? "unknown error" : event.error())));
+        }
+      });
+      if (!started) {
+        sender.sendMessage(msg(sender, "command.relay.already_running"));
+      }
+      return true;
+    }
+    if (args.length == 3 && args[1].equalsIgnoreCase("switch")) {
+      try {
+        plugin.switchServerMode(args[2]);
+        sender.sendMessage(msg(sender, "command.relay.mode_changed", Map.of("mode", args[2].toLowerCase(Locale.ROOT))));
+      } catch (Exception exception) {
+        sender.sendMessage(msg(sender, "command.relay.failed", Map.of("reason", exception.getMessage())));
+      }
+      return true;
+    }
+    sender.sendMessage(msg(sender, "command.relay.usage"));
     return true;
   }
 

@@ -1,4 +1,14 @@
 command:
+  relay:
+    usage: "§eUsage: /webshopx mode setup relay or /webshopx mode switch <relay|internal|external>"
+    player_required: "§cThe secure authorization link is only sent to an in-game administrator."
+    open_authorization: "[WebShopX] Click to sign in to Relay and authorize this server"
+    waiting: "§7This request expires in 10 minutes. Waiting for web authorization..."
+    saved: "§aThe Relay user access key was saved securely."
+    switch_hint: "§eTo enable Relay, run /ws mode switch relay"
+    already_running: "§eA Relay authorization flow is already running."
+    mode_changed: "§aWebShopX deployment mode changed to {mode}."
+    failed: "§cRelay setup failed: {reason}"
   unknown_subcommand: "§cUnknown subcommand. Use /webshopx help for help."
   home:
     open_link: "[WebShopX] Click here to open the server homepage"

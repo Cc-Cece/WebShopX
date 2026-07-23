@@ -1,4 +1,14 @@
 command:
+  relay:
+    usage: "§e用法：/webshopx mode setup relay 或 /webshopx mode switch <relay|internal|external>"
+    player_required: "§c安全授权链接仅发送给游戏内管理员，请在游戏内执行此命令。"
+    open_authorization: "[WebShopX] 点击登录 Relay 并授权此服务器"
+    waiting: "§7授权请求将在 10 分钟后过期，正在等待网页确认……"
+    saved: "§aRelay 用户访问密钥已安全保存。"
+    switch_hint: "§e如需启用 Relay，请执行 /ws mode switch relay"
+    already_running: "§e已有一个 Relay 授权向导正在进行。"
+    mode_changed: "§aWebShopX 部署模式已切换为 {mode}。"
+    failed: "§cRelay 设置失败：{reason}"
   unknown_subcommand: "§c未知子命令，请使用 /webshopx help 查看帮助。"
   home:
     open_link: "[WebShopX] 点击这里打开服务器主页"
