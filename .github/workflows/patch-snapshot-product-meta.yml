@@ -109,3 +109,5 @@ jobs:
           git add src/main/java/com/webshopx/OfficialShopInventoryV1.java src/main/java/com/webshopx/EmbeddedWebServer.java
           git commit -m "feat: expose official snapshot item metadata"
           git push origin HEAD:agent/official-shop-inventory-v1
+
+# trigger-v2
