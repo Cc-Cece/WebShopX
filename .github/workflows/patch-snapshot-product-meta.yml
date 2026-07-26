@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/official-shop-inventory-v1
+  pull_request:
+    branches:
+      - feat/webshopx-inventory-management
 
 permissions:
   contents: write
@@ -60,7 +63,7 @@ jobs:
         || product.commandTemplate() == null) {
       return null;
     }
-    String[] parts = product.commandTemplate().trim().split("\\\\s+");
+    String[] parts = product.commandTemplate().trim().split("\\s+");
     if (parts.length != 6
         || !INTERNAL_COMMAND.equalsIgnoreCase(parts[0])
         || !INTERNAL_SUBCOMMAND.equalsIgnoreCase(parts[1])
