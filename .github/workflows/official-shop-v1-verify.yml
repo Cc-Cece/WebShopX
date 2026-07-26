@@ -24,6 +24,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Compile and test
+        id: compile
         shell: bash
         run: |
           set +e
@@ -31,3 +32,10 @@ jobs:
           code=$?
           tail -n 220 build.log
           exit $code
+      - name: Upload verification log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-shop-v1-build-log
+          path: build.log
+          if-no-files-found: error
