@@ -1,0 +1,108 @@
+name: Patch Snapshot Product Metadata
+
+on:
+  push:
+    branches:
+      - agent/official-shop-inventory-v1
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/official-shop-inventory-v1
+          fetch-depth: 0
+      - name: Patch snapshot metadata exposure
+        shell: python
+        run: |
+          from pathlib import Path
+
+          bridge = Path('src/main/java/com/webshopx/OfficialShopInventoryV1.java')
+          text = bridge.read_text(encoding='utf-8')
+          static_marker = '''  private OfficialShopInventoryV1(
+'''
+          static_method = '''  static void enrichProductJson(JsonObject row, ProductService.ProductView product) {
+    OfficialShopInventoryV1 current = instance;
+    if (current == null || row == null || product == null) {
+      return;
+    }
+    current.addSnapshotProductJson(row, product);
+  }
+
+'''
+          if 'static void enrichProductJson' not in text:
+              if static_marker not in text:
+                  raise SystemExit('bridge constructor marker not found')
+              text = text.replace(static_marker, static_method + static_marker, 1)
+
+          private_marker = '''  private void saveSnapshot(ItemStack item, ItemSnapshotCodec.Snapshot snapshot) {
+'''
+          private_methods = '''  private void addSnapshotProductJson(JsonObject row, ProductService.ProductView product) {
+    String hash = snapshotHashFromProduct(product);
+    if (hash == null) {
+      return;
+    }
+    SnapshotRow snapshot = readSnapshot(hash);
+    if (snapshot == null) {
+      return;
+    }
+    row.addProperty("fulfillmentType", "ITEM_SNAPSHOT");
+    row.addProperty("itemHash", hash);
+    row.addProperty("itemMetaJson", snapshot.itemMetaJson());
+  }
+
+  private String snapshotHashFromProduct(ProductService.ProductView product) {
+    if (product.productType() != ProductService.ProductType.GIVE_CUSTOM_ITEM
+        || product.commandTemplate() == null) {
+      return null;
+    }
+    String[] parts = product.commandTemplate().trim().split("\\\\s+");
+    if (parts.length != 6
+        || !INTERNAL_COMMAND.equalsIgnoreCase(parts[0])
+        || !INTERNAL_SUBCOMMAND.equalsIgnoreCase(parts[1])
+        || !"{player}".equals(parts[2])
+        || !"%amount%".equals(parts[4])
+        || !"%order%".equals(parts[5])) {
+      return null;
+    }
+    String hash = parts[3].toLowerCase();
+    return hash.matches("[0-9a-f]{64}") ? hash : null;
+  }
+
+'''
+          if 'private void addSnapshotProductJson' not in text:
+              if private_marker not in text:
+                  raise SystemExit('bridge saveSnapshot marker not found')
+              text = text.replace(private_marker, private_methods + private_marker, 1)
+          bridge.write_text(text, encoding='utf-8')
+
+          web = Path('src/main/java/com/webshopx/EmbeddedWebServer.java')
+          text = web.read_text(encoding='utf-8')
+          marker = '''    row.addProperty("productType", product.productType().name());
+'''
+          addition = marker + '''    OfficialShopInventoryV1.enrichProductJson(row, product);
+'''
+          if 'OfficialShopInventoryV1.enrichProductJson(row, product);' not in text:
+              if marker not in text:
+                  raise SystemExit('product JSON marker not found')
+              text = text.replace(marker, addition, 1)
+          web.write_text(text, encoding='utf-8')
+      - name: Compile
+        run: |
+          chmod +x gradlew
+          ./gradlew compileJava --no-daemon -PtargetRuntime=1.20.6+
+      - name: Commit and push
+        shell: bash
+        run: |
+          if git diff --quiet -- src/main/java/com/webshopx/OfficialShopInventoryV1.java src/main/java/com/webshopx/EmbeddedWebServer.java; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main/java/com/webshopx/OfficialShopInventoryV1.java src/main/java/com/webshopx/EmbeddedWebServer.java
+          git commit -m "feat: expose official snapshot item metadata"
+          git push origin HEAD:agent/official-shop-inventory-v1
