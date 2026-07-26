@@ -4,6 +4,7 @@ import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.security.SecureRandom;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -11,6 +12,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -328,15 +330,15 @@ class OrderService {
   }
 
   private DeliveryTaskSpec buildDeliveryTaskSpec(ProductService.ProductView product, int quantity) {
-    ProductService.ProductType productType = product.productType();
-    if (productType == ProductService.ProductType.COMMAND) {
+    ProductService.FulfillmentType fulfillmentType = product.fulfillmentType();
+    if (fulfillmentType == ProductService.FulfillmentType.COMMAND) {
       return new DeliveryTaskSpec(
           DeliveryKind.COMMAND,
           product.commandTemplate(),
           null,
           quantity);
     }
-    if (productType == ProductService.ProductType.GIVE_ITEM) {
+    if (fulfillmentType == ProductService.FulfillmentType.MATERIAL_ITEM) {
       if (product.itemMaterial() == null) {
         throw new ServiceException("invalid_product", "Item material is missing");
       }
@@ -352,14 +354,7 @@ class OrderService {
           payloadJson,
           totalAmount);
     }
-    if (productType == ProductService.ProductType.GIVE_CUSTOM_ITEM) {
-      return new DeliveryTaskSpec(
-          DeliveryKind.COMMAND,
-          product.commandTemplate(),
-          null,
-          quantity);
-    }
-    if (productType == ProductService.ProductType.POTION_EFFECT) {
+    if (fulfillmentType == ProductService.FulfillmentType.POTION_EFFECT) {
       if (product.effectType() == null) {
         throw new ServiceException("invalid_product", "Potion effect type is missing");
       }
@@ -375,6 +370,22 @@ class OrderService {
           + "}";
       return new DeliveryTaskSpec(
           DeliveryKind.POTION_EFFECT,
+          "",
+          payloadJson,
+          quantity);
+    }
+    if (fulfillmentType == ProductService.FulfillmentType.ITEM_SNAPSHOT) {
+      ProductService.SnapshotView snapshot = productService.readSnapshot(product.id());
+      String payloadJson = "{\"itemHash\":\""
+          + snapshot.itemHash()
+          + "\",\"itemBlob\":\""
+          + Base64.getEncoder().encodeToString(snapshot.itemBlob())
+          + "\",\"itemMetaJsonBase64\":\""
+          + Base64.getEncoder().encodeToString(
+              snapshot.itemMetaJson().getBytes(StandardCharsets.UTF_8))
+          + "\"}";
+      return new DeliveryTaskSpec(
+          DeliveryKind.SNAPSHOT_ITEM,
           "",
           payloadJson,
           quantity);
@@ -629,6 +640,7 @@ class OrderService {
     return switch (productType) {
       case COMMAND, POTION_EFFECT -> DeliveryMode.CLAIM;
       case GIVE_ITEM,
+          SNAPSHOT_ITEM,
           GIVE_CUSTOM_ITEM,
           RECYCLE_ITEM,
           RECYCLE_COMMAND_ITEM,
@@ -1127,6 +1139,8 @@ class OrderService {
                  (SELECT COALESCE(SUM(mi.delivered_quantity), 0) FROM mailbox_items mi WHERE mi.user_id = o.user_id AND mi.source_type = 'ORDER' AND mi.source_ref = o.order_no)
                ) AS earned_quantity,
                oi.quantity, oi.unit_price,
+               (SELECT dq.payload_json FROM delivery_queue dq
+                WHERE dq.order_id = o.id ORDER BY dq.id ASC LIMIT 1) AS delivery_payload_json,
                p.sku, p.title, p.remark, p.product_type, p.item_material, p.item_amount,
                p.effect_type, p.effect_seconds, p.effect_amplifier,
                gv.code AS group_buy_voucher_code,
@@ -1176,7 +1190,7 @@ class OrderService {
         SELECT mt.id AS trade_id, mt.listing_id, mt.currency, mt.unit_price, mt.quantity AS trade_quantity,
                mt.total_price, mt.buyer_total,
                mt.status AS trade_status, mt.claim_token, mt.refund_deadline, mt.refunded_at, mt.created_at,
-               ml.item_material, ml.remark, ml.buyer_uuid,
+               ml.item_material, ml.item_meta_json, ml.remark, ml.buyer_uuid,
                md.status AS delivery_status, md.delivered_at, md.delivered_quantity
         FROM market_trades mt
         JOIN market_listings ml ON ml.id = mt.listing_id
@@ -1339,6 +1353,8 @@ class OrderService {
                  ) AS earned_quantity,
                  u.username, u.bound_uuid,
                  oi.quantity, oi.unit_price,
+                 (SELECT dq.payload_json FROM delivery_queue dq
+                  WHERE dq.order_id = o.id ORDER BY dq.id ASC LIMIT 1) AS delivery_payload_json,
                  p.sku, p.title, p.remark, p.product_type, p.item_material, p.item_amount,
                  p.effect_type, p.effect_seconds, p.effect_amplifier,
                  gv.code AS group_buy_voucher_code,
@@ -2231,6 +2247,7 @@ class OrderService {
         resultSet.getString("group_buy_voucher_code"),
         voucherStatus,
         groupBuyVoucherConsumedAt == null ? null : groupBuyVoucherConsumedAt.toLocalDateTime(),
+        readFrozenItemMetaJson(resultSet.getString("delivery_payload_json")),
         claimToken);
   }
 
@@ -2311,7 +2328,22 @@ class OrderService {
         null,
         null,
         null,
+        resultSet.getString("item_meta_json"),
         claimToken);
+  }
+
+  private static String readFrozenItemMetaJson(String payloadJson) {
+    if (payloadJson == null || payloadJson.isBlank()) return null;
+    try {
+      com.google.gson.JsonObject payload =
+          com.google.gson.JsonParser.parseString(payloadJson).getAsJsonObject();
+      if (!payload.has("itemMetaJsonBase64")) return null;
+      return new String(
+          Base64.getDecoder().decode(payload.get("itemMetaJsonBase64").getAsString()),
+          StandardCharsets.UTF_8);
+    } catch (RuntimeException exception) {
+      return null;
+    }
   }
 
   private String resolveOfficialDisplayStatus(
@@ -2436,6 +2468,7 @@ class OrderService {
   enum DeliveryKind {
     COMMAND,
     GIVE_ITEM,
+    SNAPSHOT_ITEM,
     POTION_EFFECT
   }
 
@@ -2494,6 +2527,7 @@ class OrderService {
       String groupBuyVoucherCode,
       String groupBuyVoucherStatus,
       LocalDateTime groupBuyVoucherConsumedAt,
+      String itemMetaJson,
       String claimToken) {
   }
 

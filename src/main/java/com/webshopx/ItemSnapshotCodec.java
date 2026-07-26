@@ -9,11 +9,15 @@ import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import org.bukkit.Material;
+import org.bukkit.block.Container;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.BlockStateMeta;
+import org.bukkit.inventory.meta.BundleMeta;
 import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.EnchantmentStorageMeta;
 import org.bukkit.inventory.meta.Repairable;
@@ -21,6 +25,8 @@ import org.bukkit.util.io.BukkitObjectInputStream;
 import org.bukkit.util.io.BukkitObjectOutputStream;
 
 final class ItemSnapshotCodec {
+  private static final int MAX_PREVIEW_DEPTH = 8;
+  private static final int MAX_PREVIEW_CHILDREN = 64;
 
   Snapshot serialize(ItemStack itemStack) {
     if (itemStack == null || itemStack.getType() == Material.AIR) {
@@ -52,6 +58,23 @@ final class ItemSnapshotCodec {
     }
   }
 
+  Snapshot validateRoundTrip(ItemStack itemStack) {
+    ItemStack normalized = itemStack.clone();
+    normalized.setAmount(1);
+    Snapshot first = serialize(normalized);
+    ItemStack restored = deserialize(first.rawItemBlob());
+    restored.setAmount(1);
+    Snapshot second = serialize(restored);
+    if (restored.getType() != normalized.getType()
+        || !first.itemHash().equals(second.itemHash())
+        || !first.itemMetaJson().equals(second.itemMetaJson())) {
+      throw new ServiceException(
+          "unsupported_item_snapshot",
+          "This item cannot be preserved by the current server runtime");
+    }
+    return first;
+  }
+
   String toBase64(byte[] rawItemBlob) {
     return Base64.getEncoder().encodeToString(rawItemBlob);
   }
@@ -68,9 +91,14 @@ final class ItemSnapshotCodec {
   }
 
   private JsonObject toMetaJson(ItemStack itemStack) {
+    return toMetaJson(itemStack, 0);
+  }
+
+  private JsonObject toMetaJson(ItemStack itemStack, int depth) {
     JsonObject meta = new JsonObject();
     meta.addProperty("material", itemStack.getType().name());
     meta.addProperty("amount", itemStack.getAmount());
+    meta.addProperty("maxStackSize", itemStack.getMaxStackSize());
 
     ItemMeta itemMeta = itemStack.getItemMeta();
     if (itemMeta == null) {
@@ -82,14 +110,13 @@ final class ItemSnapshotCodec {
     }
     if (itemMeta.hasLore()) {
       var lore = itemMeta.getLore();
-      if (lore == null) {
-        return meta;
+      if (lore != null) {
+        JsonArray loreArray = new JsonArray();
+        for (String line : lore) {
+          loreArray.add(line);
+        }
+        meta.add("lore", loreArray);
       }
-      JsonArray loreArray = new JsonArray();
-      for (String line : lore) {
-        loreArray.add(line);
-      }
-      meta.add("lore", loreArray);
     }
     JsonObject enchantments = serializeEnchantments(itemMeta.getEnchants());
     if (enchantments.size() > 0) {
@@ -120,7 +147,42 @@ final class ItemSnapshotCodec {
     if (itemMeta instanceof Repairable repairable && repairable.hasRepairCost()) {
       meta.addProperty("repairCost", repairable.getRepairCost());
     }
+    addContainerPreview(meta, itemStack, itemMeta, depth);
     return meta;
+  }
+
+  private void addContainerPreview(
+      JsonObject meta, ItemStack itemStack, ItemMeta itemMeta, int depth) {
+    boolean shulker = itemStack.getType().name().endsWith("_SHULKER_BOX");
+    boolean bundle = itemMeta instanceof BundleMeta;
+    if (!shulker && !bundle) return;
+
+    JsonArray contents = new JsonArray();
+    if (depth < MAX_PREVIEW_DEPTH
+        && shulker
+        && itemMeta instanceof BlockStateMeta blockMeta
+        && blockMeta.getBlockState() instanceof Container container) {
+      for (int slot = 0; slot < container.getInventory().getSize(); slot++) {
+        addPreviewEntry(contents, container.getInventory().getItem(slot), slot, depth + 1);
+      }
+    } else if (depth < MAX_PREVIEW_DEPTH && itemMeta instanceof BundleMeta bundleMeta) {
+      List<ItemStack> items = bundleMeta.getItems();
+      for (int index = 0;
+          index < items.size() && index < MAX_PREVIEW_CHILDREN;
+          index++) {
+        addPreviewEntry(contents, items.get(index), index, depth + 1);
+      }
+    }
+    meta.add("containerItems", contents);
+  }
+
+  private void addPreviewEntry(
+      JsonArray contents, ItemStack child, int slot, int depth) {
+    if (child == null || child.getType() == Material.AIR) return;
+    JsonObject entry = new JsonObject();
+    entry.addProperty("slot", slot);
+    entry.add("item", toMetaJson(child, depth));
+    contents.add(entry);
   }
 
   private JsonObject serializeEnchantments(Map<Enchantment, Integer> enchantments) {

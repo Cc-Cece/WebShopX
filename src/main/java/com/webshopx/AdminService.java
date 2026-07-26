@@ -178,6 +178,10 @@ class AdminService {
                     "admin.permissions.permission.PRODUCT_MANAGE.label",
                     "admin.permissions.permission.PRODUCT_MANAGE.description"),
                 permissionDefinition(
+                    AdminPermission.PRODUCT_OFFLINE_INVENTORY_IMPORT,
+                    "admin.permissions.permission.PRODUCT_OFFLINE_INVENTORY_IMPORT.label",
+                    "admin.permissions.permission.PRODUCT_OFFLINE_INVENTORY_IMPORT.description"),
+                permissionDefinition(
                     AdminPermission.PRODUCT_ZERO_PRICE,
                     "admin.permissions.permission.PRODUCT_ZERO_PRICE.label",
                     "admin.permissions.permission.PRODUCT_ZERO_PRICE.description"),

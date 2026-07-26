@@ -23,11 +23,17 @@ import net.querz.nbt.tag.Tag;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.block.Container;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.BlockStateMeta;
+import org.bukkit.inventory.meta.BundleMeta;
+import org.bukkit.inventory.meta.EnchantmentStorageMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 
 final class PlayerDataInventoryService {
   private static final Duration LOCK_TIMEOUT = Duration.ofSeconds(10);
+  private static final int MAX_PREVIEW_DEPTH = 8;
+  private static final int MAX_PREVIEW_CHILDREN = 64;
   private final JavaPlugin plugin;
   private final InventoryLockManager lockManager;
   private final ItemSnapshotCodec itemCodec;
@@ -44,6 +50,63 @@ final class PlayerDataInventoryService {
       assertOffline(playerUuid);
       PlayerFile playerFile = load(playerUuid);
       return snapshot(playerFile.root(), source);
+    }
+  }
+
+  ItemStack offlineResolve(
+      UUID playerUuid,
+      InventoryService.InventorySource source,
+      String expectedRevision,
+      int slot,
+      Integer containerSlot,
+      String fingerprint) {
+    try (InventoryLockManager.Guard ignored = lockManager.acquire(playerUuid, LOCK_TIMEOUT)) {
+      assertOffline(playerUuid);
+      PlayerFile playerFile = load(playerUuid);
+      InventoryService.Snapshot current = snapshot(playerFile.root(), source);
+      if (!current.revision().equals(expectedRevision)) {
+        throw new ServiceException(
+            "inventory_changed", "Inventory changed; refresh and select the item again");
+      }
+      CompoundTag selected = findSlot(itemList(playerFile.root(), source), source, slot);
+      if (selected == null) {
+        throw new ServiceException("inventory_changed", "Selected item changed");
+      }
+      ItemStack resolved = toItemStack(selected.clone());
+      if (containerSlot == null) {
+        if (!fingerprint(selected).equals(fingerprint)) {
+          throw new ServiceException("inventory_changed", "Selected item changed");
+        }
+      } else {
+        if (!(resolved.getItemMeta() instanceof BlockStateMeta blockMeta)
+            || !(blockMeta.getBlockState() instanceof Container container)
+            || containerSlot < 0
+            || containerSlot >= container.getInventory().getSize()) {
+          throw new ServiceException(
+              "invalid_container_slot", "Selected item is not a supported container");
+        }
+        ItemStack inner = container.getInventory().getItem(containerSlot);
+        if (inner == null || inner.getType() == Material.AIR) {
+          throw new ServiceException("inventory_changed", "Selected container item changed");
+        }
+        ItemStack unit = inner.clone();
+        unit.setAmount(1);
+        if (!itemCodec.serialize(unit).itemHash().equals(fingerprint)) {
+          throw new ServiceException("inventory_changed", "Selected container item changed");
+        }
+        resolved = inner.clone();
+      }
+      ItemStack unit = resolved.clone();
+      unit.setAmount(1);
+      try {
+        itemCodec.validateRoundTrip(unit);
+      } catch (RuntimeException exception) {
+        throw new ServiceException(
+            "offline_item_not_supported",
+            "The offline item cannot be restored safely by this server runtime");
+      }
+      assertOffline(playerUuid);
+      return resolved.clone();
     }
   }
 
@@ -179,13 +242,67 @@ final class PlayerDataInventoryService {
         fingerprint(item),
         converted != null && converted.hasItemMeta() && converted.getItemMeta().hasLore()
             ? List.copyOf(converted.getItemMeta().getLore()) : List.of(),
-        converted == null ? List.of() : converted.getEnchantments().entrySet().stream()
-            .map(entry -> entry.getKey().getKey().getKey() + " " + entry.getValue()).toList(),
+        converted == null ? List.of() : enchantments(converted),
         converted != null && converted.hasItemMeta() && converted.getItemMeta().hasCustomModelData()
             ? converted.getItemMeta().getCustomModelData() : null,
         null,
-        List.of(),
+        converted == null ? List.of() : containerItems(converted, 0),
         null);
+  }
+
+  private List<InventoryService.ItemView> containerItems(ItemStack outer, int depth) {
+    if (depth >= MAX_PREVIEW_DEPTH) return List.of();
+    List<InventoryService.ItemView> contents = new ArrayList<>();
+    var outerMeta = outer.getItemMeta();
+    if (outer.getType().name().endsWith("_SHULKER_BOX")
+        && outerMeta instanceof BlockStateMeta blockMeta
+        && blockMeta.getBlockState() instanceof Container container) {
+      for (int index = 0; index < container.getInventory().getSize(); index++) {
+        addPreviewItem(contents, container.getInventory().getItem(index), index, depth + 1);
+      }
+    } else if (outerMeta instanceof BundleMeta bundleMeta) {
+      List<ItemStack> bundleItems = bundleMeta.getItems();
+      for (int index = 0;
+          index < bundleItems.size() && index < MAX_PREVIEW_CHILDREN;
+          index++) {
+        addPreviewItem(contents, bundleItems.get(index), index, depth + 1);
+      }
+    }
+    return contents;
+  }
+
+  private void addPreviewItem(
+      List<InventoryService.ItemView> contents,
+      ItemStack inner,
+      int index,
+      int depth) {
+    if (inner == null || inner.getType() == Material.AIR) return;
+    ItemStack unit = inner.clone();
+    unit.setAmount(1);
+    var meta = inner.getItemMeta();
+    contents.add(new InventoryService.ItemView(
+        inner.getType().name(),
+        meta != null && meta.hasDisplayName() ? meta.getDisplayName() : inner.getType().name(),
+        inner.getAmount(),
+        inner.getMaxStackSize(),
+        itemCodec.serialize(unit).itemHash(),
+        meta != null && meta.hasLore() ? List.copyOf(meta.getLore()) : List.of(),
+        enchantments(inner),
+        meta != null && meta.hasCustomModelData() ? meta.getCustomModelData() : null,
+        null,
+        containerItems(inner, depth),
+        index));
+  }
+
+  private List<String> enchantments(ItemStack stack) {
+    List<String> values = new ArrayList<>();
+    stack.getEnchantments().forEach((enchantment, level) ->
+        values.add(enchantment.getKey().getKey() + " " + level));
+    if (stack.getItemMeta() instanceof EnchantmentStorageMeta storageMeta) {
+      storageMeta.getStoredEnchants().forEach((enchantment, level) ->
+          values.add(enchantment.getKey().getKey() + " " + level));
+    }
+    return List.copyOf(values);
   }
 
   private String fingerprint(CompoundTag item) {

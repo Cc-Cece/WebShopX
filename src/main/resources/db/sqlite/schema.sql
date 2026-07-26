@@ -192,6 +192,32 @@ CREATE TABLE IF NOT EXISTS material_visual_overrides (
 );
 CREATE INDEX IF NOT EXISTS idx_material_visual_updated ON material_visual_overrides (updated_at);
 
+CREATE TABLE IF NOT EXISTS official_item_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_hash TEXT NOT NULL,
+  item_blob BLOB NOT NULL,
+  item_meta_json TEXT NOT NULL,
+  item_material TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_official_item_snapshot_hash
+  ON official_item_snapshots (item_hash);
+
+CREATE TABLE IF NOT EXISTS product_item_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id INTEGER NOT NULL,
+  snapshot_id INTEGER NOT NULL,
+  version INTEGER NOT NULL,
+  item_hash TEXT NOT NULL,
+  created_by INTEGER NULL,
+  active_from TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_product_snapshot_product FOREIGN KEY (product_id) REFERENCES products(id),
+  CONSTRAINT fk_product_snapshot_blob FOREIGN KEY (snapshot_id) REFERENCES official_item_snapshots(id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_product_item_snapshot_version
+  ON product_item_snapshots (product_id, version);
+
 CREATE TABLE IF NOT EXISTS products (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   sku TEXT NOT NULL,
@@ -211,6 +237,8 @@ CREATE TABLE IF NOT EXISTS products (
   effect_type TEXT NULL,
   effect_seconds INTEGER NULL,
   effect_amplifier INTEGER NULL,
+  snapshot_id INTEGER NULL,
+  inventory_mode TEXT NOT NULL DEFAULT 'TEMPLATE',
   dynamic_pricing_enabled INTEGER NOT NULL DEFAULT 0,
   dynamic_algorithm TEXT NOT NULL DEFAULT 'LINEAR_DEMAND_V1',
   dynamic_pricing_mode TEXT NOT NULL DEFAULT 'ORDER_FIXED',
@@ -224,7 +252,8 @@ CREATE TABLE IF NOT EXISTS products (
   unpublish_at DATETIME NULL,
   active INTEGER NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_product_snapshot_id FOREIGN KEY (snapshot_id) REFERENCES official_item_snapshots(id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_products_sku ON products (sku);
 

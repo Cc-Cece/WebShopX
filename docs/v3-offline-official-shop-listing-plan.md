@@ -1,5 +1,14 @@
 # V3：离线上架实施计划书
 
+> 实施状态（2026-07-26）：代码实现完成，后端测试与前端生产构建通过。真实 Paper/Folia
+> 联机 E2E 仍需在可用测试服上执行，不能用单元测试结果替代。
+>
+> 规范化实现决策：只读上架开关保存为现有 `offline_inventory` 运行时配置文档中的
+> `officialShopCaptureEnabled` 字段，默认 `false`。它与 `enabled`（离线写入）完全独立；
+> 离线导入同时要求 `PRODUCT_MANAGE` 和 `PRODUCT_OFFLINE_INVENTORY_IMPORT`。
+> API 返回 `offlineOfficialShopCaptureEnabled` 与
+> `offlineOfficialShopCaptureAllowed`，前端据此决定是否展示入口。
+
 > 目标分支：`Cc-Cece/WebShopX: feat/webshopx-inventory-management`
 >
 > 本文件是独立的 V3 计划书，不修改现有 `docs/official-shop-from-inventory-codex-plan.md`。

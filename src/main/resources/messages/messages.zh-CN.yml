@@ -462,6 +462,9 @@ admin:
       PRODUCT_MANAGE:
         label: "商品管理"
         description: "创建、编辑、启用或停用官方商品。"
+      PRODUCT_OFFLINE_INVENTORY_IMPORT:
+        label: "导入离线背包商品"
+        description: "读取已绑定玩家的离线 playerdata 并创建官方商城商品。"
       PRODUCT_ZERO_PRICE:
         label: "允许零价格"
         description: "允许商品价格设置为 0，但仍禁止负数。"

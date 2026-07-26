@@ -43,6 +43,7 @@ class SchemaManager {
     createVisualPacks(connection);
     createProducts(connection);
     migrateProducts(connection);
+    createProductItemSnapshots(connection);
     createProductUserUsage(connection);
     migrateProductUserUsage(connection);
     migrateLegacyProductScheduleToUtc(connection, settings.timeZone());
@@ -542,6 +543,18 @@ class SchemaManager {
   }
 
   private void createProducts(Connection connection) throws SQLException {
+    execute(connection, """
+        CREATE TABLE IF NOT EXISTS official_item_snapshots (
+          id BIGINT NOT NULL AUTO_INCREMENT,
+          item_hash VARCHAR(64) NOT NULL,
+          item_blob LONGBLOB NOT NULL,
+          item_meta_json LONGTEXT NOT NULL,
+          item_material VARCHAR(64) NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uniq_official_item_snapshot_hash (item_hash)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """);
     String sql = """
         CREATE TABLE IF NOT EXISTS products (
           id BIGINT NOT NULL AUTO_INCREMENT,
@@ -562,6 +575,8 @@ class SchemaManager {
           effect_type VARCHAR(64) NULL,
           effect_seconds INT NULL,
           effect_amplifier INT NULL,
+          snapshot_id BIGINT NULL,
+          inventory_mode VARCHAR(16) NOT NULL DEFAULT 'TEMPLATE',
           dynamic_pricing_enabled BOOLEAN NOT NULL DEFAULT FALSE,
           dynamic_algorithm VARCHAR(64) NOT NULL DEFAULT 'LINEAR_DEMAND_V1',
           dynamic_pricing_mode VARCHAR(32) NOT NULL DEFAULT 'ORDER_FIXED',
@@ -578,13 +593,38 @@ class SchemaManager {
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
-          UNIQUE KEY uniq_products_sku (sku)
+          UNIQUE KEY uniq_products_sku (sku),
+          KEY idx_products_snapshot_id (snapshot_id),
+          CONSTRAINT fk_products_snapshot_id FOREIGN KEY (snapshot_id)
+            REFERENCES official_item_snapshots(id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
   }
 
   private void migrateProducts(Connection connection) throws SQLException {
+    execute(connection, """
+        CREATE TABLE IF NOT EXISTS official_item_snapshots (
+          id BIGINT NOT NULL AUTO_INCREMENT,
+          item_hash VARCHAR(64) NOT NULL,
+          item_blob LONGBLOB NOT NULL,
+          item_meta_json LONGTEXT NOT NULL,
+          item_material VARCHAR(64) NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uniq_official_item_snapshot_hash (item_hash)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """);
+    if (!columnExists(connection, "products", "snapshot_id")) {
+      execute(connection, "ALTER TABLE products ADD COLUMN snapshot_id BIGINT NULL");
+      execute(connection, "ALTER TABLE products ADD KEY idx_products_snapshot_id (snapshot_id)");
+    }
+    if (!columnExists(connection, "products", "inventory_mode")) {
+      execute(
+          connection,
+          "ALTER TABLE products "
+              + "ADD COLUMN inventory_mode VARCHAR(16) NOT NULL DEFAULT 'TEMPLATE'");
+    }
     if (!columnExists(connection, "products", "product_type")) {
       execute(
           connection,
@@ -779,6 +819,40 @@ class SchemaManager {
       "UPDATE products SET dynamic_pricing_enabled = FALSE "
         + "WHERE dynamic_pricing_enabled = TRUE "
         + "AND (COALESCE(dynamic_base_price, 0) <= 0)");
+  }
+
+  private void createProductItemSnapshots(Connection connection) throws SQLException {
+    execute(connection, """
+        CREATE TABLE IF NOT EXISTS product_item_snapshots (
+          id BIGINT NOT NULL AUTO_INCREMENT,
+          product_id BIGINT NOT NULL,
+          snapshot_id BIGINT NOT NULL,
+          version INT NOT NULL,
+          item_hash VARCHAR(64) NOT NULL,
+          created_by BIGINT NULL,
+          active_from TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uniq_product_item_snapshot_version (product_id, version),
+          KEY idx_product_item_snapshot_blob (snapshot_id),
+          CONSTRAINT fk_product_item_snapshot_product FOREIGN KEY (product_id)
+            REFERENCES products(id),
+          CONSTRAINT fk_product_item_snapshot_blob FOREIGN KEY (snapshot_id)
+            REFERENCES official_item_snapshots(id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """);
+    execute(connection, """
+        INSERT INTO product_item_snapshots (
+          product_id, snapshot_id, version, item_hash, created_by
+        )
+        SELECT p.id, p.snapshot_id, 1, s.item_hash, NULL
+        FROM products p
+        JOIN official_item_snapshots s ON s.id = p.snapshot_id
+        WHERE p.snapshot_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM product_item_snapshots v WHERE v.product_id = p.id
+          )
+        """);
   }
 
   private void createOrders(Connection connection) throws SQLException {

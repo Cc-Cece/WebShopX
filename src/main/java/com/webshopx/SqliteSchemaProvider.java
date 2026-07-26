@@ -96,8 +96,12 @@ final class SqliteSchemaProvider implements SchemaProvider {
     assertTableExists(connection, "market_listing_tags");
     assertTableExists(connection, "webshopx_recharge_order");
     assertTableExists(connection, "visual_packs");
+    assertTableExists(connection, "official_item_snapshots");
+    assertTableExists(connection, "product_item_snapshots");
 
     assertColumnExists(connection, "web_users", "auth_state");
+    assertColumnExists(connection, "products", "snapshot_id");
+    assertColumnExists(connection, "products", "inventory_mode");
     assertColumnExists(connection, "runtime_config", "version");
     assertColumnExists(connection, "orders", "claim_token");
     assertColumnExists(connection, "delivery_queue", "delivered_quantity");
@@ -117,6 +121,24 @@ final class SqliteSchemaProvider implements SchemaProvider {
   }
 
   private void migrateSchema(Connection connection) throws SQLException {
+    migrateOfficialItemSnapshots(connection);
+    addColumnIfMissing(connection, "products", "snapshot_id", "INTEGER NULL");
+    addColumnIfMissing(
+        connection, "products", "inventory_mode", "TEXT NOT NULL DEFAULT 'TEMPLATE'");
+    execute(
+        connection,
+        """
+        INSERT INTO product_item_snapshots (
+          product_id, snapshot_id, version, item_hash, created_by
+        )
+        SELECT p.id, p.snapshot_id, 1, s.item_hash, NULL
+        FROM products p
+        JOIN official_item_snapshots s ON s.id = p.snapshot_id
+        WHERE p.snapshot_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM product_item_snapshots v WHERE v.product_id = p.id
+          )
+        """);
     addColumnIfMissing(
       connection,
       "market_listings",
@@ -191,6 +213,30 @@ final class SqliteSchemaProvider implements SchemaProvider {
       "delivered_quantity",
       "INTEGER NOT NULL DEFAULT 0");
     resetMarketTagsV2IfNeeded(connection);
+  }
+
+  private void migrateOfficialItemSnapshots(Connection connection) throws SQLException {
+    if (!columnExistsByPragma(connection, "official_item_snapshots", "id")) {
+      execute(connection, "ALTER TABLE official_item_snapshots ADD COLUMN id INTEGER NULL");
+    }
+    // SQLite validates child foreign keys when the legacy table is updated.
+    // The parent key therefore has to be unique before existing rows are backfilled.
+    execute(
+        connection,
+        "CREATE UNIQUE INDEX IF NOT EXISTS uniq_official_item_snapshot_id "
+            + "ON official_item_snapshots (id)");
+    execute(connection, "UPDATE official_item_snapshots SET id = rowid WHERE id IS NULL");
+    execute(
+        connection,
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_official_item_snapshot_assign_id
+        AFTER INSERT ON official_item_snapshots
+        FOR EACH ROW
+        WHEN NEW.id IS NULL
+        BEGIN
+          UPDATE official_item_snapshots SET id = NEW.rowid WHERE rowid = NEW.rowid;
+        END
+        """);
   }
 
   private void resetMarketTagsV2IfNeeded(Connection connection) throws SQLException {

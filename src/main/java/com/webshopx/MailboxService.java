@@ -202,6 +202,33 @@ class MailboxService {
     });
   }
 
+  void enqueueItem(
+      java.sql.Connection connection,
+      long userId,
+      UUID targetUuid,
+      ItemSnapshotCodec.Snapshot snapshot,
+      int totalAmount,
+      String sourceType,
+      String sourceRef,
+      String reason) throws java.sql.SQLException {
+    String sql = """
+        INSERT INTO mailbox_items (
+          user_id, target_uuid, source_type, source_ref, item_blob,
+          quantity, reason, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', CURRENT_TIMESTAMP)
+        """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, userId);
+      statement.setString(2, targetUuid.toString());
+      statement.setString(3, normalizeText(sourceType, 24));
+      statement.setString(4, normalizeText(sourceRef, 64));
+      statement.setBytes(5, snapshot.rawItemBlob());
+      statement.setInt(6, Math.max(1, totalAmount));
+      statement.setString(7, normalizeText(reason, 255));
+      statement.executeUpdate();
+    }
+  }
+
   private void markFailed(long mailboxId, String error) {
     markProgress(mailboxId, 0, error);
   }
@@ -217,7 +244,7 @@ class MailboxService {
               last_error = ?
           WHERE id = ?
           """;
-      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setInt(1, Math.max(0, deliveredNow));
         statement.setInt(2, Math.max(0, deliveredNow));
         statement.setString(3, normalizeText(error, 255));

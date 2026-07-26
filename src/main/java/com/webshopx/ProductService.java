@@ -6,6 +6,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -655,6 +656,11 @@ class ProductService {
       throw new ServiceException("invalid_product", "Remark must be <= 1000 chars");
     }
     ProductType productType = ProductType.fromRaw(input.productType());
+    if (productType == ProductType.SNAPSHOT_ITEM) {
+      throw new ServiceException(
+          "invalid_product_type",
+          "Snapshot products must be created from a server-side inventory snapshot");
+    }
     validateDynamicInput(input, productType);
   }
 
@@ -1169,11 +1175,347 @@ class ProductService {
         || productType == ProductType.RECYCLE_CUSTOM_ITEM;
   }
 
+  ProductView createSnapshotProduct(
+      SnapshotProductInput input,
+      ItemSnapshotCodec.Snapshot snapshot,
+      String material,
+      boolean allowZeroPrice) {
+    AdminProductInput validation = new AdminProductInput(
+        input.sku(), input.title(), input.remark(), input.currency(), input.price(),
+        ProductType.GIVE_ITEM.name(), "", material, null, material, null,
+        input.stock(), input.perUserLimit(), null, null, null, false, null, null, null,
+        null, null, null, null, null, null, input.active());
+    validateAdminInput(validation, allowZeroPrice);
+    return databaseManager.inTransaction(connection -> {
+      String sku = normalizeSku(input.sku());
+      if (findProductBySku(connection, sku, true) != null) {
+        throw new ServiceException("product_conflict", "SKU already exists");
+      }
+      long snapshotId = findOrCreateSnapshot(connection, snapshot, material);
+      String sql = """
+          INSERT INTO products (
+            sku, title, remark, currency, price, product_type, command_template,
+            item_material, display_material, item_amount, stock_remaining,
+            per_user_limit, snapshot_id, inventory_mode, active
+          ) VALUES (?, ?, ?, ?, ?, 'SNAPSHOT_ITEM', '', ?, ?, ?, ?, ?, ?, ?, ?)
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, sku);
+        statement.setString(2, input.title().trim());
+        statement.setString(3, normalizeRemark(input.remark()));
+        statement.setString(4, input.currency().name());
+        statement.setLong(5, input.price());
+        statement.setString(6, material);
+        statement.setString(7, material);
+        statement.setObject(8, input.stock());
+        statement.setObject(9, input.stock());
+        statement.setObject(10, normalizePerUserLimit(input.perUserLimit()));
+        statement.setLong(11, snapshotId);
+        statement.setString(12, input.inventoryMode());
+        statement.setBoolean(13, input.active());
+        statement.executeUpdate();
+      }
+      ProductView created = readProductBySku(connection, sku);
+      insertSnapshotVersion(
+          connection, created.id(), snapshotId, snapshot.itemHash(), input.createdBy(), 1);
+      return created;
+    });
+  }
+
+  ProductView replaceSnapshot(
+      long productId,
+      ItemSnapshotCodec.Snapshot snapshot,
+      String material,
+      long createdBy) {
+    return databaseManager.inTransaction(connection -> {
+      ProductView product = readProductById(connection, productId);
+      if (product.productType() != ProductType.SNAPSHOT_ITEM) {
+        throw new ServiceException("invalid_product_type", "Product does not use item snapshots");
+      }
+      long snapshotId = findOrCreateSnapshot(connection, snapshot, material);
+      int version = nextSnapshotVersion(connection, productId);
+      try (PreparedStatement statement = connection.prepareStatement(
+          "UPDATE products SET snapshot_id = ?, item_material = ?, display_material = ? WHERE id = ?")) {
+        statement.setLong(1, snapshotId);
+        statement.setString(2, material);
+        statement.setString(3, material);
+        statement.setLong(4, productId);
+        statement.executeUpdate();
+      }
+      insertSnapshotVersion(connection, productId, snapshotId, snapshot.itemHash(), createdBy, version);
+      return readProductById(connection, productId);
+    });
+  }
+
+  ProductView restockSnapshot(
+      long productId,
+      ItemSnapshotCodec.Snapshot snapshot,
+      int quantity) {
+    if (quantity <= 0) {
+      throw new ServiceException("invalid_quantity", "Restock quantity must be positive");
+    }
+    return databaseManager.inTransaction(connection -> {
+      ProductView product = readProductById(connection, productId);
+      if (product.productType() != ProductType.SNAPSHOT_ITEM) {
+        throw new ServiceException("invalid_product_type", "Product does not use item snapshots");
+      }
+      SnapshotView current = readSnapshot(connection, productId);
+      if (!current.itemHash().equals(snapshot.itemHash())) {
+        throw new ServiceException(
+            "snapshot_mismatch", "Restock item does not match the active product snapshot");
+      }
+      try (PreparedStatement statement = connection.prepareStatement("""
+          UPDATE products
+          SET item_amount = COALESCE(item_amount, 0) + ?,
+              stock_remaining = COALESCE(stock_remaining, 0) + ?
+          WHERE id = ?
+          """)) {
+        statement.setInt(1, quantity);
+        statement.setInt(2, quantity);
+        statement.setLong(3, productId);
+        statement.executeUpdate();
+      }
+      return readProductById(connection, productId);
+    });
+  }
+
+  int releasePhysicalStockToMailbox(
+      long productId,
+      long userId,
+      java.util.UUID targetUuid,
+      MailboxService mailboxService) {
+    return databaseManager.inTransaction(connection -> {
+      ProductView product = readProductById(connection, productId);
+      if (!"PHYSICAL".equals(readInventoryMode(connection, productId))) {
+        throw new ServiceException(
+            "invalid_inventory_mode", "Product does not contain physical warehouse stock");
+      }
+      int remaining = product.stockRemaining() == null ? 0 : product.stockRemaining();
+      if (remaining <= 0) {
+        throw new ServiceException("out_of_stock", "No physical stock remains");
+      }
+      SnapshotView snapshot = readSnapshot(connection, productId);
+      mailboxService.enqueueItem(
+          connection,
+          userId,
+          targetUuid,
+          new ItemSnapshotCodec.Snapshot(
+              snapshot.itemBlob(), snapshot.itemMetaJson(), snapshot.itemHash()),
+          remaining,
+          "OFFICIAL_WAREHOUSE",
+          product.sku(),
+          "Physical stock withdrawn by administrator");
+      try (PreparedStatement statement = connection.prepareStatement("""
+          UPDATE products
+          SET stock_remaining = 0, active = FALSE
+          WHERE id = ?
+          """)) {
+        statement.setLong(1, productId);
+        statement.executeUpdate();
+      }
+      return remaining;
+    });
+  }
+
+  List<SnapshotVersionView> listSnapshotVersions(long productId) {
+    return databaseManager.withConnection(connection -> {
+      List<SnapshotVersionView> versions = new ArrayList<>();
+      String sql = """
+          SELECT v.id, v.product_id, v.snapshot_id, v.version, v.item_hash,
+                 v.created_by, v.active_from, s.item_material, s.item_meta_json,
+                 CASE WHEN v.version = (
+                   SELECT MAX(current_version.version)
+                   FROM product_item_snapshots current_version
+                   WHERE current_version.product_id = v.product_id
+                 ) THEN TRUE ELSE FALSE END active
+          FROM product_item_snapshots v
+          JOIN official_item_snapshots s ON s.id = v.snapshot_id
+          JOIN products p ON p.id = v.product_id
+          WHERE v.product_id = ?
+          ORDER BY v.version DESC
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, productId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          while (resultSet.next()) {
+            versions.add(new SnapshotVersionView(
+                resultSet.getLong("id"),
+                resultSet.getLong("product_id"),
+                resultSet.getLong("snapshot_id"),
+                resultSet.getInt("version"),
+                resultSet.getString("item_hash"),
+                getNullableLong(resultSet, "created_by"),
+                resultSet.getObject("active_from", LocalDateTime.class),
+                resultSet.getString("item_material"),
+                resultSet.getString("item_meta_json"),
+                resultSet.getBoolean("active")));
+          }
+        }
+      }
+      return versions;
+    });
+  }
+
+  ProductView rollbackSnapshot(long productId, int version, long createdBy) {
+    return databaseManager.inTransaction(connection -> {
+      String sql = """
+          SELECT v.snapshot_id, v.item_hash, s.item_material
+          FROM product_item_snapshots v
+          JOIN official_item_snapshots s ON s.id = v.snapshot_id
+          WHERE v.product_id = ? AND v.version = ?
+          """;
+      long snapshotId;
+      String itemHash;
+      String material;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, productId);
+        statement.setInt(2, version);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (!resultSet.next()) {
+            throw new ServiceException("snapshot_version_missing", "Snapshot version was not found");
+          }
+          snapshotId = resultSet.getLong("snapshot_id");
+          itemHash = resultSet.getString("item_hash");
+          material = resultSet.getString("item_material");
+        }
+      }
+      try (PreparedStatement statement = connection.prepareStatement(
+          "UPDATE products SET snapshot_id = ?, item_material = ?, display_material = ? WHERE id = ?")) {
+        statement.setLong(1, snapshotId);
+        statement.setString(2, material);
+        statement.setString(3, material);
+        statement.setLong(4, productId);
+        if (statement.executeUpdate() == 0) {
+          throw new ServiceException("product_missing", "Product is not available");
+        }
+      }
+      insertSnapshotVersion(
+          connection, productId, snapshotId, itemHash, createdBy,
+          nextSnapshotVersion(connection, productId));
+      return readProductById(connection, productId);
+    });
+  }
+
+  private int nextSnapshotVersion(Connection connection, long productId) throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(
+        "SELECT COALESCE(MAX(version), 0) + 1 FROM product_item_snapshots WHERE product_id = ?")) {
+      statement.setLong(1, productId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        return resultSet.next() ? resultSet.getInt(1) : 1;
+      }
+    }
+  }
+
+  private void insertSnapshotVersion(
+      Connection connection,
+      long productId,
+      long snapshotId,
+      String itemHash,
+      long createdBy,
+      int version) throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement("""
+        INSERT INTO product_item_snapshots (
+          product_id, snapshot_id, version, item_hash, created_by
+        ) VALUES (?, ?, ?, ?, ?)
+        """)) {
+      statement.setLong(1, productId);
+      statement.setLong(2, snapshotId);
+      statement.setInt(3, version);
+      statement.setString(4, itemHash);
+      statement.setLong(5, createdBy);
+      statement.executeUpdate();
+    }
+  }
+
+  SnapshotView readSnapshot(long productId) {
+    return databaseManager.withConnection(connection -> readSnapshot(connection, productId));
+  }
+
+  String readInventoryMode(long productId) {
+    return databaseManager.withConnection(connection -> readInventoryMode(connection, productId));
+  }
+
+  private String readInventoryMode(Connection connection, long productId) throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(
+        "SELECT inventory_mode FROM products WHERE id = ?")) {
+        statement.setLong(1, productId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (!resultSet.next()) {
+            throw new ServiceException("product_missing", "Product is not available");
+          }
+          return resultSet.getString(1);
+        }
+    }
+  }
+
+  private SnapshotView readSnapshot(Connection connection, long productId) throws SQLException {
+    String sql = """
+          SELECT s.id, s.item_hash, s.item_blob, s.item_meta_json, s.item_material
+          FROM products p
+          JOIN official_item_snapshots s ON s.id = p.snapshot_id
+          WHERE p.id = ?
+          """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, productId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (!resultSet.next()) {
+            throw new ServiceException("invalid_snapshot", "Product snapshot is missing");
+          }
+          return new SnapshotView(
+              resultSet.getLong("id"),
+              resultSet.getString("item_hash"),
+              resultSet.getBytes("item_blob"),
+              resultSet.getString("item_meta_json"),
+              resultSet.getString("item_material"));
+        }
+    }
+  }
+
+  private long findOrCreateSnapshot(
+      Connection connection, ItemSnapshotCodec.Snapshot snapshot, String material) throws SQLException {
+    if (snapshot == null || snapshot.rawItemBlob() == null || snapshot.rawItemBlob().length == 0) {
+      throw new ServiceException("invalid_snapshot", "Item snapshot is empty");
+    }
+    try (PreparedStatement statement = connection.prepareStatement(
+        "SELECT id FROM official_item_snapshots WHERE item_hash = ?")) {
+      statement.setString(1, snapshot.itemHash());
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (resultSet.next()) return resultSet.getLong(1);
+      }
+    }
+    try {
+      try (PreparedStatement statement = connection.prepareStatement("""
+          INSERT INTO official_item_snapshots (item_hash, item_blob, item_meta_json, item_material)
+          VALUES (?, ?, ?, ?)
+          """, Statement.RETURN_GENERATED_KEYS)) {
+        statement.setString(1, snapshot.itemHash());
+        statement.setBytes(2, snapshot.rawItemBlob());
+        statement.setString(3, snapshot.itemMetaJson());
+        statement.setString(4, material);
+        statement.executeUpdate();
+        try (ResultSet keys = statement.getGeneratedKeys()) {
+          if (keys.next()) return keys.getLong(1);
+        }
+      }
+    } catch (SQLException duplicateCandidate) {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "SELECT id FROM official_item_snapshots WHERE item_hash = ?")) {
+        statement.setString(1, snapshot.itemHash());
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (resultSet.next()) return resultSet.getLong(1);
+        }
+      }
+      throw duplicateCandidate;
+    }
+    throw new SQLException("Snapshot insert did not return an id");
+  }
+
   enum ProductType {
     COMMAND,
     GIVE_ITEM,
     GIVE_CUSTOM_ITEM,
     POTION_EFFECT,
+    SNAPSHOT_ITEM,
     RECYCLE_ITEM,
     RECYCLE_COMMAND_ITEM,
     RECYCLE_CUSTOM_ITEM,
@@ -1221,6 +1563,40 @@ class ProductService {
       boolean active) {
   }
 
+  record SnapshotProductInput(
+      String sku,
+      String title,
+      String remark,
+      CurrencyType currency,
+      long price,
+      Integer stock,
+      Integer perUserLimit,
+      boolean active,
+      long createdBy,
+      String inventoryMode) {
+  }
+
+  record SnapshotView(
+      long id,
+      String itemHash,
+      byte[] itemBlob,
+      String itemMetaJson,
+      String itemMaterial) {
+  }
+
+  record SnapshotVersionView(
+      long id,
+      long productId,
+      long snapshotId,
+      int version,
+      String itemHash,
+      Long createdBy,
+      LocalDateTime activeFrom,
+      String itemMaterial,
+      String itemMetaJson,
+      boolean active) {
+  }
+
   record ProductView(
       long id,
       String sku,
@@ -1253,6 +1629,24 @@ class ProductService {
       java.time.LocalDateTime unpublishAt,
       boolean active,
       Integer personalLimitRemaining) {
+    ProductSemantic productSemantic() {
+      return switch (productType) {
+        case RECYCLE_ITEM, RECYCLE_COMMAND_ITEM, RECYCLE_CUSTOM_ITEM -> ProductSemantic.RECYCLE;
+        case GROUP_BUY_VOUCHER -> ProductSemantic.GROUP_BUY;
+        default -> ProductSemantic.SALE;
+      };
+    }
+
+    FulfillmentType fulfillmentType() {
+      return switch (productType) {
+        case COMMAND, GIVE_CUSTOM_ITEM -> FulfillmentType.COMMAND;
+        case GIVE_ITEM -> FulfillmentType.MATERIAL_ITEM;
+        case SNAPSHOT_ITEM -> FulfillmentType.ITEM_SNAPSHOT;
+        case POTION_EFFECT -> FulfillmentType.POTION_EFFECT;
+        case GROUP_BUY_VOUCHER -> FulfillmentType.VOUCHER;
+        default -> FulfillmentType.NONE;
+      };
+    }
     ProductView withPersonalLimitRemaining(Integer remaining) {
       return new ProductView(
           id,
@@ -1287,6 +1681,21 @@ class ProductService {
           active,
           remaining);
     }
+  }
+
+  enum ProductSemantic {
+    SALE,
+    RECYCLE,
+    GROUP_BUY
+  }
+
+  enum FulfillmentType {
+    COMMAND,
+    MATERIAL_ITEM,
+    ITEM_SNAPSHOT,
+    POTION_EFFECT,
+    VOUCHER,
+    NONE
   }
 
   record ProductPriceQuote(

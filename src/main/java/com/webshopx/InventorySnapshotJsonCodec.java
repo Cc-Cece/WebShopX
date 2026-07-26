@@ -52,7 +52,10 @@ final class InventorySnapshotJsonCodec {
       entry.add("item", encodeItem(child));
       contents.add(entry);
     }
-    if (!contents.isEmpty()) {
+    if (!contents.isEmpty()
+        || item.material().endsWith("_SHULKER_BOX")
+        || "BUNDLE".equals(item.material())
+        || item.material().endsWith("_BUNDLE")) {
       view.add("containerItems", contents);
     }
     return view;

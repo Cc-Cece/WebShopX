@@ -7,9 +7,13 @@ import org.bukkit.block.Container;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.meta.BlockStateMeta;
+import org.bukkit.inventory.meta.BundleMeta;
+import org.bukkit.inventory.meta.EnchantmentStorageMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 
 final class InventoryService {
+  private static final int MAX_PREVIEW_DEPTH = 8;
+  private static final int MAX_PREVIEW_CHILDREN = 64;
   private final ItemSnapshotCodec codec;
 
   InventoryService(ItemSnapshotCodec codec) {
@@ -124,14 +128,29 @@ final class InventoryService {
   }
 
   private ItemView view(ItemStack stack) {
+    return view(stack, 0);
+  }
+
+  private ItemView view(ItemStack stack, int depth) {
     if (stack == null || stack.getType() == Material.AIR) return null;
     ItemStack unit = stack.clone();
     unit.setAmount(1);
     ItemMeta meta = stack.getItemMeta();
     List<ItemView> contents = new ArrayList<>();
-    if (meta instanceof BlockStateMeta blockMeta && blockMeta.getBlockState() instanceof Container container) {
+    if (depth < MAX_PREVIEW_DEPTH
+        && stack.getType().name().endsWith("_SHULKER_BOX")
+        && meta instanceof BlockStateMeta blockMeta
+        && blockMeta.getBlockState() instanceof Container container) {
       for (int index = 0; index < container.getInventory().getSize(); index++) {
-        ItemView child = view(container.getInventory().getItem(index));
+        ItemView child = view(container.getInventory().getItem(index), depth + 1);
+        if (child != null) contents.add(child.withContainerSlot(index));
+      }
+    } else if (depth < MAX_PREVIEW_DEPTH && meta instanceof BundleMeta bundleMeta) {
+      List<ItemStack> bundleItems = bundleMeta.getItems();
+      for (int index = 0;
+          index < bundleItems.size() && index < MAX_PREVIEW_CHILDREN;
+          index++) {
+        ItemView child = view(bundleItems.get(index), depth + 1);
         if (child != null) contents.add(child.withContainerSlot(index));
       }
     }
@@ -142,12 +161,22 @@ final class InventoryService {
         stack.getMaxStackSize(),
         codec.serialize(unit).itemHash(),
         meta != null && meta.hasLore() ? List.copyOf(meta.getLore()) : List.of(),
-        stack.getEnchantments().entrySet().stream()
-            .map(entry -> entry.getKey().getKey().getKey() + " " + entry.getValue()).toList(),
+        enchantments(stack),
         meta != null && meta.hasCustomModelData() ? meta.getCustomModelData() : null,
         resolveItemModel(meta),
         contents,
         null);
+  }
+
+  private List<String> enchantments(ItemStack stack) {
+    List<String> values = new ArrayList<>();
+    stack.getEnchantments().forEach((enchantment, level) ->
+        values.add(enchantment.getKey().getKey() + " " + level));
+    if (stack.getItemMeta() instanceof EnchantmentStorageMeta storageMeta) {
+      storageMeta.getStoredEnchants().forEach((enchantment, level) ->
+          values.add(enchantment.getKey().getKey() + " " + level));
+    }
+    return List.copyOf(values);
   }
 
   private String resolveItemModel(ItemMeta meta) {

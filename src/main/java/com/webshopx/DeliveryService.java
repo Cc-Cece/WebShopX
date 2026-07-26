@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Locale;
 import java.util.List;
 import java.util.Map;
@@ -547,7 +548,7 @@ class DeliveryService {
     Player player = forcedPlayer;
     if (player == null || !player.isOnline()) {
       if (!claimMode
-          && kind == DeliveryKind.GIVE_ITEM
+          && (kind == DeliveryKind.GIVE_ITEM || kind == DeliveryKind.SNAPSHOT_ITEM)
           && tryMoveCommandItemToMailbox(task, 0, remainingQuantity, claimMode, "player is offline", null)) {
         return true;
       }
@@ -570,7 +571,7 @@ class DeliveryService {
             }
           }
         }
-        case GIVE_ITEM -> {
+        case GIVE_ITEM, SNAPSHOT_ITEM -> {
           ItemStack itemStack = buildGiveItemStack(task);
           int deliveredNow = addItemToInventory(player, itemStack, remainingQuantity);
           if (deliveredNow >= remainingQuantity) {
@@ -589,7 +590,7 @@ class DeliveryService {
         }
         case POTION_EFFECT -> executePotion(task, player);
       }
-      if (kind != DeliveryKind.GIVE_ITEM) {
+      if (kind != DeliveryKind.GIVE_ITEM && kind != DeliveryKind.SNAPSHOT_ITEM) {
         markCommandDelivered(task.orderId(), task.id(), remainingQuantity, claimMode);
       }
       if (claimMode) {
@@ -602,7 +603,7 @@ class DeliveryService {
       return true;
     } catch (Exception exception) {
       String raw = exception.getMessage() == null ? msg(player, "chat.delivery.generic_failed") : exception.getMessage();
-      if (kind == DeliveryKind.GIVE_ITEM
+      if ((kind == DeliveryKind.GIVE_ITEM || kind == DeliveryKind.SNAPSHOT_ITEM)
           && isInventoryFullError(raw)
           && tryMoveCommandItemToMailbox(task, 0, remainingQuantity, claimMode, raw, player)) {
         return true;
@@ -1239,6 +1240,13 @@ class DeliveryService {
 
   private ItemStack buildGiveItemStack(CommandDeliveryTask task) {
     JsonObject payload = parsePayload(task.payloadJson());
+    if (DeliveryKind.fromRaw(task.deliveryKind()) == DeliveryKind.SNAPSHOT_ITEM) {
+      String encoded = payload.has("itemBlob") ? payload.get("itemBlob").getAsString() : "";
+      if (encoded.isBlank()) {
+        throw new ServiceException("invalid_delivery_payload", "snapshot blob is missing");
+      }
+      return itemSnapshotCodec.deserialize(Base64.getDecoder().decode(encoded));
+    }
     String materialRaw = payload.has("material") ? payload.get("material").getAsString() : "";
     Material material = resolveMaterial(materialRaw);
     if (material == null || material == Material.AIR) {
@@ -1671,6 +1679,7 @@ class DeliveryService {
   enum DeliveryKind {
     COMMAND,
     GIVE_ITEM,
+    SNAPSHOT_ITEM,
     POTION_EFFECT;
 
     static DeliveryKind fromRaw(String raw) {

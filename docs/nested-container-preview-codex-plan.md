@@ -1,5 +1,15 @@
 # 潜影盒 / Bundle 嵌套内容预览实施计划书（供 Codex 执行）
 
+> 实施规范化补充（2026-07-26）：沿用现有递归 `containerItems`，前端按物品材质识别
+> `*_SHULKER_BOX` 与 `BUNDLE`，不新增原始 NBT 字段或重复接口。后端仅对这两类可携带
+> 容器生成预览树，并设置最大递归深度 8、每节点最多 64 个子项；超过边界时安全截断，
+> 防止异常或命令生成物品造成无限递归和过量响应。`containerSlot` 对潜影盒表示真实槽位，
+> 对 Bundle 表示稳定的内容顺序索引，不赋予写入语义。
+>
+> 实施状态：基础与增强版本代码均已完成，包括 Hover 快速预览、右侧内嵌预览、
+> 单一详细 Dialog、嵌套导航和 breadcrumb。自动化测试、TypeScript 检查与生产构建通过；
+> 真实在线/离线玩家数据的浏览器 E2E 仍需在可用 Minecraft 测试服上验收。
+
 > 目标分支：`Cc-Cece/WebShopX: feat/webshopx-inventory-management`
 >
 > 本文件只描述后续实现方案，不修改现有 V1/V2/V3 计划书。

@@ -440,6 +440,9 @@ admin:
       PRODUCT_MANAGE:
         label: "Product Management"
         description: "Create, edit, enable, or disable official products."
+      PRODUCT_OFFLINE_INVENTORY_IMPORT:
+        label: "Import Offline Inventory Products"
+        description: "Read the bound player's offline playerdata to create official-shop products."
       PRODUCT_ZERO_PRICE:
         label: "Allow Zero Price"
         description: "Allow product price to be set to 0, but still forbid negative values."

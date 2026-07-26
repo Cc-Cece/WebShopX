@@ -92,6 +92,7 @@ class EmbeddedWebServer {
   private final InventoryService inventoryService = new InventoryService(inventoryItemCodec);
   private final InventorySnapshotJsonCodec inventorySnapshotJsonCodec;
   private final InventoryOperationService inventoryOperationService;
+  private final MailboxService mailboxService;
   private static final int MATERIAL_ICON_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
   private static final Set<String> MATERIAL_ICON_ALLOWED_EXTENSIONS =
       Set.of("png", "webp", "jpg", "jpeg", "gif");
@@ -137,6 +138,7 @@ class EmbeddedWebServer {
     this.schedulerBridge = schedulerBridge;
     this.databaseManager = databaseManager;
     this.inventoryOperationService = new InventoryOperationService(databaseManager);
+    this.mailboxService = new MailboxService(databaseManager);
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
     this.walletService = walletService;
@@ -249,6 +251,10 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/redeem/list", this::handleAdminRedeemList);
     server.createContext("/api/admin/products/list", this::handleAdminProductsList);
     server.createContext("/api/admin/products/upsert", this::handleAdminProductsUpsert);
+    server.createContext("/api/admin/products/from-inventory", this::handleAdminProductFromInventory);
+    server.createContext("/api/admin/products/snapshot-history", this::handleAdminProductSnapshotHistory);
+    server.createContext("/api/admin/products/snapshot-rollback", this::handleAdminProductSnapshotRollback);
+    server.createContext("/api/admin/products/physical-withdraw", this::handleAdminPhysicalStockWithdraw);
     server.createContext("/api/admin/products/icon", this::handleAdminProductIconUpload);
     server.createContext("/api/admin/products/active", this::handleAdminProductsActive);
     server.createContext("/api/admin/products/reset-limit", this::handleAdminProductsResetLimit);
@@ -812,6 +818,11 @@ class EmbeddedWebServer {
           row.add("itemAmount", JsonNull.INSTANCE);
         } else {
           row.addProperty("itemAmount", order.itemAmount());
+        }
+        if (order.itemMetaJson() == null) {
+          row.add("itemMetaJson", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("itemMetaJson", order.itemMetaJson());
         }
         if (order.effectType() == null) {
           row.add("effectType", JsonNull.INSTANCE);
@@ -2767,7 +2778,7 @@ class EmbeddedWebServer {
         if (!"player_offline".equals(exception.code())) {
           throw exception;
         }
-        response = offlineInventorySnapshotJson(user.boundUuid(), source);
+        response = offlineInventorySnapshotJson(user, source);
       }
       sendJson(exchange, 200, response);
     });
@@ -3039,23 +3050,41 @@ class EmbeddedWebServer {
     String now = java.time.Instant.now().toString();
     response.addProperty("refreshedAt", now);
     response.addProperty("capturedAt", now);
+    response.addProperty("offlineWriteEnabled", false);
+    response.addProperty("offlineOfficialShopCaptureEnabled", false);
+    response.addProperty("offlineOfficialShopCaptureAllowed", false);
     return response;
   }
 
   private JsonObject offlineInventorySnapshotJson(
-      UUID playerUuid,
+      AuthService.AuthUser user,
       InventoryService.InventorySource source) {
     OfflineInventoryFeatureService.State feature = offlineInventoryFeatureService.state();
-    if (feature.enabled()) {
-      InventoryService.Snapshot snapshot = playerDataInventoryService.read(playerUuid, source);
+    boolean officialCaptureAllowed = false;
+    try {
+      AdminService.AdminUser admin =
+          adminService.requireAdmin(user, AdminPermission.PRODUCT_MANAGE);
+      officialCaptureAllowed =
+          admin.allows(AdminPermission.PRODUCT_OFFLINE_INVENTORY_IMPORT);
+    } catch (ServiceException ignored) {
+      // A normal user may still use the separately controlled offline-write feature.
+    }
+    boolean officialCaptureAvailable =
+        feature.officialShopCaptureEnabled() && officialCaptureAllowed;
+    if (feature.enabled() || officialCaptureAvailable) {
+      InventoryService.Snapshot snapshot =
+          playerDataInventoryService.read(user.boundUuid(), source);
       JsonObject response = inventorySnapshotJson(snapshot, false, source);
-      response.addProperty("readOnly", false);
+      response.addProperty("readOnly", !feature.enabled());
       response.addProperty("snapshotSource", "PLAYERDATA");
-      response.addProperty("offlineWriteEnabled", true);
+      response.addProperty("offlineWriteEnabled", feature.enabled());
+      response.addProperty(
+          "offlineOfficialShopCaptureEnabled", feature.officialShopCaptureEnabled());
+      response.addProperty("offlineOfficialShopCaptureAllowed", officialCaptureAllowed);
       return response;
     }
     Optional<InventoryReadSnapshotService.StoredSnapshot> stored =
-        inventoryReadSnapshotService.find(playerUuid, source);
+        inventoryReadSnapshotService.find(user.boundUuid(), source);
     if (stored.isEmpty()) {
       return inventorySnapshotJson(inventoryService.offlineSnapshot(source), false, source);
     }
@@ -3069,10 +3098,13 @@ class EmbeddedWebServer {
       response.addProperty("capturedAt", value.capturedAt().toString());
       response.addProperty("refreshedAt", value.capturedAt().toString());
       response.addProperty("offlineWriteEnabled", false);
+      response.addProperty(
+          "offlineOfficialShopCaptureEnabled", feature.officialShopCaptureEnabled());
+      response.addProperty("offlineOfficialShopCaptureAllowed", officialCaptureAllowed);
       return response;
     } catch (Exception exception) {
       plugin.getLogger().warning(
-          "Could not read inventory snapshot for " + playerUuid + ": " + exception.getMessage());
+          "Could not read inventory snapshot for " + user.boundUuid() + ": " + exception.getMessage());
       return inventorySnapshotJson(inventoryService.offlineSnapshot(source), false, source);
     }
   }
@@ -3625,6 +3657,300 @@ class EmbeddedWebServer {
       detail.addProperty("productType", product.productType().name());
       detail.addProperty("active", product.active());
       adminAuditService.log(admin, "PRODUCT_UPSERT", "product", product.sku(), detail, clientIp(exchange));
+    });
+  }
+
+  private void handleAdminProductFromInventory(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      AdminService.AdminUser admin =
+          adminService.requireAdmin(user, AdminPermission.PRODUCT_MANAGE);
+      if (user.boundUuid() == null) {
+        throw new ServiceException("uuid_not_bound", "Minecraft UUID is not bound");
+      }
+      int slot = (int) getLong(payload, "slot", -1L);
+      Integer containerSlot = payload.has("containerSlot")
+              && !payload.get("containerSlot").isJsonNull()
+          ? payload.get("containerSlot").getAsInt() : null;
+      InventoryService.InventorySource source = inventorySource(payload);
+      String inventoryMode = getOptionalString(payload, "inventoryMode")
+          .orElse("TEMPLATE").toUpperCase(Locale.ROOT);
+      if ("PHYSICAL".equals(inventoryMode)) {
+        int depositQuantity = (int) getLong(payload, "depositQuantity", 0L);
+        ProductService.ProductView deposited;
+        try {
+          deposited = awaitPlayerTask(user.boundUuid(), player -> {
+            InventoryService.Withdrawal withdrawal = inventoryService.withdraw(
+                playerInventory(player, source), source, getString(payload, "revision"),
+                slot, containerSlot, getString(payload, "fingerprint"), depositQuantity);
+            try {
+              return createPhysicalSnapshotProduct(
+                  payload, admin, withdrawal.item(), depositQuantity);
+            } catch (RuntimeException exception) {
+              withdrawal.restore().run();
+              throw exception;
+            }
+          });
+        } catch (ServiceException exception) {
+          if (!"player_offline".equals(exception.code())) throw exception;
+          if (!admin.allows(AdminPermission.PRODUCT_OFFLINE_INVENTORY_IMPORT)) {
+            throw new ServiceException(
+                "forbidden", "Offline inventory import permission is required");
+          }
+          if (containerSlot != null) {
+            throw new ServiceException(
+                "unsupported_offline_item",
+                "Nested container deposits require the administrator to be online");
+          }
+          offlineInventoryFeatureService.requireWriteEnabled();
+          String operationId = "official-deposit-" + UUID.randomUUID();
+          inventoryOperationService.begin(
+              user.id(), operationId, "OFFICIAL_DEPOSIT", slot, null,
+              getString(payload, "fingerprint"), depositQuantity);
+          try (PlayerDataInventoryService.OfflineWithdrawal withdrawal =
+                   playerDataInventoryService.withdraw(
+                       user.boundUuid(), source, getString(payload, "revision"), slot,
+                       getString(payload, "fingerprint"), depositQuantity,
+                       user.id(), operationId)) {
+            try {
+              deposited = createPhysicalSnapshotProduct(
+                  payload, admin, withdrawal.item(), depositQuantity);
+              withdrawal.commit();
+              inventoryOperationService.complete(
+                  user.id(), operationId, deposited.id(), "{\"state\":\"SUCCESS\"}");
+            } catch (RuntimeException failure) {
+              withdrawal.rollback();
+              inventoryOperationService.reject(
+                  user.id(), operationId, serviceErrorCode(failure));
+              throw failure;
+            }
+          }
+        }
+        JsonObject response = new JsonObject();
+        addProductJson(response, deposited, false);
+        response.addProperty("inventoryMode", "PHYSICAL");
+        response.addProperty("depositedQuantity", depositQuantity);
+        sendJson(exchange, 201, response);
+        JsonObject detail = new JsonObject();
+        detail.addProperty("quantity", depositQuantity);
+        adminAuditService.log(
+            admin, "PRODUCT_PHYSICAL_DEPOSIT", "product",
+            deposited.sku(), detail, clientIp(exchange));
+        return;
+      }
+      ItemStack item;
+      boolean offlineCapture = false;
+      try {
+        item = awaitPlayerTask(user.boundUuid(), player -> inventoryService.resolve(
+            playerInventory(player, source),
+            source,
+            getString(payload, "revision"),
+            slot,
+            containerSlot,
+            getString(payload, "fingerprint")));
+      } catch (ServiceException exception) {
+        if (!"player_offline".equals(exception.code())) throw exception;
+        if (!admin.allows(AdminPermission.PRODUCT_OFFLINE_INVENTORY_IMPORT)) {
+          throw new ServiceException(
+              "forbidden", "Offline inventory import permission is required");
+        }
+        offlineInventoryFeatureService.requireOfficialShopCaptureEnabled();
+        offlineCapture = true;
+        item = playerDataInventoryService.offlineResolve(
+            user.boundUuid(), source, getString(payload, "revision"), slot,
+            containerSlot,
+            getString(payload, "fingerprint"));
+      }
+      ItemStack template = item.clone();
+      template.setAmount(1);
+      ItemSnapshotCodec.Snapshot snapshot = inventoryItemCodec.validateRoundTrip(template);
+      long replaceProductId = getLong(payload, "productId", -1L);
+      if (replaceProductId > 0L) {
+        ProductService.ProductView replaced = productService.replaceSnapshot(
+            replaceProductId, snapshot, template.getType().name(), admin.userId());
+        JsonObject response = new JsonObject();
+        addProductJson(response, replaced, false);
+        response.addProperty("itemHash", snapshot.itemHash());
+        sendJson(exchange, 200, response);
+        JsonObject detail = new JsonObject();
+        detail.addProperty("itemHash", snapshot.itemHash());
+        detail.addProperty("boundUuid", user.boundUuid().toString());
+        detail.addProperty("inventorySource", source.name());
+        detail.addProperty("slot", slot);
+        if (containerSlot != null) detail.addProperty("containerSlot", containerSlot);
+        detail.addProperty("itemMaterial", template.getType().name());
+        detail.addProperty("source", offlineCapture ? "PLAYERDATA" : "LIVE");
+        adminAuditService.log(
+            admin, offlineCapture ? "OFFLINE_PRODUCT_IMPORT" : "PRODUCT_SNAPSHOT_REPLACE", "product",
+            Long.toString(replaceProductId), detail, clientIp(exchange));
+        return;
+      }
+      String requestedSku = getOptionalString(payload, "sku").orElse("");
+      String sku = requestedSku.isBlank()
+          ? "inv-" + snapshot.itemHash().substring(0, 12)
+          : requestedSku;
+      String stockMode = getOptionalString(payload, "stockMode")
+          .orElse("UNLIMITED").toUpperCase(Locale.ROOT);
+      Integer stock = "LIMITED".equals(stockMode)
+          ? (int) getLong(payload, "stock", 0L) : null;
+      ProductService.ProductView product = productService.createSnapshotProduct(
+          new ProductService.SnapshotProductInput(
+              sku,
+              getOptionalString(payload, "title").filter(value -> !value.isBlank())
+                  .orElse(template.getType().name()),
+              getOptionalString(payload, "remark").orElse(null),
+              CurrencyType.fromConfig(getOptionalString(payload, "currency").orElse("SHOP_COIN")),
+              getLong(payload, "price", 0L),
+              stock,
+              payload.has("perUserLimit") && !payload.get("perUserLimit").isJsonNull()
+                  ? (int) getLong(payload, "perUserLimit", 0L) : null,
+              !payload.has("active") || payload.get("active").getAsBoolean(),
+              admin.userId(),
+              "TEMPLATE"),
+          snapshot,
+          template.getType().name(),
+          admin.allows(AdminPermission.PRODUCT_ZERO_PRICE));
+      JsonObject response = new JsonObject();
+      addProductJson(response, product, false);
+      response.addProperty("itemHash", snapshot.itemHash());
+      response.addProperty("itemMaterial", template.getType().name());
+      response.addProperty("itemMetaJson", snapshot.itemMetaJson());
+      sendJson(exchange, 201, response);
+      JsonObject detail = new JsonObject();
+      detail.addProperty("sku", product.sku());
+      detail.addProperty("productId", product.id());
+      detail.addProperty("boundUuid", user.boundUuid().toString());
+      detail.addProperty("inventorySource", source.name());
+      detail.addProperty("slot", slot);
+      if (containerSlot != null) detail.addProperty("containerSlot", containerSlot);
+      detail.addProperty("itemMaterial", template.getType().name());
+      detail.addProperty("itemHash", snapshot.itemHash());
+      detail.addProperty("source", offlineCapture ? "PLAYERDATA" : "LIVE");
+      adminAuditService.log(
+          admin,
+          offlineCapture ? "OFFLINE_PRODUCT_IMPORT" : "PRODUCT_CREATE_FROM_INVENTORY",
+          "product", product.sku(), detail, clientIp(exchange));
+    });
+  }
+
+  private ProductService.ProductView createPhysicalSnapshotProduct(
+      JsonObject payload,
+      AdminService.AdminUser admin,
+      ItemStack deposited,
+      int quantity) {
+    if (quantity <= 0 || deposited == null || deposited.getAmount() != quantity) {
+      throw new ServiceException(
+          "invalid_inventory_request", "Physical deposit quantity is invalid");
+    }
+    ItemStack template = deposited.clone();
+    template.setAmount(1);
+    ItemSnapshotCodec.Snapshot snapshot = inventoryItemCodec.validateRoundTrip(template);
+    long productId = getLong(payload, "productId", -1L);
+    if (productId > 0L) {
+      return productService.restockSnapshot(productId, snapshot, quantity);
+    }
+    String requestedSku = getOptionalString(payload, "sku").orElse("");
+    String sku = requestedSku.isBlank()
+        ? "inv-" + snapshot.itemHash().substring(0, 12) : requestedSku;
+    return productService.createSnapshotProduct(
+        new ProductService.SnapshotProductInput(
+            sku,
+            getOptionalString(payload, "title").filter(value -> !value.isBlank())
+                .orElse(template.getType().name()),
+            getOptionalString(payload, "remark").orElse(null),
+            CurrencyType.fromConfig(getOptionalString(payload, "currency").orElse("SHOP_COIN")),
+            getLong(payload, "price", 0L),
+            quantity,
+            payload.has("perUserLimit") && !payload.get("perUserLimit").isJsonNull()
+                ? (int) getLong(payload, "perUserLimit", 0L) : null,
+            !payload.has("active") || payload.get("active").getAsBoolean(),
+            admin.userId(),
+            "PHYSICAL"),
+        snapshot,
+        template.getType().name(),
+        admin.allows(AdminPermission.PRODUCT_ZERO_PRICE));
+  }
+
+  private void handleAdminProductSnapshotHistory(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "GET")) return;
+    withServiceHandling(exchange, () -> {
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, null, AdminPermission.PRODUCT_MANAGE);
+      Long productId = parseLong(parseQuery(exchange).get("productId"));
+      if (productId == null || productId <= 0L) {
+        throw new ServiceException("bad_request", "Missing productId");
+      }
+      JsonArray versions = new JsonArray();
+      for (ProductService.SnapshotVersionView version :
+          productService.listSnapshotVersions(productId)) {
+        JsonObject row = new JsonObject();
+        row.addProperty("id", version.id());
+        row.addProperty("version", version.version());
+        row.addProperty("itemHash", version.itemHash());
+        row.addProperty("itemMaterial", version.itemMaterial());
+        row.addProperty("itemMetaJson", version.itemMetaJson());
+        row.addProperty("createdBy", version.createdBy());
+        row.addProperty("activeFrom", version.activeFrom().toString());
+        row.addProperty("active", version.active());
+        versions.add(row);
+      }
+      JsonObject response = new JsonObject();
+      response.add("versions", versions);
+      sendJson(exchange, 200, response);
+      adminAuditService.log(
+          admin, "PRODUCT_SNAPSHOT_HISTORY", "product",
+          Long.toString(productId), null, clientIp(exchange));
+    });
+  }
+
+  private void handleAdminProductSnapshotRollback(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) return;
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, payload, AdminPermission.PRODUCT_MANAGE);
+      long productId = getLong(payload, "productId", -1L);
+      int version = (int) getLong(payload, "version", -1L);
+      ProductService.ProductView product =
+          productService.rollbackSnapshot(productId, version, admin.userId());
+      JsonObject response = new JsonObject();
+      addProductJson(response, product, false);
+      sendJson(exchange, 200, response);
+      JsonObject detail = new JsonObject();
+      detail.addProperty("sourceVersion", version);
+      adminAuditService.log(
+          admin, "PRODUCT_SNAPSHOT_ROLLBACK", "product",
+          Long.toString(productId), detail, clientIp(exchange));
+    });
+  }
+
+  private void handleAdminPhysicalStockWithdraw(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) return;
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      AdminService.AdminUser admin =
+          adminService.requireAdmin(user, AdminPermission.PRODUCT_MANAGE);
+      if (user.boundUuid() == null) {
+        throw new ServiceException("uuid_not_bound", "Minecraft UUID is not bound");
+      }
+      long productId = getLong(payload, "productId", -1L);
+      int quantity = productService.releasePhysicalStockToMailbox(
+          productId, user.id(), user.boundUuid(), mailboxService);
+      JsonObject response = new JsonObject();
+      response.addProperty("productId", productId);
+      response.addProperty("returnedQuantity", quantity);
+      response.addProperty("destination", "MAILBOX");
+      sendJson(exchange, 200, response);
+      JsonObject detail = new JsonObject();
+      detail.addProperty("returnedQuantity", quantity);
+      adminAuditService.log(
+          admin, "PRODUCT_PHYSICAL_WITHDRAW", "product",
+          Long.toString(productId), detail, clientIp(exchange));
     });
   }
 
@@ -5401,12 +5727,18 @@ class EmbeddedWebServer {
           requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
       boolean enabled = getBoolean(payload, "enabled");
       boolean acknowledged = getBoolean(payload, "acknowledged");
+      boolean officialShopCaptureEnabled =
+          payload.has("officialShopCaptureEnabled")
+              ? payload.get("officialShopCaptureEnabled").getAsBoolean()
+              : offlineInventoryFeatureService.state().officialShopCaptureEnabled();
       long version =
-          offlineInventoryFeatureService.update(enabled, acknowledged, admin.username());
+          offlineInventoryFeatureService.update(
+              enabled, acknowledged, officialShopCaptureEnabled, admin.username());
       publishRuntimeConfigRefresh(version);
 
       JsonObject detail = new JsonObject();
       detail.addProperty("enabled", enabled);
+      detail.addProperty("officialShopCaptureEnabled", officialShopCaptureEnabled);
       detail.addProperty("riskAckVersion", OfflineInventoryFeatureService.RISK_ACK_VERSION);
       adminAuditService.log(
           admin, enabled ? "OFFLINE_INVENTORY_ENABLE" : "OFFLINE_INVENTORY_DISABLE",
@@ -5421,6 +5753,8 @@ class EmbeddedWebServer {
     response.addProperty("enabled", state.enabled());
     response.addProperty("requested", state.requested());
     response.addProperty("forceDisabled", state.forceDisabled());
+    response.addProperty(
+        "officialShopCaptureEnabled", state.officialShopCaptureEnabled());
     response.addProperty("riskAckVersion", state.riskAckVersion());
     response.addProperty("requiredRiskAckVersion", OfflineInventoryFeatureService.RISK_ACK_VERSION);
     response.addProperty("version", state.version());
@@ -5944,6 +6278,15 @@ class EmbeddedWebServer {
     row.addProperty("currency", product.currency().name());
     row.addProperty("price", product.price());
     row.addProperty("productType", product.productType().name());
+    if (product.productType() == ProductService.ProductType.SNAPSHOT_ITEM) {
+      ProductService.SnapshotView snapshot = productService.readSnapshot(product.id());
+      row.addProperty("itemHash", snapshot.itemHash());
+      row.addProperty("itemMaterial", snapshot.itemMaterial());
+      row.addProperty("itemMetaJson", snapshot.itemMetaJson());
+      row.addProperty("inventoryMode", productService.readInventoryMode(product.id()));
+      row.addProperty("productSemantic", product.productSemantic().name());
+      row.addProperty("fulfillmentType", product.fulfillmentType().name());
+    }
     row.addProperty("dynamicPricingEnabled", product.dynamicPricingEnabled());
     row.addProperty("dynamicAlgorithm", product.dynamicAlgorithm());
     row.addProperty("dynamicPricingMode", product.dynamicPricingMode());
@@ -6211,7 +6554,10 @@ class EmbeddedWebServer {
       runnable.run();
     } catch (ServiceException exception) {
       int status = switch (exception.code()) {
-        case "player_offline", "inventory_changed", "operation_pending" -> 409;
+        case "auth_required", "auth_invalid" -> 401;
+        case "forbidden", "not_admin" -> 403;
+        case "player_offline", "player_state_changed", "inventory_changed",
+            "operation_pending", "product_conflict", "offline_official_capture_disabled" -> 409;
         default -> 400;
       };
       sendJson(exchange, status, errorJson(exception.code(), exception.getMessage()));

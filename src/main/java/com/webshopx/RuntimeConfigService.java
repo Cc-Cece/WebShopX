@@ -210,6 +210,9 @@ class RuntimeConfigService {
     if (!normalized.has("enabled")) {
       normalized.addProperty("enabled", false);
     }
+    if (!normalized.has("officialShopCaptureEnabled")) {
+      normalized.addProperty("officialShopCaptureEnabled", false);
+    }
     return databaseManager.inTransaction(connection ->
         updateConfig(connection, KEY_OFFLINE_INVENTORY, gson.toJson(normalized)));
   }
@@ -217,6 +220,7 @@ class RuntimeConfigService {
   private String defaultOfflineInventoryConfig() {
     JsonObject root = new JsonObject();
     root.addProperty("enabled", false);
+    root.addProperty("officialShopCaptureEnabled", false);
     root.addProperty("riskAckVersion", 0);
     return gson.toJson(root);
   }
