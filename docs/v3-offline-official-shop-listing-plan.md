@@ -4,7 +4,7 @@
 >
 > 本文件是独立的 V3 计划书，不修改现有 `docs/official-shop-from-inventory-codex-plan.md`。
 >
-> **执行顺序以本文件为准：从现在起，“管理员离线时从背包创建官方商城商品”统一视为 V3。旧计划书中若曾把离线 Snapshot 捕获列入 V2，只视为早期规划，不作为后续实现阶段的最终排序。**
+> **执行顺序以本文件为准：从现在起，“管理员离线时从背包创建官方商城商品”统一视为 V3。V3 只实现离线 Snapshot 模板上架，不修改或扣除离线 playerdata 中的物品。**
 
 ---
 
@@ -36,17 +36,13 @@ V3 不新建第二套背包页面，继续复用现有“我的背包”UI 和�
 
 ---
 
-# 2. V3 分为两个层级
+# 2. V3 业务语义：离线模板上架
 
-## 2.1 V3-A：离线模板上架（V3 必做）
-
-这是 V3 的首要功能，也是推荐优先完成的离线上架模式。
-
-语义与 V1 在线模板模式完全一致：
+V3 与 V1 在线模板模式保持同一语义：
 
 > **只复制物品作为官方商品模板，不从管理员背包中扣除物品。**
 
-因此该流程对 `playerdata` 应保持 **只读**：
+因此整个离线上架流程对 `playerdata` 必须保持 **只读**：
 
 ```text
 offline playerdata
@@ -58,55 +54,25 @@ ItemSnapshotCodec.serialize(...)
 Official SNAPSHOT_ITEM Product
 ```
 
-不得为了模板上架去写回 `.dat` 文件。
+硬性要求：
 
-### V3-A 的价值
+- 不写回 `.dat`；
+- 不修改物品数量；
+- 不修改 Slot / NBT；
+- 不调用离线背包写入流程；
+- 不因为创建官方商品改变管理员实际背包；
+- 官方商品库存继续使用官方商城自身的逻辑库存规则。
+
+V3 的价值：
 
 - 管理员不需要为了上架一个附魔物品专门登录游戏；
-- 非常适合官方商城长期运营；
-- 相比离线扣物，风险明显更低；
-- 当前 `feat/webshopx-inventory-management` 已有离线 playerdata 读取、revision、fingerprint、UUID lock 等基础，可直接复用。
+- 适合官方商城长期运营；
+- 离线读取比离线修改 playerdata 的风险和事务复杂度低得多；
+- 当前 `feat/webshopx-inventory-management` 已具备离线 playerdata 读取、revision、fingerprint、UUID lock 等基础，应优先复用。
 
 ---
 
-## 2.2 V3-B：离线实体入库（可选扩展）
-
-只有当 V2 已经正式完成“实体库存 / 官方仓库 / 补货 / 退库”体系后，才考虑 V3-B。
-
-语义：
-
-```text
-管理员离线
-    ↓
-选择 playerdata 中物品 x32
-    ↓
-真正从离线 playerdata withdraw 32
-    ↓
-安全写回
-    ↓
-进入官方实体库存
-    ↓
-stock = 32
-```
-
-这一部分风险和复杂度远高于 V3-A，必须复用并严格遵守现有：
-
-- `PlayerDataInventoryService.withdraw(...)`；
-- UUID 级锁；
-- 登录闸门；
-- 写入前后在线状态复查；
-- temp write + verify；
-- backup；
-- atomic replace；
-- rollback；
-- recovery journal；
-- idempotency。
-
-**V3-A 完成不依赖 V3-B。V3-B 不应阻塞离线模板上架发布。**
-
----
-
-# 3. V3-A 正式后端设计
+# 3. 正式后端设计
 
 ## 3.1 为 PlayerDataInventoryService 增加只读 resolve
 
@@ -116,7 +82,7 @@ stock = 32
 offlineResolve(...)
 ```
 
-或与当前代码风格一致的只读方法。
+或使用与当前代码风格一致的只读方法。
 
 职责：
 
@@ -138,7 +104,7 @@ offlineResolve(...)
 关键要求：
 
 - 不调用 `safeWrite()`；
-- 不创建 playerdata recovery journal；
+- 不创建 playerdata 写入 recovery journal；
 - 不修改 Count / Slot / NBT；
 - 不因模板上架改变管理员实际背包。
 
@@ -161,14 +127,14 @@ snapshotSource=PLAYERDATA
 
 直接决定读取离线文件。
 
-后端必须根据服务器实时状态自行判断：
+后端必须根据服务器真实状态自行判断：
 
 ```text
 玩家在线 → live InventoryService.resolve(...)
 玩家离线 → PlayerDataInventoryService.offlineResolve(...)
 ```
 
-或者使用独立的离线接口，但同样必须再次检查真实在线状态。
+或者使用独立离线接口，但同样必须再次检查真实在线状态。
 
 ---
 
@@ -219,7 +185,7 @@ itemHash（作为权威值）
 
 # 4. Feature Switch 与权限
 
-尽管 V3-A 是只读操作，仍建议增加独立开关，不要默认随着普通离线背包能力自动开启。
+尽管 V3 是只读操作，仍建议增加独立开关，不要默认随着普通离线背包能力自动开启。
 
 建议配置概念：
 
@@ -228,8 +194,6 @@ offlineOfficialShopCaptureEnabled = false
 ```
 
 默认关闭，由服务器管理员主动启用。
-
-权限建议：
 
 基础权限仍要求：
 
@@ -256,11 +220,11 @@ PRODUCT_OFFLINE_INVENTORY_IMPORT
 
 # 5. 登录竞争与一致性
 
-离线上架最大的特殊风险不是写文件，而是：
+离线上架最大的特殊风险是：
 
 > 管理员在 Web 操作过程中突然登录 Minecraft。
 
-因此即使 V3-A 只读，也必须防止“基于已经过期的离线文件创建商品”。
+即使 V3 全程只读，也必须防止基于已经过期的离线文件创建商品。
 
 推荐流程：
 
@@ -334,7 +298,7 @@ return snapshot source item
 
 如果 V3 功能关闭或权限不足：
 
-- 不要显示可点击入口；
+- 不显示可点击入口；
 - 可以通过 Tooltip / 提示解释“离线上架未启用”；
 - 不影响已有离线背包查看、玩家市场离线操作等功能。
 
@@ -397,29 +361,19 @@ created_at
 client IP
 ```
 
-V3-B 如果未来实施实体扣除，还必须额外记录：
-
-```text
-withdraw quantity
-before revision
-after revision
-backup/recovery reference
-rollback status
-```
-
 ---
 
-# 9. V3-A 测试清单
+# 9. 测试清单
 
 至少覆盖：
 
 1. 管理员离线 + feature enabled + 权限正确 → 可创建 Snapshot 商品；
-2. 创建后离线 playerdata 完全不发生变化；
+2. 创建前后离线 playerdata 内容完全不发生变化；
 3. revision 过期 → 拒绝；
 4. fingerprint 不匹配 → 拒绝；
 5. slot 已变化 → 拒绝；
 6. 操作过程中管理员登录 → 拒绝并要求刷新；
-7. 管理员已经在线 → 自动走 live resolve，而不是读取 playerdata；
+7. 管理员已经在线 → 走 live resolve，而不是读取 playerdata；
 8. feature switch 关闭 → 离线上架不可用；
 9. 只有 PRODUCT_MANAGE、没有 offline import 权限 → 拒绝；
 10. 普通玩家 → 拒绝；
@@ -456,47 +410,14 @@ Web 已打开离线背包
 
 ---
 
-# 10. V3-B 额外要求（仅实体库存存在时）
-
-如果 V2 已经拥有正式实体库存，V3-B 才允许实现离线实体入库。
-
-必须把以下动作视为一个事务式流程：
-
-```text
-validate offline revision
-→ offline withdraw
-→ persist official stock/deposit
-→ verify both sides
-→ commit
-```
-
-任一步失败必须：
-
-```text
-rollback playerdata
-或 rollback official stock
-```
-
-并支持插件崩溃后的 recovery。
-
-特别禁止：
-
-- 先扣 playerdata，再异步创建商品且没有 journal；
-- 商品创建失败但不返还物品；
-- 玩家登录后继续写离线 `.dat`；
-- 同一 UUID 多个 Web 请求并行修改 playerdata；
-- 用普通模板 Snapshot 数量冒充实体库存数量。
-
----
-
-# 11. Codex 推荐实施顺序
+# 10. Codex 推荐实施顺序
 
 ```text
 Step 1
 确认 V1/V2 的正式 Snapshot Product / Delivery 已稳定
 
 Step 2
-审查 PlayerDataInventoryService 当前 read / withdraw / lock / online guard
+审查 PlayerDataInventoryService 当前 read / lock / online guard
 
 Step 3
 实现只读 offlineResolve
@@ -517,29 +438,25 @@ Step 7
 
 Step 8
 增加 unit/integration tests
-重点测试 login race
+重点测试 login race 和 playerdata 零修改
 
 Step 9
 Paper / Folia 实机 E2E
 
 Step 10
-V3-A 验收
-
-Step 11（可选）
-若实体库存体系已存在，再设计 V3-B offline physical deposit
+V3 验收
 ```
 
 ---
 
-# 12. V3 完成标准
-
-## V3-A 完成
+# 11. V3 完成标准
 
 - [ ] 管理员离线时能看到真实 playerdata 背包；
 - [ ] 可从现有背包交易菜单“加入官方商城”；
 - [ ] 不新建第二套 inventory 页面；
 - [ ] playerdata 全程只读；
 - [ ] 创建商品不扣源物品；
+- [ ] 不存在离线上架导致 playerdata 写入的业务路径；
 - [ ] revision / slot / fingerprint 全部服务端验证；
 - [ ] 登录竞争被正确拒绝；
 - [ ] 浏览器不能伪造 ItemStack；
@@ -548,35 +465,23 @@ Step 11（可选）
 - [ ] feature switch、权限、audit 完整；
 - [ ] Paper/Folia E2E 通过。
 
-## V3-B 完成（可选）
-
-- [ ] 支持离线实体物品真正入库；
-- [ ] playerdata 安全写入；
-- [ ] UUID lock / login gate 完整；
-- [ ] rollback / recovery journal 完整；
-- [ ] 商品失败时不会吞物；
-- [ ] 崩溃恢复验证通过；
-- [ ] 并发与登录竞争测试通过。
-
 ---
 
-# 13. 最终阶段定位
+# 12. 最终阶段定位
 
-后续功能阶段建议固定为：
+后续功能阶段固定为：
 
 ```text
 V1
 在线管理员：模板 Snapshot 上架
 
 V2
-官方商城 Snapshot / Fulfillment / 实体库存等正式架构增强
+按正式 V2 计划完成官方商城 Snapshot / Fulfillment 等架构增强
 
 V3
-离线上架
-├─ V3-A：离线模板 Snapshot 上架（必做、只读）
-└─ V3-B：离线实体入库（可选，依赖 V2 实体库存）
+离线管理员：从真实 playerdata 只读捕获 Snapshot 模板并加入官方商城
 ```
 
-V3 的首要原则：
+V3 的核心原则：
 
-> **先把“离线读取并复制模板”做好，再考虑“离线扣物并入库”。不要因为已有 offline playerdata 写能力，就把高风险写入提前混入 V3-A。**
+> **离线上架只读取并复制模板，不扣物品、不修改 playerdata。**
