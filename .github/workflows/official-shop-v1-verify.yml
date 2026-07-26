@@ -27,6 +27,7 @@ jobs:
         id: compile
         shell: bash
         run: |
+          chmod +x gradlew
           set +e
           ./gradlew compileJava test --no-daemon -PtargetRuntime=1.20.6+ > build.log 2>&1
           code=$?
