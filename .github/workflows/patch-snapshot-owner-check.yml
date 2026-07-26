@@ -1,0 +1,48 @@
+name: Patch Snapshot Owner Verification
+
+on:
+  pull_request:
+    branches:
+      - feat/webshopx-inventory-management
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/official-shop-inventory-v1
+          fetch-depth: 0
+      - name: Add order owner UUID guard
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('src/main/java/com/webshopx/OfficialShopInventoryV1.java')
+          text = path.read_text(encoding='utf-8')
+          guard = '''    if (owner.ownerUuid() == null || !owner.ownerUuid().equals(online.getUniqueId())) {
+      throw new CommandException("Snapshot delivery target does not match the order owner");
+    }
+'''
+          if 'Snapshot delivery target does not match the order owner' in text:
+              raise SystemExit(0)
+          marker = '''    if (online == null || !online.isOnline()) {
+      throw new CommandException("Snapshot delivery player is offline");
+    }
+'''
+          if marker not in text:
+              raise SystemExit('delivery player marker not found')
+          path.write_text(text.replace(marker, marker + guard, 1), encoding='utf-8')
+      - name: Commit and push
+        shell: bash
+        run: |
+          if git diff --quiet -- src/main/java/com/webshopx/OfficialShopInventoryV1.java; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main/java/com/webshopx/OfficialShopInventoryV1.java
+          git commit -m "fix: bind snapshot delivery to order owner"
+          git push origin HEAD:agent/official-shop-inventory-v1
