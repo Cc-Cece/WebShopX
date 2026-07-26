@@ -24,4 +24,10 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Compile and test
-        run: ./gradlew compileJava test --no-daemon -PtargetRuntime=1.20.6+
+        shell: bash
+        run: |
+          set +e
+          ./gradlew compileJava test --no-daemon -PtargetRuntime=1.20.6+ > build.log 2>&1
+          code=$?
+          tail -n 220 build.log
+          exit $code
