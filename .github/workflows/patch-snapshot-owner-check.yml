@@ -1,6 +1,9 @@
 name: Patch Snapshot Owner Verification
 
 on:
+  push:
+    branches:
+      - agent/official-shop-inventory-v1
   pull_request:
     branches:
       - feat/webshopx-inventory-management
