@@ -19,6 +19,7 @@ final class InventoryReadSnapshotService {
     this.databaseManager = databaseManager;
     this.codec = new InventorySnapshotJsonCodec(gson);
     this.plugin = plugin;
+    OfficialShopInventoryV1.bootstrap(plugin, databaseManager, gson);
   }
 
   void save(
