@@ -18,7 +18,22 @@ jobs:
           python-version: '3.13'
 
       - name: Audit Java hardcoded CJK
-        run: python tools/i18n-java-audit.py
+        id: java_i18n_audit
+        shell: bash
+        run: |
+          set +e
+          python tools/i18n-java-audit.py > backend-i18n-audit.txt 2>&1
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          cat backend-i18n-audit.txt
+          exit 0
+
+      - name: Upload backend i18n audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-i18n-audit
+          path: backend-i18n-audit.txt
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -28,3 +43,9 @@ jobs:
 
       - name: Compile plugin
         run: ./gradlew compileJava
+
+      - name: Enforce Java i18n audit
+        if: steps.java_i18n_audit.outputs.status != '0'
+        run: |
+          cat backend-i18n-audit.txt
+          exit 1
