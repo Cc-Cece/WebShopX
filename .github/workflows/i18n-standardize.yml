@@ -32,4 +32,26 @@ jobs:
           ./gradlew compileJava
 
       - name: Validate bundled locale resources
-        run: ./gradlew test --tests com.webshopx.MessageBundleYamlTest
+        id: locale_test
+        shell: bash
+        run: |
+          set +e
+          ./gradlew test --tests com.webshopx.MessageBundleYamlTest
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload locale test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-locale-test-diagnostics
+          path: |
+            build/test-results/test
+            src/main/resources/messages/messages.zh-CN.yml
+            src/main/resources/messages/messages.en-US.yml
+          if-no-files-found: error
+
+      - name: Enforce locale validation
+        if: steps.locale_test.outputs.status != '0'
+        run: exit 1
