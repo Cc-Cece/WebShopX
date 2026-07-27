@@ -5,35 +5,28 @@ on:
     branches: [ "feat/webshopx-inventory-management" ]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   audit-and-compile:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
-      - name: Audit Java hardcoded CJK
-        id: java_i18n_audit
-        shell: bash
-        run: |
-          set +e
-          python tools/i18n-java-audit.py > backend-i18n-audit.txt 2>&1
-          status=$?
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          cat backend-i18n-audit.txt
-          exit 0
+      - name: Normalize backend i18n
+        run: python tools/normalize-java-i18n.py
 
-      - name: Upload backend i18n audit
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-i18n-audit
-          path: backend-i18n-audit.txt
+      - name: Audit Java hardcoded CJK
+        run: python tools/i18n-java-audit.py
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -44,8 +37,17 @@ jobs:
       - name: Compile plugin
         run: ./gradlew compileJava
 
-      - name: Enforce Java i18n audit
-        if: steps.java_i18n_audit.outputs.status != '0'
+      - name: Check generated diff
+        run: git diff --check
+
+      - name: Commit normalized backend sources
         run: |
-          cat backend-i18n-audit.txt
-          exit 1
+          if git diff --quiet; then
+            echo "No backend normalization changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main/java
+          git commit -m "refactor: normalize backend i18n [i18n-normalized]"
+          git push origin HEAD:${{ github.head_ref }}
