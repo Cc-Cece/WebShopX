@@ -1239,6 +1239,36 @@ class EmbeddedWebServer {
         overrides.add(row);
       }
       response.add("overrides", overrides);
+      JsonArray materialLocales = new JsonArray();
+      visualPackService.availableTranslationLocales().forEach(materialLocales::add);
+      response.add("locales", materialLocales);
+      JsonObject languageMetadata = new JsonObject();
+      visualPackService.availableLanguageMetadata().forEach((locale, descriptor) -> {
+        JsonObject row = new JsonObject();
+        row.addProperty("name", descriptor.name());
+        row.addProperty("region", descriptor.region());
+        row.addProperty("bidirectional", descriptor.bidirectional());
+        languageMetadata.add(locale, row);
+      });
+      response.add("languageMetadata", languageMetadata);
+      JsonObject enchantments = new JsonObject();
+      visualPackService.resolvedEnchantments(requestedLocale).forEach((id, descriptor) -> {
+        JsonObject row = new JsonObject();
+        if (descriptor.name() != null) {
+          row.addProperty("name", descriptor.name());
+        }
+        if (descriptor.description() != null) {
+          row.addProperty("description", descriptor.description());
+        }
+        if (descriptor.englishName() != null) {
+          row.addProperty("englishName", descriptor.englishName());
+        }
+        if (descriptor.englishDescription() != null) {
+          row.addProperty("englishDescription", descriptor.englishDescription());
+        }
+        enchantments.add(id, row);
+      });
+      response.add("enchantments", enchantments);
       response.add("policy", visualSettingsJson(visualCustomizationService.readSettings()));
       sendJson(exchange, 200, response);
     });

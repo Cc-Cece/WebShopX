@@ -18,6 +18,3 @@ files:
 
   - source: /web/i18n/market-algorithms/en-US.json
     translation: /web/i18n/market-algorithms/%locale%.json
-
-  - source: /web/i18n/materials/en-US.json
-    translation: /web/i18n/materials/%locale%.json

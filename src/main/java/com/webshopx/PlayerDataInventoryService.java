@@ -246,6 +246,8 @@ final class PlayerDataInventoryService {
         converted != null && converted.hasItemMeta() && converted.getItemMeta().hasCustomModelData()
             ? converted.getItemMeta().getCustomModelData() : null,
         null,
+        bundleCapacity(converted),
+        bundleOccupancy(converted),
         converted == null ? List.of() : containerItems(converted, 0),
         null);
   }
@@ -290,8 +292,19 @@ final class PlayerDataInventoryService {
         enchantments(inner),
         meta != null && meta.hasCustomModelData() ? meta.getCustomModelData() : null,
         null,
+        bundleCapacity(inner),
+        bundleOccupancy(inner),
         containerItems(inner, depth),
         index));
+  }
+
+  private Integer bundleCapacity(ItemStack item) {
+    return item != null && item.getItemMeta() instanceof BundleMeta ? 64 : null;
+  }
+
+  private Integer bundleOccupancy(ItemStack item) {
+    return item != null && item.getItemMeta() instanceof BundleMeta bundleMeta
+        ? ItemSnapshotCodec.bundleOccupancy(bundleMeta.getItems()) : null;
   }
 
   private List<String> enchantments(ItemStack stack) {

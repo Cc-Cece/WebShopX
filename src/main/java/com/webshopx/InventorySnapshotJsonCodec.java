@@ -43,6 +43,12 @@ final class InventorySnapshotJsonCodec {
     if (item.itemModel() != null) {
       view.addProperty("itemModel", item.itemModel());
     }
+    if (item.containerCapacity() != null) {
+      view.addProperty("containerCapacity", item.containerCapacity());
+    }
+    if (item.containerOccupancy() != null) {
+      view.addProperty("containerOccupancy", item.containerOccupancy());
+    }
     view.addProperty("recyclable", true);
     view.addProperty("listable", true);
     JsonArray contents = new JsonArray();

@@ -22,7 +22,7 @@ class VisualCustomizationService {
       "VISUAL_PACK", "BUILTIN", "FALLBACK");
   private static final List<String> DEFAULT_NAME_PRIORITY = List.of(
       "ITEM_CUSTOM_NAME", "ADMIN_MATERIAL", "OFFICIAL_PRODUCT", "MARKET_LISTING",
-      "VISUAL_PACK", "BUILTIN_LOCALE", "EN_US", "FORMATTED_ID");
+      "VISUAL_PACK", "EN_US", "FORMATTED_ID");
   private static final Set<String> ICON_SOURCES = Set.copyOf(DEFAULT_ICON_PRIORITY);
   private static final Set<String> NAME_SOURCES = Set.copyOf(DEFAULT_NAME_PRIORITY);
 

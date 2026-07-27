@@ -33,6 +33,11 @@ import javax.imageio.ImageIO;
 import org.bukkit.plugin.java.JavaPlugin;
 
 final class VisualPackService {
+  private static final String BUILTIN_PACK_RESOURCE =
+      "visual-packs/builtin-minecraft-languages.zip";
+  private static final String BUILTIN_PACK_ID =
+      "minecraft-1.21.10-minecraft-languages";
+  private static final String BUILTIN_UPLOADER = "builtin";
   static final int MAX_UPLOAD_BYTES = 64 * 1024 * 1024;
   private static final long MAX_UNCOMPRESSED_BYTES = 256L * 1024L * 1024L;
   private static final int MAX_FILES = 12_000;
@@ -40,7 +45,8 @@ final class VisualPackService {
   private static final int MAX_ICON_BYTES = 2 * 1024 * 1024;
   private static final int MAX_LOCALES = 256;
   private static final int MAX_TRANSLATION_BYTES = 8 * 1024 * 1024;
-  private static final Set<String> OPTIONAL_FILES = Set.of("metadata/export-report.json");
+  private static final Set<String> OPTIONAL_FILES = Set.of(
+      "metadata/export-report.json", "metadata/languages.json");
 
   private final DatabaseManager databaseManager;
   private final JavaPlugin plugin;
@@ -58,7 +64,27 @@ final class VisualPackService {
     } catch (IOException exception) {
       throw new IllegalStateException("Could not create visual-packs directory", exception);
     }
+    installBundledLanguagePack();
     rebuildIndex();
+  }
+
+  private void installBundledLanguagePack() {
+    try (var input = plugin.getResource(BUILTIN_PACK_RESOURCE)) {
+      if (input == null) {
+        throw new IllegalStateException(
+            "Missing bundled language pack: " + BUILTIN_PACK_RESOURCE);
+      }
+      byte[] bytes = input.readAllBytes();
+      String versionId = sha256(bytes).substring(0, 24);
+      PackRecord current = find(BUILTIN_PACK_ID).orElse(null);
+      if (current == null || !versionId.equals(current.versionId())
+          || !BUILTIN_UPLOADER.equals(current.uploadedBy())) {
+        install(bytes, BUILTIN_UPLOADER);
+      }
+      updateState(BUILTIN_PACK_ID, true, false, true);
+    } catch (IOException exception) {
+      throw new IllegalStateException("Could not install bundled language pack", exception);
+    }
   }
 
   synchronized PackRecord install(byte[] zipBytes, String uploadedBy) {
@@ -72,6 +98,10 @@ final class VisualPackService {
       temporary = Files.createTempFile(root, ".upload-", ".zip");
       Files.write(temporary, zipBytes);
       ValidatedPack validated = validate(temporary);
+      if (BUILTIN_PACK_ID.equals(validated.packId())
+          && !BUILTIN_UPLOADER.equals(uploadedBy)) {
+        throw new ServiceException("bad_request", "Built-in language pack cannot be replaced");
+      }
       versionDirectory = root.resolve(validated.packId()).resolve(versionId).normalize();
       ensureUnderRoot(versionDirectory);
       Files.createDirectories(versionDirectory);
@@ -126,6 +156,12 @@ final class VisualPackService {
       String packId, Boolean enabled, Boolean iconsEnabled, Boolean translationsEnabled) {
     PackRecord current = find(packId)
         .orElseThrow(() -> new ServiceException("not_found", "Visual pack not found"));
+    if (BUILTIN_PACK_ID.equals(current.packId())
+        && (Boolean.FALSE.equals(enabled)
+            || Boolean.TRUE.equals(iconsEnabled)
+            || Boolean.FALSE.equals(translationsEnabled))) {
+      throw new ServiceException("bad_request", "Built-in language pack must remain enabled");
+    }
     databaseManager.withConnection(connection -> {
       try (PreparedStatement statement = connection.prepareStatement("""
           UPDATE visual_packs
@@ -147,6 +183,9 @@ final class VisualPackService {
   }
 
   synchronized void move(String packId, int delta) {
+    if (BUILTIN_PACK_ID.equals(normalizePackId(packId))) {
+      return;
+    }
     List<PackRecord> rows = list();
     int index = -1;
     for (int i = 0; i < rows.size(); i++) {
@@ -184,6 +223,9 @@ final class VisualPackService {
     if (current == null) {
       return false;
     }
+    if (BUILTIN_PACK_ID.equals(current.packId())) {
+      throw new ServiceException("bad_request", "Built-in language pack cannot be deleted");
+    }
     boolean deleted = databaseManager.withConnection(connection -> {
       try (PreparedStatement statement =
                connection.prepareStatement("DELETE FROM visual_packs WHERE pack_id = ?")) {
@@ -219,6 +261,111 @@ final class VisualPackService {
     return List.copyOf(resolved.values());
   }
 
+  List<String> availableTranslationLocales() {
+    java.util.TreeSet<String> locales = new java.util.TreeSet<>();
+    for (PackRecord pack : list()) {
+      if (!pack.enabled() || !pack.translationsEnabled()) {
+        continue;
+      }
+      JsonObject manifest = JsonParser.parseString(pack.manifestJson()).getAsJsonObject();
+      JsonArray rows = manifest.getAsJsonArray("locales");
+      if (rows == null) {
+        continue;
+      }
+      for (JsonElement row : rows) {
+        locales.add(normalizeLocale(row.getAsString()));
+      }
+    }
+    return List.copyOf(locales);
+  }
+
+  Map<String, LanguageDescriptor> availableLanguageMetadata() {
+    Map<String, LanguageDescriptor> metadata = new LinkedHashMap<>();
+    List<PackRecord> packs = new ArrayList<>(list());
+    packs.sort(Comparator
+        .comparing((PackRecord pack) -> BUILTIN_UPLOADER.equals(pack.uploadedBy()))
+        .thenComparingInt(PackRecord::sortOrder)
+        .thenComparing(PackRecord::packId));
+    for (PackRecord pack : packs) {
+      if (!pack.enabled() || !pack.translationsEnabled()) {
+        continue;
+      }
+      Path path = root.resolve(pack.packId()).resolve(pack.versionId())
+          .resolve("metadata").resolve("languages.json");
+      readJsonFile(path).ifPresent(languages -> languages.entrySet().forEach(entry -> {
+        String locale = normalizeLocale(entry.getKey());
+        if (metadata.containsKey(locale) || !entry.getValue().isJsonObject()) {
+          return;
+        }
+        JsonObject row = entry.getValue().getAsJsonObject();
+        String name = row.has("name") ? row.get("name").getAsString().trim() : "";
+        String region = row.has("region") ? row.get("region").getAsString().trim() : "";
+        boolean bidirectional =
+            row.has("bidirectional") && row.get("bidirectional").getAsBoolean();
+        if (!name.isBlank() || !region.isBlank()) {
+          metadata.put(locale, new LanguageDescriptor(name, region, bidirectional));
+        }
+      }));
+    }
+    return Map.copyOf(metadata);
+  }
+
+  Map<String, ResolvedEnchantment> resolvedEnchantments(String requestedLocale) {
+    String locale = normalizeLocale(requestedLocale);
+    Map<String, ResolvedEnchantmentBuilder> builders = new LinkedHashMap<>();
+    List<PackRecord> packs = new ArrayList<>(list());
+    packs.sort(Comparator
+        .comparing((PackRecord pack) -> BUILTIN_UPLOADER.equals(pack.uploadedBy()))
+        .thenComparingInt(PackRecord::sortOrder)
+        .thenComparing(PackRecord::packId));
+    for (PackRecord pack : packs) {
+      if (!pack.enabled() || !pack.translationsEnabled()) {
+        continue;
+      }
+      Path base = root.resolve(pack.packId()).resolve(pack.versionId()).resolve("enchantments");
+      readJsonFile(base.resolve(locale + ".json"))
+          .ifPresent(rows -> mergeEnchantments(builders, rows, false));
+      readJsonFile(base.resolve("en_us.json"))
+          .ifPresent(rows -> mergeEnchantments(builders, rows, true));
+    }
+    Map<String, ResolvedEnchantment> resolvedEnchantments = new LinkedHashMap<>();
+    builders.forEach((id, builder) -> resolvedEnchantments.put(id, builder.build()));
+    return Map.copyOf(resolvedEnchantments);
+  }
+
+  private static void mergeEnchantments(
+      Map<String, ResolvedEnchantmentBuilder> builders,
+      JsonObject rows,
+      boolean english) {
+    rows.entrySet().forEach(entry -> {
+      if (!entry.getValue().isJsonObject()) {
+        return;
+      }
+      String id = entry.getKey().toLowerCase(Locale.ROOT);
+      JsonObject row = entry.getValue().getAsJsonObject();
+      ResolvedEnchantmentBuilder builder =
+          builders.computeIfAbsent(id, ignored -> new ResolvedEnchantmentBuilder(id));
+      String name = row.has("name") ? row.get("name").getAsString().trim() : "";
+      String description =
+          row.has("description") ? row.get("description").getAsString().trim() : "";
+      if (english) {
+        if (builder.englishName == null && !name.isBlank()) {
+          builder.englishName = name;
+        }
+        if (builder.englishDescription == null && !description.isBlank()) {
+          builder.englishDescription = description;
+        }
+      } else {
+        if (builder.name == null && !name.isBlank()) {
+          builder.name = name;
+        }
+        if (builder.description == null && !description.isBlank()) {
+          builder.description = description;
+        }
+      }
+    });
+  }
+
   Optional<ResolvedVisual> resolve(String itemId) {
     return Optional.ofNullable(resolved.get(
         itemId == null ? "" : itemId.trim().toLowerCase(Locale.ROOT)));
@@ -240,8 +387,10 @@ final class VisualPackService {
           continue;
         }
         if (!(name.equals("manifest.json") || name.equals("catalog/items.json")
+            || name.equals("catalog/enchantments.json")
             || OPTIONAL_FILES.contains(name)
             || name.matches("icons/[a-z0-9._/-]+\\.png")
+            || name.matches("enchantments/[a-z0-9_]{2,32}\\.json")
             || name.matches("translations/[a-z0-9_]{2,32}\\.json"))) {
           throw new ServiceException("visual_pack_invalid", "Unsupported file: " + name);
         }
@@ -266,6 +415,23 @@ final class VisualPackService {
       if (!manifest.has("schemaVersion") || manifest.get("schemaVersion").getAsInt() != 2) {
         throw new ServiceException("visual_pack_invalid", "Unsupported schemaVersion");
       }
+      JsonObject content = manifest.has("content") && manifest.get("content").isJsonObject()
+          ? manifest.getAsJsonObject("content") : null;
+      boolean includesIcons =
+          content == null || !content.has("icons") || content.get("icons").getAsBoolean();
+      boolean includesTranslations =
+          content == null || !content.has("translations")
+              || content.get("translations").getAsBoolean();
+      if (!includesIcons && !includesTranslations) {
+        throw new ServiceException("visual_pack_invalid", "Visual pack contains no usable content");
+      }
+      if (!includesIcons && files.keySet().stream().anyMatch(name -> name.startsWith("icons/"))) {
+        throw new ServiceException("visual_pack_invalid", "Language-only pack contains icons");
+      }
+      if (!includesTranslations
+          && files.keySet().stream().anyMatch(name -> name.startsWith("translations/"))) {
+        throw new ServiceException("visual_pack_invalid", "Icon-only pack contains translations");
+      }
       JsonObject pack = manifest.getAsJsonObject("pack");
       String packId = normalizePackId(pack.get("id").getAsString());
       String packName = pack.has("name") ? pack.get("name").getAsString().trim() : packId;
@@ -277,7 +443,9 @@ final class VisualPackService {
         throw new ServiceException("visual_pack_invalid", "Invalid visual entry count");
       }
       JsonArray localeArray = manifest.getAsJsonArray("locales");
-      if (localeArray == null || localeArray.size() == 0 || localeArray.size() > MAX_LOCALES) {
+      if (localeArray == null || localeArray.size() > MAX_LOCALES
+          || (includesTranslations && localeArray.size() == 0)
+          || (!includesTranslations && localeArray.size() != 0)) {
         throw new ServiceException("visual_pack_invalid", "Invalid locale count");
       }
       List<String> locales = new ArrayList<>();
@@ -287,6 +455,66 @@ final class VisualPackService {
           throw new ServiceException("visual_pack_invalid", "Duplicate locale: " + locale);
         }
         locales.add(locale);
+      }
+      ZipEntry languagesEntry = files.get("metadata/languages.json");
+      if (languagesEntry != null) {
+        if (!includesTranslations || languagesEntry.getSize() <= 0
+            || languagesEntry.getSize() > MAX_TRANSLATION_BYTES) {
+          throw new ServiceException("visual_pack_invalid", "Invalid language metadata");
+        }
+        JsonObject languageMetadata =
+            readJsonObject(zip, languagesEntry, "metadata/languages.json");
+        for (Map.Entry<String, JsonElement> metadataEntry : languageMetadata.entrySet()) {
+          String locale = normalizeLocale(metadataEntry.getKey());
+          if (!locales.contains(locale) || !metadataEntry.getValue().isJsonObject()) {
+            throw new ServiceException("visual_pack_invalid",
+                "Invalid language metadata locale: " + metadataEntry.getKey());
+          }
+          JsonObject row = metadataEntry.getValue().getAsJsonObject();
+          String name = row.has("name") ? row.get("name").getAsString().trim() : "";
+          String region = row.has("region") ? row.get("region").getAsString().trim() : "";
+          if (name.length() > 128 || region.length() > 128
+              || (row.has("bidirectional") && !row.get("bidirectional").isJsonPrimitive())) {
+            throw new ServiceException("visual_pack_invalid",
+                "Invalid language metadata: " + metadataEntry.getKey());
+          }
+        }
+      }
+      ZipEntry enchantmentCatalogEntry = files.get("catalog/enchantments.json");
+      if (enchantmentCatalogEntry != null) {
+        if (!includesTranslations || enchantmentCatalogEntry.getSize() < 0
+            || enchantmentCatalogEntry.getSize() > MAX_TRANSLATION_BYTES) {
+          throw new ServiceException("visual_pack_invalid", "Invalid enchantment catalog");
+        }
+        JsonObject enchantmentCatalog =
+            readJsonObject(zip, enchantmentCatalogEntry, "catalog/enchantments.json");
+        for (Map.Entry<String, JsonElement> enchantment : enchantmentCatalog.entrySet()) {
+          if (!enchantment.getKey().matches("[a-z0-9_.-]+:[a-z0-9_./-]+")
+              || !enchantment.getValue().isJsonObject()) {
+            throw new ServiceException("visual_pack_invalid",
+                "Invalid enchantment catalog entry: " + enchantment.getKey());
+          }
+        }
+        for (String locale : locales) {
+          String path = "enchantments/" + locale + ".json";
+          ZipEntry entry = files.get(path);
+          if (entry == null || entry.getSize() < 0
+              || entry.getSize() > MAX_TRANSLATION_BYTES) {
+            throw new ServiceException("visual_pack_invalid",
+                "Missing enchantment translation file: " + locale);
+          }
+          JsonObject rows = readJsonObject(zip, entry, path);
+          for (Map.Entry<String, JsonElement> enchantment : rows.entrySet()) {
+            if (!enchantmentCatalog.has(enchantment.getKey())
+                || !enchantment.getValue().isJsonObject()) {
+              throw new ServiceException("visual_pack_invalid",
+                  "Unknown translated enchantment: " + enchantment.getKey());
+            }
+          }
+        }
+      } else if (files.keySet().stream().anyMatch(name -> name.startsWith("enchantments/"))) {
+        throw new ServiceException("visual_pack_invalid",
+            "Enchantment translations require a catalog");
       }
 
       ZipEntry catalogEntry = files.get("catalog/items.json");
@@ -302,20 +530,30 @@ final class VisualPackService {
         if (!itemId.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")) {
           throw new ServiceException("visual_pack_invalid", "Invalid itemId: " + itemId);
         }
-        String icon = row.get("icon").getAsString().replace('\\', '/');
-        if (!icon.matches("icons/[a-z0-9._/-]+\\.png") || icon.contains("..")) {
-          throw new ServiceException("visual_pack_invalid", "Invalid icon path");
+        String icon = null;
+        if (includesIcons) {
+          if (!row.has("icon") || !row.has("sha256")) {
+            throw new ServiceException("visual_pack_invalid", "Missing icon metadata");
+          }
+          icon = row.get("icon").getAsString().replace('\\', '/');
+          if (!icon.matches("icons/[a-z0-9._/-]+\\.png") || icon.contains("..")) {
+            throw new ServiceException("visual_pack_invalid", "Invalid icon path");
+          }
+          ZipEntry iconEntry = files.get(icon);
+          if (iconEntry == null || iconEntry.getSize() <= 0
+              || iconEntry.getSize() > MAX_ICON_BYTES) {
+            throw new ServiceException("visual_pack_invalid", "Missing or oversized icon: " + icon);
+          }
+          byte[] bytes = zip.getInputStream(iconEntry).readAllBytes();
+          String expected = row.get("sha256").getAsString().replaceFirst("^sha256:", "");
+          if (!sha256(bytes).equalsIgnoreCase(expected)) {
+            throw new ServiceException("visual_pack_invalid", "Icon hash mismatch: " + icon);
+          }
+          validatePng(bytes, icon);
+        } else if (row.has("icon") || row.has("sha256")) {
+          throw new ServiceException(
+              "visual_pack_invalid", "Language-only pack contains icon metadata");
         }
-        ZipEntry iconEntry = files.get(icon);
-        if (iconEntry == null || iconEntry.getSize() <= 0 || iconEntry.getSize() > MAX_ICON_BYTES) {
-          throw new ServiceException("visual_pack_invalid", "Missing or oversized icon: " + icon);
-        }
-        byte[] bytes = zip.getInputStream(iconEntry).readAllBytes();
-        String expected = row.get("sha256").getAsString().replaceFirst("^sha256:", "");
-        if (!sha256(bytes).equalsIgnoreCase(expected)) {
-          throw new ServiceException("visual_pack_invalid", "Icon hash mismatch: " + icon);
-        }
-        validatePng(bytes, icon);
         String translationKey = row.get("translationKey").getAsString().trim();
         if (!translationKey.matches("[a-zA-Z0-9_.:/-]{1,255}")) {
           throw new ServiceException("visual_pack_invalid", "Invalid translation key");
@@ -360,7 +598,8 @@ final class VisualPackService {
       }
       return new ValidatedPack(
           packId, packName, manifest, List.copyOf(validatedEntries.values()),
-          List.copyOf(locales), Map.copyOf(translations));
+          List.copyOf(locales), Map.copyOf(translations),
+          includesIcons, includesTranslations);
     }
   }
 
@@ -369,8 +608,14 @@ final class VisualPackService {
       Set<String> allowed = new java.util.HashSet<>();
       allowed.add("manifest.json");
       allowed.add("catalog/items.json");
+      if (zip.getEntry("catalog/enchantments.json") != null) {
+        allowed.add("catalog/enchantments.json");
+        pack.locales().forEach(locale -> allowed.add("enchantments/" + locale + ".json"));
+      }
       allowed.addAll(OPTIONAL_FILES);
-      pack.entries().forEach(entry -> allowed.add(entry.iconPath()));
+      if (pack.includesIcons()) {
+        pack.entries().forEach(entry -> allowed.add(entry.iconPath()));
+      }
       pack.locales().forEach(locale -> allowed.add("translations/" + locale + ".json"));
       for (String name : allowed) {
         ZipEntry entry = zip.getEntry(name);
@@ -403,9 +648,11 @@ final class VisualPackService {
           INSERT INTO visual_packs (
             pack_id, pack_name, version_id, enabled, sort_order, icons_enabled,
             translations_enabled, manifest_json, file_size, entry_count, uploaded_by
-          ) VALUES (?, ?, ?, FALSE, ?, TRUE, TRUE, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, FALSE, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(pack_id) DO UPDATE SET
             pack_name = excluded.pack_name, version_id = excluded.version_id,
+            icons_enabled = excluded.icons_enabled,
+            translations_enabled = excluded.translations_enabled,
             manifest_json = excluded.manifest_json, file_size = excluded.file_size,
             entry_count = excluded.entry_count, uploaded_by = excluded.uploaded_by,
             updated_at = CURRENT_TIMESTAMP
@@ -413,9 +660,11 @@ final class VisualPackService {
           INSERT INTO visual_packs (
             pack_id, pack_name, version_id, enabled, sort_order, icons_enabled,
             translations_enabled, manifest_json, file_size, entry_count, uploaded_by
-          ) VALUES (?, ?, ?, FALSE, ?, TRUE, TRUE, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, FALSE, ?, ?, ?, ?, ?, ?, ?)
           ON DUPLICATE KEY UPDATE
             pack_name = VALUES(pack_name), version_id = VALUES(version_id),
+            icons_enabled = VALUES(icons_enabled),
+            translations_enabled = VALUES(translations_enabled),
             manifest_json = VALUES(manifest_json), file_size = VALUES(file_size),
             entry_count = VALUES(entry_count), uploaded_by = VALUES(uploaded_by),
             updated_at = CURRENT_TIMESTAMP
@@ -425,10 +674,12 @@ final class VisualPackService {
         statement.setString(2, pack.packName());
         statement.setString(3, versionId);
         statement.setInt(4, order);
-        statement.setString(5, gson.toJson(pack.manifest()));
-        statement.setLong(6, fileSize);
-        statement.setInt(7, pack.entries().size());
-        statement.setString(8, uploadedBy);
+        statement.setBoolean(5, pack.includesIcons());
+        statement.setBoolean(6, pack.includesTranslations());
+        statement.setString(7, gson.toJson(pack.manifest()));
+        statement.setLong(8, fileSize);
+        statement.setInt(9, pack.entries().size());
+        statement.setString(10, uploadedBy);
         statement.executeUpdate();
       }
       return null;
@@ -437,7 +688,12 @@ final class VisualPackService {
 
   private synchronized void rebuildIndex() {
     Map<String, ResolvedVisualBuilder> builders = new LinkedHashMap<>();
-    for (PackRecord pack : list()) {
+    List<PackRecord> packs = new ArrayList<>(list());
+    packs.sort(Comparator
+        .comparing((PackRecord pack) -> BUILTIN_UPLOADER.equals(pack.uploadedBy()))
+        .thenComparingInt(PackRecord::sortOrder)
+        .thenComparing(PackRecord::packId));
+    for (PackRecord pack : packs) {
       if (!pack.enabled() || (!pack.iconsEnabled() && !pack.translationsEnabled())) {
         continue;
       }
@@ -448,7 +704,7 @@ final class VisualPackService {
         String itemId = row.get("itemId").getAsString().toLowerCase(Locale.ROOT);
         ResolvedVisualBuilder builder =
             builders.computeIfAbsent(itemId, ignored -> new ResolvedVisualBuilder(itemId));
-        if (pack.iconsEnabled() && builder.iconPath == null) {
+        if (pack.iconsEnabled() && row.has("icon") && builder.iconPath == null) {
           builder.iconPath = "/visual-packs/" + pack.packId() + "/" + pack.versionId() + "/"
               + row.get("icon").getAsString();
           builder.packId = pack.packId();
@@ -632,6 +888,34 @@ final class VisualPackService {
       Map<String, String> localizedNames) {
   }
 
+  record LanguageDescriptor(String name, String region, boolean bidirectional) {
+  }
+
+  record ResolvedEnchantment(
+      String enchantmentId,
+      String name,
+      String description,
+      String englishName,
+      String englishDescription) {
+  }
+
+  private static final class ResolvedEnchantmentBuilder {
+    private final String enchantmentId;
+    private String name;
+    private String description;
+    private String englishName;
+    private String englishDescription;
+
+    private ResolvedEnchantmentBuilder(String enchantmentId) {
+      this.enchantmentId = enchantmentId;
+    }
+
+    private ResolvedEnchantment build() {
+      return new ResolvedEnchantment(
+          enchantmentId, name, description, englishName, englishDescription);
+    }
+  }
+
   private record VisualEntry(String itemId, String iconPath, String translationKey) {
   }
 
@@ -641,7 +925,9 @@ final class VisualPackService {
       JsonObject manifest,
       List<VisualEntry> entries,
       List<String> locales,
-      Map<String, Map<String, String>> translations) {
+      Map<String, Map<String, String>> translations,
+      boolean includesIcons,
+      boolean includesTranslations) {
   }
 
   private static final class ResolvedVisualBuilder {

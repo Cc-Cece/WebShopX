@@ -27,7 +27,6 @@ class VisualCustomizationServiceTest {
                         "OFFICIAL_PRODUCT",
                         "MARKET_LISTING",
                         "VISUAL_PACK",
-                        "BUILTIN_LOCALE",
                         "EN_US",
                         "FORMATTED_ID"),
                 settings.namePriority());

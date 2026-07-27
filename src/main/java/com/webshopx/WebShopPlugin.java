@@ -140,6 +140,19 @@ public class WebShopPlugin extends JavaPlugin {
       rechargeService = new RechargeService(databaseManager, walletService, paymentBridge, this::settings);
       redeemCodeService = new RedeemCodeService(databaseManager, walletService);
       productService = new ProductService(databaseManager);
+      ProductService.SnapshotMetadataRepairResult snapshotRepair =
+          productService.repairLegacyContainerSnapshotMetadata();
+      if (snapshotRepair.repaired() > 0) {
+        getLogger().info(
+            "Rebuilt container preview metadata for "
+                + snapshotRepair.repaired() + " official item snapshot(s).");
+      }
+      if (snapshotRepair.failed() > 0) {
+        getLogger().warning(
+            "Could not rebuild container preview metadata for "
+                + snapshotRepair.failed() + " of "
+                + snapshotRepair.candidates() + " official item snapshot(s).");
+      }
       orderService = new OrderService(
           databaseManager,
           this::settings,

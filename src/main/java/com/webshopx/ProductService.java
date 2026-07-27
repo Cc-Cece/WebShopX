@@ -1,6 +1,7 @@
 package com.webshopx;
 
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -22,6 +23,7 @@ class ProductService {
 
   private final DatabaseManager databaseManager;
   private final SqlProvider sqlProvider;
+  private final ItemSnapshotCodec itemSnapshotCodec = new ItemSnapshotCodec();
 
   ProductService(DatabaseManager databaseManager) {
     this.databaseManager = databaseManager;
@@ -1175,6 +1177,51 @@ class ProductService {
         || productType == ProductType.RECYCLE_CUSTOM_ITEM;
   }
 
+  SnapshotMetadataRepairResult repairLegacyContainerSnapshotMetadata() {
+    return databaseManager.inTransaction(connection -> {
+      List<SnapshotView> candidates = new ArrayList<>();
+      String candidateSql =
+          "SELECT id, item_hash, item_blob, item_meta_json, item_material "
+              + "FROM official_item_snapshots "
+              + "WHERE item_material = 'BUNDLE' "
+              + "OR item_material LIKE '%_BUNDLE' "
+              + "OR item_material LIKE '%_SHULKER_BOX'";
+      try (PreparedStatement statement = connection.prepareStatement(candidateSql);
+           ResultSet resultSet = statement.executeQuery()) {
+        while (resultSet.next()) {
+          SnapshotView snapshot = new SnapshotView(
+              resultSet.getLong("id"),
+              resultSet.getString("item_hash"),
+              resultSet.getBytes("item_blob"),
+              resultSet.getString("item_meta_json"),
+              resultSet.getString("item_material"));
+          if (needsContainerMetadataRepair(snapshot.itemMetaJson())) {
+            candidates.add(snapshot);
+          }
+        }
+      }
+
+      int repaired = 0;
+      int failed = 0;
+      for (SnapshotView candidate : candidates) {
+        try {
+          ItemSnapshotCodec.Snapshot rebuilt =
+              itemSnapshotCodec.serialize(itemSnapshotCodec.deserialize(candidate.itemBlob()));
+          if (!candidate.itemHash().equals(rebuilt.itemHash())) {
+            failed++;
+            continue;
+          }
+          updateSnapshotProjection(
+              connection, candidate.id(), rebuilt, candidate.itemMaterial());
+          repaired++;
+        } catch (SQLException | RuntimeException exception) {
+          failed++;
+        }
+      }
+      return new SnapshotMetadataRepairResult(candidates.size(), repaired, failed);
+    });
+  }
+
   ProductView createSnapshotProduct(
       SnapshotProductInput input,
       ItemSnapshotCodec.Snapshot snapshot,
@@ -1480,7 +1527,11 @@ class ProductService {
         "SELECT id FROM official_item_snapshots WHERE item_hash = ?")) {
       statement.setString(1, snapshot.itemHash());
       try (ResultSet resultSet = statement.executeQuery()) {
-        if (resultSet.next()) return resultSet.getLong(1);
+        if (resultSet.next()) {
+          long snapshotId = resultSet.getLong(1);
+          updateSnapshotProjection(connection, snapshotId, snapshot, material);
+          return snapshotId;
+        }
       }
     }
     try {
@@ -1502,12 +1553,56 @@ class ProductService {
           "SELECT id FROM official_item_snapshots WHERE item_hash = ?")) {
         statement.setString(1, snapshot.itemHash());
         try (ResultSet resultSet = statement.executeQuery()) {
-          if (resultSet.next()) return resultSet.getLong(1);
+          if (resultSet.next()) {
+            long snapshotId = resultSet.getLong(1);
+            updateSnapshotProjection(connection, snapshotId, snapshot, material);
+            return snapshotId;
+          }
         }
       }
       throw duplicateCandidate;
     }
     throw new SQLException("Snapshot insert did not return an id");
+  }
+
+  static void updateSnapshotProjection(
+      Connection connection,
+      long snapshotId,
+      ItemSnapshotCodec.Snapshot snapshot,
+      String material) throws SQLException {
+    String updateSql = "UPDATE official_item_snapshots "
+        + "SET item_meta_json = ?, item_material = ? "
+        + "WHERE id = ? AND item_hash = ?";
+    try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
+      statement.setString(1, snapshot.itemMetaJson());
+      statement.setString(2, material);
+      statement.setLong(3, snapshotId);
+      statement.setString(4, snapshot.itemHash());
+      if (statement.executeUpdate() != 1) {
+        throw new SQLException("Snapshot projection update did not match the expected row");
+      }
+    }
+  }
+
+  static boolean needsContainerMetadataRepair(String itemMetaJson) {
+    if (itemMetaJson == null || itemMetaJson.isBlank()) {
+      return true;
+    }
+    try {
+      JsonObject meta = JsonParser.parseString(itemMetaJson).getAsJsonObject();
+      if (!meta.has("containerItems") || !meta.get("containerItems").isJsonArray()) {
+        return true;
+      }
+      String material = meta.has("material") ? meta.get("material").getAsString() : "";
+      boolean bundle = material.equals("BUNDLE") || material.endsWith("_BUNDLE");
+      return bundle
+          && (!meta.has("containerCapacity")
+              || !meta.get("containerCapacity").isJsonPrimitive()
+              || !meta.has("containerOccupancy")
+              || !meta.get("containerOccupancy").isJsonPrimitive());
+    } catch (RuntimeException exception) {
+      return true;
+    }
   }
 
   enum ProductType {
@@ -1595,6 +1690,9 @@ class ProductService {
       String itemMaterial,
       String itemMetaJson,
       boolean active) {
+  }
+
+  record SnapshotMetadataRepairResult(int candidates, int repaired, int failed) {
   }
 
   record ProductView(

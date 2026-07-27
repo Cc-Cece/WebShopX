@@ -172,8 +172,29 @@ final class ItemSnapshotCodec {
           index++) {
         addPreviewEntry(contents, items.get(index), index, depth + 1);
       }
+      meta.addProperty("containerCapacity", 64);
+      meta.addProperty("containerOccupancy", bundleOccupancy(items));
     }
     meta.add("containerItems", contents);
+  }
+
+  static int bundleOccupancy(List<ItemStack> items) {
+    if (items == null || items.isEmpty()) {
+      return 0;
+    }
+    int occupancy = 0;
+    for (ItemStack item : items) {
+      if (item == null || item.getType() == Material.AIR) {
+        continue;
+      }
+      ItemMeta meta = item.getItemMeta();
+      if (meta instanceof BundleMeta nestedBundle) {
+        occupancy += 4 + bundleOccupancy(nestedBundle.getItems());
+      } else {
+        occupancy += Math.ceilDiv(64, Math.max(1, item.getMaxStackSize())) * item.getAmount();
+      }
+    }
+    return Math.min(64, occupancy);
   }
 
   private void addPreviewEntry(

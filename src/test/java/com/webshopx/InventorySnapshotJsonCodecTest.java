@@ -22,9 +22,11 @@ class InventorySnapshotJsonCodecTest {
         List.of(),
         null,
         null,
+        null,
+        null,
         List.of(new InventoryService.ItemView(
             "BUNDLE", "Bundle", 1, 1, "nested", List.of(), List.of(),
-            null, null, List.of(), 0)),
+            null, null, 64, 0, List.of(), 0)),
         2);
     InventoryService.ItemView container = new InventoryService.ItemView(
         "SHULKER_BOX",
@@ -35,6 +37,8 @@ class InventorySnapshotJsonCodecTest {
         List.of("Stored items"),
         List.of(),
         7,
+        null,
+        null,
         null,
         List.of(child),
         null);
@@ -54,6 +58,11 @@ class InventorySnapshotJsonCodecTest {
     assertEquals("BUNDLE", item.getAsJsonArray("containerItems").get(0).getAsJsonObject()
         .getAsJsonObject("item").getAsJsonArray("containerItems").get(0).getAsJsonObject()
         .getAsJsonObject("item").get("material").getAsString());
+    JsonObject bundle = item.getAsJsonArray("containerItems").get(0).getAsJsonObject()
+        .getAsJsonObject("item").getAsJsonArray("containerItems").get(0).getAsJsonObject()
+        .getAsJsonObject("item");
+    assertEquals(64, bundle.get("containerCapacity").getAsInt());
+    assertEquals(0, bundle.get("containerOccupancy").getAsInt());
     assertTrue(item.get("listable").getAsBoolean());
     assertFalse(encoded.has("rawItemBlob"));
   }

@@ -164,6 +164,9 @@ final class InventoryService {
         enchantments(stack),
         meta != null && meta.hasCustomModelData() ? meta.getCustomModelData() : null,
         resolveItemModel(meta),
+        meta instanceof BundleMeta ? 64 : null,
+        meta instanceof BundleMeta bundleMeta
+            ? ItemSnapshotCodec.bundleOccupancy(bundleMeta.getItems()) : null,
         contents,
         null);
   }
@@ -228,11 +231,13 @@ final class InventoryService {
       List<String> enchantments,
       Integer customModelData,
       String itemModel,
+      Integer containerCapacity,
+      Integer containerOccupancy,
       List<ItemView> containerItems,
       Integer containerSlot) {
     ItemView withContainerSlot(int slot) {
       return new ItemView(material, name, amount, maxStackSize, fingerprint, lore, enchantments,
-          customModelData, itemModel, containerItems, slot);
+          customModelData, itemModel, containerCapacity, containerOccupancy, containerItems, slot);
     }
   }
 }

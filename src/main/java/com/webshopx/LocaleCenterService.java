@@ -41,7 +41,7 @@ class LocaleCenterService {
       Pattern.compile("^web/i18n/([a-z0-9-]+)/([A-Za-z0-9_-]+)\\.json$", Pattern.CASE_INSENSITIVE);
   private static final Set<String> BUILTIN_LOCALES = Set.of("zh-CN", "en-US");
   private static final Set<String> ALLOWED_NAMESPACES =
-      Set.of("app", "admin", "help", "market-algorithms", "materials");
+      Set.of("app", "admin", "help", "market-algorithms");
 
   private final JavaPlugin plugin;
   private final Supplier<Path> userWebRootSupplier;
