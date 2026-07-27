@@ -1,29 +1,21 @@
-name: I18n Standardization
+name: I18n Quality Gate
 
 on:
   pull_request:
-    branches: [ "feat/webshopx-inventory-management" ]
+    branches: [ "feat/webshopx-inventory-management", "main" ]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  audit-and-compile:
-    if: github.actor != 'github-actions[bot]'
+  validate-i18n:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
-          persist-credentials: true
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-
-      - name: Normalize backend i18n
-        run: python tools/normalize-java-i18n.py
 
       - name: Audit Java hardcoded CJK
         run: python tools/i18n-java-audit.py
@@ -35,41 +27,9 @@ jobs:
           java-version: '21'
 
       - name: Compile plugin
-        id: compile
-        shell: bash
         run: |
-          set +e
           chmod +x gradlew
-          ./gradlew compileJava > backend-compile.txt 2>&1
-          status=$?
-          cat backend-compile.txt
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
+          ./gradlew compileJava
 
-      - name: Upload backend compile log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-compile
-          path: backend-compile.txt
-
-      - name: Enforce compile
-        if: steps.compile.outputs.status != '0'
-        run: |
-          cat backend-compile.txt
-          exit 1
-
-      - name: Check generated diff
-        run: git diff --check
-
-      - name: Commit normalized backend sources
-        run: |
-          if git diff --quiet; then
-            echo "No backend normalization changes required."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main/java
-          git commit -m "refactor: normalize backend i18n [i18n-normalized]"
-          git push origin HEAD:${{ github.head_ref }}
+      - name: Validate bundled locale resources
+        run: ./gradlew test --tests com.webshopx.MessageBundleYamlTest
