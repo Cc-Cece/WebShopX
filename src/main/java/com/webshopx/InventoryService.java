@@ -203,11 +203,11 @@ final class InventoryService {
   }
 
   private String label(InventorySource source, int slot) {
-    if (source == InventorySource.ENDER_CHEST) return "末影箱第 " + (slot + 1) + " 格";
-    if (slot < 9) return "快捷栏第 " + (slot + 1) + " 格";
-    if (slot < 36) return "背包第 " + (slot + 1) + " 格";
-    if (slot == 40) return "副手";
-    return "装备栏第 " + (slot - 35) + " 格";
+    if (source == InventorySource.ENDER_CHEST) return "Ender Chest #" + (slot + 1);
+    if (slot < 9) return "Hotbar #" + (slot + 1);
+    if (slot < 36) return "Main Inventory #" + (slot + 1);
+    if (slot == 40) return "Offhand";
+    return "Armor #" + (slot - 35);
   }
 
   record Snapshot(String revision, List<SlotView> slots) {}
