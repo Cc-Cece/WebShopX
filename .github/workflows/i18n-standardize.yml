@@ -35,7 +35,28 @@ jobs:
           java-version: '21'
 
       - name: Compile plugin
-        run: ./gradlew compileJava
+        id: compile
+        shell: bash
+        run: |
+          set +e
+          ./gradlew compileJava > backend-compile.txt 2>&1
+          status=$?
+          cat backend-compile.txt
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload backend compile log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-compile
+          path: backend-compile.txt
+
+      - name: Enforce compile
+        if: steps.compile.outputs.status != '0'
+        run: |
+          cat backend-compile.txt
+          exit 1
 
       - name: Check generated diff
         run: git diff --check
