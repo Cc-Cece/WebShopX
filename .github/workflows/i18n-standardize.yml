@@ -39,6 +39,7 @@ jobs:
         shell: bash
         run: |
           set +e
+          chmod +x gradlew
           ./gradlew compileJava > backend-compile.txt 2>&1
           status=$?
           cat backend-compile.txt
