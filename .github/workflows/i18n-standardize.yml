@@ -1,0 +1,30 @@
+name: I18n Standardization
+
+on:
+  pull_request:
+    branches: [ "feat/webshopx-inventory-management" ]
+
+permissions:
+  contents: read
+
+jobs:
+  audit-and-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Audit Java hardcoded CJK
+        run: python tools/i18n-java-audit.py
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Compile plugin
+        run: ./gradlew compileJava
