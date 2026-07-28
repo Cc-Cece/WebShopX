@@ -265,7 +265,6 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/products/from-inventory", this::handleAdminProductFromInventory);
     server.createContext("/api/admin/products/snapshot-history", this::handleAdminProductSnapshotHistory);
     server.createContext("/api/admin/products/snapshot-rollback", this::handleAdminProductSnapshotRollback);
-    server.createContext("/api/admin/products/physical-withdraw", this::handleAdminPhysicalStockWithdraw);
     server.createContext("/api/admin/products/icon", this::handleAdminProductIconUpload);
     server.createContext("/api/admin/products/active", this::handleAdminProductsActive);
     server.createContext("/api/admin/products/reset-limit", this::handleAdminProductsResetLimit);
@@ -3989,68 +3988,10 @@ class EmbeddedWebServer {
       InventoryService.InventorySource source = inventorySource(payload);
       String inventoryMode = getOptionalString(payload, "inventoryMode")
           .orElse("TEMPLATE").toUpperCase(Locale.ROOT);
-      if ("PHYSICAL".equals(inventoryMode)) {
-        int depositQuantity = (int) getLong(payload, "depositQuantity", 0L);
-        ProductService.ProductView deposited;
-        try {
-          deposited = awaitPlayerTask(user.boundUuid(), player -> {
-            InventoryService.Withdrawal withdrawal = inventoryService.withdraw(
-                playerInventory(player, source), source, getString(payload, "revision"),
-                slot, containerSlot, getString(payload, "fingerprint"), depositQuantity);
-            try {
-              return createPhysicalSnapshotProduct(
-                  payload, admin, withdrawal.item(), depositQuantity);
-            } catch (RuntimeException exception) {
-              withdrawal.restore().run();
-              throw exception;
-            }
-          });
-        } catch (ServiceException exception) {
-          if (!"player_offline".equals(exception.code())) throw exception;
-          if (!admin.allows(AdminPermission.PRODUCT_OFFLINE_INVENTORY_IMPORT)) {
-            throw new ServiceException(
-                "forbidden", "Offline inventory import permission is required");
-          }
-          if (containerSlot != null) {
-            throw new ServiceException(
-                "unsupported_offline_item",
-                "Nested container deposits require the administrator to be online");
-          }
-          offlineInventoryFeatureService.requireWriteEnabled();
-          String operationId = "official-deposit-" + UUID.randomUUID();
-          inventoryOperationService.begin(
-              user.id(), operationId, "OFFICIAL_DEPOSIT", slot, null,
-              getString(payload, "fingerprint"), depositQuantity);
-          try (PlayerDataInventoryService.OfflineWithdrawal withdrawal =
-                   playerDataInventoryService.withdraw(
-                       user.boundUuid(), source, getString(payload, "revision"), slot,
-                       getString(payload, "fingerprint"), depositQuantity,
-                       user.id(), operationId)) {
-            try {
-              deposited = createPhysicalSnapshotProduct(
-                  payload, admin, withdrawal.item(), depositQuantity);
-              withdrawal.commit();
-              inventoryOperationService.complete(
-                  user.id(), operationId, deposited.id(), "{\"state\":\"SUCCESS\"}");
-            } catch (RuntimeException failure) {
-              withdrawal.rollback();
-              inventoryOperationService.reject(
-                  user.id(), operationId, serviceErrorCode(failure));
-              throw failure;
-            }
-          }
-        }
-        JsonObject response = new JsonObject();
-        addProductJson(response, deposited, false);
-        response.addProperty("inventoryMode", "PHYSICAL");
-        response.addProperty("depositedQuantity", depositQuantity);
-        sendJson(exchange, 201, response);
-        JsonObject detail = new JsonObject();
-        detail.addProperty("quantity", depositQuantity);
-        adminAuditService.log(
-            admin, "PRODUCT_PHYSICAL_DEPOSIT", "product",
-            deposited.sku(), detail, clientIp(exchange));
-        return;
+      if (!"TEMPLATE".equals(inventoryMode)) {
+        throw new ServiceException(
+            "invalid_inventory_mode",
+            "Official products created from inventory only support snapshot templates");
       }
       ItemStack item;
       boolean offlineCapture = false;
@@ -4147,44 +4088,6 @@ class EmbeddedWebServer {
     });
   }
 
-  private ProductService.ProductView createPhysicalSnapshotProduct(
-      JsonObject payload,
-      AdminService.AdminUser admin,
-      ItemStack deposited,
-      int quantity) {
-    if (quantity <= 0 || deposited == null || deposited.getAmount() != quantity) {
-      throw new ServiceException(
-          "invalid_inventory_request", "Physical deposit quantity is invalid");
-    }
-    ItemStack template = deposited.clone();
-    template.setAmount(1);
-    ItemSnapshotCodec.Snapshot snapshot = inventoryItemCodec.validateRoundTrip(template);
-    long productId = getLong(payload, "productId", -1L);
-    if (productId > 0L) {
-      return productService.restockSnapshot(productId, snapshot, quantity);
-    }
-    String requestedSku = getOptionalString(payload, "sku").orElse("");
-    String sku = requestedSku.isBlank()
-        ? "inv-" + snapshot.itemHash().substring(0, 12) : requestedSku;
-    return productService.createSnapshotProduct(
-        new ProductService.SnapshotProductInput(
-            sku,
-            getOptionalString(payload, "title").filter(value -> !value.isBlank())
-                .orElse(template.getType().name()),
-            getOptionalString(payload, "remark").orElse(null),
-            CurrencyType.fromConfig(getOptionalString(payload, "currency").orElse("SHOP_COIN")),
-            getLong(payload, "price", 0L),
-            quantity,
-            payload.has("perUserLimit") && !payload.get("perUserLimit").isJsonNull()
-                ? (int) getLong(payload, "perUserLimit", 0L) : null,
-            !payload.has("active") || payload.get("active").getAsBoolean(),
-            admin.userId(),
-            "PHYSICAL"),
-        snapshot,
-        template.getType().name(),
-        admin.allows(AdminPermission.PRODUCT_ZERO_PRICE));
-  }
-
   private void handleAdminProductSnapshotHistory(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange) || !ensureMethod(exchange, "GET")) return;
     withServiceHandling(exchange, () -> {
@@ -4234,32 +4137,6 @@ class EmbeddedWebServer {
       detail.addProperty("sourceVersion", version);
       adminAuditService.log(
           admin, "PRODUCT_SNAPSHOT_ROLLBACK", "product",
-          Long.toString(productId), detail, clientIp(exchange));
-    });
-  }
-
-  private void handleAdminPhysicalStockWithdraw(HttpExchange exchange) throws IOException {
-    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) return;
-    withServiceHandling(exchange, () -> {
-      JsonObject payload = readJson(exchange);
-      AuthService.AuthUser user = requireAuth(exchange, payload);
-      AdminService.AdminUser admin =
-          adminService.requireAdmin(user, AdminPermission.PRODUCT_MANAGE);
-      if (user.boundUuid() == null) {
-        throw new ServiceException("uuid_not_bound", "Minecraft UUID is not bound");
-      }
-      long productId = getLong(payload, "productId", -1L);
-      int quantity = productService.releasePhysicalStockToMailbox(
-          productId, user.id(), user.boundUuid(), mailboxService);
-      JsonObject response = new JsonObject();
-      response.addProperty("productId", productId);
-      response.addProperty("returnedQuantity", quantity);
-      response.addProperty("destination", "MAILBOX");
-      sendJson(exchange, 200, response);
-      JsonObject detail = new JsonObject();
-      detail.addProperty("returnedQuantity", quantity);
-      adminAuditService.log(
-          admin, "PRODUCT_PHYSICAL_WITHDRAW", "product",
           Long.toString(productId), detail, clientIp(exchange));
     });
   }
