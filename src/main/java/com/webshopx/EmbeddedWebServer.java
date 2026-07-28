@@ -144,7 +144,8 @@ class EmbeddedWebServer {
     this.inventoryOperationService = new InventoryOperationService(databaseManager);
     this.mailboxService = new MailboxService(databaseManager);
     this.mailboxCenterService = new MailboxCenterService(
-        orderService, mailboxService, deliveryService, offlineInventoryFeatureService);
+        orderService, mailboxService, deliveryService, offlineInventoryFeatureService,
+        playerDataInventoryService);
     this.refundPolicyService = new RefundPolicyService(databaseManager);
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;

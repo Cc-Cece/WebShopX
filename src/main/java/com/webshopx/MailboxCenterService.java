@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import org.bukkit.Bukkit;
@@ -23,17 +24,20 @@ class MailboxCenterService {
   private final MailboxService mailboxService;
   private final DeliveryService deliveryService;
   private final OfflineInventoryFeatureService offlineInventoryFeatureService;
+  private final PlayerDataInventoryService playerDataInventoryService;
   private final ConcurrentHashMap<String, ReentrantLock> operationLocks = new ConcurrentHashMap<>();
 
   MailboxCenterService(
       OrderService orderService,
       MailboxService mailboxService,
       DeliveryService deliveryService,
-      OfflineInventoryFeatureService offlineInventoryFeatureService) {
+      OfflineInventoryFeatureService offlineInventoryFeatureService,
+      PlayerDataInventoryService playerDataInventoryService) {
     this.orderService = orderService;
     this.mailboxService = mailboxService;
     this.deliveryService = deliveryService;
     this.offlineInventoryFeatureService = offlineInventoryFeatureService;
+    this.playerDataInventoryService = playerDataInventoryService;
   }
 
   List<MailboxEntry> list(long userId, int limit, Long cursor) {
@@ -167,9 +171,49 @@ class MailboxCenterService {
           throw new ServiceException(
               "offline_delivery_disabled", "Log in to the game before collecting this entry");
         }
-        throw new ServiceException(
-            "target_server_unavailable",
-            "Offline delivery is enabled, but this entry requires an active game server");
+        UUID targetUuid;
+        if (order != null) {
+          targetUuid = order.mcUuid();
+        } else {
+          String target = mailboxService.listStandalonePending(userId, MAX_PAGE_SIZE).stream()
+              .filter(item -> item.id() == resolvedMailboxId)
+              .map(MailboxService.StandaloneMailboxItem::targetUuid)
+              .findFirst()
+              .orElseThrow(() ->
+                  new ServiceException("mailbox_entry_missing", "Mailbox entry was not found"));
+          targetUuid = UUID.fromString(target);
+        }
+        String sourceType = order == null ? null
+            : order.orderNo().startsWith("MKT-") ? "MARKET" : "ORDER";
+        String sourceRef = order == null ? null : order.orderNo();
+        MailboxService.OfflineReservation reservation = mailboxService.reserveOfflineEntry(
+            userId, targetUuid, resolvedMailboxId, sourceType, sourceRef);
+        if (reservation.taskCount() <= 0) {
+          reservation.release("No offline-compatible item is available");
+          throw new ServiceException(
+              order != null && order.claimToken() != null
+                  ? "target_server_unavailable" : "already_delivered",
+              order != null && order.claimToken() != null
+                  ? "This entry contains commands, rights, or effects that require the game server"
+                  : "Mailbox entry was already delivered");
+        }
+        String operationId = "mailbox-" + entryId + "-" + UUID.randomUUID();
+        try (PlayerDataInventoryService.OfflineDeposit deposit =
+            playerDataInventoryService.deposit(
+                targetUuid, reservation.items(), userId, operationId)) {
+          try {
+            reservation.complete();
+            deposit.commit();
+          } catch (RuntimeException exception) {
+            deposit.rollback();
+            reservation.release(exception.getMessage());
+            throw exception;
+          }
+        } catch (RuntimeException exception) {
+          reservation.release(exception.getMessage());
+          throw exception;
+        }
+        return new ClaimResult(entryId, reservation.taskCount(), 0);
       }
 
       int success = 0;
