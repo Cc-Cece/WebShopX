@@ -877,8 +877,23 @@ class EmbeddedWebServer {
           row.addProperty("claimToken", order.claimToken());
         }
 
-        boolean canRefund = canRefund(order, now);
+        OrderService.RefundEligibility refundEligibility =
+            orderService.refundEligibility(user.id(), order.orderNo());
+        boolean canRefund = refundEligibility.refundable();
         row.addProperty("canRefund", canRefund);
+        row.addProperty("refundableQuantity", refundEligibility.refundableQuantity());
+        row.addProperty("expectedRefundAmount", refundEligibility.refundAmount());
+        addNullableString(row, "refundReason", refundEligibility.reason());
+        if (order.refundDeadline() == null) {
+          row.add("refundRemainingSeconds", JsonNull.INSTANCE);
+        } else {
+          row.addProperty(
+              "refundRemainingSeconds",
+              Math.max(
+                  0L,
+                  java.time.Duration.between(
+                      LocalDateTime.now(), order.refundDeadline()).toSeconds()));
+        }
         row.addProperty("canDiscard", canDiscard(order, now));
         array.add(row);
       }
