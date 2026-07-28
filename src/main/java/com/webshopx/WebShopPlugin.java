@@ -211,6 +211,7 @@ public class WebShopPlugin extends JavaPlugin {
           redeemCodeService,
           productService,
           orderService,
+          deliveryService,
           marketService,
           notificationService,
           adminService,

@@ -93,10 +93,54 @@ class MailboxService {
     if (player == null) {
       return new MailboxClaimSummary(0, 0, 0);
     }
+    return claimTasks(player, readPendingTasks(player.getUniqueId(), limit));
+  }
+
+  MailboxClaimSummary claimEntry(
+      Player player, long userId, Long mailboxId, String sourceType, String sourceRef) {
+    if (player == null || userId <= 0L) {
+      return new MailboxClaimSummary(0, 0, 0);
+    }
+    List<MailboxItemTask> tasks = databaseManager.withConnection(connection -> {
+      String idClause = mailboxId == null ? "" : " AND id = ?";
+      String sourceClause = mailboxId == null
+          ? " AND source_type = ? AND source_ref = ?" : "";
+      String sql = """
+          SELECT id, item_blob, quantity, delivered_quantity
+          FROM mailbox_items
+          WHERE user_id = ?
+            AND target_uuid = ?
+            AND status = 'PENDING'
+          """ + idClause + sourceClause + " ORDER BY id ASC";
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, userId);
+        statement.setString(2, player.getUniqueId().toString());
+        if (mailboxId != null) {
+          statement.setLong(3, mailboxId);
+        } else {
+          statement.setString(3, sourceType);
+          statement.setString(4, sourceRef);
+        }
+        try (ResultSet resultSet = statement.executeQuery()) {
+          List<MailboxItemTask> rows = new ArrayList<>();
+          while (resultSet.next()) {
+            rows.add(new MailboxItemTask(
+                resultSet.getLong("id"),
+                resultSet.getBytes("item_blob"),
+                resultSet.getInt("quantity"),
+                resultSet.getInt("delivered_quantity")));
+          }
+          return rows;
+        }
+      }
+    });
+    return claimTasks(player, tasks);
+  }
+
+  private MailboxClaimSummary claimTasks(Player player, List<MailboxItemTask> tasks) {
     UUID playerUuid = player.getUniqueId();
     int claimed = 0;
     int failed = 0;
-    List<MailboxItemTask> tasks = readPendingTasks(playerUuid, limit);
     for (MailboxItemTask task : tasks) {
       try {
         ItemStack baseItem = itemSnapshotCodec.deserialize(task.itemBlob());
@@ -165,7 +209,7 @@ class MailboxService {
     return databaseManager.withConnection(connection -> {
       String sql =
           """
-          SELECT id, source_type, source_ref, item_blob, quantity, delivered_quantity,
+          SELECT id, target_uuid, source_type, source_ref, item_blob, quantity, delivered_quantity,
                  reason, created_at
           FROM mailbox_items
           WHERE user_id = ?
@@ -181,16 +225,19 @@ class MailboxService {
           List<StandaloneMailboxItem> items = new ArrayList<>();
           while (resultSet.next()) {
             ItemStack item = itemSnapshotCodec.deserialize(resultSet.getBytes("item_blob"));
+            ItemSnapshotCodec.Snapshot snapshot = itemSnapshotCodec.serialize(item);
             Timestamp createdAt = resultSet.getTimestamp("created_at");
             items.add(new StandaloneMailboxItem(
                 resultSet.getLong("id"),
+                resultSet.getString("target_uuid"),
                 item,
                 resultSet.getInt("quantity"),
                 Math.max(0, resultSet.getInt("delivered_quantity")),
                 resultSet.getString("source_type"),
                 resultSet.getString("source_ref"),
                 resultSet.getString("reason"),
-                createdAt == null ? LocalDateTime.now() : createdAt.toLocalDateTime()));
+                createdAt == null ? LocalDateTime.now() : createdAt.toLocalDateTime(),
+                snapshot.itemMetaJson()));
           }
           return items;
         }
@@ -373,13 +420,15 @@ class MailboxService {
 
   record StandaloneMailboxItem(
       long id,
+      String targetUuid,
       ItemStack item,
       int quantity,
       int deliveredQuantity,
       String sourceType,
       String sourceRef,
       String reason,
-      LocalDateTime createdAt) {
+      LocalDateTime createdAt,
+      String itemMetaJson) {
     int remainingQuantity() {
       return Math.max(0, quantity - deliveredQuantity);
     }

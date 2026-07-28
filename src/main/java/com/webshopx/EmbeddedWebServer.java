@@ -121,6 +121,7 @@ class EmbeddedWebServer {
       RedeemCodeService redeemCodeService,
       ProductService productService,
       OrderService orderService,
+      DeliveryService deliveryService,
       MarketService marketService,
       NotificationService notificationService,
       AdminService adminService,
@@ -142,7 +143,8 @@ class EmbeddedWebServer {
     this.databaseManager = databaseManager;
     this.inventoryOperationService = new InventoryOperationService(databaseManager);
     this.mailboxService = new MailboxService(databaseManager);
-    this.mailboxCenterService = new MailboxCenterService(orderService, mailboxService);
+    this.mailboxCenterService = new MailboxCenterService(
+        orderService, mailboxService, deliveryService, offlineInventoryFeatureService);
     this.refundPolicyService = new RefundPolicyService(databaseManager);
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
@@ -1006,12 +1008,26 @@ class EmbeddedWebServer {
       AuthService.AuthUser user = requireAuth(exchange, payload);
       String path = exchange.getRequestURI().getPath();
       String prefix = "/api/mailbox/";
-      String suffix = "/refund";
-      if (!path.startsWith(prefix) || !path.endsWith(suffix)) {
+      String refundSuffix = "/refund";
+      String claimSuffix = "/claim";
+      boolean refund = path.endsWith(refundSuffix);
+      boolean claim = path.endsWith(claimSuffix);
+      if (!path.startsWith(prefix) || (!refund && !claim)) {
         throw new ServiceException("mailbox_entry_missing", "Mailbox entry was not found");
       }
+      String suffix = refund ? refundSuffix : claimSuffix;
       String encodedEntryId = path.substring(prefix.length(), path.length() - suffix.length());
       String entryId = URLDecoder.decode(encodedEntryId, StandardCharsets.UTF_8);
+      if (claim) {
+        MailboxCenterService.ClaimResult result =
+            mailboxCenterService.claim(user.id(), entryId);
+        JsonObject response = new JsonObject();
+        response.addProperty("entryId", result.entryId());
+        response.addProperty("success", result.success());
+        response.addProperty("failed", result.failed());
+        sendJson(exchange, 200, response);
+        return;
+      }
       String idempotencyKey = getOptionalString(payload, "idempotencyKey")
           .orElse(UUID.randomUUID().toString());
       OrderService.RefundResult result =
@@ -1062,6 +1078,18 @@ class EmbeddedWebServer {
     } else {
       row.addProperty("reason", entry.reason());
     }
+    row.addProperty("refundAmount", entry.refundAmount());
+    addNullableString(row, "refundCurrency", entry.refundCurrency());
+    addNullableString(row, "refundPolicy", entry.refundPolicy());
+    row.addProperty("partialRefundAllowed", entry.partialRefundAllowed());
+    addNullableString(row, "sourceOrderNo", entry.sourceOrderNo());
+    addNullableString(row, "sourceRoute", entry.sourceRoute());
+    addNullableString(row, "lastDeliveryError", entry.lastDeliveryError());
+    row.addProperty("deliveryInProgress", entry.deliveryInProgress());
+    row.addProperty("refundInProgress", entry.refundInProgress());
+    addNullableString(row, "displayName", entry.displayName());
+    addNullableString(row, "iconUrl", entry.iconUrl());
+    addNullableString(row, "itemMetaJson", entry.itemMetaJson());
     return row;
   }
 
