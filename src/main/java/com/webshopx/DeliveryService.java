@@ -138,6 +138,108 @@ class DeliveryService {
     return new ClaimSummary(success, failed);
   }
 
+  /**
+   * Moves item-based delivery tasks into the durable mailbox before an offline web claim.
+   *
+   * <p>Commands, potion effects and other server-side rights deliberately remain in the delivery
+   * queue because they require an online player context.
+   */
+  int stageOfflineMailboxItems(UUID ownerUuid, String orderNo) {
+    if (ownerUuid == null || orderNo == null || orderNo.isBlank()) {
+      return 0;
+    }
+    String normalizedOrderNo = orderNo.trim().toUpperCase(Locale.ROOT);
+    if (normalizedOrderNo.startsWith("MKT-")) {
+      Long tradeId = parseTradeIdFilter(normalizedOrderNo);
+      if (tradeId == null) {
+        return 0;
+      }
+      List<MarketItemDeliveryTask> tasks = databaseManager.withConnection(connection -> {
+        String sql = """
+            SELECT md.id, md.listing_id, md.trade_id, md.target_user_id, md.target_uuid,
+                   md.item_blob, md.quantity, md.delivered_quantity, md.delivery_type,
+                   md.retry_count
+            FROM market_item_deliveries md
+            WHERE md.target_uuid = ?
+              AND md.trade_id = ?
+              AND md.status IN ('PENDING', 'WAIT_CLAIM')
+            ORDER BY md.id ASC
+            """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+          statement.setString(1, ownerUuid.toString());
+          statement.setLong(2, tradeId);
+          return readMarketTasks(statement.executeQuery());
+        }
+      });
+      int staged = 0;
+      for (MarketItemDeliveryTask task : tasks) {
+        int remaining = task.remainingQuantity();
+        if (remaining > 0
+            && tryMoveMarketItemToMailbox(
+                task, 0, remaining, false, "offline mailbox claim", null)) {
+          staged++;
+        }
+      }
+      return staged;
+    }
+
+    List<CommandDeliveryTask> tasks = databaseManager.withConnection(connection -> {
+      String sql = """
+          SELECT dq.id, dq.order_id, dq.item_id, dq.mc_uuid, dq.command_text,
+                 dq.delivery_kind, dq.payload_json, dq.quantity, dq.delivered_quantity,
+                 dq.retry_count, o.order_no, o.user_id
+          FROM delivery_queue dq
+          JOIN orders o ON o.id = dq.order_id
+          WHERE dq.mc_uuid = ?
+            AND o.order_no = ?
+            AND dq.status IN ('PENDING', 'WAIT_CLAIM')
+          ORDER BY dq.id ASC
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, ownerUuid.toString());
+        statement.setString(2, normalizedOrderNo);
+        return readCommandTasks(statement.executeQuery());
+      }
+    });
+    int staged = 0;
+    for (CommandDeliveryTask task : tasks) {
+      DeliveryKind kind = DeliveryKind.fromRaw(task.deliveryKind());
+      int remaining = task.remainingQuantity();
+      if ((kind == DeliveryKind.GIVE_ITEM || kind == DeliveryKind.SNAPSHOT_ITEM)
+          && remaining > 0
+          && tryMoveCommandItemToMailbox(
+              task, 0, remaining, false, "offline mailbox claim", null)) {
+        staged++;
+      }
+    }
+    return staged;
+  }
+
+  boolean hasPendingServerOnlyTasks(UUID ownerUuid, String orderNo) {
+    if (ownerUuid == null || orderNo == null || orderNo.isBlank()
+        || orderNo.toUpperCase(Locale.ROOT).startsWith("MKT-")) {
+      return false;
+    }
+    return databaseManager.withConnection(connection -> {
+      String sql = """
+          SELECT COUNT(*) AS cnt
+          FROM delivery_queue dq
+          JOIN orders o ON o.id = dq.order_id
+          WHERE dq.mc_uuid = ?
+            AND o.order_no = ?
+            AND dq.status IN ('PENDING', 'WAIT_CLAIM')
+            AND UPPER(dq.delivery_kind) NOT IN ('GIVE_ITEM', 'SNAPSHOT_ITEM')
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, ownerUuid.toString());
+        statement.setString(2, orderNo.trim().toUpperCase(Locale.ROOT));
+        try (ResultSet resultSet = statement.executeQuery()) {
+          return resultSet.next() && resultSet.getInt("cnt") > 0;
+        }
+      }
+    });
+  }
+
   private ClaimFilters resolveClaimFilters(Player player, String rawToken) {
     UUID playerUuid = player.getUniqueId();
     if (rawToken == null || rawToken.isBlank() || rawToken.equalsIgnoreCase("all")) {

@@ -186,14 +186,20 @@ class MailboxCenterService {
         String sourceType = order == null ? null
             : order.orderNo().startsWith("MKT-") ? "MARKET" : "ORDER";
         String sourceRef = order == null ? null : order.orderNo();
+        if (order != null) {
+          // New orders normally begin in the delivery queue. Reuse its existing
+          // item-to-mailbox conversion before entering the safe playerdata writer.
+          deliveryService.stageOfflineMailboxItems(targetUuid, order.orderNo());
+        }
         MailboxService.OfflineReservation reservation = mailboxService.reserveOfflineEntry(
             userId, targetUuid, resolvedMailboxId, sourceType, sourceRef);
         if (reservation.taskCount() <= 0) {
           reservation.release("No offline-compatible item is available");
+          boolean requiresServer = order != null
+              && deliveryService.hasPendingServerOnlyTasks(targetUuid, order.orderNo());
           throw new ServiceException(
-              order != null && order.claimToken() != null
-                  ? "target_server_unavailable" : "already_delivered",
-              order != null && order.claimToken() != null
+              requiresServer ? "target_server_unavailable" : "already_delivered",
+              requiresServer
                   ? "This entry contains commands, rights, or effects that require the game server"
                   : "Mailbox entry was already delivered");
         }
@@ -227,12 +233,14 @@ class MailboxCenterService {
             order.orderNo());
         success += mailboxSummary.success();
         failed += mailboxSummary.failed();
-        if (order.claimToken() != null && !order.claimToken().isBlank()) {
-          DeliveryService.ClaimSummary deliverySummary =
-              deliveryService.claimPending(player, order.claimToken());
-          success += deliverySummary.success();
-          failed += deliverySummary.failed();
-        }
+        String claimReference =
+            order.claimToken() == null || order.claimToken().isBlank()
+                ? order.orderNo()
+                : order.claimToken();
+        DeliveryService.ClaimSummary deliverySummary =
+            deliveryService.claimPending(player, claimReference);
+        success += deliverySummary.success();
+        failed += deliverySummary.failed();
       } else {
         MailboxService.MailboxClaimSummary summary =
             mailboxService.claimEntry(player, userId, mailboxId, null, null);
