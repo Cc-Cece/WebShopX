@@ -1838,6 +1838,17 @@ class EmbeddedWebServer {
       for (MarketService.ListingView listing : listings) {
         JsonObject row = new JsonObject();
         row.addProperty("id", listing.id());
+        RefundPolicyService.ListingPolicy listingPolicy =
+            refundPolicyService.getListingPolicy(listing.id());
+        row.addProperty("refundPolicyPreset", listingPolicy.preset());
+        if (listingPolicy.windowMinutes() == null) {
+          row.add("refundWindowMinutes", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("refundWindowMinutes", listingPolicy.windowMinutes());
+        }
+        row.addProperty(
+            "orderLevelRefundPolicyEnabled",
+            refundPolicyService.getPolicy().orderLevelPolicyEnabled());
         row.addProperty("sellerUserId", listing.sellerUserId());
         row.addProperty("sellerName", listing.sellerName());
         row.addProperty("sellerUuid", listing.sellerUuid().toString());
@@ -2588,6 +2599,13 @@ class EmbeddedWebServer {
           auctionStartPrice,
           auctionMinIncrement,
           auctionEndAt);
+      if (payload.has("refundPolicyPreset")) {
+        refundPolicyService.updateListingPolicy(
+            user.id(),
+            listingId,
+            getOptionalString(payload, "refundPolicyPreset").orElse("UNCLAIMED"),
+            nullableInteger(payload, "refundWindowMinutes"));
+      }
       JsonObject response = new JsonObject();
       response.addProperty("listingId", result.listingId());
       response.addProperty("currency", result.currency().name());
@@ -3790,7 +3808,8 @@ class EmbeddedWebServer {
               nullableInteger(payload, "fixedPriceWindowMinutes"),
               nullableInteger(payload, "dynamicPriceWindowMinutes"),
               getBoolean(payload, "partialRefundEnabled"),
-              (int) getLong(payload, "maxSelfServiceRefundsPerDay", 5L)));
+              (int) getLong(payload, "maxSelfServiceRefundsPerDay", 5L),
+              getBoolean(payload, "orderLevelPolicyEnabled")));
       sendJson(exchange, 200, refundPolicyJson(policy));
       adminAuditService.log(
           admin, "REFUND_POLICY_UPDATE", "refund_policy", null,
@@ -3843,6 +3862,7 @@ class EmbeddedWebServer {
       response.addProperty("dynamicPriceWindowMinutes", policy.dynamicPriceWindowMinutes());
     }
     response.addProperty("partialRefundEnabled", policy.partialRefundEnabled());
+    response.addProperty("orderLevelPolicyEnabled", policy.orderLevelPolicyEnabled());
     response.addProperty(
         "maxSelfServiceRefundsPerDay", policy.maxSelfServiceRefundsPerDay());
     return response;

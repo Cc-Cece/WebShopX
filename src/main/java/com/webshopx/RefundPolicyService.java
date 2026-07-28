@@ -14,7 +14,7 @@ import java.util.Locale;
 
 class RefundPolicyService {
   static final String CONFIG_KEY = "refund_policy";
-  private static final Policy DEFAULT_POLICY = new Policy(true, true, 10, 3, true, 5);
+  private static final Policy DEFAULT_POLICY = new Policy(true, true, 10, 3, true, 5, false);
 
   private final DatabaseManager databaseManager;
   private final Gson gson = new GsonBuilder().disableHtmlEscaping().serializeNulls().create();
@@ -88,6 +88,83 @@ class RefundPolicyService {
     });
   }
 
+  ListingPolicy getListingPolicy(long listingId) {
+    return databaseManager.withConnection(connection -> readListingPolicy(connection, listingId));
+  }
+
+  ListingPolicy updateListingPolicy(
+      long ownerUserId, long listingId, String preset, Integer windowMinutes) {
+    String normalizedPreset = normalizedEnum(preset, "UNCLAIMED");
+    if (!java.util.Set.of("DISABLED", "UNCLAIMED", "TIMED", "UNLIMITED")
+        .contains(normalizedPreset)) {
+      throw new ServiceException("invalid_refund_policy", "Invalid listing refund policy");
+    }
+    Integer normalizedWindow = "TIMED".equals(normalizedPreset)
+        ? normalizeWindow(windowMinutes) : null;
+    if ("TIMED".equals(normalizedPreset) && (normalizedWindow == null || normalizedWindow <= 0)) {
+      throw new ServiceException("invalid_refund_window", "Timed refunds require a positive window");
+    }
+    ListingPolicy policy = new ListingPolicy(listingId, normalizedPreset, normalizedWindow);
+    return databaseManager.inTransaction(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement("""
+          SELECT status, auction_highest_bid_id
+          FROM market_listings
+          WHERE id = ? AND seller_user_id = ?
+          """)) {
+        statement.setLong(1, listingId);
+        statement.setLong(2, ownerUserId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (!resultSet.next()) {
+            throw new ServiceException("listing_missing", "Listing was not found");
+          }
+          if (!"ACTIVE".equalsIgnoreCase(resultSet.getString("status"))
+              || resultSet.getObject("auction_highest_bid_id") != null) {
+            throw new ServiceException(
+                "refund_policy_locked", "Refund policy is locked after trading begins");
+          }
+        }
+      }
+      writeRuntimeConfig(connection, listingPolicyKey(listingId), gson.toJson(policy));
+      return policy;
+    });
+  }
+
+  void freezeMarketTradePolicy(
+      Connection connection, long listingId, long tradeId, LocalDateTime createdAt)
+      throws SQLException {
+    Policy global = readPolicy(connection);
+    if (!global.orderLevelPolicyEnabled()) {
+      return;
+    }
+    ListingPolicy policy = readListingPolicy(connection, listingId);
+    boolean allowed = !"DISABLED".equals(policy.preset());
+    LocalDateTime deadline = allowed && "TIMED".equals(policy.preset())
+        ? createdAt.plusMinutes(policy.windowMinutes()) : null;
+    JsonObject snapshot = new JsonObject();
+    snapshot.addProperty("source", "LISTING_OWNER");
+    snapshot.addProperty("preset", policy.preset());
+    if (policy.windowMinutes() == null) {
+      snapshot.add("windowMinutes", null);
+    } else {
+      snapshot.addProperty("windowMinutes", policy.windowMinutes());
+    }
+    try (PreparedStatement statement = connection.prepareStatement("""
+        UPDATE market_trades
+        SET refund_allowed = ?, refund_deadline = ?, refund_policy_json = ?
+        WHERE id = ?
+        """)) {
+      statement.setBoolean(1, allowed);
+      if (deadline == null) {
+        statement.setObject(2, null);
+      } else {
+        statement.setTimestamp(2, Timestamp.valueOf(deadline));
+      }
+      statement.setString(3, gson.toJson(snapshot));
+      statement.setLong(4, tradeId);
+      statement.executeUpdate();
+    }
+  }
+
   ResolvedPolicy resolveProductPolicy(
       Connection connection, long productId, boolean dynamicPricing, String productType)
       throws SQLException {
@@ -110,8 +187,8 @@ class RefundPolicyService {
     }
     boolean allowed = global.selfServiceEnabled()
         && global.mailboxPendingRefundEnabled()
-        && !"DISABLED".equals(refundPolicy);
-    Integer window = "CUSTOM".equals(refundPolicy)
+        && (!global.orderLevelPolicyEnabled() || !"DISABLED".equals(refundPolicy));
+    Integer window = global.orderLevelPolicyEnabled() && "CUSTOM".equals(refundPolicy)
         ? customWindow
         : dynamicPricing ? global.dynamicPriceWindowMinutes() : global.fixedPriceWindowMinutes();
     boolean typeAllowsPartial = isItemLike(productType);
@@ -184,12 +261,60 @@ class RefundPolicyService {
                   DEFAULT_POLICY.dynamicPriceWindowMinutes()),
               booleanValue(root, "partialRefundEnabled", DEFAULT_POLICY.partialRefundEnabled()),
               intValue(root, "maxSelfServiceRefundsPerDay",
-                  DEFAULT_POLICY.maxSelfServiceRefundsPerDay())));
+                  DEFAULT_POLICY.maxSelfServiceRefundsPerDay()),
+              booleanValue(root, "orderLevelPolicyEnabled",
+                  DEFAULT_POLICY.orderLevelPolicyEnabled())));
         } catch (RuntimeException ignored) {
           return DEFAULT_POLICY;
         }
       }
     }
+  }
+
+  private ListingPolicy readListingPolicy(Connection connection, long listingId)
+      throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(
+        "SELECT config_value FROM runtime_config WHERE config_key = ? LIMIT 1")) {
+      statement.setString(1, listingPolicyKey(listingId));
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (resultSet.next()) {
+          try {
+            JsonObject root =
+                JsonParser.parseString(resultSet.getString("config_value")).getAsJsonObject();
+            String preset = normalizedEnum(root.get("preset").getAsString(), "UNCLAIMED");
+            Integer window = nullableInt(root, "windowMinutes", null);
+            return new ListingPolicy(listingId, preset, window);
+          } catch (RuntimeException ignored) {
+            // Fall through to the safe default.
+          }
+        }
+      }
+    }
+    return new ListingPolicy(listingId, "UNCLAIMED", null);
+  }
+
+  private void writeRuntimeConfig(Connection connection, String key, String json)
+      throws SQLException {
+    int updated;
+    try (PreparedStatement statement = connection.prepareStatement(
+        "UPDATE runtime_config SET config_value = ?, version = version + 1, "
+            + "updated_at = CURRENT_TIMESTAMP WHERE config_key = ?")) {
+      statement.setString(1, json);
+      statement.setString(2, key);
+      updated = statement.executeUpdate();
+    }
+    if (updated == 0) {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "INSERT INTO runtime_config (config_key, config_value, version) VALUES (?, ?, 1)")) {
+        statement.setString(1, key);
+        statement.setString(2, json);
+        statement.executeUpdate();
+      }
+    }
+  }
+
+  private String listingPolicyKey(long listingId) {
+    return "listing_refund_policy:" + listingId;
   }
 
   private Policy normalize(Policy policy) {
@@ -202,7 +327,8 @@ class RefundPolicyService {
         normalizeWindow(policy.fixedPriceWindowMinutes()),
         normalizeWindow(policy.dynamicPriceWindowMinutes()),
         policy.partialRefundEnabled(),
-        Math.max(0, Math.min(1000, policy.maxSelfServiceRefundsPerDay())));
+        Math.max(0, Math.min(1000, policy.maxSelfServiceRefundsPerDay())),
+        policy.orderLevelPolicyEnabled());
   }
 
   private Integer normalizeWindow(Integer value) {
@@ -236,7 +362,24 @@ class RefundPolicyService {
       Integer fixedPriceWindowMinutes,
       Integer dynamicPriceWindowMinutes,
       boolean partialRefundEnabled,
-      int maxSelfServiceRefundsPerDay) {
+      int maxSelfServiceRefundsPerDay,
+      boolean orderLevelPolicyEnabled) {
+    Policy(
+        boolean selfServiceEnabled,
+        boolean mailboxPendingRefundEnabled,
+        Integer fixedPriceWindowMinutes,
+        Integer dynamicPriceWindowMinutes,
+        boolean partialRefundEnabled,
+        int maxSelfServiceRefundsPerDay) {
+      this(
+          selfServiceEnabled,
+          mailboxPendingRefundEnabled,
+          fixedPriceWindowMinutes,
+          dynamicPriceWindowMinutes,
+          partialRefundEnabled,
+          maxSelfServiceRefundsPerDay,
+          false);
+    }
   }
 
   record ResolvedPolicy(
@@ -249,5 +392,8 @@ class RefundPolicyService {
 
   record ProductPolicy(
       long productId, String refundPolicy, Integer windowMinutes, String partialPolicy) {
+  }
+
+  record ListingPolicy(long listingId, String preset, Integer windowMinutes) {
   }
 }

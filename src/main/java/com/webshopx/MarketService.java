@@ -64,6 +64,7 @@ class MarketService {
   private final ItemSnapshotCodec itemSnapshotCodec;
   private final MarketTagService marketTagService;
   private final MarketLimitationService marketLimitationService;
+  private final RefundPolicyService refundPolicyService;
 
   MarketService(
       JavaPlugin plugin,
@@ -78,6 +79,7 @@ class MarketService {
       UserMarketSettingsService userMarketSettingsService,
       SchedulerBridge schedulerBridge) {
     this.plugin = plugin;
+    this.refundPolicyService = new RefundPolicyService(databaseManager);
     this.databaseManager = databaseManager;
     this.sqlProvider = databaseManager.sqlProvider();
     this.walletService = walletService;
@@ -5206,6 +5208,8 @@ class MarketService {
           throw new IllegalStateException("Could not read generated market trade id");
         }
         long tradeId = keyResult.getLong(1);
+        refundPolicyService.freezeMarketTradePolicy(
+            connection, listingId, tradeId, TimeSupport.utcNow());
         if ("WAIT_CLAIM".equalsIgnoreCase(status)) {
           ClaimTokenRepository.ensureMarketTradeToken(connection, tradeId, sqlProvider.forUpdateClause());
         }
