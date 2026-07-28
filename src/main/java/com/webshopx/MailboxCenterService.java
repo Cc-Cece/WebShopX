@@ -180,7 +180,7 @@ class MailboxCenterService {
               .map(MailboxService.StandaloneMailboxItem::targetUuid)
               .findFirst()
               .orElseThrow(() ->
-                  new ServiceException("mailbox_entry_missing", "Mailbox entry was not found"));
+                  new ServiceException("mailbox_entry_missing", "mailbox_entry_missing"));
           targetUuid = UUID.fromString(target);
         }
         String sourceType = order == null ? null
@@ -194,14 +194,14 @@ class MailboxCenterService {
         MailboxService.OfflineReservation reservation = mailboxService.reserveOfflineEntry(
             userId, targetUuid, resolvedMailboxId, sourceType, sourceRef);
         if (reservation.taskCount() <= 0) {
-          reservation.release("No offline-compatible item is available");
+          reservation.release("NO_OFFLINE_COMPATIBLE_ITEM");
           boolean requiresServer = order != null
               && deliveryService.hasPendingServerOnlyTasks(targetUuid, order.orderNo());
           throw new ServiceException(
               requiresServer ? "target_server_unavailable" : "already_delivered",
               requiresServer
-                  ? "This entry contains commands, rights, or effects that require the game server"
-                  : "Mailbox entry was already delivered");
+                  ? "target_server_unavailable"
+                  : "already_delivered");
         }
         String operationId = "mailbox-" + entryId + "-" + UUID.randomUUID();
         try (PlayerDataInventoryService.OfflineDeposit deposit =

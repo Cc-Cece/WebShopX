@@ -187,7 +187,7 @@ final class PlayerDataInventoryService {
 
   private void addToMainInventory(ListTag<CompoundTag> inventory, ItemStack source) {
     if (source == null || source.getType() == Material.AIR || source.getAmount() <= 0) {
-      throw new ServiceException("delivery_failed", "Mailbox item snapshot is empty");
+      throw new ServiceException("delivery_failed", "mailbox_snapshot_empty");
     }
     ItemStack unit = source.clone();
     unit.setAmount(1);
@@ -222,7 +222,7 @@ final class PlayerDataInventoryService {
       remaining -= accepted;
     }
     if (remaining > 0) {
-      throw new ServiceException("inventory_full", "Player inventory does not have enough space");
+      throw new ServiceException("inventory_full", "inventory_full");
     }
   }
 
@@ -235,7 +235,7 @@ final class PlayerDataInventoryService {
         NBTInputStream input = new NBTInputStream(decoded)) {
       NamedTag named = input.readTag(Tag.DEFAULT_MAX_DEPTH);
       if (!(named.getTag() instanceof CompoundTag itemTag)) {
-        throw new IOException("Serialized item root is not a compound");
+        throw new IOException("invalid_item_nbt_root");
       }
       CompoundTag result = itemTag.clone();
       result.remove("DataVersion");
@@ -243,13 +243,12 @@ final class PlayerDataInventoryService {
       // Validate that the exact item can be reconstructed before playerdata is touched.
       ItemStack restored = toItemStack(result.clone());
       if (!restored.isSimilar(item) || restored.getAmount() != item.getAmount()) {
-        throw new IOException("Serialized item did not round-trip");
+        throw new IOException("item_nbt_round_trip_failed");
       }
       return result;
     } catch (IOException | RuntimeException exception) {
       throw new ServiceException(
-          "offline_item_not_supported",
-          "The mailbox item cannot be written safely by this server runtime");
+          "offline_item_not_supported", "offline_item_not_supported");
     }
   }
 

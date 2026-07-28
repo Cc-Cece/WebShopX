@@ -176,7 +176,7 @@ class DeliveryService {
         int remaining = task.remainingQuantity();
         if (remaining > 0
             && tryMoveMarketItemToMailbox(
-                task, 0, remaining, false, "offline mailbox claim", null)) {
+                task, 0, remaining, false, "OFFLINE_MAILBOX_CLAIM", null)) {
           staged++;
         }
       }
@@ -208,7 +208,7 @@ class DeliveryService {
       if ((kind == DeliveryKind.GIVE_ITEM || kind == DeliveryKind.SNAPSHOT_ITEM)
           && remaining > 0
           && tryMoveCommandItemToMailbox(
-              task, 0, remaining, false, "offline mailbox claim", null)) {
+              task, 0, remaining, false, "OFFLINE_MAILBOX_CLAIM", null)) {
         staged++;
       }
     }

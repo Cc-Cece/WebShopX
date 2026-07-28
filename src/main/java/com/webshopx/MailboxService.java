@@ -140,7 +140,7 @@ class MailboxService {
   OfflineReservation reserveOfflineEntry(
       long userId, UUID targetUuid, Long mailboxId, String sourceType, String sourceRef) {
     if (userId <= 0L || targetUuid == null) {
-      throw new ServiceException("mailbox_entry_missing", "Mailbox entry was not found");
+      throw new ServiceException("mailbox_entry_missing", "mailbox_entry_missing");
     }
     String token = "offline:" + UUID.randomUUID();
     List<MailboxItemTask> tasks = databaseManager.inTransaction(connection -> {
@@ -179,7 +179,7 @@ class MailboxService {
           update.setLong(2, task.id());
           if (update.executeUpdate() != 1) {
             throw new ServiceException(
-                "delivery_in_progress", "Another mailbox operation is in progress");
+                "delivery_in_progress", "delivery_in_progress");
           }
         }
       }
@@ -199,7 +199,7 @@ class MailboxService {
         }
       }
     } catch (RuntimeException exception) {
-      releaseOffline(token, "Mailbox item snapshot could not be restored");
+      releaseOffline(token, "MAILBOX_SNAPSHOT_RESTORE_FAILED");
       throw exception;
     }
     return new OfflineReservation(token, List.copyOf(items), tasks.size());
