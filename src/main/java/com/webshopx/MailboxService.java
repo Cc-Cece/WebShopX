@@ -307,7 +307,7 @@ class MailboxService {
       String sql =
           """
           SELECT id, target_uuid, source_type, source_ref, item_blob, quantity, delivered_quantity,
-                 reason, created_at
+                 reason, last_error, created_at
           FROM mailbox_items
           WHERE user_id = ?
             AND status = 'PENDING'
@@ -333,10 +333,41 @@ class MailboxService {
                 resultSet.getString("source_type"),
                 resultSet.getString("source_ref"),
                 resultSet.getString("reason"),
+                resultSet.getString("last_error"),
                 createdAt == null ? LocalDateTime.now() : createdAt.toLocalDateTime(),
                 snapshot.itemMetaJson()));
           }
           return items;
+        }
+      }
+    });
+  }
+
+  PendingContext findPendingContext(
+      long userId, String sourceType, String sourceRef) {
+    if (userId <= 0L || sourceType == null || sourceRef == null) {
+      return new PendingContext(null, null);
+    }
+    return databaseManager.withConnection(connection -> {
+      String sql = """
+          SELECT reason, last_error
+          FROM mailbox_items
+          WHERE user_id = ?
+            AND source_type = ?
+            AND source_ref = ?
+            AND status = 'PENDING'
+          ORDER BY id DESC
+          LIMIT 1
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, userId);
+        statement.setString(2, sourceType);
+        statement.setString(3, sourceRef);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          return resultSet.next()
+              ? new PendingContext(
+                  resultSet.getString("reason"), resultSet.getString("last_error"))
+              : new PendingContext(null, null);
         }
       }
     });
@@ -524,11 +555,15 @@ class MailboxService {
       String sourceType,
       String sourceRef,
       String reason,
+      String lastError,
       LocalDateTime createdAt,
       String itemMetaJson) {
     int remainingQuantity() {
       return Math.max(0, quantity - deliveredQuantity);
     }
+  }
+
+  record PendingContext(String reason, String lastError) {
   }
 
   final class OfflineReservation {

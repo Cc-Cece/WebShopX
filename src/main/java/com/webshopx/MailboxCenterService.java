@@ -53,6 +53,9 @@ class MailboxCenterService {
       }
       OrderService.RefundEligibility eligibility =
           orderService.refundEligibility(userId, order.orderNo());
+      String mailboxSourceType = order.orderNo().startsWith("MKT-") ? "MARKET" : "ORDER";
+      MailboxService.PendingContext pendingContext =
+          mailboxService.findPendingContext(userId, mailboxSourceType, order.orderNo());
       entries.add(new MailboxEntry(
           encodeEntryId(order.orderNo()),
           order.orderNo().startsWith("MKT-") ? "MARKET_ITEM" : order.productType(),
@@ -69,7 +72,7 @@ class MailboxCenterService {
           eligibility.refundable(),
           eligibility.reason(),
           order.refundDeadline(),
-          null,
+          pendingContext.reason(),
           eligibility.refundAmount(),
           order.currency().name(),
           "SNAPSHOT",
@@ -77,7 +80,7 @@ class MailboxCenterService {
               || !"PARTIAL_REFUND_NOT_ALLOWED".equals(eligibility.reason()),
           order.orderNo(),
           "/orders?order=" + order.orderNo(),
-          null,
+          pendingContext.lastError(),
           false,
           "REFUND_IN_PROGRESS".equals(eligibility.reason()),
           order.productTitle(),
@@ -113,7 +116,7 @@ class MailboxCenterService {
           false,
           item.sourceRef(),
           null,
-          item.reason(),
+          item.lastError(),
           false,
           false,
           material,
