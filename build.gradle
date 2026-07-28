@@ -430,6 +430,15 @@ tasks.register('printProjectName') {
     }
 }
 
+tasks.register('checkI18nSources', Exec) {
+    group = 'verification'
+    description = 'Scans production Java sources for unapproved hardcoded localized text.'
+    workingDir projectDir
+    commandLine 'python', 'tools/check_i18n_sources.py'
+}
+
+check.dependsOn(tasks.named('checkI18nSources'))
+
 tasks.register('release') {
     dependsOn build
 
