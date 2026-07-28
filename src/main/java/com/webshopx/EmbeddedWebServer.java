@@ -250,6 +250,7 @@ class EmbeddedWebServer {
     server.createContext("/api/inventory/list", this::handleInventoryList);
     server.createContext("/api/inventory/matches", this::handleInventoryMatches);
     server.createContext("/api/inventory/fulfill", this::handleInventoryFulfill);
+    server.createContext("/api/inventory/discard", this::handleInventoryDiscard);
     server.createContext("/api/admin/auth/login", this::handleAdminLogin);
     server.createContext("/api/admin/auth/me", this::handleAdminMe);
     server.createContext("/api/admin/auth/logout", this::handleAdminLogout);
@@ -3080,6 +3081,80 @@ class EmbeddedWebServer {
       response.addProperty("state", "SUCCESS");
       response.addProperty("revision", "refresh-required");
       inventoryOperationService.complete(user.id(), idempotencyKey, result.listingId(), gson.toJson(response));
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleInventoryDiscard(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      int slot = (int) getLong(payload, "slot", -1L);
+      int quantity = (int) getLong(payload, "quantity", 1L);
+      String fingerprint = getString(payload, "fingerprint");
+      String revision = getString(payload, "revision");
+      String idempotencyKey = getString(payload, "idempotencyKey");
+      InventoryService.InventorySource source = inventorySource(payload);
+      if (payload.has("containerSlot") && !payload.get("containerSlot").isJsonNull()) {
+        throw new ServiceException(
+            "invalid_inventory_request",
+            "Discarding items inside a container is not supported; discard the whole container");
+      }
+      InventoryOperationService.Existing existing =
+          inventoryOperationService.find(user.id(), idempotencyKey);
+      if (existing != null) {
+        sendJson(exchange, 200, inventoryExistingJson(existing));
+        return;
+      }
+      inventoryOperationService.begin(
+          user.id(), idempotencyKey, "INVENTORY_DISCARD", slot, null, fingerprint, quantity);
+      JsonObject response = new JsonObject();
+      response.addProperty("state", "SUCCESS");
+      response.addProperty("discardedQuantity", quantity);
+      response.addProperty("inventory", source.name());
+      response.addProperty("revision", "refresh-required");
+      try {
+        try {
+          awaitPlayerTask(user.boundUuid(), player -> {
+            InventoryService.Withdrawal withdrawal = inventoryService.withdraw(
+                playerInventory(player, source), source, revision, slot, null,
+                fingerprint, quantity);
+            try {
+              inventoryOperationService.complete(
+                  user.id(), idempotencyKey, 0L, gson.toJson(response));
+            } catch (RuntimeException exception) {
+              withdrawal.restore().run();
+              throw exception;
+            }
+            return null;
+          });
+        } catch (ServiceException exception) {
+          if (!"player_offline".equals(exception.code())) {
+            throw exception;
+          }
+          offlineInventoryFeatureService.requireWriteEnabled();
+          try (PlayerDataInventoryService.OfflineWithdrawal withdrawal =
+                   playerDataInventoryService.withdraw(
+                       user.boundUuid(), source, revision, slot, fingerprint, quantity,
+                       user.id(), idempotencyKey)) {
+            try {
+              inventoryOperationService.complete(
+                  user.id(), idempotencyKey, 0L, gson.toJson(response));
+              withdrawal.commit();
+            } catch (RuntimeException failure) {
+              withdrawal.rollback();
+              throw failure;
+            }
+          }
+        }
+      } catch (RuntimeException exception) {
+        inventoryOperationService.reject(
+            user.id(), idempotencyKey, serviceErrorCode(exception));
+        throw exception;
+      }
       sendJson(exchange, 200, response);
     });
   }
