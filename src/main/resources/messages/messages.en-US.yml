@@ -178,9 +178,9 @@ notify:
 
   delivery:
     wait_claim_order_title: "Order Waiting for Claim"
-    wait_claim_order_content: "Auto delivery for order {token} failed. Run /ws claim {token} in-game. Reason: {reason}"
+    wait_claim_order_content: "The order was moved to the unified mailbox. Run /ws mailbox in-game to view or collect it. Reason: {reason}"
     wait_claim_market_title: "Market Item Waiting for Claim"
-    wait_claim_market_content: "Auto delivery for market item failed. Run /ws claim {token} in-game. Reason: {reason}"
+    wait_claim_market_content: "The market item was moved to the unified mailbox. Run /ws mailbox in-game to view or collect it. Reason: {reason}"
     mailbox_pending_title: "Mailbox Pending Notice"
     mailbox_pending_content: "Inventory was unavailable during auto delivery, item moved to mailbox. Run /ws mailbox in-game to view it. Source: {sourceType} {sourceDetail}"
 
@@ -194,7 +194,7 @@ chat:
     deliver_success_market: "Delivered successfully: {token}"
     mailbox_saved: "§aItem moved to in-game mailbox: {token}"
     claim_failed: "§eClaim failed: {reason}"
-    auto_claim_hint: "§eAuto delivery failed and was moved to manual claim: /ws claim {token}"
+    auto_claim_hint: "§eAuto delivery did not complete. The content is now in /ws mailbox."
     generic_failed: "Delivery failed"
     inventory_full: "Inventory is full"
     player_offline: "Player is offline"

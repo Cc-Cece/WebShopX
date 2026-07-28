@@ -1,6 +1,8 @@
 package com.webshopx;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -13,6 +15,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.zip.GZIPInputStream;
+import net.querz.nbt.io.NBTInputStream;
 import net.querz.nbt.io.NBTUtil;
 import net.querz.nbt.io.NamedTag;
 import net.querz.nbt.io.SNBTUtil;
@@ -158,6 +162,93 @@ final class PlayerDataInventoryService {
     } catch (RuntimeException exception) {
       guard.close();
       throw exception;
+    }
+  }
+
+  OfflineDeposit deposit(
+      UUID playerUuid, List<ItemStack> sourceItems, long userId, String operationId) {
+    InventoryLockManager.Guard guard = lockManager.acquire(playerUuid, LOCK_TIMEOUT);
+    try {
+      assertOffline(playerUuid);
+      PlayerFile playerFile = load(playerUuid);
+      ListTag<CompoundTag> inventory =
+          itemList(playerFile.root(), InventoryService.InventorySource.PLAYER);
+      for (ItemStack source : sourceItems) {
+        addToMainInventory(inventory, source);
+      }
+      assertOffline(playerUuid);
+      Backup backup = safeWrite(playerFile, userId, operationId);
+      return new OfflineDeposit(backup, guard);
+    } catch (RuntimeException exception) {
+      guard.close();
+      throw exception;
+    }
+  }
+
+  private void addToMainInventory(ListTag<CompoundTag> inventory, ItemStack source) {
+    if (source == null || source.getType() == Material.AIR || source.getAmount() <= 0) {
+      throw new ServiceException("delivery_failed", "mailbox_snapshot_empty");
+    }
+    ItemStack unit = source.clone();
+    unit.setAmount(1);
+    int remaining = source.getAmount();
+    for (int slot = 0; slot < 36 && remaining > 0; slot++) {
+      CompoundTag existing = findSlot(
+          inventory, InventoryService.InventorySource.PLAYER, slot);
+      if (existing == null) {
+        continue;
+      }
+      ItemStack existingStack = toItemStack(existing.clone());
+      if (!existingStack.isSimilar(unit)) {
+        continue;
+      }
+      int capacity = Math.max(0, existingStack.getMaxStackSize() - itemCount(existing));
+      int accepted = Math.min(capacity, remaining);
+      if (accepted > 0) {
+        setItemCount(existing, itemCount(existing) + accepted);
+        remaining -= accepted;
+      }
+    }
+    for (int slot = 0; slot < 36 && remaining > 0; slot++) {
+      if (findSlot(inventory, InventoryService.InventorySource.PLAYER, slot) != null) {
+        continue;
+      }
+      int accepted = Math.min(unit.getMaxStackSize(), remaining);
+      ItemStack stack = unit.clone();
+      stack.setAmount(accepted);
+      CompoundTag tag = toPlayerDataItem(stack);
+      tag.putByte("Slot", (byte) slot);
+      inventory.add(tag);
+      remaining -= accepted;
+    }
+    if (remaining > 0) {
+      throw new ServiceException("inventory_full", "inventory_full");
+    }
+  }
+
+  private CompoundTag toPlayerDataItem(ItemStack item) {
+    byte[] bytes = item.serializeAsBytes();
+    try (InputStream raw = new ByteArrayInputStream(bytes);
+        InputStream decoded = bytes.length >= 2
+                && (bytes[0] & 0xff) == 0x1f && (bytes[1] & 0xff) == 0x8b
+            ? new GZIPInputStream(raw) : raw;
+        NBTInputStream input = new NBTInputStream(decoded)) {
+      NamedTag named = input.readTag(Tag.DEFAULT_MAX_DEPTH);
+      if (!(named.getTag() instanceof CompoundTag itemTag)) {
+        throw new IOException("invalid_item_nbt_root");
+      }
+      CompoundTag result = itemTag.clone();
+      result.remove("DataVersion");
+      result.remove("Slot");
+      // Validate that the exact item can be reconstructed before playerdata is touched.
+      ItemStack restored = toItemStack(result.clone());
+      if (!restored.isSimilar(item) || restored.getAmount() != item.getAmount()) {
+        throw new IOException("item_nbt_round_trip_failed");
+      }
+      return result;
+    } catch (IOException | RuntimeException exception) {
+      throw new ServiceException(
+          "offline_item_not_supported", "offline_item_not_supported");
     }
   }
 
@@ -592,6 +683,33 @@ final class PlayerDataInventoryService {
 
     ItemStack item() {
       return item;
+    }
+
+    void rollback() {
+      backup.restore();
+    }
+
+    void commit() {
+      backup.complete();
+    }
+
+    @Override
+    public void close() {
+      if (!closed) {
+        closed = true;
+        guard.close();
+      }
+    }
+  }
+
+  final class OfflineDeposit implements AutoCloseable {
+    private final Backup backup;
+    private final InventoryLockManager.Guard guard;
+    private boolean closed;
+
+    private OfflineDeposit(Backup backup, InventoryLockManager.Guard guard) {
+      this.backup = backup;
+      this.guard = guard;
     }
 
     void rollback() {

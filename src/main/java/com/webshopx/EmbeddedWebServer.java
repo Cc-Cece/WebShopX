@@ -19,6 +19,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.URLDecoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -93,6 +94,8 @@ class EmbeddedWebServer {
   private final InventorySnapshotJsonCodec inventorySnapshotJsonCodec;
   private final InventoryOperationService inventoryOperationService;
   private final MailboxService mailboxService;
+  private final MailboxCenterService mailboxCenterService;
+  private final RefundPolicyService refundPolicyService;
   private static final int MATERIAL_ICON_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
   private static final Set<String> MATERIAL_ICON_ALLOWED_EXTENSIONS =
       Set.of("png", "webp", "jpg", "jpeg", "gif");
@@ -118,6 +121,7 @@ class EmbeddedWebServer {
       RedeemCodeService redeemCodeService,
       ProductService productService,
       OrderService orderService,
+      DeliveryService deliveryService,
       MarketService marketService,
       NotificationService notificationService,
       AdminService adminService,
@@ -139,6 +143,10 @@ class EmbeddedWebServer {
     this.databaseManager = databaseManager;
     this.inventoryOperationService = new InventoryOperationService(databaseManager);
     this.mailboxService = new MailboxService(databaseManager);
+    this.mailboxCenterService = new MailboxCenterService(
+        orderService, mailboxService, deliveryService, offlineInventoryFeatureService,
+        playerDataInventoryService);
+    this.refundPolicyService = new RefundPolicyService(databaseManager);
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
     this.walletService = walletService;
@@ -202,6 +210,9 @@ class EmbeddedWebServer {
     server.createContext("/api/orders/refund", this::handleOrdersRefund);
     server.createContext("/api/orders/policy", this::handleOrdersPolicy);
     server.createContext("/api/orders/delivery-status", this::handleOrdersDeliveryStatus);
+    server.createContext("/api/mailbox/list", this::handleMailboxList);
+    server.createContext("/api/mailbox/count", this::handleMailboxCount);
+    server.createContext("/api/mailbox/", this::handleMailboxEntry);
     server.createContext("/api/notifications/list", this::handleNotificationsList);
     server.createContext("/api/notifications/unread-count", this::handleNotificationsUnreadCount);
     server.createContext("/api/notifications/mark-read", this::handleNotificationsMarkRead);
@@ -258,6 +269,8 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/products/icon", this::handleAdminProductIconUpload);
     server.createContext("/api/admin/products/active", this::handleAdminProductsActive);
     server.createContext("/api/admin/products/reset-limit", this::handleAdminProductsResetLimit);
+    server.createContext("/api/admin/refund-policy", this::handleAdminRefundPolicy);
+    server.createContext("/api/admin/products/refund-policy", this::handleAdminProductRefundPolicy);
     server.createContext("/api/admin/group-buy/consume", this::handleAdminGroupBuyConsume);
     server.createContext("/api/admin/orders/list", this::handleAdminOrdersList);
     server.createContext("/api/admin/economy/settings", this::handleAdminEconomySettings);
@@ -865,8 +878,23 @@ class EmbeddedWebServer {
           row.addProperty("claimToken", order.claimToken());
         }
 
-        boolean canRefund = canRefund(order, now);
+        OrderService.RefundEligibility refundEligibility =
+            orderService.refundEligibility(user.id(), order.orderNo());
+        boolean canRefund = refundEligibility.refundable();
         row.addProperty("canRefund", canRefund);
+        row.addProperty("refundableQuantity", refundEligibility.refundableQuantity());
+        row.addProperty("expectedRefundAmount", refundEligibility.refundAmount());
+        addNullableString(row, "refundReason", refundEligibility.reason());
+        if (order.refundDeadline() == null) {
+          row.add("refundRemainingSeconds", JsonNull.INSTANCE);
+        } else {
+          row.addProperty(
+              "refundRemainingSeconds",
+              Math.max(
+                  0L,
+                  java.time.Duration.between(
+                      LocalDateTime.now(), order.refundDeadline()).toSeconds()));
+        }
         row.addProperty("canDiscard", canDiscard(order, now));
         array.add(row);
       }
@@ -944,6 +972,146 @@ class EmbeddedWebServer {
       response.addProperty("sharedClaimAllowed", settingsSupplier.get().allowSharedClaimCommand());
       sendJson(exchange, 200, response);
     });
+  }
+
+  private void handleMailboxList(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, null);
+      Map<String, String> query = parseQuery(exchange);
+      int limit = parseInt(query.get("limit"), 50);
+      Long cursor = parseLong(query.get("cursor"));
+      JsonArray items = new JsonArray();
+      for (MailboxCenterService.MailboxEntry entry : mailboxCenterService.list(user.id(), limit, cursor)) {
+        items.add(mailboxEntryJson(entry));
+      }
+      JsonObject response = new JsonObject();
+      response.add("items", items);
+      response.addProperty("count", items.size());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleMailboxCount(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, null);
+      JsonObject response = new JsonObject();
+      response.addProperty("count", mailboxCenterService.count(user.id()));
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleMailboxEntry(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      String path = exchange.getRequestURI().getPath();
+      String prefix = "/api/mailbox/";
+      String refundSuffix = "/refund";
+      String claimSuffix = "/claim";
+      boolean refund = path.endsWith(refundSuffix);
+      boolean claim = path.endsWith(claimSuffix);
+      if (!path.startsWith(prefix) || (!refund && !claim)) {
+        throw new ServiceException("mailbox_entry_missing", "Mailbox entry was not found");
+      }
+      String suffix = refund ? refundSuffix : claimSuffix;
+      String encodedEntryId = path.substring(prefix.length(), path.length() - suffix.length());
+      String entryId = URLDecoder.decode(encodedEntryId, StandardCharsets.UTF_8);
+      if (claim) {
+        MailboxCenterService.ClaimResult result =
+            mailboxCenterService.claim(user.id(), entryId);
+        JsonObject response = new JsonObject();
+        response.addProperty("entryId", result.entryId());
+        response.addProperty("success", result.success());
+        response.addProperty("failed", result.failed());
+        sendJson(exchange, 200, response);
+        return;
+      }
+      String idempotencyKey = getOptionalString(payload, "idempotencyKey")
+          .orElse(UUID.randomUUID().toString());
+      OrderService.RefundResult result =
+          mailboxCenterService.refund(user.id(), entryId, idempotencyKey);
+      JsonObject response = new JsonObject();
+      response.addProperty("entryId", entryId);
+      response.addProperty("orderNo", result.orderNo());
+      response.addProperty("refundAmount", result.refundAmount());
+      response.addProperty("refundQuantity", result.refundQuantity());
+      response.addProperty("earnedQuantity", result.earnedQuantity());
+      response.addProperty("shopCoin", result.balance().shopCoin());
+      response.addProperty("gameCoin", result.balance().gameCoin());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private JsonObject mailboxEntryJson(MailboxCenterService.MailboxEntry entry) {
+    JsonObject row = new JsonObject();
+    row.addProperty("id", entry.id());
+    row.addProperty("type", entry.type());
+    row.addProperty("sourceType", entry.sourceType());
+    row.addProperty("sourceRef", entry.sourceRef());
+    row.addProperty("title", entry.title());
+    if (entry.material() == null) {
+      row.add("material", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("material", entry.material());
+    }
+    row.addProperty("quantity", entry.quantity());
+    row.addProperty("deliveredQuantity", entry.deliveredQuantity());
+    row.addProperty("refundableQuantity", entry.refundableQuantity());
+    row.addProperty("status", entry.status());
+    addBusinessDateTime(row, "createdAt", entry.createdAt());
+    row.addProperty("collectible", entry.collectible());
+    row.addProperty("refundable", entry.refundable());
+    if (entry.refundReason() == null) {
+      row.add("refundReason", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("refundReason", entry.refundReason());
+    }
+    if (entry.refundDeadline() == null) {
+      row.add("refundDeadline", JsonNull.INSTANCE);
+    } else {
+      addBusinessDateTime(row, "refundDeadline", entry.refundDeadline());
+    }
+    if (entry.reason() == null) {
+      row.add("reason", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("reason", entry.reason());
+    }
+    row.addProperty("refundAmount", entry.refundAmount());
+    addNullableString(row, "refundCurrency", entry.refundCurrency());
+    addNullableString(row, "refundPolicy", entry.refundPolicy());
+    row.addProperty("partialRefundAllowed", entry.partialRefundAllowed());
+    addNullableString(row, "sourceOrderNo", entry.sourceOrderNo());
+    addNullableString(row, "sourceRoute", entry.sourceRoute());
+    addNullableString(row, "lastDeliveryError", entry.lastDeliveryError());
+    row.addProperty("deliveryInProgress", entry.deliveryInProgress());
+    row.addProperty("refundInProgress", entry.refundInProgress());
+    addNullableString(row, "displayName", entry.displayName());
+    addNullableString(row, "iconUrl", entry.iconUrl());
+    addNullableString(row, "itemMetaJson", entry.itemMetaJson());
+    if (entry.refundRemainingSeconds() == null) {
+      row.add("refundRemainingSeconds", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("refundRemainingSeconds", entry.refundRemainingSeconds());
+    }
+    return row;
   }
 
   private void handleOrdersDeliveryStatus(HttpExchange exchange) throws IOException {
@@ -1671,6 +1839,17 @@ class EmbeddedWebServer {
       for (MarketService.ListingView listing : listings) {
         JsonObject row = new JsonObject();
         row.addProperty("id", listing.id());
+        RefundPolicyService.ListingPolicy listingPolicy =
+            refundPolicyService.getListingPolicy(listing.id());
+        row.addProperty("refundPolicyPreset", listingPolicy.preset());
+        if (listingPolicy.windowMinutes() == null) {
+          row.add("refundWindowMinutes", JsonNull.INSTANCE);
+        } else {
+          row.addProperty("refundWindowMinutes", listingPolicy.windowMinutes());
+        }
+        row.addProperty(
+            "orderLevelRefundPolicyEnabled",
+            refundPolicyService.getPolicy().orderLevelPolicyEnabled());
         row.addProperty("sellerUserId", listing.sellerUserId());
         row.addProperty("sellerName", listing.sellerName());
         row.addProperty("sellerUuid", listing.sellerUuid().toString());
@@ -2421,6 +2600,13 @@ class EmbeddedWebServer {
           auctionStartPrice,
           auctionMinIncrement,
           auctionEndAt);
+      if (payload.has("refundPolicyPreset")) {
+        refundPolicyService.updateListingPolicy(
+            user.id(),
+            listingId,
+            getOptionalString(payload, "refundPolicyPreset").orElse("UNCLAIMED"),
+            nullableInteger(payload, "refundWindowMinutes"));
+      }
       JsonObject response = new JsonObject();
       response.addProperty("listingId", result.listingId());
       response.addProperty("currency", result.currency().name());
@@ -3596,6 +3782,98 @@ class EmbeddedWebServer {
       sendJson(exchange, 200, response);
       adminAuditService.log(admin, "PRODUCT_LIST", "product", null, null, clientIp(exchange));
     });
+  }
+
+  private void handleAdminRefundPolicy(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+      withServiceHandling(exchange, () -> {
+        requireAdmin(exchange, null, AdminPermission.PRODUCT_MANAGE);
+        sendJson(exchange, 200, refundPolicyJson(refundPolicyService.getPolicy()));
+      });
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, payload, AdminPermission.PRODUCT_MANAGE);
+      RefundPolicyService.Policy policy = refundPolicyService.updatePolicy(
+          new RefundPolicyService.Policy(
+              getBoolean(payload, "selfServiceEnabled"),
+              getBoolean(payload, "mailboxPendingRefundEnabled"),
+              nullableInteger(payload, "fixedPriceWindowMinutes"),
+              nullableInteger(payload, "dynamicPriceWindowMinutes"),
+              getBoolean(payload, "partialRefundEnabled"),
+              (int) getLong(payload, "maxSelfServiceRefundsPerDay", 5L),
+              getBoolean(payload, "orderLevelPolicyEnabled")));
+      sendJson(exchange, 200, refundPolicyJson(policy));
+      adminAuditService.log(
+          admin, "REFUND_POLICY_UPDATE", "refund_policy", null,
+          refundPolicyJson(policy), clientIp(exchange));
+    });
+  }
+
+  private void handleAdminProductRefundPolicy(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, payload, AdminPermission.PRODUCT_MANAGE);
+      RefundPolicyService.ProductPolicy policy = refundPolicyService.updateProductPolicy(
+          getLong(payload, "productId", -1L),
+          getOptionalString(payload, "refundPolicy").orElse("INHERIT"),
+          nullableInteger(payload, "refundWindowMinutes"),
+          getOptionalString(payload, "partialRefundPolicy").orElse("INHERIT"));
+      JsonObject response = new JsonObject();
+      response.addProperty("productId", policy.productId());
+      response.addProperty("refundPolicy", policy.refundPolicy());
+      if (policy.windowMinutes() == null) {
+        response.add("refundWindowMinutes", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("refundWindowMinutes", policy.windowMinutes());
+      }
+      response.addProperty("partialRefundPolicy", policy.partialPolicy());
+      sendJson(exchange, 200, response);
+      adminAuditService.log(
+          admin, "PRODUCT_REFUND_POLICY_UPDATE", "product",
+          Long.toString(policy.productId()), response, clientIp(exchange));
+    });
+  }
+
+  private JsonObject refundPolicyJson(RefundPolicyService.Policy policy) {
+    JsonObject response = new JsonObject();
+    response.addProperty("selfServiceEnabled", policy.selfServiceEnabled());
+    response.addProperty(
+        "mailboxPendingRefundEnabled", policy.mailboxPendingRefundEnabled());
+    if (policy.fixedPriceWindowMinutes() == null) {
+      response.add("fixedPriceWindowMinutes", JsonNull.INSTANCE);
+    } else {
+      response.addProperty("fixedPriceWindowMinutes", policy.fixedPriceWindowMinutes());
+    }
+    if (policy.dynamicPriceWindowMinutes() == null) {
+      response.add("dynamicPriceWindowMinutes", JsonNull.INSTANCE);
+    } else {
+      response.addProperty("dynamicPriceWindowMinutes", policy.dynamicPriceWindowMinutes());
+    }
+    response.addProperty("partialRefundEnabled", policy.partialRefundEnabled());
+    response.addProperty("orderLevelPolicyEnabled", policy.orderLevelPolicyEnabled());
+    response.addProperty(
+        "maxSelfServiceRefundsPerDay", policy.maxSelfServiceRefundsPerDay());
+    return response;
+  }
+
+  private Integer nullableInteger(JsonObject payload, String key) {
+    if (!payload.has(key) || payload.get(key).isJsonNull()) {
+      return null;
+    }
+    return payload.get(key).getAsInt();
   }
 
   private void handleAdminProductsUpsert(HttpExchange exchange) throws IOException {

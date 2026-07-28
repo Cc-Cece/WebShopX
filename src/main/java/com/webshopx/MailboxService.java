@@ -2,6 +2,8 @@ package com.webshopx;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -91,10 +93,151 @@ class MailboxService {
     if (player == null) {
       return new MailboxClaimSummary(0, 0, 0);
     }
+    return claimTasks(player, readPendingTasks(player.getUniqueId(), limit));
+  }
+
+  MailboxClaimSummary claimEntry(
+      Player player, long userId, Long mailboxId, String sourceType, String sourceRef) {
+    if (player == null || userId <= 0L) {
+      return new MailboxClaimSummary(0, 0, 0);
+    }
+    List<MailboxItemTask> tasks = databaseManager.withConnection(connection -> {
+      String idClause = mailboxId == null ? "" : " AND id = ?";
+      String sourceClause = mailboxId == null
+          ? " AND source_type = ? AND source_ref = ?" : "";
+      String sql = """
+          SELECT id, item_blob, quantity, delivered_quantity
+          FROM mailbox_items
+          WHERE user_id = ?
+            AND target_uuid = ?
+            AND status = 'PENDING'
+          """ + idClause + sourceClause + " ORDER BY id ASC";
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, userId);
+        statement.setString(2, player.getUniqueId().toString());
+        if (mailboxId != null) {
+          statement.setLong(3, mailboxId);
+        } else {
+          statement.setString(3, sourceType);
+          statement.setString(4, sourceRef);
+        }
+        try (ResultSet resultSet = statement.executeQuery()) {
+          List<MailboxItemTask> rows = new ArrayList<>();
+          while (resultSet.next()) {
+            rows.add(new MailboxItemTask(
+                resultSet.getLong("id"),
+                resultSet.getBytes("item_blob"),
+                resultSet.getInt("quantity"),
+                resultSet.getInt("delivered_quantity")));
+          }
+          return rows;
+        }
+      }
+    });
+    return claimTasks(player, tasks);
+  }
+
+  OfflineReservation reserveOfflineEntry(
+      long userId, UUID targetUuid, Long mailboxId, String sourceType, String sourceRef) {
+    if (userId <= 0L || targetUuid == null) {
+      throw new ServiceException("mailbox_entry_missing", "mailbox_entry_missing");
+    }
+    String token = "offline:" + UUID.randomUUID();
+    List<MailboxItemTask> tasks = databaseManager.inTransaction(connection -> {
+      String idClause = mailboxId == null ? "" : " AND id = ?";
+      String sourceClause = mailboxId == null
+          ? " AND source_type = ? AND source_ref = ?" : "";
+      String sql = """
+          SELECT id, item_blob, quantity, delivered_quantity
+          FROM mailbox_items
+          WHERE user_id = ? AND target_uuid = ? AND status = 'PENDING'
+          """ + idClause + sourceClause + " ORDER BY id ASC";
+      List<MailboxItemTask> selected = new ArrayList<>();
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, userId);
+        statement.setString(2, targetUuid.toString());
+        if (mailboxId != null) {
+          statement.setLong(3, mailboxId);
+        } else {
+          statement.setString(3, sourceType);
+          statement.setString(4, sourceRef);
+        }
+        try (ResultSet resultSet = statement.executeQuery()) {
+          while (resultSet.next()) {
+            selected.add(new MailboxItemTask(
+                resultSet.getLong("id"), resultSet.getBytes("item_blob"),
+                resultSet.getInt("quantity"), resultSet.getInt("delivered_quantity")));
+          }
+        }
+      }
+      for (MailboxItemTask task : selected) {
+        try (PreparedStatement update = connection.prepareStatement("""
+            UPDATE mailbox_items SET status = 'PROCESSING', last_error = ?
+            WHERE id = ? AND status = 'PENDING'
+            """)) {
+          update.setString(1, token);
+          update.setLong(2, task.id());
+          if (update.executeUpdate() != 1) {
+            throw new ServiceException(
+                "delivery_in_progress", "delivery_in_progress");
+          }
+        }
+      }
+      return selected;
+    });
+    List<ItemStack> items = new ArrayList<>();
+    try {
+      for (MailboxItemTask task : tasks) {
+        ItemStack base = itemSnapshotCodec.deserialize(task.itemBlob());
+        int remaining = task.remainingQuantity();
+        int maxStack = Math.max(1, base.getMaxStackSize());
+        while (remaining > 0) {
+          ItemStack stack = base.clone();
+          stack.setAmount(Math.min(maxStack, remaining));
+          items.add(stack);
+          remaining -= stack.getAmount();
+        }
+      }
+    } catch (RuntimeException exception) {
+      releaseOffline(token, "MAILBOX_SNAPSHOT_RESTORE_FAILED");
+      throw exception;
+    }
+    return new OfflineReservation(token, List.copyOf(items), tasks.size());
+  }
+
+  private void completeOffline(String token) {
+    databaseManager.withConnection(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement("""
+          UPDATE mailbox_items
+          SET status = 'CLAIMED', delivered_quantity = quantity,
+              claimed_at = CURRENT_TIMESTAMP, last_error = NULL
+          WHERE status = 'PROCESSING' AND last_error = ?
+          """)) {
+        statement.setString(1, token);
+        statement.executeUpdate();
+      }
+      return null;
+    });
+  }
+
+  private void releaseOffline(String token, String error) {
+    databaseManager.withConnection(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement("""
+          UPDATE mailbox_items SET status = 'PENDING', last_error = ?
+          WHERE status = 'PROCESSING' AND last_error = ?
+          """)) {
+        statement.setString(1, normalizeText(error, 255));
+        statement.setString(2, token);
+        statement.executeUpdate();
+      }
+      return null;
+    });
+  }
+
+  private MailboxClaimSummary claimTasks(Player player, List<MailboxItemTask> tasks) {
     UUID playerUuid = player.getUniqueId();
     int claimed = 0;
     int failed = 0;
-    List<MailboxItemTask> tasks = readPendingTasks(playerUuid, limit);
     for (MailboxItemTask task : tasks) {
       try {
         ItemStack baseItem = itemSnapshotCodec.deserialize(task.itemBlob());
@@ -151,6 +294,102 @@ class MailboxService {
                 resultSet.getString("reason")));
           }
           return items;
+        }
+      }
+    });
+  }
+
+  List<StandaloneMailboxItem> listStandalonePending(long userId, int limit) {
+    if (userId <= 0L) {
+      return List.of();
+    }
+    return databaseManager.withConnection(connection -> {
+      String sql =
+          """
+          SELECT id, target_uuid, source_type, source_ref, item_blob, quantity, delivered_quantity,
+                 reason, last_error, created_at
+          FROM mailbox_items
+          WHERE user_id = ?
+            AND status = 'PENDING'
+            AND UPPER(source_type) NOT IN ('ORDER', 'MARKET')
+          ORDER BY created_at DESC, id DESC
+          LIMIT ?
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, userId);
+        statement.setInt(2, Math.max(1, limit));
+        try (ResultSet resultSet = statement.executeQuery()) {
+          List<StandaloneMailboxItem> items = new ArrayList<>();
+          while (resultSet.next()) {
+            ItemStack item = itemSnapshotCodec.deserialize(resultSet.getBytes("item_blob"));
+            ItemSnapshotCodec.Snapshot snapshot = itemSnapshotCodec.serialize(item);
+            Timestamp createdAt = resultSet.getTimestamp("created_at");
+            items.add(new StandaloneMailboxItem(
+                resultSet.getLong("id"),
+                resultSet.getString("target_uuid"),
+                item,
+                resultSet.getInt("quantity"),
+                Math.max(0, resultSet.getInt("delivered_quantity")),
+                resultSet.getString("source_type"),
+                resultSet.getString("source_ref"),
+                resultSet.getString("reason"),
+                resultSet.getString("last_error"),
+                createdAt == null ? LocalDateTime.now() : createdAt.toLocalDateTime(),
+                snapshot.itemMetaJson()));
+          }
+          return items;
+        }
+      }
+    });
+  }
+
+  PendingContext findPendingContext(
+      long userId, String sourceType, String sourceRef) {
+    if (userId <= 0L || sourceType == null || sourceRef == null) {
+      return new PendingContext(null, null);
+    }
+    return databaseManager.withConnection(connection -> {
+      String sql = """
+          SELECT reason, last_error
+          FROM mailbox_items
+          WHERE user_id = ?
+            AND source_type = ?
+            AND source_ref = ?
+            AND status = 'PENDING'
+          ORDER BY id DESC
+          LIMIT 1
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, userId);
+        statement.setString(2, sourceType);
+        statement.setString(3, sourceRef);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          return resultSet.next()
+              ? new PendingContext(
+                  resultSet.getString("reason"), resultSet.getString("last_error"))
+              : new PendingContext(null, null);
+        }
+      }
+    });
+  }
+
+  int countStandalonePending(long userId) {
+    if (userId <= 0L) {
+      return 0;
+    }
+    return databaseManager.withConnection(connection -> {
+      String sql =
+          """
+          SELECT COUNT(*) AS cnt
+          FROM mailbox_items
+          WHERE user_id = ?
+            AND status = 'PENDING'
+            AND UPPER(source_type) NOT IN ('ORDER', 'MARKET')
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, userId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          return resultSet.next() ? resultSet.getInt("cnt") : 0;
         }
       }
     });
@@ -305,6 +544,59 @@ class MailboxService {
       String sourceType,
       String sourceRef,
       String reason) {
+  }
+
+  record StandaloneMailboxItem(
+      long id,
+      String targetUuid,
+      ItemStack item,
+      int quantity,
+      int deliveredQuantity,
+      String sourceType,
+      String sourceRef,
+      String reason,
+      String lastError,
+      LocalDateTime createdAt,
+      String itemMetaJson) {
+    int remainingQuantity() {
+      return Math.max(0, quantity - deliveredQuantity);
+    }
+  }
+
+  record PendingContext(String reason, String lastError) {
+  }
+
+  final class OfflineReservation {
+    private final String token;
+    private final List<ItemStack> items;
+    private final int taskCount;
+    private boolean finished;
+
+    private OfflineReservation(String token, List<ItemStack> items, int taskCount) {
+      this.token = token;
+      this.items = items;
+      this.taskCount = taskCount;
+    }
+
+    List<ItemStack> items() {
+      return items;
+    }
+
+    int taskCount() {
+      return taskCount;
+    }
+
+    void complete() {
+      completeOffline(token);
+      finished = true;
+    }
+
+    void release(String error) {
+      if (!finished) {
+        releaseOffline(token, error);
+        finished = true;
+      }
+    }
   }
 
   private record MailboxItemTask(long id, byte[] itemBlob, int quantity, int deliveredQuantity) {
