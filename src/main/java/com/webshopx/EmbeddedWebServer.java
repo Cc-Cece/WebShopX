@@ -1090,6 +1090,11 @@ class EmbeddedWebServer {
     addNullableString(row, "displayName", entry.displayName());
     addNullableString(row, "iconUrl", entry.iconUrl());
     addNullableString(row, "itemMetaJson", entry.itemMetaJson());
+    if (entry.refundRemainingSeconds() == null) {
+      row.add("refundRemainingSeconds", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("refundRemainingSeconds", entry.refundRemainingSeconds());
+    }
     return row;
   }
 

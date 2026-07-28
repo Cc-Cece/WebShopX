@@ -1,6 +1,7 @@
 package com.webshopx;
 
 import java.time.LocalDateTime;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -77,7 +78,10 @@ class MailboxCenterService {
           "REFUND_IN_PROGRESS".equals(eligibility.reason()),
           order.productTitle(),
           null,
-          order.itemMetaJson()));
+          order.itemMetaJson(),
+          order.refundDeadline() == null
+              ? null
+              : Math.max(0L, Duration.between(LocalDateTime.now(), order.refundDeadline()).toSeconds())));
     }
     for (MailboxService.StandaloneMailboxItem item
         : mailboxService.listStandalonePending(userId, pageSize)) {
@@ -110,7 +114,8 @@ class MailboxCenterService {
           false,
           material,
           null,
-          item.itemMetaJson()));
+          item.itemMetaJson(),
+          null));
     }
     entries.sort(Comparator.comparing(
         MailboxEntry::createdAt,
@@ -279,7 +284,8 @@ class MailboxCenterService {
       boolean refundInProgress,
       String displayName,
       String iconUrl,
-      String itemMetaJson) {
+      String itemMetaJson,
+      Long refundRemainingSeconds) {
   }
 
   record ClaimResult(String entryId, int success, int failed) {
