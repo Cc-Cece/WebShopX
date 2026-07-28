@@ -229,7 +229,7 @@ jobs:
           from pathlib import Path
 
           root = Path(".frontend/webshopx-web/src/i18n")
-          allowed_namespaces = {"app", "admin", "market-algorithms", "materials"}
+          allowed_namespaces = {"app", "admin", "help", "market-algorithms"}
           locale_pattern = re.compile(r"^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$")
           errors = []
           checked = 0
@@ -291,7 +291,7 @@ jobs:
 
           errors = []
           seen = set()
-          allowed_web_namespaces = {"app", "admin", "help", "market-algorithms", "materials"}
+          allowed_web_namespaces = {"app", "admin", "help", "market-algorithms"}
           for row in locales:
               locale = str(row.get("locale", "")).strip()
               if not locale or locale in seen:

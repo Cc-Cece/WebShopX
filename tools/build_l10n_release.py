@@ -11,6 +11,8 @@ import sys
 import zipfile
 from pathlib import Path
 
+WEB_NAMESPACES = {"app", "admin", "help", "market-algorithms"}
+
 
 MESSAGE_FILE_PATTERN = re.compile(r"^messages\.(?P<locale>[A-Za-z0-9-]+)\.ya?ml$")
 
@@ -112,6 +114,8 @@ def discover_web_i18n_files(web_i18n_dir: Path) -> dict[str, dict[str, Path]]:
         if not namespace_dir.is_dir():
             continue
         namespace = namespace_dir.name
+        if namespace not in WEB_NAMESPACES:
+            continue
         for path in sorted(namespace_dir.glob("*.json")):
             locale = canonicalize_locale(path.stem)
             if not locale:

@@ -59,7 +59,7 @@ Copy-Item -Path (Join-Path $distRoot "*") -Destination $stageRoot -Recurse -Forc
 $frontendI18n = Join-Path $frontendRoot "src\i18n"
 $runtimeI18n = Join-Path $stageRoot "i18n"
 New-Item -ItemType Directory -Path $runtimeI18n -Force | Out-Null
-foreach ($namespace in @("app", "admin", "market-algorithms")) {
+foreach ($namespace in @("app", "admin", "help", "market-algorithms")) {
     $namespacePath = Join-Path $frontendI18n $namespace
     if (-not (Test-Path $namespacePath -PathType Container)) {
         throw "Required frontend locale namespace was not found: $namespacePath"

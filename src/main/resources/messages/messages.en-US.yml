@@ -358,10 +358,31 @@ enum:
   market_mode:
     manual: "Manual Listing"
     supply: "Supply"
+  market:
+    side:
+      SELL: "Sell Listing"
+      BUY: "Buy Order"
+  market_side:
+    sell: "Sell Listing"
+    buy: "Buy Order"
 
 error:
   market:
     invalid_price: "Price must be greater than 0."
+    buy_requires_direct_mode: "Buy orders only support direct sales."
+    buy_requires_manual_source: "Buy orders only support manual inventory sources."
+    buy_requires_fixed_price: "Buy-order prices and dynamic pricing cannot be changed after creation."
+    buy_escrow_insufficient: "The buy-order escrow is insufficient for this fulfillment."
+    buy_order_not_active: "This buy order is not available for fulfillment."
+    cannot_fulfill_own_buy_order: "You cannot fulfill your own buy order."
+    fulfill_item_not_match: "The offered item does not match the buy-order template."
+    invalid_market_side: "Invalid listing side; only SELL or BUY is supported."
+    invalid_tag: "The category tag is invalid or not allowed."
+    tag_disabled: "This category tag is disabled."
+    limitation_item_forbidden: "This item is not allowed by the listing rules."
+    limitation_currency_not_allowed: "This currency is not allowed for the listing."
+    limitation_trade_mode_not_allowed: "This trade mode is not allowed for the listing."
+    limitation_side_not_allowed: "This listing side is not allowed."
     invalid_amount: "Amount must be between 1 and 64."
     empty_hand: "Hold or place a valid item first."
     insufficient_item: "Not enough items."

@@ -1,6 +1,6 @@
 param(
   [string]$I18nRoot = "",
-  [string[]]$StrictNamespaces = @("app", "admin", "market-algorithms")
+  [string[]]$StrictNamespaces = @("app", "admin", "help", "market-algorithms")
 )
 
 $ErrorActionPreference = "Stop"
