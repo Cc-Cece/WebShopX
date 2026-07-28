@@ -437,7 +437,8 @@ class RechargeService {
   private String generateOrderId() {
     String date = ORDER_DATE_FORMAT.format(LocalDate.now(settingsSupplier.get().timeZone()));
     for (int attempt = 0; attempt < 20; attempt++) {
-      String suffix = Long.toString(Math.abs(secureRandom.nextLong()), 36).toUpperCase(Locale.ROOT);
+      String suffix = Long.toString(secureRandom.nextLong(Long.MAX_VALUE), 36)
+          .toUpperCase(Locale.ROOT);
       String orderId = "WSX" + date + suffix.substring(0, Math.min(10, suffix.length()));
       if (!orderExists(orderId)) {
         return orderId;

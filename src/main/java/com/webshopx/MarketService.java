@@ -876,7 +876,10 @@ class MarketService {
   }
 
   @SuppressFBWarnings(
-      value = "SQL_INJECTION_JDBC",
+      value = {
+          "SQL_INJECTION_JDBC",
+          "SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING"
+      },
       justification = "Dynamic clauses are assembled from validated enum values and constant SQL fragments")
   private List<ListingView> listListings(
       Connection connection,
@@ -995,7 +998,10 @@ class MarketService {
   }
 
   @SuppressFBWarnings(
-      value = "SQL_INJECTION_JDBC",
+      value = {
+          "SQL_INJECTION_JDBC",
+          "SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING"
+      },
       justification = "Admin listing filters append constant SQL fragments and bind every user-provided value")
   private List<AdminListingView> listAllListings(
       Connection connection,
