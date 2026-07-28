@@ -229,4 +229,6 @@ tools/i18n-validate.ps1           本地化校验
 
 欢迎提交 Issue 和 Pull Request。提交前请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
-本项目基于 [GPL-3.0](./LICENSE) 许可证开源。
+本项目自首次附带《[WebShopX 使用、研究与分发有限许可](./LICENSE)》的版本起，不再以开源许可证发布。中文许可证是唯一正式且具有解释优先权的许可文本。
+
+此前已经按照 GPL-3.0 合法发布的版本继续适用其发布时的许可证，新许可证不追溯撤销此前已经有效授予的权利。
