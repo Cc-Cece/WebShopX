@@ -95,6 +95,7 @@ class EmbeddedWebServer {
   private final InventoryOperationService inventoryOperationService;
   private final MailboxService mailboxService;
   private final MailboxCenterService mailboxCenterService;
+  private final RefundPolicyService refundPolicyService;
   private static final int MATERIAL_ICON_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
   private static final Set<String> MATERIAL_ICON_ALLOWED_EXTENSIONS =
       Set.of("png", "webp", "jpg", "jpeg", "gif");
@@ -142,6 +143,7 @@ class EmbeddedWebServer {
     this.inventoryOperationService = new InventoryOperationService(databaseManager);
     this.mailboxService = new MailboxService(databaseManager);
     this.mailboxCenterService = new MailboxCenterService(orderService, settingsSupplier);
+    this.refundPolicyService = new RefundPolicyService(databaseManager);
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
     this.walletService = walletService;
@@ -264,6 +266,8 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/products/icon", this::handleAdminProductIconUpload);
     server.createContext("/api/admin/products/active", this::handleAdminProductsActive);
     server.createContext("/api/admin/products/reset-limit", this::handleAdminProductsResetLimit);
+    server.createContext("/api/admin/refund-policy", this::handleAdminRefundPolicy);
+    server.createContext("/api/admin/products/refund-policy", this::handleAdminProductRefundPolicy);
     server.createContext("/api/admin/group-buy/consume", this::handleAdminGroupBuyConsume);
     server.createContext("/api/admin/orders/list", this::handleAdminOrdersList);
     server.createContext("/api/admin/economy/settings", this::handleAdminEconomySettings);
@@ -998,7 +1002,8 @@ class EmbeddedWebServer {
       return;
     }
     withServiceHandling(exchange, () -> {
-      AuthService.AuthUser user = requireAuth(exchange, readJson(exchange));
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
       String path = exchange.getRequestURI().getPath();
       String prefix = "/api/mailbox/";
       String suffix = "/refund";
@@ -1007,7 +1012,10 @@ class EmbeddedWebServer {
       }
       String encodedEntryId = path.substring(prefix.length(), path.length() - suffix.length());
       String entryId = URLDecoder.decode(encodedEntryId, StandardCharsets.UTF_8);
-      OrderService.RefundResult result = mailboxCenterService.refund(user.id(), entryId);
+      String idempotencyKey = getOptionalString(payload, "idempotencyKey")
+          .orElse(UUID.randomUUID().toString());
+      OrderService.RefundResult result =
+          mailboxCenterService.refund(user.id(), entryId, idempotencyKey);
       JsonObject response = new JsonObject();
       response.addProperty("entryId", entryId);
       response.addProperty("orderNo", result.orderNo());
@@ -3702,6 +3710,96 @@ class EmbeddedWebServer {
       sendJson(exchange, 200, response);
       adminAuditService.log(admin, "PRODUCT_LIST", "product", null, null, clientIp(exchange));
     });
+  }
+
+  private void handleAdminRefundPolicy(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+      withServiceHandling(exchange, () -> {
+        requireAdmin(exchange, null, AdminPermission.PRODUCT_MANAGE);
+        sendJson(exchange, 200, refundPolicyJson(refundPolicyService.getPolicy()));
+      });
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, payload, AdminPermission.PRODUCT_MANAGE);
+      RefundPolicyService.Policy policy = refundPolicyService.updatePolicy(
+          new RefundPolicyService.Policy(
+              getBoolean(payload, "selfServiceEnabled"),
+              getBoolean(payload, "mailboxPendingRefundEnabled"),
+              nullableInteger(payload, "fixedPriceWindowMinutes"),
+              nullableInteger(payload, "dynamicPriceWindowMinutes"),
+              getBoolean(payload, "partialRefundEnabled"),
+              (int) getLong(payload, "maxSelfServiceRefundsPerDay", 5L)));
+      sendJson(exchange, 200, refundPolicyJson(policy));
+      adminAuditService.log(
+          admin, "REFUND_POLICY_UPDATE", "refund_policy", null,
+          refundPolicyJson(policy), clientIp(exchange));
+    });
+  }
+
+  private void handleAdminProductRefundPolicy(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, payload, AdminPermission.PRODUCT_MANAGE);
+      RefundPolicyService.ProductPolicy policy = refundPolicyService.updateProductPolicy(
+          getLong(payload, "productId", -1L),
+          getOptionalString(payload, "refundPolicy").orElse("INHERIT"),
+          nullableInteger(payload, "refundWindowMinutes"),
+          getOptionalString(payload, "partialRefundPolicy").orElse("INHERIT"));
+      JsonObject response = new JsonObject();
+      response.addProperty("productId", policy.productId());
+      response.addProperty("refundPolicy", policy.refundPolicy());
+      if (policy.windowMinutes() == null) {
+        response.add("refundWindowMinutes", JsonNull.INSTANCE);
+      } else {
+        response.addProperty("refundWindowMinutes", policy.windowMinutes());
+      }
+      response.addProperty("partialRefundPolicy", policy.partialPolicy());
+      sendJson(exchange, 200, response);
+      adminAuditService.log(
+          admin, "PRODUCT_REFUND_POLICY_UPDATE", "product",
+          Long.toString(policy.productId()), response, clientIp(exchange));
+    });
+  }
+
+  private JsonObject refundPolicyJson(RefundPolicyService.Policy policy) {
+    JsonObject response = new JsonObject();
+    response.addProperty("selfServiceEnabled", policy.selfServiceEnabled());
+    response.addProperty(
+        "mailboxPendingRefundEnabled", policy.mailboxPendingRefundEnabled());
+    if (policy.fixedPriceWindowMinutes() == null) {
+      response.add("fixedPriceWindowMinutes", JsonNull.INSTANCE);
+    } else {
+      response.addProperty("fixedPriceWindowMinutes", policy.fixedPriceWindowMinutes());
+    }
+    if (policy.dynamicPriceWindowMinutes() == null) {
+      response.add("dynamicPriceWindowMinutes", JsonNull.INSTANCE);
+    } else {
+      response.addProperty("dynamicPriceWindowMinutes", policy.dynamicPriceWindowMinutes());
+    }
+    response.addProperty("partialRefundEnabled", policy.partialRefundEnabled());
+    response.addProperty(
+        "maxSelfServiceRefundsPerDay", policy.maxSelfServiceRefundsPerDay());
+    return response;
+  }
+
+  private Integer nullableInteger(JsonObject payload, String key) {
+    if (!payload.has(key) || payload.get(key).isJsonNull()) {
+      return null;
+    }
+    return payload.get(key).getAsInt();
   }
 
   private void handleAdminProductsUpsert(HttpExchange exchange) throws IOException {

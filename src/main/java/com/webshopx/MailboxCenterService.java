@@ -33,7 +33,8 @@ class MailboxCenterService {
       if (remainingQuantity <= 0 || isTerminal(order.status())) {
         continue;
       }
-      RefundEligibility eligibility = refundEligibility(order, now);
+      OrderService.RefundEligibility eligibility =
+          orderService.refundEligibility(userId, order.orderNo());
       entries.add(new MailboxEntry(
           encodeEntryId(order.orderNo()),
           order.orderNo().startsWith("MKT-") ? "MARKET_ITEM" : order.productType(),
@@ -43,7 +44,7 @@ class MailboxCenterService {
           order.itemMaterial(),
           order.quantity(),
           deliveredQuantity,
-          eligibility.refundable() ? Math.max(0, order.refundQuantity()) : 0,
+          eligibility.refundable() ? Math.max(0, eligibility.refundableQuantity()) : 0,
           deliveryStatus(order, deliveredQuantity),
           order.createdAt(),
           true,
@@ -58,35 +59,15 @@ class MailboxCenterService {
     return list(userId, MAX_PAGE_SIZE, null).size();
   }
 
-  OrderService.RefundResult refund(long userId, String entryId) {
+  OrderService.RefundResult refund(long userId, String entryId, String idempotencyKey) {
     String orderNo = decodeOrderNo(entryId);
-    return orderService.refundOrder(userId, orderNo);
+    return orderService.refundOrder(userId, orderNo, idempotencyKey);
   }
 
-  private RefundEligibility refundEligibility(OrderService.OrderView order, LocalDateTime now) {
-    if (!settingsSupplier.get().refundUndeliveredEnabled()) {
-      return new RefundEligibility(false, "REFUND_DISABLED");
-    }
-    if (order.refundQuantity() <= 0) {
-      return new RefundEligibility(false, "NO_REFUNDABLE_QUANTITY");
-    }
-    if (order.refundDeadline() != null && now.isAfter(order.refundDeadline())) {
-      return new RefundEligibility(false, "REFUND_EXPIRED");
-    }
-    if (order.earnedQuantity() > 0 && order.refundQuantity() < order.quantity()
-        && !isItemLike(order.productType())) {
-      return new RefundEligibility(false, "PARTIAL_REFUND_NOT_ALLOWED");
-    }
-    return new RefundEligibility(true, null);
-  }
-
-  private boolean isItemLike(String productType) {
-    String normalized = productType == null ? "" : productType.toUpperCase(Locale.ROOT);
-    return normalized.contains("ITEM") || normalized.contains("MATERIAL");
-  }
 
   private boolean isTerminal(String status) {
     return "REFUNDED".equalsIgnoreCase(status)
+        || "PARTIALLY_REFUNDED".equalsIgnoreCase(status)
         || "CANCELLED".equalsIgnoreCase(status)
         || "RECYCLED".equalsIgnoreCase(status);
   }
@@ -128,8 +109,5 @@ class MailboxCenterService {
       boolean refundable,
       String refundReason,
       LocalDateTime refundDeadline) {
-  }
-
-  private record RefundEligibility(boolean refundable, String reason) {
   }
 }

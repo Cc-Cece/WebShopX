@@ -439,6 +439,15 @@ class ProductService {
     return readProductById(connection, product.id());
   }
 
+  void applyRefundPriceEvent(Connection connection, long productId, int quantity)
+      throws SQLException {
+    if (productId <= 0L || quantity <= 0) {
+      return;
+    }
+    ProductView product = readProductById(connection, productId);
+    applyDynamicPriceEvent(connection, product, quantity, DynamicPriceEvent.REFUND);
+  }
+
   void processDynamicPriceCycles() {
     databaseManager.inTransaction(connection -> {
       applyDynamicPriceDecayInTransaction(connection);
@@ -1828,7 +1837,8 @@ class ProductService {
 
   enum DynamicPriceEvent {
     PURCHASE,
-    RECYCLE
+    RECYCLE,
+    REFUND
   }
 
   private boolean requiresCommandTemplate(ProductType productType) {

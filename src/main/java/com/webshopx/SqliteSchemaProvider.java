@@ -104,6 +104,8 @@ final class SqliteSchemaProvider implements SchemaProvider {
     assertColumnExists(connection, "products", "inventory_mode");
     assertColumnExists(connection, "runtime_config", "version");
     assertColumnExists(connection, "orders", "claim_token");
+    assertColumnExists(connection, "orders", "refund_allowed");
+    assertColumnExists(connection, "products", "refund_policy");
     assertColumnExists(connection, "delivery_queue", "delivered_quantity");
     assertColumnExists(connection, "market_listings", "source_mode");
     assertColumnExists(connection, "market_listings", "supply_access_protected");
@@ -192,6 +194,26 @@ final class SqliteSchemaProvider implements SchemaProvider {
       "products",
       "dynamic_pricing_mode",
       "TEXT NOT NULL DEFAULT 'ORDER_FIXED'");
+    addColumnIfMissing(
+      connection, "products", "refund_policy", "TEXT NOT NULL DEFAULT 'INHERIT'");
+    addColumnIfMissing(connection, "products", "refund_window_minutes", "INTEGER NULL");
+    addColumnIfMissing(
+      connection, "products", "partial_refund_policy", "TEXT NOT NULL DEFAULT 'INHERIT'");
+    addColumnIfMissing(connection, "orders", "refund_allowed", "INTEGER NOT NULL DEFAULT 1");
+    addColumnIfMissing(
+      connection, "orders", "partial_refund_allowed", "INTEGER NOT NULL DEFAULT 1");
+    addColumnIfMissing(connection, "orders", "refund_policy_json", "TEXT NULL");
+    addColumnIfMissing(connection, "orders", "refunded_quantity", "INTEGER NOT NULL DEFAULT 0");
+    addColumnIfMissing(connection, "orders", "refunded_amount", "INTEGER NOT NULL DEFAULT 0");
+    addColumnIfMissing(
+      connection, "market_trades", "refund_allowed", "INTEGER NOT NULL DEFAULT 1");
+    addColumnIfMissing(
+      connection, "market_trades", "partial_refund_allowed", "INTEGER NOT NULL DEFAULT 1");
+    addColumnIfMissing(connection, "market_trades", "refund_policy_json", "TEXT NULL");
+    addColumnIfMissing(
+      connection, "market_trades", "refunded_quantity", "INTEGER NOT NULL DEFAULT 0");
+    addColumnIfMissing(
+      connection, "market_trades", "refunded_amount", "INTEGER NOT NULL DEFAULT 0");
     addColumnIfMissing(
       connection,
       "market_listings",

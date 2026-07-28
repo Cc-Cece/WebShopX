@@ -49,6 +49,7 @@ class SchemaManager {
     migrateLegacyProductScheduleToUtc(connection, settings.timeZone());
     createOrders(connection);
     migrateOrders(connection);
+    createRefundRequests(connection);
     createOrderItems(connection);
     createDeliveryQueue(connection);
     migrateDeliveryQueue(connection);
@@ -586,6 +587,9 @@ class SchemaManager {
           dynamic_cap_price BIGINT NULL,
           dynamic_price_step BIGINT NULL,
           dynamic_demand_score BIGINT NOT NULL DEFAULT 0,
+          refund_policy VARCHAR(16) NOT NULL DEFAULT 'INHERIT',
+          refund_window_minutes INT NULL,
+          partial_refund_policy VARCHAR(16) NOT NULL DEFAULT 'INHERIT',
           publish_at DATETIME NULL,
           unpublish_at DATETIME NULL,
           active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -764,6 +768,19 @@ class SchemaManager {
           "ALTER TABLE products "
               + "ADD COLUMN publish_at DATETIME NULL AFTER effect_amplifier");
     }
+    if (!columnExists(connection, "products", "refund_policy")) {
+      execute(connection, "ALTER TABLE products "
+          + "ADD COLUMN refund_policy VARCHAR(16) NOT NULL DEFAULT 'INHERIT' AFTER dynamic_demand_score");
+    }
+    if (!columnExists(connection, "products", "refund_window_minutes")) {
+      execute(connection, "ALTER TABLE products "
+          + "ADD COLUMN refund_window_minutes INT NULL AFTER refund_policy");
+    }
+    if (!columnExists(connection, "products", "partial_refund_policy")) {
+      execute(connection, "ALTER TABLE products "
+          + "ADD COLUMN partial_refund_policy VARCHAR(16) NOT NULL DEFAULT 'INHERIT' "
+          + "AFTER refund_window_minutes");
+    }
     if (!columnExists(connection, "products", "unpublish_at")) {
       execute(
           connection,
@@ -870,6 +887,11 @@ class SchemaManager {
           claim_token VARCHAR(64) NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           refund_deadline DATETIME NULL,
+          refund_allowed BOOLEAN NOT NULL DEFAULT TRUE,
+          partial_refund_allowed BOOLEAN NOT NULL DEFAULT TRUE,
+          refund_policy_json JSON NULL,
+          refunded_quantity INT NOT NULL DEFAULT 0,
+          refunded_amount BIGINT NOT NULL DEFAULT 0,
           delivered_at DATETIME NULL,
           refunded_at DATETIME NULL,
           PRIMARY KEY (id),
@@ -890,6 +912,26 @@ class SchemaManager {
       execute(
           connection,
           "ALTER TABLE orders ADD COLUMN refund_deadline DATETIME NULL AFTER created_at");
+    }
+    if (!columnExists(connection, "orders", "refund_allowed")) {
+      execute(connection, "ALTER TABLE orders "
+          + "ADD COLUMN refund_allowed BOOLEAN NOT NULL DEFAULT TRUE AFTER refund_deadline");
+    }
+    if (!columnExists(connection, "orders", "partial_refund_allowed")) {
+      execute(connection, "ALTER TABLE orders "
+          + "ADD COLUMN partial_refund_allowed BOOLEAN NOT NULL DEFAULT TRUE AFTER refund_allowed");
+    }
+    if (!columnExists(connection, "orders", "refund_policy_json")) {
+      execute(connection, "ALTER TABLE orders "
+          + "ADD COLUMN refund_policy_json JSON NULL AFTER partial_refund_allowed");
+    }
+    if (!columnExists(connection, "orders", "refunded_quantity")) {
+      execute(connection, "ALTER TABLE orders "
+          + "ADD COLUMN refunded_quantity INT NOT NULL DEFAULT 0 AFTER refund_policy_json");
+    }
+    if (!columnExists(connection, "orders", "refunded_amount")) {
+      execute(connection, "ALTER TABLE orders "
+          + "ADD COLUMN refunded_amount BIGINT NOT NULL DEFAULT 0 AFTER refunded_quantity");
     }
     if (!columnExists(connection, "orders", "refunded_at")) {
       execute(
@@ -916,6 +958,27 @@ class SchemaManager {
           connection,
           "ALTER TABLE orders ADD INDEX idx_orders_target_server (target_server_id, status, created_at)");
     }
+  }
+
+  private void createRefundRequests(Connection connection) throws SQLException {
+    execute(connection, """
+        CREATE TABLE IF NOT EXISTS refund_requests (
+          id BIGINT NOT NULL AUTO_INCREMENT,
+          user_id BIGINT NOT NULL,
+          order_ref VARCHAR(64) NOT NULL,
+          idempotency_key VARCHAR(96) NOT NULL,
+          status VARCHAR(24) NOT NULL DEFAULT 'PROCESSING',
+          refund_amount BIGINT NOT NULL DEFAULT 0,
+          refund_quantity INT NOT NULL DEFAULT 0,
+          error_code VARCHAR(64) NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          completed_at DATETIME NULL,
+          PRIMARY KEY (id),
+          UNIQUE KEY uniq_refund_request_key (user_id, idempotency_key),
+          CONSTRAINT fk_refund_request_user
+            FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """);
   }
 
   private void createOrderItems(Connection connection) throws SQLException {
@@ -1743,6 +1806,11 @@ class SchemaManager {
           claim_token VARCHAR(64) NULL,
           status VARCHAR(24) NOT NULL DEFAULT 'PENDING',
           refund_deadline DATETIME NULL,
+          refund_allowed BOOLEAN NOT NULL DEFAULT TRUE,
+          partial_refund_allowed BOOLEAN NOT NULL DEFAULT TRUE,
+          refund_policy_json JSON NULL,
+          refunded_quantity INT NOT NULL DEFAULT 0,
+          refunded_amount BIGINT NOT NULL DEFAULT 0,
           refunded_at DATETIME NULL,
           settled_at DATETIME NULL,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1835,6 +1903,26 @@ class SchemaManager {
           connection,
           "ALTER TABLE market_trades "
               + "ADD COLUMN refund_deadline DATETIME NULL AFTER status");
+    }
+    if (!columnExists(connection, "market_trades", "refund_allowed")) {
+      execute(connection, "ALTER TABLE market_trades "
+          + "ADD COLUMN refund_allowed BOOLEAN NOT NULL DEFAULT TRUE AFTER refund_deadline");
+    }
+    if (!columnExists(connection, "market_trades", "partial_refund_allowed")) {
+      execute(connection, "ALTER TABLE market_trades "
+          + "ADD COLUMN partial_refund_allowed BOOLEAN NOT NULL DEFAULT TRUE AFTER refund_allowed");
+    }
+    if (!columnExists(connection, "market_trades", "refund_policy_json")) {
+      execute(connection, "ALTER TABLE market_trades "
+          + "ADD COLUMN refund_policy_json JSON NULL AFTER partial_refund_allowed");
+    }
+    if (!columnExists(connection, "market_trades", "refunded_quantity")) {
+      execute(connection, "ALTER TABLE market_trades "
+          + "ADD COLUMN refunded_quantity INT NOT NULL DEFAULT 0 AFTER refund_policy_json");
+    }
+    if (!columnExists(connection, "market_trades", "refunded_amount")) {
+      execute(connection, "ALTER TABLE market_trades "
+          + "ADD COLUMN refunded_amount BIGINT NOT NULL DEFAULT 0 AFTER refunded_quantity");
     }
     if (!columnExists(connection, "market_trades", "refunded_at")) {
       execute(

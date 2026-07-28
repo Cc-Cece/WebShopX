@@ -248,6 +248,9 @@ CREATE TABLE IF NOT EXISTS products (
   dynamic_cap_price INTEGER NULL,
   dynamic_price_step INTEGER NULL,
   dynamic_demand_score INTEGER NOT NULL DEFAULT 0,
+  refund_policy TEXT NOT NULL DEFAULT 'INHERIT',
+  refund_window_minutes INTEGER NULL,
+  partial_refund_policy TEXT NOT NULL DEFAULT 'INHERIT',
   publish_at DATETIME NULL,
   unpublish_at DATETIME NULL,
   active INTEGER NOT NULL DEFAULT 1,
@@ -270,6 +273,11 @@ CREATE TABLE IF NOT EXISTS orders (
   claim_token TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   refund_deadline DATETIME NULL,
+  refund_allowed INTEGER NOT NULL DEFAULT 1,
+  partial_refund_allowed INTEGER NOT NULL DEFAULT 1,
+  refund_policy_json TEXT NULL,
+  refunded_quantity INTEGER NOT NULL DEFAULT 0,
+  refunded_amount INTEGER NOT NULL DEFAULT 0,
   delivered_at DATETIME NULL,
   refunded_at DATETIME NULL,
   CONSTRAINT fk_orders_user_id FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
@@ -279,6 +287,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS uniq_orders_idempotency ON orders (user_id, id
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_orders_claim_token ON orders (claim_token);
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_target_server ON orders (target_server_id, status, created_at);
+
+CREATE TABLE IF NOT EXISTS refund_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  order_ref TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PROCESSING',
+  refund_amount INTEGER NOT NULL DEFAULT 0,
+  refund_quantity INTEGER NOT NULL DEFAULT 0,
+  error_code TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completed_at DATETIME NULL,
+  CONSTRAINT fk_refund_request_user FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_refund_request_key
+  ON refund_requests (user_id, idempotency_key);
 
 CREATE TABLE IF NOT EXISTS order_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -452,6 +476,11 @@ CREATE TABLE IF NOT EXISTS market_trades (
   claim_token TEXT NULL,
   status TEXT NOT NULL DEFAULT 'PENDING',
   refund_deadline DATETIME NULL,
+  refund_allowed INTEGER NOT NULL DEFAULT 1,
+  partial_refund_allowed INTEGER NOT NULL DEFAULT 1,
+  refund_policy_json TEXT NULL,
+  refunded_quantity INTEGER NOT NULL DEFAULT 0,
+  refunded_amount INTEGER NOT NULL DEFAULT 0,
   refunded_at DATETIME NULL,
   settled_at DATETIME NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
