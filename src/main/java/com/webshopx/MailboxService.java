@@ -2,6 +2,8 @@ package com.webshopx;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -156,6 +158,68 @@ class MailboxService {
     });
   }
 
+  List<StandaloneMailboxItem> listStandalonePending(long userId, int limit) {
+    if (userId <= 0L) {
+      return List.of();
+    }
+    return databaseManager.withConnection(connection -> {
+      String sql =
+          """
+          SELECT id, source_type, source_ref, item_blob, quantity, delivered_quantity,
+                 reason, created_at
+          FROM mailbox_items
+          WHERE user_id = ?
+            AND status = 'PENDING'
+            AND UPPER(source_type) NOT IN ('ORDER', 'MARKET')
+          ORDER BY created_at DESC, id DESC
+          LIMIT ?
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, userId);
+        statement.setInt(2, Math.max(1, limit));
+        try (ResultSet resultSet = statement.executeQuery()) {
+          List<StandaloneMailboxItem> items = new ArrayList<>();
+          while (resultSet.next()) {
+            ItemStack item = itemSnapshotCodec.deserialize(resultSet.getBytes("item_blob"));
+            Timestamp createdAt = resultSet.getTimestamp("created_at");
+            items.add(new StandaloneMailboxItem(
+                resultSet.getLong("id"),
+                item,
+                resultSet.getInt("quantity"),
+                Math.max(0, resultSet.getInt("delivered_quantity")),
+                resultSet.getString("source_type"),
+                resultSet.getString("source_ref"),
+                resultSet.getString("reason"),
+                createdAt == null ? LocalDateTime.now() : createdAt.toLocalDateTime()));
+          }
+          return items;
+        }
+      }
+    });
+  }
+
+  int countStandalonePending(long userId) {
+    if (userId <= 0L) {
+      return 0;
+    }
+    return databaseManager.withConnection(connection -> {
+      String sql =
+          """
+          SELECT COUNT(*) AS cnt
+          FROM mailbox_items
+          WHERE user_id = ?
+            AND status = 'PENDING'
+            AND UPPER(source_type) NOT IN ('ORDER', 'MARKET')
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, userId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          return resultSet.next() ? resultSet.getInt("cnt") : 0;
+        }
+      }
+    });
+  }
+
   private List<MailboxItemTask> readPendingTasks(UUID playerUuid, int limit) {
     return databaseManager.withConnection(connection -> {
       String sql = """
@@ -305,6 +369,20 @@ class MailboxService {
       String sourceType,
       String sourceRef,
       String reason) {
+  }
+
+  record StandaloneMailboxItem(
+      long id,
+      ItemStack item,
+      int quantity,
+      int deliveredQuantity,
+      String sourceType,
+      String sourceRef,
+      String reason,
+      LocalDateTime createdAt) {
+    int remainingQuantity() {
+      return Math.max(0, quantity - deliveredQuantity);
+    }
   }
 
   private record MailboxItemTask(long id, byte[] itemBlob, int quantity, int deliveredQuantity) {

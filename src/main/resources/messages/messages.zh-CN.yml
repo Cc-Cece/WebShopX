@@ -179,9 +179,9 @@ notify:
 
   delivery:
     wait_claim_order_title: "订单待领取提醒"
-    wait_claim_order_content: "订单 {token} 自动发货失败，请在游戏内执行 /ws claim {token} 领取。原因：{reason}"
+    wait_claim_order_content: "订单已存入统一邮箱，请在游戏内执行 /ws mailbox 进行查看或领取。原因：{reason}"
     wait_claim_market_title: "市场物品待领取提醒"
-    wait_claim_market_content: "市场物品自动发货失败，请在游戏内执行 /ws claim {token} 领取。原因：{reason}"
+    wait_claim_market_content: "市场物品已存入统一邮箱，请在游戏内执行 /ws mailbox 进行查看或领取。原因：{reason}"
     mailbox_pending_title: "信箱待领取提醒"
     mailbox_pending_content: "自动发货时背包不可用，物品已存入游戏信箱。请在游戏内执行 /ws mailbox 查看。来源：{sourceType} {sourceDetail}"
 
@@ -195,7 +195,7 @@ chat:
     deliver_success_market: "发货成功：{token}"
     mailbox_saved: "§a物品已存入游戏信箱：{token}"
     claim_failed: "§e领取失败：{reason}"
-    auto_claim_hint: "§e自动发货失败，已转手动领取：/ws claim {token}"
+    auto_claim_hint: "§e自动发货未完成，内容已存入统一邮箱：/ws mailbox"
     generic_failed: "发货失败"
     inventory_full: "背包已满"
     player_offline: "玩家离线"

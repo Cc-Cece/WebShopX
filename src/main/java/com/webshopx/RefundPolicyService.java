@@ -17,7 +17,7 @@ class RefundPolicyService {
   private static final Policy DEFAULT_POLICY = new Policy(true, true, 10, 3, true, 5);
 
   private final DatabaseManager databaseManager;
-  private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+  private final Gson gson = new GsonBuilder().disableHtmlEscaping().serializeNulls().create();
 
   RefundPolicyService(DatabaseManager databaseManager) {
     this.databaseManager = databaseManager;
@@ -108,7 +108,9 @@ class RefundPolicyService {
         }
       }
     }
-    boolean allowed = global.selfServiceEnabled() && !"DISABLED".equals(refundPolicy);
+    boolean allowed = global.selfServiceEnabled()
+        && global.mailboxPendingRefundEnabled()
+        && !"DISABLED".equals(refundPolicy);
     Integer window = "CUSTOM".equals(refundPolicy)
         ? customWindow
         : dynamicPricing ? global.dynamicPriceWindowMinutes() : global.fixedPriceWindowMinutes();

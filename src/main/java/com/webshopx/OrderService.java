@@ -1113,6 +1113,63 @@ class OrderService {
     });
   }
 
+  @SuppressFBWarnings(
+      value = "SQL_INJECTION_JDBC",
+      justification = "The market reference expression is selected from fixed dialect branches")
+  int countMailboxOrdersForUser(long userId) {
+    return databaseManager.withConnection(connection -> {
+      String marketReferenceExpression = sqlProvider.dbType().isSqlite()
+          ? "('MKT-' || CAST(mt.id AS TEXT))"
+          : "CONCAT('MKT-', CAST(mt.id AS CHAR))";
+      String sql = """
+          SELECT
+            (SELECT COUNT(*)
+             FROM orders o
+             WHERE o.user_id = ?
+               AND UPPER(o.status) NOT IN ('REFUNDED', 'PARTIALLY_REFUNDED', 'CANCELLED', 'RECYCLED')
+               AND (
+                 UPPER(o.status) IN ('PENDING', 'WAIT_CLAIM')
+                 OR EXISTS (
+                   SELECT 1 FROM delivery_queue dq
+                   WHERE dq.order_id = o.id
+                     AND UPPER(dq.status) IN ('PENDING', 'WAIT_CLAIM'))
+                 OR EXISTS (
+                   SELECT 1 FROM mailbox_items mi
+                   WHERE mi.user_id = o.user_id
+                     AND mi.source_type = 'ORDER'
+                     AND mi.source_ref = o.order_no
+                     AND mi.status = 'PENDING')
+               ))
+            +
+            (SELECT COUNT(*)
+             FROM market_trades mt
+             WHERE mt.buyer_user_id = ?
+               AND UPPER(mt.status) NOT IN ('REFUNDED', 'PARTIALLY_REFUNDED', 'CANCELLED', 'RECYCLED')
+               AND (
+                 UPPER(mt.status) IN ('PENDING', 'WAIT_CLAIM')
+                 OR EXISTS (
+                   SELECT 1 FROM market_item_deliveries md
+                   WHERE md.trade_id = mt.id
+                     AND md.delivery_type = 'SALE'
+                     AND UPPER(md.status) IN ('PENDING', 'WAIT_CLAIM'))
+                 OR EXISTS (
+                   SELECT 1 FROM mailbox_items mi
+                   WHERE mi.user_id = mt.buyer_user_id
+                     AND mi.source_type = 'MARKET'
+                     AND mi.source_ref = %s
+                     AND mi.status = 'PENDING')
+               )) AS cnt
+          """.formatted(marketReferenceExpression);
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, userId);
+        statement.setLong(2, userId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          return resultSet.next() ? Math.max(0, resultSet.getInt("cnt")) : 0;
+        }
+      }
+    });
+  }
+
   private LocalDateTime readOrderCreatedAtById(Connection connection, long orderId) throws SQLException {
     String sql = "SELECT created_at FROM orders WHERE id = ? LIMIT 1";
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -1605,7 +1662,7 @@ class OrderService {
     String key = normalizeIdempotencyKey(idempotencyKey);
     RefundRequestState existing = databaseManager.inTransaction(connection -> {
       try (PreparedStatement statement = connection.prepareStatement(
-          "SELECT order_ref, status, refund_amount, refund_quantity "
+          "SELECT order_ref, status, refund_amount, refund_quantity, created_at "
               + "FROM refund_requests WHERE user_id = ? AND idempotency_key = ?")) {
         statement.setLong(1, userId);
         statement.setString(2, key);
@@ -1615,7 +1672,8 @@ class OrderService {
                 resultSet.getString("order_ref"),
                 resultSet.getString("status"),
                 resultSet.getLong("refund_amount"),
-                resultSet.getInt("refund_quantity"));
+                resultSet.getInt("refund_quantity"),
+                resultSet.getTimestamp("created_at").toLocalDateTime());
           }
         }
       }
@@ -1649,16 +1707,30 @@ class OrderService {
         throw new ServiceException(
             "idempotency_conflict", "Idempotency key belongs to another order");
       }
-      if (!"COMPLETED".equalsIgnoreCase(existing.status())) {
+      if ("COMPLETED".equalsIgnoreCase(existing.status())) {
+        WalletService.WalletBalance balance = walletService.getBalance(userId);
+        return new RefundResult(
+            existing.orderRef(),
+            existing.refundAmount(),
+            existing.refundQuantity(),
+            0,
+            balance);
+      }
+      RefundRequestState reconciled = reconcileCompletedRefund(userId, orderNo, key);
+      if (reconciled != null) {
+        WalletService.WalletBalance balance = walletService.getBalance(userId);
+        return new RefundResult(
+            reconciled.orderRef(),
+            reconciled.refundAmount(),
+            reconciled.refundQuantity(),
+            0,
+            balance);
+      }
+      boolean retryable = "FAILED".equalsIgnoreCase(existing.status())
+          || existing.createdAt().isBefore(LocalDateTime.now().minusMinutes(5));
+      if (!retryable || !claimRefundRequestRetry(userId, key, existing.status())) {
         throw new ServiceException("refund_in_progress", "Refund is already in progress");
       }
-      WalletService.WalletBalance balance = walletService.getBalance(userId);
-      return new RefundResult(
-          existing.orderRef(),
-          existing.refundAmount(),
-          existing.refundQuantity(),
-          0,
-          balance);
     }
     try {
       RefundResult result = refundOrder(userId, orderNo);
@@ -1692,6 +1764,59 @@ class OrderService {
       });
       throw exception;
     }
+  }
+
+  private RefundRequestState reconcileCompletedRefund(
+      long userId, String orderNo, String idempotencyKey) {
+    return databaseManager.inTransaction(connection -> {
+      String table = orderNo.regionMatches(true, 0, "MKT-", 0, 4)
+          ? "market_trades" : "orders";
+      String identityColumn = "market_trades".equals(table) ? "id" : "order_no";
+      String sql = "SELECT status, refunded_amount, refunded_quantity FROM " + table
+          + " WHERE " + identityColumn + " = ? AND "
+          + ("market_trades".equals(table) ? "buyer_user_id" : "user_id") + " = ?";
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        if ("market_trades".equals(table)) {
+          statement.setLong(1, parseMarketTradeId(orderNo));
+        } else {
+          statement.setString(1, orderNo);
+        }
+        statement.setLong(2, userId);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          if (!resultSet.next() || !isRefundedStatus(resultSet.getString("status"))) {
+            return null;
+          }
+          long amount = resultSet.getLong("refunded_amount");
+          int quantity = resultSet.getInt("refunded_quantity");
+          try (PreparedStatement update = connection.prepareStatement(
+              "UPDATE refund_requests SET status = 'COMPLETED', refund_amount = ?, "
+                  + "refund_quantity = ?, error_code = NULL, completed_at = CURRENT_TIMESTAMP "
+                  + "WHERE user_id = ? AND idempotency_key = ?")) {
+            update.setLong(1, amount);
+            update.setInt(2, quantity);
+            update.setLong(3, userId);
+            update.setString(4, idempotencyKey);
+            update.executeUpdate();
+          }
+          return new RefundRequestState(
+              orderNo, "COMPLETED", amount, quantity, LocalDateTime.now());
+        }
+      }
+    });
+  }
+
+  private boolean claimRefundRequestRetry(long userId, String idempotencyKey, String priorStatus) {
+    return databaseManager.inTransaction(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "UPDATE refund_requests SET status = 'PROCESSING', error_code = NULL, "
+              + "created_at = CURRENT_TIMESTAMP, completed_at = NULL "
+              + "WHERE user_id = ? AND idempotency_key = ? AND status = ?")) {
+        statement.setLong(1, userId);
+        statement.setString(2, idempotencyKey);
+        statement.setString(3, priorStatus);
+        return statement.executeUpdate() == 1;
+      }
+    });
   }
 
   DiscardResult discardOrder(long userId, String orderNo) {
@@ -1827,13 +1952,6 @@ class OrderService {
     if (!row.refundAllowed()) {
       throw new ServiceException("product_not_refundable", "Refund is disabled for this order");
     }
-    RefundPolicyService.Policy policy = refundPolicyService.getPolicy();
-    if (!policy.selfServiceEnabled()) {
-      throw new ServiceException("refund_disabled", "Self-service refunds are disabled");
-    }
-    if (!policy.mailboxPendingRefundEnabled()) {
-      throw new ServiceException("mailbox_refund_disabled", "Mailbox refunds are disabled");
-    }
     if (row.groupBuyVoucherCode() != null) {
       String voucherStatus = String.valueOf(row.groupBuyVoucherStatus()).toUpperCase(Locale.ROOT);
       if ("CONSUMED".equals(voucherStatus)) {
@@ -1842,65 +1960,34 @@ class OrderService {
       if ("REFUNDED".equals(voucherStatus)) {
         throw new ServiceException("already_refunded", "Order has already been refunded");
       }
-      if (settingsSupplier.get().refundUndeliveredEnabled() && "ISSUED".equals(voucherStatus)) {
+      if ("ISSUED".equals(voucherStatus)) {
         return;
       }
     }
 
-    if (settingsSupplier.get().refundUndeliveredEnabled()) {
-      if ("PENDING".equalsIgnoreCase(row.status())
-          || "WAIT_CLAIM".equalsIgnoreCase(row.status())
-          || "DELIVERED".equalsIgnoreCase(row.status())
-          || "COMPLETED".equalsIgnoreCase(row.status())) {
-        if (row.refundDeadline() != null && LocalDateTime.now().isAfter(row.refundDeadline())) {
-          throw new ServiceException("refund_expired", "Refund window has expired");
-        }
-        return;
+    if ("PENDING".equalsIgnoreCase(row.status())
+        || "WAIT_CLAIM".equalsIgnoreCase(row.status())
+        || "DELIVERED".equalsIgnoreCase(row.status())
+        || "COMPLETED".equalsIgnoreCase(row.status())) {
+      if (row.refundDeadline() != null && LocalDateTime.now().isAfter(row.refundDeadline())) {
+        throw new ServiceException("refund_expired", "Refund window has expired");
       }
-      throw new ServiceException("refund_not_allowed", "Order is not refundable");
+      return;
     }
-
-    if (!"PENDING".equalsIgnoreCase(row.status())) {
-      throw new ServiceException("refund_not_allowed", "Order is not refundable");
-    }
-    if (row.refundDeadline() == null) {
-      throw new ServiceException("refund_disabled", "Refund is disabled for this order");
-    }
-    if (LocalDateTime.now().isAfter(row.refundDeadline())) {
-      throw new ServiceException("refund_expired", "Refund window has expired");
-    }
+    throw new ServiceException("refund_not_allowed", "Order is not refundable");
   }
 
   private void validateMarketRefund(MarketOrderRow row) {
     if (!row.refundAllowed()) {
       throw new ServiceException("product_not_refundable", "Refund is disabled for this order");
     }
-    RefundPolicyService.Policy policy = refundPolicyService.getPolicy();
-    if (!policy.selfServiceEnabled()) {
-      throw new ServiceException("refund_disabled", "Self-service refunds are disabled");
-    }
-    if (!policy.mailboxPendingRefundEnabled()) {
-      throw new ServiceException("mailbox_refund_disabled", "Mailbox refunds are disabled");
-    }
-    if (settingsSupplier.get().refundUndeliveredEnabled()) {
-      if ("PENDING".equalsIgnoreCase(row.status()) || "WAIT_CLAIM".equalsIgnoreCase(row.status())) {
-        if (row.refundDeadline() != null && LocalDateTime.now().isAfter(row.refundDeadline())) {
-          throw new ServiceException("refund_expired", "Refund window has expired");
-        }
-        return;
+    if ("PENDING".equalsIgnoreCase(row.status()) || "WAIT_CLAIM".equalsIgnoreCase(row.status())) {
+      if (row.refundDeadline() != null && LocalDateTime.now().isAfter(row.refundDeadline())) {
+        throw new ServiceException("refund_expired", "Refund window has expired");
       }
-      throw new ServiceException("refund_not_allowed", "Order is not refundable");
+      return;
     }
-
-    if (!"PENDING".equalsIgnoreCase(row.status())) {
-      throw new ServiceException("refund_not_allowed", "Order is not refundable");
-    }
-    if (row.refundDeadline() == null) {
-      throw new ServiceException("refund_disabled", "Refund is disabled for this order");
-    }
-    if (LocalDateTime.now().isAfter(row.refundDeadline())) {
-      throw new ServiceException("refund_expired", "Refund window has expired");
-    }
+    throw new ServiceException("refund_not_allowed", "Order is not refundable");
   }
 
   private String normalizeGroupBuyVoucherCode(String rawCode) {
@@ -2670,7 +2757,11 @@ class OrderService {
   }
 
   private record RefundRequestState(
-      String orderRef, String status, long refundAmount, int refundQuantity) {
+      String orderRef,
+      String status,
+      long refundAmount,
+      int refundQuantity,
+      LocalDateTime createdAt) {
   }
 
   record RefundEligibility(

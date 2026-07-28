@@ -142,7 +142,7 @@ class EmbeddedWebServer {
     this.databaseManager = databaseManager;
     this.inventoryOperationService = new InventoryOperationService(databaseManager);
     this.mailboxService = new MailboxService(databaseManager);
-    this.mailboxCenterService = new MailboxCenterService(orderService, settingsSupplier);
+    this.mailboxCenterService = new MailboxCenterService(orderService, mailboxService);
     this.refundPolicyService = new RefundPolicyService(databaseManager);
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
@@ -1056,6 +1056,11 @@ class EmbeddedWebServer {
       row.add("refundDeadline", JsonNull.INSTANCE);
     } else {
       addBusinessDateTime(row, "refundDeadline", entry.refundDeadline());
+    }
+    if (entry.reason() == null) {
+      row.add("reason", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("reason", entry.reason());
     }
     return row;
   }

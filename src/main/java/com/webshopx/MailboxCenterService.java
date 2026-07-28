@@ -2,9 +2,9 @@ package com.webshopx;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.function.Supplier;
 
 /**
  * User-facing aggregate over all platform-custody delivery sources.
@@ -15,11 +15,11 @@ class MailboxCenterService {
   private static final int MAX_PAGE_SIZE = 100;
 
   private final OrderService orderService;
-  private final Supplier<PluginSettings> settingsSupplier;
+  private final MailboxService mailboxService;
 
-  MailboxCenterService(OrderService orderService, Supplier<PluginSettings> settingsSupplier) {
+  MailboxCenterService(OrderService orderService, MailboxService mailboxService) {
     this.orderService = orderService;
-    this.settingsSupplier = settingsSupplier;
+    this.mailboxService = mailboxService;
   }
 
   List<MailboxEntry> list(long userId, int limit, Long cursor) {
@@ -50,21 +50,45 @@ class MailboxCenterService {
           true,
           eligibility.refundable(),
           eligibility.reason(),
-          order.refundDeadline()));
+          order.refundDeadline(),
+          null));
     }
-    return List.copyOf(entries);
+    for (MailboxService.StandaloneMailboxItem item
+        : mailboxService.listStandalonePending(userId, pageSize)) {
+      String material = item.item() == null ? null : item.item().getType().name();
+      entries.add(new MailboxEntry(
+          "MAILBOX:" + item.id(),
+          "ITEM",
+          item.sourceType() == null ? "DELIVERY" : item.sourceType().toUpperCase(Locale.ROOT),
+          item.sourceRef() == null ? "MAILBOX-" + item.id() : item.sourceRef(),
+          material == null ? "UNKNOWN" : material,
+          material,
+          item.quantity(),
+          item.deliveredQuantity(),
+          0,
+          item.deliveredQuantity() > 0 ? "PARTIAL" : "MAILBOX",
+          item.createdAt(),
+          true,
+          false,
+          "PRODUCT_NOT_REFUNDABLE",
+          null,
+          item.reason()));
+    }
+    entries.sort(Comparator.comparing(
+        MailboxEntry::createdAt,
+        Comparator.nullsLast(Comparator.reverseOrder())));
+    return List.copyOf(entries.subList(0, Math.min(pageSize, entries.size())));
   }
 
   int count(long userId) {
-    return list(userId, MAX_PAGE_SIZE, null).size();
+    return orderService.countMailboxOrdersForUser(userId)
+        + mailboxService.countStandalonePending(userId);
   }
 
   OrderService.RefundResult refund(long userId, String entryId, String idempotencyKey) {
     String orderNo = decodeOrderNo(entryId);
     return orderService.refundOrder(userId, orderNo, idempotencyKey);
   }
-
-
   private boolean isTerminal(String status) {
     return "REFUNDED".equalsIgnoreCase(status)
         || "PARTIALLY_REFUNDED".equalsIgnoreCase(status)
@@ -108,6 +132,7 @@ class MailboxCenterService {
       boolean collectible,
       boolean refundable,
       String refundReason,
-      LocalDateTime refundDeadline) {
+      LocalDateTime refundDeadline,
+      String reason) {
   }
 }

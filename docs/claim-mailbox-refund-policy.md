@@ -1,5 +1,14 @@
 # Claim、Mailbox 与退款策略统一设计
 
+> 实现状态：已完成（2026-07-28）
+>
+> 实现分支：`feat/claim-mailbox-refund-policy`
+
+已落地范围包括统一 Mailbox 聚合与 Web 页面、`/ws mailbox` 入口、`/ws claim`
+兼容别名、平台托管边界、全局及商品级退款策略、可选退款期限、订单策略快照、
+部分退款、动态价格退款反向事件、退款幂等与崩溃对账，以及管理员系统配置页面。
+旧 Claim Token 仅作为兼容数据保留，不再出现在新的待领取通知主流程中。
+
 > 状态：设计结论稿  
 > 适用仓库：`Cc-Cece/WebShopX`、`Cc-Cece/webshopx-vuetify-web`  
 > 目标：统一 Claim 与 Mailbox 的用户心智，并重新定义交付、退款、部分退款和动态价格退款规则。
