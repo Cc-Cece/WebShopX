@@ -2956,7 +2956,9 @@ class EmbeddedWebServer {
           }
           JsonObject row = new JsonObject();
           row.addProperty("id", "official:" + product.id());
-          row.addProperty("source", "官方商城 · " + product.title());
+          row.addProperty("sourceType", "OFFICIAL_STORE");
+          row.addProperty("sourceName", product.title());
+          row.addProperty("source", "Official Store · " + product.title());
           row.addProperty("remaining", product.personalLimitRemaining() == null
               ? 2147483647 : product.personalLimitRemaining());
           row.addProperty("currency", product.currency().name());
@@ -2970,7 +2972,9 @@ class EmbeddedWebServer {
       for (MarketService.BuyOrderMatch match : marketService.listMatchingBuyOrders(user.id(), item, quantity)) {
         JsonObject row = new JsonObject();
         row.addProperty("id", String.valueOf(match.listingId()));
-        row.addProperty("source", "玩家 " + match.buyerName() + " 的收购单");
+        row.addProperty("sourceType", "PLAYER_BUY_ORDER");
+        row.addProperty("sourceName", match.buyerName());
+        row.addProperty("source", "Player " + match.buyerName() + " Buy Order");
         row.addProperty("remaining", match.remaining());
         row.addProperty("currency", match.currency().name());
         row.addProperty("unitPrice", match.unitPrice());

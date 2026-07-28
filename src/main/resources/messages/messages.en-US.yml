@@ -358,6 +358,13 @@ enum:
   market_mode:
     manual: "Manual Listing"
     supply: "Supply"
+  market:
+    side:
+      SELL: "Sell Order"
+      BUY: "Buy Order"
+  market_side:
+    sell: "Sell Order"
+    buy: "Buy Order"
 
 error:
   market:
@@ -383,6 +390,20 @@ error:
     sync_interrupted: "Supply operation was interrupted. Try again later."
     listing_empty: "This listing has no stock to resume."
     listing_limit: "You have reached the active listing limit."
+    buy_requires_direct_mode: "Buy orders only support fixed-price direct trading."
+    buy_requires_manual_source: "Buy orders only support manual item sources."
+    buy_requires_fixed_price: "Buy orders cannot change price or enable dynamic pricing after creation."
+    buy_escrow_insufficient: "The buy-order escrow balance is insufficient to complete this fulfillment."
+    buy_order_not_active: "This buy order is not currently accepting fulfillment."
+    cannot_fulfill_own_buy_order: "You cannot fulfill your own buy order."
+    fulfill_item_not_match: "The delivered item does not match the buy-order template."
+    invalid_market_side: "Invalid listing side. Only SELL or BUY is supported."
+    invalid_tag: "This category tag is invalid or not allowed."
+    tag_disabled: "This category tag is disabled."
+    limitation_item_forbidden: "This item does not satisfy the listing rules."
+    limitation_currency_not_allowed: "This currency is not allowed for the listing."
+    limitation_trade_mode_not_allowed: "This trade mode is not allowed for the listing."
+    limitation_side_not_allowed: "This listing side is not allowed."
   delivery:
     claim_token_invalid: "The claim token is invalid or expired."
     claim_forbidden: "This claim token can only be used by the original owner."

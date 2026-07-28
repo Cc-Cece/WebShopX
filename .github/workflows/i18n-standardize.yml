@@ -1,0 +1,35 @@
+name: I18n Quality Gate
+
+on:
+  pull_request:
+    branches: [ "feat/webshopx-inventory-management", "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-i18n:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Audit Java hardcoded CJK
+        run: python tools/i18n-java-audit.py
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Compile plugin
+        run: |
+          chmod +x gradlew
+          ./gradlew compileJava
+
+      - name: Validate bundled locale resources
+        run: ./gradlew test --tests com.webshopx.MessageBundleYamlTest

@@ -554,18 +554,18 @@ final class PlayerDataInventoryService {
 
   private String label(InventoryService.InventorySource source, int slot) {
     if (source == InventoryService.InventorySource.ENDER_CHEST) {
-      return "末影箱第 " + (slot + 1) + " 格";
+      return "Ender Chest #" + (slot + 1);
     }
     if (slot < 9) {
-      return "快捷栏第 " + (slot + 1) + " 格";
+      return "Hotbar #" + (slot + 1);
     }
     if (slot < 36) {
-      return "背包第 " + (slot + 1) + " 格";
+      return "Main Inventory #" + (slot + 1);
     }
     if (slot == 40) {
-      return "副手";
+      return "Offhand";
     }
-    return "装备栏第 " + (slot - 35) + " 格";
+    return "Armor #" + (slot - 35);
   }
 
   record PlayerFile(Path path, String rootName, CompoundTag root) {}
