@@ -19,6 +19,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.URLDecoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -93,6 +94,7 @@ class EmbeddedWebServer {
   private final InventorySnapshotJsonCodec inventorySnapshotJsonCodec;
   private final InventoryOperationService inventoryOperationService;
   private final MailboxService mailboxService;
+  private final MailboxCenterService mailboxCenterService;
   private static final int MATERIAL_ICON_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
   private static final Set<String> MATERIAL_ICON_ALLOWED_EXTENSIONS =
       Set.of("png", "webp", "jpg", "jpeg", "gif");
@@ -139,6 +141,7 @@ class EmbeddedWebServer {
     this.databaseManager = databaseManager;
     this.inventoryOperationService = new InventoryOperationService(databaseManager);
     this.mailboxService = new MailboxService(databaseManager);
+    this.mailboxCenterService = new MailboxCenterService(orderService, settingsSupplier);
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
     this.walletService = walletService;
@@ -202,6 +205,9 @@ class EmbeddedWebServer {
     server.createContext("/api/orders/refund", this::handleOrdersRefund);
     server.createContext("/api/orders/policy", this::handleOrdersPolicy);
     server.createContext("/api/orders/delivery-status", this::handleOrdersDeliveryStatus);
+    server.createContext("/api/mailbox/list", this::handleMailboxList);
+    server.createContext("/api/mailbox/count", this::handleMailboxCount);
+    server.createContext("/api/mailbox/", this::handleMailboxEntry);
     server.createContext("/api/notifications/list", this::handleNotificationsList);
     server.createContext("/api/notifications/unread-count", this::handleNotificationsUnreadCount);
     server.createContext("/api/notifications/mark-read", this::handleNotificationsMarkRead);
@@ -944,6 +950,106 @@ class EmbeddedWebServer {
       response.addProperty("sharedClaimAllowed", settingsSupplier.get().allowSharedClaimCommand());
       sendJson(exchange, 200, response);
     });
+  }
+
+  private void handleMailboxList(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, null);
+      Map<String, String> query = parseQuery(exchange);
+      int limit = parseInt(query.get("limit"), 50);
+      Long cursor = parseLong(query.get("cursor"));
+      JsonArray items = new JsonArray();
+      for (MailboxCenterService.MailboxEntry entry : mailboxCenterService.list(user.id(), limit, cursor)) {
+        items.add(mailboxEntryJson(entry));
+      }
+      JsonObject response = new JsonObject();
+      response.add("items", items);
+      response.addProperty("count", items.size());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleMailboxCount(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "GET")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, null);
+      JsonObject response = new JsonObject();
+      response.addProperty("count", mailboxCenterService.count(user.id()));
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleMailboxEntry(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) {
+      return;
+    }
+    if (!ensureMethod(exchange, "POST")) {
+      return;
+    }
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, readJson(exchange));
+      String path = exchange.getRequestURI().getPath();
+      String prefix = "/api/mailbox/";
+      String suffix = "/refund";
+      if (!path.startsWith(prefix) || !path.endsWith(suffix)) {
+        throw new ServiceException("mailbox_entry_missing", "Mailbox entry was not found");
+      }
+      String encodedEntryId = path.substring(prefix.length(), path.length() - suffix.length());
+      String entryId = URLDecoder.decode(encodedEntryId, StandardCharsets.UTF_8);
+      OrderService.RefundResult result = mailboxCenterService.refund(user.id(), entryId);
+      JsonObject response = new JsonObject();
+      response.addProperty("entryId", entryId);
+      response.addProperty("orderNo", result.orderNo());
+      response.addProperty("refundAmount", result.refundAmount());
+      response.addProperty("refundQuantity", result.refundQuantity());
+      response.addProperty("earnedQuantity", result.earnedQuantity());
+      response.addProperty("shopCoin", result.balance().shopCoin());
+      response.addProperty("gameCoin", result.balance().gameCoin());
+      sendJson(exchange, 200, response);
+    });
+  }
+
+  private JsonObject mailboxEntryJson(MailboxCenterService.MailboxEntry entry) {
+    JsonObject row = new JsonObject();
+    row.addProperty("id", entry.id());
+    row.addProperty("type", entry.type());
+    row.addProperty("sourceType", entry.sourceType());
+    row.addProperty("sourceRef", entry.sourceRef());
+    row.addProperty("title", entry.title());
+    if (entry.material() == null) {
+      row.add("material", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("material", entry.material());
+    }
+    row.addProperty("quantity", entry.quantity());
+    row.addProperty("deliveredQuantity", entry.deliveredQuantity());
+    row.addProperty("refundableQuantity", entry.refundableQuantity());
+    row.addProperty("status", entry.status());
+    addBusinessDateTime(row, "createdAt", entry.createdAt());
+    row.addProperty("collectible", entry.collectible());
+    row.addProperty("refundable", entry.refundable());
+    if (entry.refundReason() == null) {
+      row.add("refundReason", JsonNull.INSTANCE);
+    } else {
+      row.addProperty("refundReason", entry.refundReason());
+    }
+    if (entry.refundDeadline() == null) {
+      row.add("refundDeadline", JsonNull.INSTANCE);
+    } else {
+      addBusinessDateTime(row, "refundDeadline", entry.refundDeadline());
+    }
+    return row;
   }
 
   private void handleOrdersDeliveryStatus(HttpExchange exchange) throws IOException {

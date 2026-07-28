@@ -263,7 +263,14 @@ class ShopCommand implements CommandExecutor, TabCompleter {
       return true;
     }
 
-    String token = args.length >= 2 ? args[1] : null;
+    // Compatibility alias: token-less /ws claim now enters the unified mailbox.
+    // Explicit legacy tokens remain supported during the migration window.
+    if (args.length < 2 || args[1].isBlank()) {
+      mailboxGuiService.open(player);
+      return true;
+    }
+
+    String token = args[1];
     try {
       DeliveryService.ClaimSummary summary = deliveryService.claimPending(player, token);
       if (summary.success() == 0 && summary.failed() == 0) {

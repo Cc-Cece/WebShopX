@@ -1692,6 +1692,9 @@ class OrderService {
           || "WAIT_CLAIM".equalsIgnoreCase(row.status())
           || "DELIVERED".equalsIgnoreCase(row.status())
           || "COMPLETED".equalsIgnoreCase(row.status())) {
+        if (row.refundDeadline() != null && LocalDateTime.now().isAfter(row.refundDeadline())) {
+          throw new ServiceException("refund_expired", "Refund window has expired");
+        }
         return;
       }
       throw new ServiceException("refund_not_allowed", "Order is not refundable");
@@ -1711,6 +1714,9 @@ class OrderService {
   private void validateMarketRefund(MarketOrderRow row) {
     if (settingsSupplier.get().refundUndeliveredEnabled()) {
       if ("PENDING".equalsIgnoreCase(row.status()) || "WAIT_CLAIM".equalsIgnoreCase(row.status())) {
+        if (row.refundDeadline() != null && LocalDateTime.now().isAfter(row.refundDeadline())) {
+          throw new ServiceException("refund_expired", "Refund window has expired");
+        }
         return;
       }
       throw new ServiceException("refund_not_allowed", "Order is not refundable");
