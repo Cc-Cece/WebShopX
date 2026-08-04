@@ -38,13 +38,12 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon clean test \
-            -PskipFrontendResourceTests=true \
             -x checkstyleMain -x checkstyleTest -x spotbugsMain -x spotbugsTest
 
       - name: Run unit tests (Windows)
         if: runner.os == 'Windows'
         run: |
-          .\gradlew.bat --no-daemon clean test -PskipFrontendResourceTests=true -x checkstyleMain -x checkstyleTest -x spotbugsMain -x spotbugsTest
+          .\gradlew.bat --no-daemon clean test -x checkstyleMain -x checkstyleTest -x spotbugsMain -x spotbugsTest
 
       - name: Upload test reports
         if: ${{ always() }}
@@ -126,12 +125,10 @@ jobs:
         working-directory: .frontend/webshopx-web
         run: pnpm install --frozen-lockfile
 
-      - name: Validate frontend material resources
+      - name: Build frontend resources
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon syncWebFrontend test \
-            --tests "*MaterialMappingTest" \
-            -x checkstyleMain -x checkstyleTest -x spotbugsMain -x spotbugsTest
+          ./gradlew --no-daemon syncWebFrontend
 
       - name: Resolve build metadata
         id: meta

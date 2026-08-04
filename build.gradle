@@ -127,9 +127,6 @@ dependencies {
 
 test {
     useJUnitPlatform()
-    if (providers.gradleProperty('skipFrontendResourceTests').map(String::toBoolean).getOrElse(false)) {
-        exclude '**/MaterialMappingTest.class'
-    }
 }
 
 tasks.withType(JavaCompile).configureEach {
