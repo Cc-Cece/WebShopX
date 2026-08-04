@@ -66,8 +66,21 @@ class RelayLocalHttpBridge {
           return RelayRpcResponse.error(request.id(), 405, "method_not_allowed", "Method not allowed");
         }
       }
-      HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-      JsonObject payload = parseJsonResponse(response.body());
+      if (request.http().headers() != null) {
+        for (String name : new String[] {"x-relay-pack-storage-limit", "x-relay-pack-count-limit", "x-relay-pack-expanded-limit", "x-relay-global-pack-id"}) {
+          String value = request.http().headers().get(name);
+          if (value != null && !value.isBlank()) {
+            builder.header(name, value);
+          }
+        }
+      }
+      HttpResponse<byte[]> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+      String responseType = response.headers().firstValue("content-type").orElse("application/json");
+      boolean jsonResponse = responseType.toLowerCase(Locale.ROOT).contains("json");
+      JsonObject payload = jsonResponse
+          ? parseJsonResponse(new String(response.body(), StandardCharsets.UTF_8))
+          : binaryResponse(response.body(), responseType,
+              response.headers().firstValue("content-disposition").orElse(null));
       if (response.statusCode() >= 200 && response.statusCode() < 300) {
         return RelayRpcResponse.ok(request.id(), response.statusCode(), payload);
       }
@@ -133,6 +146,17 @@ class RelayLocalHttpBridge {
     JsonObject wrapper = new JsonObject();
     wrapper.add("value", parsed);
     return wrapper;
+  }
+
+  private JsonObject binaryResponse(byte[] body, String contentType, String contentDisposition) {
+    JsonObject result = new JsonObject();
+    result.addProperty("__relayBinaryResponse", true);
+    result.addProperty("bodyBase64", Base64.getEncoder().encodeToString(body));
+    result.addProperty("contentType", contentType);
+    if (contentDisposition != null && !contentDisposition.isBlank()) {
+      result.addProperty("contentDisposition", contentDisposition);
+    }
+    return result;
   }
 
   static boolean isAllowed(String path) {

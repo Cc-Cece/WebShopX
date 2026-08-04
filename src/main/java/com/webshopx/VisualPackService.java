@@ -88,6 +88,10 @@ final class VisualPackService {
   }
 
   synchronized PackRecord install(byte[] zipBytes, String uploadedBy) {
+    return install(zipBytes, uploadedBy, MAX_UNCOMPRESSED_BYTES);
+  }
+
+  synchronized PackRecord install(byte[] zipBytes, String uploadedBy, long maxUncompressedBytes) {
     if (zipBytes.length == 0 || zipBytes.length > MAX_UPLOAD_BYTES) {
       throw new ServiceException("bad_request", "Visual pack must be between 1 byte and 64 MiB");
     }
@@ -97,7 +101,7 @@ final class VisualPackService {
     try {
       temporary = Files.createTempFile(root, ".upload-", ".zip");
       Files.write(temporary, zipBytes);
-      ValidatedPack validated = validate(temporary);
+      ValidatedPack validated = validate(temporary, Math.min(MAX_UNCOMPRESSED_BYTES, Math.max(1, maxUncompressedBytes)));
       if (BUILTIN_PACK_ID.equals(validated.packId())
           && !BUILTIN_UPLOADER.equals(uploadedBy)) {
         throw new ServiceException("bad_request", "Built-in language pack cannot be replaced");
@@ -371,7 +375,7 @@ final class VisualPackService {
         itemId == null ? "" : itemId.trim().toLowerCase(Locale.ROOT)));
   }
 
-  private ValidatedPack validate(Path zipPath) throws Exception {
+  private ValidatedPack validate(Path zipPath, long maxUncompressedBytes) throws Exception {
     try (ZipFile zip = new ZipFile(zipPath.toFile(), StandardCharsets.UTF_8)) {
       if (zip.size() > MAX_FILES) {
         throw new ServiceException("visual_pack_invalid", "Visual pack contains too many files");
@@ -395,11 +399,11 @@ final class VisualPackService {
           throw new ServiceException("visual_pack_invalid", "Unsupported file: " + name);
         }
         long size = entry.getSize();
-        if (size < 0 || size > MAX_UNCOMPRESSED_BYTES) {
+        if (size < 0 || size > maxUncompressedBytes) {
           throw new ServiceException("visual_pack_invalid", "Invalid ZIP entry size");
         }
         total += size;
-        if (total > MAX_UNCOMPRESSED_BYTES || files.put(name, entry) != null) {
+        if (total > maxUncompressedBytes || files.put(name, entry) != null) {
           throw new ServiceException("visual_pack_invalid", "Visual pack is too large or duplicated");
         }
       }

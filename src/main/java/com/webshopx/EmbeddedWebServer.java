@@ -6050,12 +6050,38 @@ class EmbeddedWebServer {
       AdminService.AdminUser admin =
           requireAdmin(exchange, null, AdminPermission.ECONOMY_MANAGE);
       byte[] bytes = readRequestBodyWithLimit(exchange, VisualPackService.MAX_UPLOAD_BYTES);
-      VisualPackService.PackRecord pack = visualPackService.install(bytes, admin.username());
+      long storageLimit = positiveHeaderLong(exchange, "X-Relay-Pack-Storage-Limit", Long.MAX_VALUE);
+      long countLimit = positiveHeaderLong(exchange, "X-Relay-Pack-Count-Limit", Long.MAX_VALUE);
+      long expandedLimit = positiveHeaderLong(exchange, "X-Relay-Pack-Expanded-Limit", Long.MAX_VALUE);
+      String globalPackId = exchange.getRequestHeaders().getFirst("X-Relay-Global-Pack-Id");
+      boolean globalPack = "relay".equalsIgnoreCase(exchange.getRequestHeaders().getFirst("X-Forwarded-For"))
+          && globalPackId != null && globalPackId.matches("[1-9][0-9]*");
+      long usedStorage = visualPackService.list().stream().filter(pack -> !pack.uploadedBy().startsWith("global:"))
+          .mapToLong(VisualPackService.PackRecord::fileSize).sum();
+      long privateCount = visualPackService.list().stream().filter(pack -> !pack.uploadedBy().startsWith("global:")).count();
+      if (!globalPack && privateCount >= countLimit) {
+        throw new ServiceException("resource_pack_count_exceeded", "Resource pack count limit reached");
+      }
+      if (!globalPack && usedStorage + bytes.length > storageLimit) {
+        throw new ServiceException("resource_pack_storage_exceeded", "Resource pack storage limit reached");
+      }
+      VisualPackService.PackRecord pack = visualPackService.install(bytes, globalPack ? "global:" + globalPackId : admin.username(), expandedLimit);
       adminAuditService.log(
           admin, "VISUAL_PACK_UPLOAD", "visual_pack", pack.packId(),
           visualPackJson(pack), clientIp(exchange));
       sendJson(exchange, 200, visualPackJson(pack));
     });
+  }
+
+  private long positiveHeaderLong(HttpExchange exchange, String name, long fallback) {
+    try {
+      String value = exchange.getRequestHeaders().getFirst(name);
+      if (value == null || value.isBlank()) return fallback;
+      long parsed = Long.parseLong(value);
+      return parsed > 0 ? parsed : fallback;
+    } catch (NumberFormatException ignored) {
+      return fallback;
+    }
   }
 
   private void handleAdminVisualPackState(HttpExchange exchange) throws IOException {
