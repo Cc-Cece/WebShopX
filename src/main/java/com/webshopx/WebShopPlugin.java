@@ -660,6 +660,7 @@ public class WebShopPlugin extends JavaPlugin {
         adminService,
         adminAuditService,
         visualCustomizationService,
+        visualPackService,
         webStaticRoot,
         webUserRoot,
         new RelayLocalHttpBridge(

@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.List;
@@ -46,6 +47,7 @@ class RelayRpcRouter {
   private final AdminService adminService;
   private final AdminAuditService adminAuditService;
   private final VisualCustomizationService visualCustomizationService;
+  private final VisualPackService visualPackService;
   private final Path staticRoot;
   private final Path webUserRoot;
   private final RelayLocalHttpBridge localHttpBridge;
@@ -60,6 +62,7 @@ class RelayRpcRouter {
       AdminService adminService,
       AdminAuditService adminAuditService,
       VisualCustomizationService visualCustomizationService,
+      VisualPackService visualPackService,
       Path staticRoot,
       Path webUserRoot,
       RelayLocalHttpBridge localHttpBridge) {
@@ -72,6 +75,7 @@ class RelayRpcRouter {
     this.adminService = adminService;
     this.adminAuditService = adminAuditService;
     this.visualCustomizationService = visualCustomizationService;
+    this.visualPackService = visualPackService;
     this.staticRoot = staticRoot == null ? null : staticRoot.toAbsolutePath().normalize();
     this.webUserRoot = webUserRoot == null ? null : webUserRoot.toAbsolutePath().normalize();
     this.localHttpBridge = localHttpBridge;
@@ -142,6 +146,17 @@ class RelayRpcRouter {
     String id = request == null ? "" : request.id();
     String path = request == null || request.http() == null ? null : request.http().path();
     try {
+      byte[] visualPackAsset = readVisualPackAsset(path).orElse(null);
+      if (visualPackAsset != null) {
+        JsonObject response = new JsonObject();
+        response.addProperty("path", normalizeAssetPath(path));
+        response.addProperty("contentType", "image/png");
+        response.addProperty("bodyBase64", Base64.getEncoder().encodeToString(visualPackAsset));
+        response.addProperty("sizeBytes", visualPackAsset.length);
+        response.addProperty("etag", "\"" + hexDigest(visualPackAsset) + "\"");
+        response.addProperty("cacheSeconds", 31536000);
+        return RelayRpcResponse.ok(id, 200, response);
+      }
       Path asset = resolveRelayAsset(path);
       if (asset == null) {
         return RelayRpcResponse.error(id, 404, "not_found", "Asset not found");
@@ -166,6 +181,32 @@ class RelayRpcRouter {
     } catch (Exception exception) {
       plugin.getLogger().log(java.util.logging.Level.WARNING, "Relay asset read failed", exception);
       return RelayRpcResponse.error(id, 500, "asset_read_failed", "Failed to read asset");
+    }
+  }
+
+  private Optional<byte[]> readVisualPackAsset(String rawPath) {
+    String relative = normalizeAssetPath(rawPath);
+    if (!relative.toLowerCase(Locale.ROOT).startsWith("visual-packs/")) {
+      return Optional.empty();
+    }
+    String assetPath = relative.substring("visual-packs/".length());
+    String[] parts = assetPath.split("/", 3);
+    if (parts.length != 3 || parts[0].isBlank() || parts[1].isBlank() || parts[2].isBlank()) {
+      throw new ServiceException("bad_request", "Invalid visual pack asset path");
+    }
+    return visualPackService.readAsset(parts[0], parts[1], parts[2]);
+  }
+
+  private String hexDigest(byte[] content) {
+    try {
+      byte[] digest = MessageDigest.getInstance("SHA-256").digest(content);
+      StringBuilder value = new StringBuilder(digest.length * 2);
+      for (byte part : digest) {
+        value.append(String.format("%02x", part));
+      }
+      return value.toString();
+    } catch (java.security.NoSuchAlgorithmException exception) {
+      throw new IllegalStateException("SHA-256 is unavailable", exception);
     }
   }
 
