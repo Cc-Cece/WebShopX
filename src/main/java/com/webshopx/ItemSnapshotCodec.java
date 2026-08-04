@@ -191,7 +191,9 @@ final class ItemSnapshotCodec {
       if (meta instanceof BundleMeta nestedBundle) {
         occupancy += 4 + bundleOccupancy(nestedBundle.getItems());
       } else {
-        occupancy += Math.ceilDiv(64, Math.max(1, item.getMaxStackSize())) * item.getAmount();
+        int maxStackSize = Math.max(1, item.getMaxStackSize());
+        int occupancyPerItem = 64 / maxStackSize + (64 % maxStackSize == 0 ? 0 : 1);
+        occupancy += occupancyPerItem * item.getAmount();
       }
     }
     return Math.min(64, occupancy);
