@@ -212,6 +212,9 @@ class RelayRpcRouter {
 
   private Path resolveRelayAsset(String rawPath) throws IOException {
     String relativePath = normalizeAssetPath(rawPath);
+    if (relativePath.toLowerCase(Locale.ROOT).startsWith("visual-packs/")) {
+      return materializeVisualPackAsset(relativePath);
+    }
     if (!isRelayAssetPathAllowed(relativePath)) {
       throw new ServiceException("bad_request", "Asset path is not allowed");
     }
@@ -224,6 +227,25 @@ class RelayRpcRouter {
       return staticCandidate;
     }
     return null;
+  }
+
+  private Path materializeVisualPackAsset(String relativePath) throws IOException {
+    String[] parts = relativePath.substring("visual-packs/".length()).split("/", 3);
+    if (parts.length != 3 || visualPackService == null) {
+      return null;
+    }
+    Optional<byte[]> content = visualPackService.readAsset(parts[0], parts[1], parts[2]);
+    if (content.isEmpty()) {
+      return null;
+    }
+    Path cacheRoot = plugin.getDataFolder().toPath().resolve("relay-asset-cache").toAbsolutePath().normalize();
+    Path target = cacheRoot.resolve(relativePath).normalize();
+    if (!target.startsWith(cacheRoot)) {
+      return null;
+    }
+    Files.createDirectories(target.getParent());
+    Files.write(target, content.get());
+    return target;
   }
 
   private String normalizeAssetPath(String rawPath) {
@@ -249,7 +271,8 @@ class RelayRpcRouter {
         || lower.startsWith("textures/")
         || lower.startsWith("themes/")
         || lower.startsWith("i18n/")
-        || lower.startsWith("docs/");
+        || lower.startsWith("docs/")
+        || lower.startsWith("visual-packs/");
     if (!allowedPrefix) {
       return false;
     }
