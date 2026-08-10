@@ -1,0 +1,63 @@
+name: Agent P1 database runtime relocation
+
+on:
+  push:
+    branches:
+      - agent/isolate-mariadb-hikari-runtime
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: agent/isolate-mariadb-hikari-runtime
+
+      - name: Apply MariaDB and Hikari relocations
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('build.gradle')
+          text = path.read_text(encoding='utf-8')
+
+          old = "    task.relocate 'org.bstats', \"${project.group}.libs.bstats\"\n    task.mergeServiceFiles()"
+          new = "    task.relocate 'org.bstats', \"${project.group}.libs.bstats\"\n    task.relocate 'org.mariadb.jdbc', \"${project.group}.libs.mariadb\"\n    task.relocate 'com.zaxxer.hikari', \"${project.group}.libs.hikari\"\n    task.mergeServiceFiles()"
+          assert text.count(old) == 2
+          text = text.replace(old, new)
+
+          old_obf = "    relocate 'org.bstats', \"${project.group}.libs.bstats\"\n    mergeServiceFiles()"
+          new_obf = "    relocate 'org.bstats', \"${project.group}.libs.bstats\"\n    relocate 'org.mariadb.jdbc', \"${project.group}.libs.mariadb\"\n    relocate 'com.zaxxer.hikari', \"${project.group}.libs.hikari\"\n    mergeServiceFiles()"
+          assert text.count(old_obf) == 1
+          text = text.replace(old_obf, new_obf)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Rewrite branch to a single P1 commit
+        run: |
+          cp build.gradle /tmp/build.gradle
+          git fetch origin main
+          git reset --hard origin/main
+          cp /tmp/build.gradle build.gradle
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add build.gradle
+          git commit -m "Isolate MariaDB and Hikari runtime dependencies"
+          git push --force origin HEAD:agent/isolate-mariadb-hikari-runtime
+
+      - name: Build and verify full shadow JAR
+        run: |
+          chmod +x gradlew
+          ./gradlew shadowJar -x syncWebFrontend
+          JAR=$(find build/libs -maxdepth 1 -name '*-full-1.20.6+.jar' | head -n1)
+          test -n "$JAR"
+          jar tf "$JAR" | grep -q '^com/webshopx/libs/mariadb/Driver.class$'
+          jar tf "$JAR" | grep -q '^com/webshopx/libs/hikari/HikariConfig.class$'
+          ! jar tf "$JAR" | grep -q '^org/mariadb/jdbc/Driver.class$'
+          ! jar tf "$JAR" | grep -q '^com/zaxxer/hikari/HikariConfig.class$'
+          javap -classpath "$JAR" -verbose com.webshopx.MysqlDialect | grep -q 'com.webshopx.libs.mariadb.Driver'
