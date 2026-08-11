@@ -8,6 +8,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -96,8 +97,8 @@ class ProductService {
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       int parameterIndex = 1;
       if (!includeInactive) {
-        statement.setObject(parameterIndex++, nowUtc);
-        statement.setObject(parameterIndex++, nowUtc);
+        statement.setTimestamp(parameterIndex++, Timestamp.valueOf(nowUtc));
+        statement.setTimestamp(parameterIndex++, Timestamp.valueOf(nowUtc));
       }
       statement.setInt(parameterIndex, limit);
       try (ResultSet resultSet = statement.executeQuery()) {
@@ -225,12 +226,12 @@ class ProductService {
           if (input.publishAt() == null) {
             statement.setObject(27, null);
           } else {
-            statement.setObject(27, input.publishAt());
+            statement.setTimestamp(27, Timestamp.valueOf(input.publishAt()));
           }
           if (input.unpublishAt() == null) {
             statement.setObject(28, null);
           } else {
-            statement.setObject(28, input.unpublishAt());
+            statement.setTimestamp(28, Timestamp.valueOf(input.unpublishAt()));
           }
           statement.setBoolean(29, input.active());
           statement.executeUpdate();
@@ -310,12 +311,12 @@ class ProductService {
           if (input.publishAt() == null) {
             statement.setObject(26, null);
           } else {
-            statement.setObject(26, input.publishAt());
+            statement.setTimestamp(26, Timestamp.valueOf(input.publishAt()));
           }
           if (input.unpublishAt() == null) {
             statement.setObject(27, null);
           } else {
-            statement.setObject(27, input.unpublishAt());
+            statement.setTimestamp(27, Timestamp.valueOf(input.unpublishAt()));
           }
           statement.setBoolean(28, input.active());
           statement.setLong(29, existing.id());
@@ -496,8 +497,8 @@ class ProductService {
         """ + lockClause;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, productId);
-      statement.setObject(2, nowUtc);
-      statement.setObject(3, nowUtc);
+      statement.setTimestamp(2, Timestamp.valueOf(nowUtc));
+      statement.setTimestamp(3, Timestamp.valueOf(nowUtc));
       try (ResultSet resultSet = statement.executeQuery()) {
         if (!resultSet.next()) {
           throw new ServiceException("product_missing", "Product is not available");
