@@ -1,0 +1,63 @@
+name: One-shot Modrinth mirror link fix
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/agent-fix-modrinth-mirror.yml
+
+permissions:
+  contents: write
+
+env:
+  TAG_NAME: snapshot-3.2.3
+
+jobs:
+  apply-and-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main with release PAT
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.REPO_WEBSHOPX_ISSUES_TOKEN }}
+
+      - name: Patch Modrinth links and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/main.yml')
+          text = p.read_text(encoding='utf-8-sig')
+          old = 'local url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/${file_name}"'
+          new = 'local url="https://github.com/${MIRROR_REPO}/releases/download/${TAG_NAME}/${file_name}"'
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'Expected exactly one Modrinth private-repo link expression, found {count}')
+          p.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          git rm .github/workflows/agent-fix-modrinth-mirror.yml
+
+      - name: Commit directly to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/main.yml
+          git commit -m "fix: point Modrinth downloads to public release mirror"
+          git push origin HEAD:main
+
+      - name: Create and push snapshot tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG_NAME}" >/dev/null 2>&1; then
+            echo "Tag ${TAG_NAME} already exists; refusing to overwrite." >&2
+            exit 1
+          fi
+          git tag "${TAG_NAME}"
+          git push origin "refs/tags/${TAG_NAME}"
