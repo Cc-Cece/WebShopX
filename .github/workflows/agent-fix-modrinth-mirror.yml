@@ -6,16 +6,14 @@ on:
 
 permissions:
   contents: write
-  actions: write
   issues: write
 
 env:
   TAG_NAME: snapshot-3.2.3
-  TRIGGER_TITLE: "[agent] trigger snapshot-3.2.3"
 
 jobs:
-  apply-tag-dispatch-cleanup:
-    if: github.event.issue.title == '[agent] trigger snapshot-3.2.3'
+  apply-and-tag:
+    if: github.event.issue.title == '[agent] trigger snapshot-3.2.3-pat'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main
@@ -25,40 +23,41 @@ jobs:
           fetch-depth: 0
           token: ${{ github.token }}
 
-      - name: Apply mirror link fix and enable one-shot dispatch
+      - name: Apply exact Modrinth mirror link fix
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
           p = Path('.github/workflows/main.yml')
-          text = p.read_text(encoding='utf-8-sig')
-          old = 'local url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/${file_name}"'
-          new = 'local url="https://github.com/${MIRROR_REPO}/releases/download/${TAG_NAME}/${file_name}"'
-          count = text.count(old)
+          data = p.read_bytes()
+          old = b'local url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/${file_name}"'
+          new = b'local url="https://github.com/${MIRROR_REPO}/releases/download/${TAG_NAME}/${file_name}"'
+          count = data.count(old)
           if count != 1:
               raise SystemExit(f'Expected exactly one Modrinth private-repo link expression, found {count}')
-          text = text.replace(old, new, 1)
-          old_trigger = "on:\n  push:\n    tags:\n      - '*'"
-          new_trigger = "on:\n  push:\n    tags:\n      - '*'\n  workflow_dispatch:"
-          if old_trigger not in text:
-              raise SystemExit('Could not find tag trigger block')
-          text = text.replace(old_trigger, new_trigger, 1)
-          p.write_text(text, encoding='utf-8')
+          p.write_bytes(data.replace(old, new, 1))
           PY
           git rm .github/workflows/agent-fix-modrinth-mirror.yml
 
-      - name: Commit directly to main
+      - name: Commit and push main with release PAT
         shell: bash
+        env:
+          RELEASE_PAT: ${{ secrets.REPO_WEBSHOPX_ISSUES_TOKEN }}
         run: |
           set -euo pipefail
+          if [[ -z "${RELEASE_PAT:-}" ]]; then
+            echo "REPO_WEBSHOPX_ISSUES_TOKEN is empty" >&2
+            exit 1
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .github/workflows/main.yml
           git commit -m "fix: point Modrinth downloads to public release mirror"
+          git remote set-url origin "https://x-access-token:${RELEASE_PAT}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin HEAD:main
 
-      - name: Create snapshot tag
+      - name: Create and push snapshot tag with release PAT
         shell: bash
         run: |
           set -euo pipefail
@@ -69,39 +68,10 @@ jobs:
           git tag "${TAG_NAME}"
           git push origin "refs/tags/${TAG_NAME}"
 
-      - name: Dispatch release workflow on snapshot tag
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh workflow run main.yml --repo "${GITHUB_REPOSITORY}" --ref "${TAG_NAME}"
-
-      - name: Remove temporary workflow_dispatch from main
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch origin main
-          git checkout main
-          git reset --hard origin/main
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('.github/workflows/main.yml')
-          text = p.read_text(encoding='utf-8')
-          old = "on:\n  push:\n    tags:\n      - '*'\n  workflow_dispatch:"
-          new = "on:\n  push:\n    tags:\n      - '*'"
-          if old not in text:
-              raise SystemExit('Temporary workflow_dispatch block not found')
-          p.write_text(text.replace(old, new, 1), encoding='utf-8')
-          PY
-          git add .github/workflows/main.yml
-          git commit -m "chore: restore tag-only release trigger"
-          git push origin HEAD:main
-
       - name: Close trigger issue
         if: always()
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue close "${{ github.event.issue.number }}" --repo "${GITHUB_REPOSITORY}" --comment "Snapshot release trigger processed."
+          gh issue close "${{ github.event.issue.number }}" --repo "${GITHUB_REPOSITORY}" --comment "PAT-backed snapshot trigger processed."
