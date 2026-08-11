@@ -1,21 +1,21 @@
 name: One-shot Modrinth mirror link fix
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/agent-fix-modrinth-mirror.yml
+  issues:
+    types: [opened]
 
 permissions:
   contents: write
   actions: write
+  issues: write
 
 env:
   TAG_NAME: snapshot-3.2.3
+  TRIGGER_TITLE: "[agent] trigger snapshot-3.2.3"
 
 jobs:
   apply-tag-dispatch-cleanup:
+    if: github.event.issue.title == '[agent] trigger snapshot-3.2.3'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main
@@ -97,3 +97,11 @@ jobs:
           git add .github/workflows/main.yml
           git commit -m "chore: restore tag-only release trigger"
           git push origin HEAD:main
+
+      - name: Close trigger issue
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue close "${{ github.event.issue.number }}" --repo "${GITHUB_REPOSITORY}" --comment "Snapshot release trigger processed."
