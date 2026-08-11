@@ -220,6 +220,8 @@ def configureShadowVariant = { ShadowJar task, String classifier ->
     }
     task.configurations = [project.configurations.runtimeClasspath]
     task.relocate 'org.bstats', "${project.group}.libs.bstats"
+    task.relocate 'org.mariadb.jdbc', "${project.group}.libs.mariadb"
+    task.relocate 'com.zaxxer.hikari', "${project.group}.libs.hikari"
     task.mergeServiceFiles()
 }
 
@@ -233,6 +235,8 @@ def configureFoliaShadowVariant = { ShadowJar task, String classifier ->
     }
     task.configurations = [project.configurations.runtimeClasspath]
     task.relocate 'org.bstats', "${project.group}.libs.bstats"
+    task.relocate 'org.mariadb.jdbc', "${project.group}.libs.mariadb"
+    task.relocate 'com.zaxxer.hikari', "${project.group}.libs.hikari"
     task.mergeServiceFiles()
 }
 
@@ -397,6 +401,8 @@ tasks.register('obfuscatedJar', ShadowJar) {
     })
     configurations = [project.configurations.runtimeClasspath]
     relocate 'org.bstats', "${project.group}.libs.bstats"
+    relocate 'org.mariadb.jdbc', "${project.group}.libs.mariadb"
+    relocate 'com.zaxxer.hikari', "${project.group}.libs.hikari"
     mergeServiceFiles()
 }
 
