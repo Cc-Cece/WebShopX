@@ -687,7 +687,7 @@ jobs:
             local file_name
             file_name="$(find_asset "${variant}" "${runtime}")"
             if [[ -n "${file_name:-}" ]]; then
-              local url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/${file_name}"
+              local url="https://github.com/${MIRROR_REPO}/releases/download/${TAG_NAME}/${file_name}"
               printf '[%s](%s)' "$file_name" "$url"
             else
               printf '（无）'
