@@ -9,22 +9,23 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 env:
   TAG_NAME: snapshot-3.2.3
 
 jobs:
-  apply-and-tag:
+  apply-tag-dispatch-cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout main with release PAT
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.REPO_WEBSHOPX_ISSUES_TOKEN }}
+          token: ${{ github.token }}
 
-      - name: Patch Modrinth links and remove one-shot workflow
+      - name: Apply mirror link fix and enable one-shot dispatch
         shell: bash
         run: |
           set -euo pipefail
@@ -37,7 +38,13 @@ jobs:
           count = text.count(old)
           if count != 1:
               raise SystemExit(f'Expected exactly one Modrinth private-repo link expression, found {count}')
-          p.write_text(text.replace(old, new, 1), encoding='utf-8')
+          text = text.replace(old, new, 1)
+          old_trigger = "on:\n  push:\n    tags:\n      - '*'"
+          new_trigger = "on:\n  push:\n    tags:\n      - '*'\n  workflow_dispatch:"
+          if old_trigger not in text:
+              raise SystemExit('Could not find tag trigger block')
+          text = text.replace(old_trigger, new_trigger, 1)
+          p.write_text(text, encoding='utf-8')
           PY
           git rm .github/workflows/agent-fix-modrinth-mirror.yml
 
@@ -51,7 +58,7 @@ jobs:
           git commit -m "fix: point Modrinth downloads to public release mirror"
           git push origin HEAD:main
 
-      - name: Create and push snapshot tag
+      - name: Create snapshot tag
         shell: bash
         run: |
           set -euo pipefail
@@ -61,3 +68,32 @@ jobs:
           fi
           git tag "${TAG_NAME}"
           git push origin "refs/tags/${TAG_NAME}"
+
+      - name: Dispatch release workflow on snapshot tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run main.yml --repo "${GITHUB_REPOSITORY}" --ref "${TAG_NAME}"
+
+      - name: Remove temporary workflow_dispatch from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git checkout main
+          git reset --hard origin/main
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/main.yml')
+          text = p.read_text(encoding='utf-8')
+          old = "on:\n  push:\n    tags:\n      - '*'\n  workflow_dispatch:"
+          new = "on:\n  push:\n    tags:\n      - '*'"
+          if old not in text:
+              raise SystemExit('Temporary workflow_dispatch block not found')
+          p.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          git add .github/workflows/main.yml
+          git commit -m "chore: restore tag-only release trigger"
+          git push origin HEAD:main
