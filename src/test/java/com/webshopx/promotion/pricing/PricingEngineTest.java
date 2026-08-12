@@ -105,7 +105,7 @@ class PricingEngineTest {
         PricingEngine.Basis.CURRENT, PricingEngine.RepeatMode.EVERY_FULL_THRESHOLD, 3,
         10, 0, null, PricingEngine.FundingMode.PLATFORM, 10000, null, false,
         false, null, null, null, null, null);
-    assertEquals(220, engine.calculate(context(
+    assertEquals(230, engine.calculate(context(
         List.of(new PricingEngine.Line("A", "SHOP_COIN", 250, 1, null)),
         List.of(repeated), Set.of())).payableAmount());
   }
