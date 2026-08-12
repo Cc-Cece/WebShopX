@@ -59,13 +59,23 @@ class CheckoutQuoteService {
         command.selectedRuleIds() == null ? Set.of() : Set.copyOf(command.selectedRuleIds()),
         command.disabledRuleIds() == null ? Set.of() : Set.copyOf(command.disabledRuleIds()),
         1, 50, 1_000_000);
-    PricingEngine.Result result = pricingEngine.calculate(context);
+    PricingEngine.Result result;
+    try {
+      result = pricingEngine.calculate(context);
+    } catch (PricingEngine.PricingException exception) {
+      throw new ServiceException(exception.code(), "Selected promotion combination is not available");
+    }
     String inputHash = inputHash(cart, sourceLines, command);
     String rulesHash = PricingEngine.stableHash(rules.stream().map(PricingEngine.Rule::id).sorted().toList().toString());
     Instant expires = now.plusSeconds(sourceLines.stream().anyMatch(line -> line.sourceType() == CartService.SourceType.MARKET_LISTING) ? 30 : 60);
     String quoteId = "pq_" + UUID.randomUUID();
+    Set<String> selectedRuleIds = command.selectedRuleIds() == null
+        ? Set.of() : Set.copyOf(command.selectedRuleIds());
+    Set<String> disabledRuleIds = command.disabledRuleIds() == null
+        ? Set.of() : Set.copyOf(command.disabledRuleIds());
     Quote quote = new Quote(quoteId, userId, cart.id(), cart.version(), inputHash, rulesHash,
-        PricingEngine.ALGORITHM_VERSION, now, expires, sourceLines, result, "ACTIVE");
+        PricingEngine.ALGORITHM_VERSION, now, expires, selectedRuleIds, disabledRuleIds,
+        sourceLines, result, "ACTIVE");
     databaseManager.inTransaction(connection -> { persist(connection, quote); return null; });
     return quote;
   }
@@ -129,7 +139,8 @@ class CheckoutQuoteService {
     try (PreparedStatement statement = connection.prepareStatement(
         "INSERT INTO checkout_quotes (id, quote_type, user_id, cart_id, cart_version, selection_mode, input_hash, rules_hash, algorithm_version, currency_totals_json, result_json, explanation_json, status, expires_at) VALUES (?, 'CART', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)")) {
       statement.setString(1, quote.id()); statement.setLong(2, quote.userId()); statement.setLong(3, quote.cartId());
-      statement.setLong(4, quote.cartVersion()); statement.setString(5, "AUTO_BEST");
+      statement.setLong(4, quote.cartVersion()); statement.setString(5,
+          quote.selectedRuleIds().isEmpty() ? "AUTO_BEST" : "MANUAL");
       statement.setString(6, quote.inputHash()); statement.setString(7, quote.rulesHash());
       statement.setString(8, quote.algorithmVersion()); statement.setString(9, gson.toJson(quote.pricing().currencyTotals()));
       statement.setString(10, gson.toJson(quote)); statement.setString(11, gson.toJson(quote.pricing().rejections()));
@@ -138,8 +149,13 @@ class CheckoutQuoteService {
   }
 
   private String inputHash(CartService.CartView cart, List<SourceLine> lines, QuoteCommand command) {
+    List<String> selectedRules = command.selectedRuleIds() == null ? List.of()
+        : command.selectedRuleIds().stream().sorted().toList();
+    List<String> disabledRules = command.disabledRuleIds() == null ? List.of()
+        : command.disabledRuleIds().stream().sorted().toList();
     return PricingEngine.stableHash(cart.id() + "|" + cart.version() + "|" + lines.stream()
-        .sorted(java.util.Comparator.comparing(SourceLine::pricingLineId)).toList() + "|" + command);
+        .sorted(java.util.Comparator.comparing(SourceLine::pricingLineId)).toList()
+        + "|" + selectedRules + "|" + disabledRules);
   }
 
   record QuoteCommand(long cartVersion, List<Long> lineIds, Set<String> selectedRuleIds,
@@ -150,5 +166,6 @@ class CheckoutQuoteService {
       long averageUnitPrice, long feeAmount, long taxAmount) {}
   record Quote(String id, long userId, long cartId, long cartVersion, String inputHash,
       String rulesHash, String algorithmVersion, Instant createdAt, Instant expiresAt,
-      List<SourceLine> sources, PricingEngine.Result pricing, String status) {}
+      Set<String> selectedRuleIds, Set<String> disabledRuleIds, List<SourceLine> sources,
+      PricingEngine.Result pricing, String status) {}
 }

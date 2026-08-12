@@ -310,7 +310,8 @@ final class CommerceHttpApi {
         case "admin_forbidden", "promotion_forbidden" -> 403;
         case "quote_missing", "membership_missing" -> 404;
         case "CART_VERSION_CONFLICT", "PRICE_CHANGED", "QUOTE_EXPIRED",
-            "QUOTE_INPUT_CHANGED", "IDEMPOTENCY_CONFLICT" -> 409;
+            "QUOTE_INPUT_CHANGED", "IDEMPOTENCY_CONFLICT", "PINNED_RULE_UNAVAILABLE",
+            "PINNED_RULE_NOT_APPLICABLE", "PINNED_RULE_CONFLICT" -> 409;
         default -> 400;
       };
       send(exchange, status, new ErrorResponse(exception.code(), exception.getMessage()));

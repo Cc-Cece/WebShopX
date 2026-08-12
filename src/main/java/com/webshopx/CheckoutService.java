@@ -14,7 +14,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /** Atomic parent checkout coordinator across official and market line adapters. */
@@ -46,8 +45,7 @@ class CheckoutService {
     CheckoutQuoteService.Quote fresh = quoteService.quote(userId,
         new CheckoutQuoteService.QuoteCommand(command.cartVersion(),
             original.sources().stream().map(CheckoutQuoteService.SourceLine::cartLineId).toList(),
-            original.pricing().applications().stream().map(PricingEngine.Application::ruleId)
-                .collect(java.util.stream.Collectors.toSet()), SetSupport.empty()));
+            original.selectedRuleIds(), original.disabledRuleIds()));
     if (!fresh.pricing().resultHash().equals(original.pricing().resultHash())
         || !fresh.inputHash().equals(original.inputHash())) {
       throw new ServiceException("PRICE_CHANGED", "Replacement quote: " + fresh.id());
@@ -340,5 +338,4 @@ class CheckoutService {
   record SubmitCommand(String quoteId,long cartVersion,String idempotencyKey){}
   record CheckoutGroup(String businessType,String currency,Long sellerUserId,String legacyType,long legacyId){}
   record CheckoutResult(String state,String checkoutNo,String status,List<CheckoutGroup> groups,Map<String,PricingEngine.CurrencyTotal> currencyTotals){}
-  private static final class SetSupport{private SetSupport(){}static Set<String> empty(){return Set.of();}}
 }
