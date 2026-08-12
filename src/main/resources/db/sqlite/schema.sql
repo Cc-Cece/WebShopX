@@ -636,3 +636,300 @@ CREATE TABLE IF NOT EXISTS visual_packs (
 CREATE INDEX IF NOT EXISTS idx_visual_packs_order
   ON visual_packs (enabled, sort_order);
 
+-- Promotion, membership, cart and checkout schema capability v1.
+CREATE TABLE IF NOT EXISTS commerce_carts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL UNIQUE,
+  version INTEGER NOT NULL DEFAULT 1, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES web_users(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS commerce_cart_lines (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, cart_id INTEGER NOT NULL, source_type TEXT NOT NULL,
+  source_id INTEGER NOT NULL, quantity INTEGER NOT NULL CHECK (quantity > 0),
+  delivery_mode TEXT NOT NULL DEFAULT '', selected INTEGER NOT NULL DEFAULT 1,
+  source_version TEXT NULL, metadata_json TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (cart_id, source_type, source_id, delivery_mode),
+  FOREIGN KEY (cart_id) REFERENCES commerce_carts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_cart_lines_selected ON commerce_cart_lines (cart_id, selected, id);
+
+CREATE TABLE IF NOT EXISTS promotion_campaigns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, owner_type TEXT NOT NULL,
+  owner_id INTEGER NULL, name TEXT NOT NULL, description TEXT NULL, status TEXT NOT NULL,
+  start_at DATETIME NULL, end_at DATETIME NULL, current_version_id INTEGER NULL,
+  created_by INTEGER NULL, updated_by INTEGER NULL, version INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_promotion_campaign_owner
+  ON promotion_campaigns (owner_type, owner_id, status, start_at, end_at);
+CREATE INDEX IF NOT EXISTS idx_promotion_campaign_status
+  ON promotion_campaigns (status, start_at, end_at);
+CREATE TABLE IF NOT EXISTS promotion_rule_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id INTEGER NOT NULL, version INTEGER NOT NULL,
+  rule_kind TEXT NOT NULL, direction TEXT NOT NULL, layer INTEGER NOT NULL,
+  stacking_slot TEXT NOT NULL, stacking_policy TEXT NOT NULL, exclusive_group TEXT NULL,
+  priority INTEGER NOT NULL DEFAULT 0, max_per_order INTEGER NOT NULL DEFAULT 1,
+  threshold_type TEXT NOT NULL, threshold_value INTEGER NOT NULL DEFAULT 0,
+  threshold_basis_layer INTEGER NOT NULL, discount_basis_layer INTEGER NOT NULL,
+  repeat_mode TEXT NOT NULL, max_repeat_count INTEGER NOT NULL DEFAULT 1,
+  discount_amount INTEGER NOT NULL DEFAULT 0, discount_bps INTEGER NOT NULL DEFAULT 0,
+  max_discount_amount INTEGER NULL, funding_mode TEXT NOT NULL,
+  platform_share_bps INTEGER NOT NULL DEFAULT 10000, min_payable_override INTEGER NULL,
+  allow_zero_payable INTEGER NOT NULL DEFAULT 0, rule_json TEXT NOT NULL, scope_json TEXT NOT NULL,
+  eligibility_json TEXT NOT NULL, stacking_json TEXT NOT NULL, refund_policy_json TEXT NOT NULL,
+  display_json TEXT NOT NULL, rules_hash TEXT NOT NULL, created_by INTEGER NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (campaign_id, version), FOREIGN KEY (campaign_id) REFERENCES promotion_campaigns(id)
+);
+CREATE INDEX IF NOT EXISTS idx_promotion_rules_hash ON promotion_rule_versions (rules_hash);
+
+CREATE TABLE IF NOT EXISTS promotion_accounts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, account_type TEXT NOT NULL, owner_type TEXT NOT NULL,
+  owner_id INTEGER NOT NULL, currency_space TEXT NOT NULL, currency TEXT NOT NULL DEFAULT '',
+  limit_amount INTEGER NULL, limit_count INTEGER NULL, reserved_amount INTEGER NOT NULL DEFAULT 0,
+  reserved_count INTEGER NOT NULL DEFAULT 0, consumed_amount INTEGER NOT NULL DEFAULT 0,
+  consumed_count INTEGER NOT NULL DEFAULT 0, released_amount INTEGER NOT NULL DEFAULT 0,
+  released_count INTEGER NOT NULL DEFAULT 0, refunded_amount INTEGER NOT NULL DEFAULT 0,
+  refunded_count INTEGER NOT NULL DEFAULT 0, period_key TEXT NOT NULL DEFAULT 'ALL',
+  version INTEGER NOT NULL DEFAULT 1, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (account_type, owner_type, owner_id, currency_space, currency, period_key)
+);
+CREATE TABLE IF NOT EXISTS promotion_account_ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL,
+  reserved_delta INTEGER NOT NULL DEFAULT 0, consumed_delta INTEGER NOT NULL DEFAULT 0,
+  released_delta INTEGER NOT NULL DEFAULT 0, refunded_delta INTEGER NOT NULL DEFAULT 0,
+  biz_type TEXT NOT NULL, biz_id TEXT NOT NULL, detail_json TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (account_id, biz_type, biz_id),
+  FOREIGN KEY (account_id) REFERENCES promotion_accounts(id)
+);
+
+CREATE TABLE IF NOT EXISTS coupon_templates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, campaign_id INTEGER NOT NULL,
+  rule_version_id INTEGER NOT NULL, owner_type TEXT NOT NULL, owner_id INTEGER NULL,
+  name TEXT NOT NULL, claim_mode TEXT NOT NULL, status TEXT NOT NULL, issue_limit INTEGER NULL,
+  per_subject_claim_limit INTEGER NOT NULL DEFAULT 1, per_subject_use_limit INTEGER NOT NULL DEFAULT 1,
+  validity_mode TEXT NOT NULL, valid_from DATETIME NULL, valid_until DATETIME NULL,
+  valid_duration_seconds INTEGER NULL, created_by INTEGER NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS user_coupons (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, serial_no TEXT NOT NULL UNIQUE, template_id INTEGER NOT NULL,
+  rule_version_id INTEGER NOT NULL, user_id INTEGER NOT NULL, status TEXT NOT NULL,
+  valid_from DATETIME NOT NULL, valid_until DATETIME NULL, source_type TEXT NOT NULL,
+  source_ref TEXT NULL, reserved_quote_id TEXT NULL, reserved_until DATETIME NULL,
+  consumed_checkout_id INTEGER NULL, consumed_at DATETIME NULL, version INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_user_coupon_state ON user_coupons (user_id, status, valid_until, id);
+CREATE TABLE IF NOT EXISTS coupon_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_coupon_id INTEGER NOT NULL, event_type TEXT NOT NULL,
+  from_status TEXT NULL, to_status TEXT NOT NULL, biz_type TEXT NOT NULL, biz_id TEXT NOT NULL,
+  actor_type TEXT NOT NULL, actor_id TEXT NULL, detail_json TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (user_coupon_id, event_type, biz_type, biz_id)
+);
+
+CREATE TABLE IF NOT EXISTS membership_plans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+  description TEXT NULL, status TEXT NOT NULL, current_version_id INTEGER NULL,
+  created_by INTEGER NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS membership_plan_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, plan_id INTEGER NOT NULL, version INTEGER NOT NULL,
+  level_code TEXT NOT NULL, level_rank INTEGER NOT NULL, duration_mode TEXT NOT NULL,
+  duration_value INTEGER NULL, renewal_mode TEXT NOT NULL, upgrade_policy_json TEXT NOT NULL,
+  refund_policy_json TEXT NOT NULL, benefits_json TEXT NOT NULL, version_hash TEXT NOT NULL,
+  created_by INTEGER NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (plan_id, version, level_code)
+);
+CREATE TABLE IF NOT EXISTS user_memberships (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, plan_id INTEGER NOT NULL,
+  plan_version_id INTEGER NOT NULL, level_code TEXT NOT NULL, status TEXT NOT NULL,
+  starts_at DATETIME NOT NULL, expires_at DATETIME NULL, source_type TEXT NOT NULL,
+  source_ref TEXT NULL, grant_biz_key TEXT NOT NULL UNIQUE, version INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, revoked_at DATETIME NULL
+);
+CREATE INDEX IF NOT EXISTS idx_user_membership_active
+  ON user_memberships (user_id, status, starts_at, expires_at);
+CREATE TABLE IF NOT EXISTS user_entitlements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, entitlement_code TEXT NOT NULL,
+  source_type TEXT NOT NULL, source_ref TEXT NULL, starts_at DATETIME NOT NULL,
+  expires_at DATETIME NULL, status TEXT NOT NULL, grant_biz_key TEXT NOT NULL UNIQUE,
+  granted_by INTEGER NULL, reason TEXT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  revoked_at DATETIME NULL
+);
+CREATE INDEX IF NOT EXISTS idx_user_entitlement_active
+  ON user_entitlements (user_id, status, starts_at, expires_at, entitlement_code);
+
+CREATE TABLE IF NOT EXISTS checkout_quotes (
+  id TEXT PRIMARY KEY, quote_type TEXT NOT NULL DEFAULT 'CART', user_id INTEGER NOT NULL,
+  cart_id INTEGER NULL, cart_version INTEGER NULL, selection_mode TEXT NOT NULL,
+  input_hash TEXT NOT NULL, rules_hash TEXT NOT NULL, algorithm_version TEXT NOT NULL,
+  currency_totals_json TEXT NOT NULL, result_json TEXT NOT NULL, explanation_json TEXT NOT NULL,
+  status TEXT NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME NOT NULL, consumed_checkout_id INTEGER NULL
+);
+CREATE INDEX IF NOT EXISTS idx_quote_user_state ON checkout_quotes (user_id, status, expires_at);
+CREATE TABLE IF NOT EXISTS checkout_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, checkout_no TEXT NOT NULL UNIQUE, user_id INTEGER NOT NULL,
+  quote_id TEXT NOT NULL, status TEXT NOT NULL, idempotency_key TEXT NOT NULL,
+  input_hash TEXT NOT NULL, algorithm_version TEXT NOT NULL, rules_hash TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, completed_at DATETIME NULL,
+  UNIQUE (user_id, idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS checkout_order_groups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, checkout_id INTEGER NOT NULL, group_no TEXT NOT NULL UNIQUE,
+  business_type TEXT NOT NULL, currency_space TEXT NOT NULL, currency TEXT NOT NULL,
+  seller_user_id INTEGER NULL, delivery_mode TEXT NULL, status TEXT NOT NULL,
+  base_amount INTEGER NOT NULL, seller_discount_amount INTEGER NOT NULL,
+  platform_discount_amount INTEGER NOT NULL, fee_amount INTEGER NOT NULL, tax_amount INTEGER NOT NULL,
+  buyer_total INTEGER NOT NULL, seller_receive INTEGER NOT NULL, platform_funding INTEGER NOT NULL,
+  refunded_amount INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_checkout_group ON checkout_order_groups (checkout_id, id);
+CREATE TABLE IF NOT EXISTS checkout_order_lines (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER NOT NULL, source_type TEXT NOT NULL,
+  source_id INTEGER NOT NULL, source_version TEXT NULL, quantity INTEGER NOT NULL, currency TEXT NOT NULL,
+  base_amount INTEGER NOT NULL, seller_discount_amount INTEGER NOT NULL,
+  platform_discount_amount INTEGER NOT NULL, benefit_offset_amount INTEGER NOT NULL,
+  fee_amount INTEGER NOT NULL, tax_amount INTEGER NOT NULL, final_amount INTEGER NOT NULL,
+  seller_receive INTEGER NOT NULL, platform_funding INTEGER NOT NULL,
+  refunded_quantity INTEGER NOT NULL DEFAULT 0, refunded_amount INTEGER NOT NULL DEFAULT 0,
+  fulfillment_ref_type TEXT NULL, fulfillment_ref_id INTEGER NULL, status TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_checkout_lines_group ON checkout_order_lines (group_id, id);
+CREATE TABLE IF NOT EXISTS checkout_price_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, checkout_id INTEGER NOT NULL UNIQUE, quote_id TEXT NOT NULL,
+  algorithm_version TEXT NOT NULL, input_hash TEXT NOT NULL, rules_hash TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL, snapshot_hash TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS benefit_grants (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, checkout_id INTEGER NULL, order_line_id INTEGER NULL,
+  rule_version_id INTEGER NULL, benefit_type TEXT NOT NULL, benefit_ref TEXT NULL,
+  quantity INTEGER NULL, amount INTEGER NULL, currency TEXT NULL, trigger_status TEXT NOT NULL,
+  status TEXT NOT NULL, grant_biz_key TEXT NOT NULL UNIQUE, granted_at DATETIME NULL,
+  reversed_at DATETIME NULL, detail_json TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS seller_promotion_policies (
+  seller_user_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1,
+  max_discount_bps INTEGER NOT NULL DEFAULT 5000, min_receivable_bps INTEGER NOT NULL DEFAULT 1000,
+  max_active_campaigns INTEGER NOT NULL DEFAULT 20, max_coupon_issue INTEGER NOT NULL DEFAULT 10000,
+  max_duration_days INTEGER NOT NULL DEFAULT 90, allowed_types_json TEXT NOT NULL DEFAULT '[]',
+  version INTEGER NOT NULL DEFAULT 1, updated_by INTEGER NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS promotion_rule_scopes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, rule_version_id INTEGER NOT NULL,
+  scope_type TEXT NOT NULL, include_mode TEXT NOT NULL DEFAULT 'INCLUDE', scope_value TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (rule_version_id, scope_type, include_mode, scope_value)
+);
+CREATE TABLE IF NOT EXISTS promotion_rule_tiers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, rule_version_id INTEGER NOT NULL,
+  tier_order INTEGER NOT NULL, threshold_value INTEGER NOT NULL,
+  discount_amount INTEGER NOT NULL DEFAULT 0, discount_bps INTEGER NOT NULL DEFAULT 0,
+  max_discount_amount INTEGER NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (rule_version_id, tier_order)
+);
+CREATE TABLE IF NOT EXISTS coupon_codes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, template_id INTEGER NOT NULL, code_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL, max_uses INTEGER NOT NULL DEFAULT 1, used_count INTEGER NOT NULL DEFAULT 0,
+  valid_until DATETIME NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS membership_plan_benefits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, plan_version_id INTEGER NOT NULL,
+  benefit_code TEXT NOT NULL, benefit_type TEXT NOT NULL, benefit_config_json TEXT NOT NULL,
+  stacking_slot TEXT NULL, priority INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (plan_version_id, benefit_code)
+);
+CREATE TABLE IF NOT EXISTS membership_product_bindings (
+  product_id INTEGER PRIMARY KEY, plan_version_id INTEGER NOT NULL,
+  grant_trigger_status TEXT NOT NULL DEFAULT 'PAID', active INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS membership_codes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, code_hash TEXT NOT NULL UNIQUE,
+  plan_version_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE',
+  max_uses INTEGER NOT NULL DEFAULT 1, used_count INTEGER NOT NULL DEFAULT 0,
+  valid_from DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, valid_until DATETIME NULL,
+  created_by INTEGER NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS membership_code_redemptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, membership_code_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL, membership_id INTEGER NOT NULL, request_id TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (user_id, request_id), UNIQUE (membership_code_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS membership_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, membership_id INTEGER NOT NULL, event_type TEXT NOT NULL,
+  from_status TEXT NULL, to_status TEXT NOT NULL, biz_type TEXT NOT NULL, biz_id TEXT NOT NULL,
+  actor_id INTEGER NULL, detail_json TEXT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (membership_id, event_type, biz_type, biz_id)
+);
+CREATE TABLE IF NOT EXISTS promotion_subject_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, rule_version_id INTEGER NOT NULL,
+  subject_type TEXT NOT NULL, subject_id TEXT NOT NULL, period_key TEXT NOT NULL,
+  used_count INTEGER NOT NULL DEFAULT 0, used_amount INTEGER NOT NULL DEFAULT 0,
+  version INTEGER NOT NULL DEFAULT 1, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (rule_version_id, subject_type, subject_id, period_key)
+);
+CREATE TABLE IF NOT EXISTS checkout_discounts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, checkout_id INTEGER NOT NULL,
+  rule_version_id INTEGER NULL, rule_id TEXT NOT NULL, campaign_id INTEGER NULL,
+  user_coupon_id INTEGER NULL, layer INTEGER NOT NULL, stacking_slot TEXT NOT NULL,
+  discount_amount INTEGER NOT NULL, funding_mode TEXT NOT NULL,
+  platform_funding INTEGER NOT NULL DEFAULT 0, seller_funding INTEGER NOT NULL DEFAULT 0,
+  application_json TEXT NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_checkout_discounts_checkout ON checkout_discounts (checkout_id, id);
+CREATE TABLE IF NOT EXISTS checkout_discount_allocations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, checkout_discount_id INTEGER NOT NULL,
+  checkout_line_id INTEGER NOT NULL, allocated_amount INTEGER NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (checkout_discount_id, checkout_line_id)
+);
+CREATE TABLE IF NOT EXISTS checkout_funding_shares (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, checkout_line_id INTEGER NOT NULL,
+  checkout_discount_id INTEGER NULL, funder_type TEXT NOT NULL, funder_id INTEGER NULL,
+  amount INTEGER NOT NULL, currency TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS checkout_line_payment_units (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, checkout_line_id INTEGER NOT NULL,
+  unit_index INTEGER NOT NULL, base_amount INTEGER NOT NULL, discount_amount INTEGER NOT NULL,
+  final_amount INTEGER NOT NULL, refunded INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (checkout_line_id, unit_index)
+);
+CREATE TABLE IF NOT EXISTS commerce_refund_adjustments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, refund_request_id INTEGER NULL,
+  checkout_line_id INTEGER NOT NULL, adjustment_type TEXT NOT NULL,
+  funder_type TEXT NULL, amount INTEGER NOT NULL, currency TEXT NOT NULL,
+  detail_json TEXT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS promotion_collections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+  status TEXT NOT NULL, display_json TEXT NOT NULL, created_by INTEGER NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS promotion_collection_items (
+  collection_id INTEGER NOT NULL, source_type TEXT NOT NULL, source_id INTEGER NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (collection_id, source_type, source_id)
+);

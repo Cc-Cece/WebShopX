@@ -35,6 +35,7 @@ class OrderService {
   private final PlayerPresenceService playerPresenceService;
   private final SchedulerBridge schedulerBridge;
   private final RefundPolicyService refundPolicyService;
+  private final DomainBenefitService domainBenefitService;
   private final SecureRandom secureRandom;
 
   OrderService(
@@ -52,6 +53,7 @@ class OrderService {
     this.playerPresenceService = playerPresenceService;
     this.schedulerBridge = schedulerBridge;
     this.refundPolicyService = new RefundPolicyService(databaseManager);
+    this.domainBenefitService = new DomainBenefitService(databaseManager);
     this.secureRandom = new SecureRandom();
   }
 
@@ -80,8 +82,27 @@ class OrderService {
           quantity,
           normalizedKey,
           cooldownSeconds,
-          deliveryModeRaw);
+          deliveryModeRaw,
+          null,
+          true);
     });
+  }
+
+  OrderPlacementResult placeOrderInCheckout(
+      Connection connection,
+      long userId,
+      long productId,
+      int quantity,
+      String idempotencyKey,
+      String deliveryModeRaw,
+      long frozenTotalAmount) throws SQLException {
+    ProductService.ProductView product = productService.readActiveProduct(connection, productId, true);
+    if (isRecycleProductType(product.productType())) {
+      throw new ServiceException("SOURCE_NOT_CARTABLE", "Recycle products cannot use cart checkout");
+    }
+    return placePurchaseOrderInTransaction(connection, userId, product, quantity,
+        normalizeIdempotencyKey(idempotencyKey), normalizedOrderCooldownSeconds(), deliveryModeRaw,
+        frozenTotalAmount, false);
   }
 
   private OrderPlacementResult placePurchaseOrderInTransaction(
@@ -91,7 +112,9 @@ class OrderService {
       int quantity,
       String idempotencyKey,
       int cooldownSeconds,
-      String deliveryModeRaw) throws SQLException {
+      String deliveryModeRaw,
+      Long frozenTotalAmount,
+      boolean debitWallet) throws SQLException {
     ExistingOrder existingOrder = readExistingOrder(connection, userId, idempotencyKey);
     if (existingOrder != null) {
       int effectiveCooldown = existingOrder.refundDeadline() == null ? 0 : cooldownSeconds;
@@ -115,29 +138,32 @@ class OrderService {
     String targetServerId = resolveTargetServerId(connection, playerUuid);
     consumePersonalLimitQuota(connection, userId, product, quantity);
     ProductService.ProductPriceQuote priceQuote = productService.quoteOrderPrice(product, quantity);
-    long unitPrice = priceQuote.averageUnitPrice();
-    long totalAmount = priceQuote.totalAmount();
+    long totalAmount = frozenTotalAmount == null ? priceQuote.totalAmount() : frozenTotalAmount;
+    long unitPrice = totalAmount / quantity;
     String orderNo = newOrderNo();
     boolean isGroupBuyVoucher = product.productType() == ProductService.ProductType.GROUP_BUY_VOUCHER;
+    boolean isMembership = product.productType() == ProductService.ProductType.MEMBERSHIP;
     LocalDateTime now = LocalDateTime.now();
-    LocalDateTime refundDeadline = !isGroupBuyVoucher
+    LocalDateTime refundDeadline = !isGroupBuyVoucher && !isMembership
         && deliveryMode == DeliveryMode.IMMEDIATE
         && cooldownSeconds > 0
         ? now.plusSeconds(cooldownSeconds)
         : null;
-    String orderStatus = isGroupBuyVoucher
+    String orderStatus = isGroupBuyVoucher || isMembership
         ? "DELIVERED"
         : deliveryMode == DeliveryMode.CLAIM ? "WAIT_CLAIM" : "PENDING";
 
     reserveProductStock(connection, product.id(), quantity);
-    walletService.applyDelta(
-        connection,
-        userId,
-        product.currency(),
-        -totalAmount,
-        "ORDER_DEBIT",
-        orderNo,
-        true);
+    if (debitWallet) {
+      walletService.applyDelta(
+          connection,
+          userId,
+          product.currency(),
+          -totalAmount,
+          "ORDER_DEBIT",
+          orderNo,
+          true);
+    }
 
     long orderId = insertOrder(
         connection,
@@ -164,6 +190,12 @@ class OrderService {
     if (isGroupBuyVoucher) {
       groupBuyVoucherCode = insertGroupBuyVoucher(connection, orderId, userId, product.id());
       groupBuyVoucherStatus = "ISSUED";
+    } else if (isMembership) {
+      productService.applyDynamicPriceEvent(
+          connection,
+          product,
+          quantity,
+          ProductService.DynamicPriceEvent.PURCHASE);
     } else {
       productService.applyDynamicPriceEvent(
           connection,
@@ -190,7 +222,7 @@ class OrderService {
         totalAmount,
         orderStatus,
         refundDeadline,
-        isGroupBuyVoucher || deliveryMode == DeliveryMode.CLAIM ? 0 : cooldownSeconds,
+        isGroupBuyVoucher || isMembership || deliveryMode == DeliveryMode.CLAIM ? 0 : cooldownSeconds,
         groupBuyVoucherCode,
         groupBuyVoucherStatus,
         groupBuyVoucherConsumedAt);
@@ -256,7 +288,10 @@ class OrderService {
       String orderNo = newOrderNo();
       ProductService.ProductPriceQuote priceQuote = productService.quoteOrderPrice(product, quantity);
       long unitPrice = priceQuote.averageUnitPrice();
-      long totalAmount = priceQuote.totalAmount();
+      DomainBenefitService.BenefitQuote benefitQuote = domainBenefitService.quote(connection,
+          userId, "USER_RECEIVES", "RECYCLE_PRODUCT:" + product.id(),
+          product.currency().name(), priceQuote.totalAmount(), quantity);
+      long totalAmount = benefitQuote.finalAmount();
       Material material = resolveVanillaMaterial(product.itemMaterial());
       int removedAmount = 0;
       int materialCountBefore = material == null ? 0 : countItems(player, material);
@@ -318,6 +353,8 @@ class OrderService {
             product,
             quantity,
             ProductService.DynamicPriceEvent.RECYCLE);
+        domainBenefitService.persistGrant(connection, benefitQuote,
+            "RECYCLE:" + orderNo);
         return new OrderPlacementResult(
             PlacementState.CREATED,
             orderNo,
@@ -526,15 +563,19 @@ class OrderService {
       String targetServerId = resolveTargetServerId(connection, playerUuid);
       ProductService.ProductPriceQuote quote = productService.quoteOrderPrice(product, quantity);
       String orderNo = newOrderNo();
+      DomainBenefitService.BenefitQuote benefitQuote = domainBenefitService.quote(connection,
+          userId, "USER_RECEIVES", "RECYCLE_PRODUCT:" + product.id(),
+          product.currency().name(), quote.totalAmount(), quantity);
       walletService.applyDelta(
-          connection, userId, product.currency(), quote.totalAmount(),
+          connection, userId, product.currency(), benefitQuote.finalAmount(),
           "RECYCLE_CREDIT", orderNo, false);
       long orderId = insertOrder(
-          connection, orderNo, userId, playerUuid, product.currency(), quote.totalAmount(),
+          connection, orderNo, userId, playerUuid, product.currency(), benefitQuote.finalAmount(),
           "RECYCLED", normalizedKey, null, targetServerId);
       insertOrderItem(connection, orderId, product.id(), quantity, quote.averageUnitPrice());
       productService.applyDynamicPriceEvent(
           connection, product, quantity, ProductService.DynamicPriceEvent.RECYCLE);
+      domainBenefitService.persistGrant(connection, benefitQuote, "RECYCLE:" + orderNo);
       try (PreparedStatement statement = connection.prepareStatement("""
           UPDATE inventory_operations
           SET state = 'SUCCESS', action = 'FULFILL', reference_id = ?, updated_at = CURRENT_TIMESTAMP
@@ -654,7 +695,8 @@ class OrderService {
           RECYCLE_ITEM,
           RECYCLE_COMMAND_ITEM,
           RECYCLE_CUSTOM_ITEM,
-          GROUP_BUY_VOUCHER -> DeliveryMode.IMMEDIATE;
+          GROUP_BUY_VOUCHER,
+          MEMBERSHIP -> DeliveryMode.IMMEDIATE;
     };
   }
 
