@@ -110,10 +110,59 @@ class PricingEngineTest {
         List.of(repeated), Set.of())).payableAmount());
   }
 
+  @Test
+  void crossCurrencyRuleCannotCombineThresholds() {
+    var result = engine.calculate(context(
+        List.of(new PricingEngine.Line("A", "SHOP_COIN", 100, 1, null),
+            new PricingEngine.Line("B", "GAME_COIN", 100, 1, null)),
+        List.of(rule("mixed", 4, "PLATFORM_PROMOTION", Set.of("A", "B"), 200, 30)),
+        Set.of()));
+    assertEquals(200, result.payableAmount());
+    assertEquals("CROSS_CURRENCY_SCOPE", result.rejections().get(0).reasonCode());
+  }
+
+  @Test
+  void pinnedLegalCouponIsNotSilentlyReplacedByBetterCoupon() {
+    var smaller = rule("smaller", 5, "PLATFORM_COUPON", Set.of("A"), 0, 10);
+    var larger = rule("larger", 5, "PLATFORM_COUPON", Set.of("A"), 0, 30);
+    var result = engine.calculate(context(
+        List.of(new PricingEngine.Line("A", "SHOP_COIN", 100, 1, null)),
+        List.of(smaller, larger), Set.of(), Set.of("smaller")));
+    assertEquals(90, result.payableAmount());
+    assertEquals(List.of("smaller"),
+        result.applications().stream().map(PricingEngine.Application::ruleId).toList());
+  }
+
+  @Test
+  void conflictingPinnedCouponsAreRejected() {
+    var first = rule("first", 5, "PLATFORM_COUPON", Set.of("A"), 0, 10);
+    var second = rule("second", 5, "PLATFORM_COUPON", Set.of("A"), 0, 20);
+    var exception = assertThrows(PricingEngine.PricingException.class, () -> engine.calculate(context(
+        List.of(new PricingEngine.Line("A", "SHOP_COIN", 100, 1, null)),
+        List.of(first, second), Set.of(), Set.of("first", "second"))));
+    assertEquals("PINNED_RULE_CONFLICT", exception.code());
+  }
+
+  @Test
+  void minimumPayableAppliesPerCurrencyInsteadOfPerLine() {
+    var discount = rule("all", 4, "PLATFORM_PROMOTION", Set.of("A", "B"), 0, 200);
+    var result = engine.calculate(context(
+        List.of(new PricingEngine.Line("A", "SHOP_COIN", 60, 1, null),
+            new PricingEngine.Line("B", "SHOP_COIN", 40, 1, null)),
+        List.of(discount), Set.of()));
+    assertEquals(1, result.payableAmount());
+    assertEquals(99, result.applications().get(0).discountAmount());
+  }
+
   private PricingEngine.Context context(List<PricingEngine.Line> lines, List<PricingEngine.Rule> rules,
                                         Set<String> entitlements) {
+    return context(lines, rules, entitlements, Set.of());
+  }
+
+  private PricingEngine.Context context(List<PricingEngine.Line> lines, List<PricingEngine.Rule> rules,
+                                        Set<String> entitlements, Set<String> pinnedRuleIds) {
     return new PricingEngine.Context(Instant.parse("2026-08-13T00:00:00Z"), lines, rules,
-        entitlements, Set.of(), Set.of(), 1, 50, 1_000_000);
+        entitlements, pinnedRuleIds, Set.of(), 1, 50, 1_000_000);
   }
 
   private PricingEngine.Rule rule(String id, int layer, String slot, Set<String> lineIds,

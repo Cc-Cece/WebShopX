@@ -39,6 +39,7 @@ public final class PricingEngine {
         rejected.add(new Rejection(rule.id(), reason, Map.of()));
       }
     }
+    validatePinnedRules(context, available);
 
     Combination best = search(context, base, available);
     Set<String> selectedIds = best.rules().stream().map(Rule::id).collect(java.util.stream.Collectors.toSet());
@@ -68,6 +69,9 @@ public final class PricingEngine {
     SearchState state = new SearchState(context.maxSearchNodes());
     visit(context, base, candidates, 0, new ArrayList<>(), state);
     if (state.best == null) {
+      if (!context.pinnedRuleIds().isEmpty()) {
+        throw new PricingException("PINNED_RULE_NOT_APPLICABLE");
+      }
       return apply(context, base, List.of());
     }
     return state.best;
@@ -85,17 +89,39 @@ public final class PricingEngine {
     }
     if (index == candidates.size()) {
       Combination combination = apply(context, base, selected);
+      Set<String> appliedIds = combination.applications().stream()
+          .map(Application::ruleId)
+          .collect(java.util.stream.Collectors.toSet());
+      if (!appliedIds.containsAll(context.pinnedRuleIds())) {
+        return;
+      }
       if (state.best == null || compare(combination, state.best, context) < 0) {
         state.best = combination;
       }
       return;
     }
-    visit(context, base, candidates, index + 1, selected, state);
     Rule candidate = candidates.get(index);
+    if (!context.pinnedRuleIds().contains(candidate.id())) {
+      visit(context, base, candidates, index + 1, selected, state);
+    }
     if (compatible(selected, candidate)) {
       selected.add(candidate);
       visit(context, base, candidates, index + 1, selected, state);
       selected.remove(selected.size() - 1);
+    }
+  }
+
+  private void validatePinnedRules(Context context, List<Rule> available) {
+    Map<String, Rule> byId = new HashMap<>();
+    available.forEach(rule -> byId.put(rule.id(), rule));
+    if (!byId.keySet().containsAll(context.pinnedRuleIds())) {
+      throw new PricingException("PINNED_RULE_UNAVAILABLE");
+    }
+    List<Rule> pinned = context.pinnedRuleIds().stream().sorted().map(byId::get).toList();
+    for (int index = 0; index < pinned.size(); index++) {
+      if (!compatible(pinned.subList(0, index), pinned.get(index))) {
+        throw new PricingException("PINNED_RULE_CONFLICT");
+      }
     }
   }
 
@@ -139,7 +165,14 @@ public final class PricingEngine {
           ? Math.multiplyExact(rule.discountAmount(), repeats)
           : MathSupport.roundHalfUp(discountBasis, rule.discountBps());
       long capped = rule.maxDiscountAmount() == null ? raw : Math.min(raw, rule.maxDiscountAmount());
-      long reducible = scope.stream().mapToLong(line -> Math.max(0, line.amount - minPayable(context, rule, line))).sum();
+      long scopedAmount = scope.stream().mapToLong(LineState::amount).sum();
+      String currency = scope.get(0).currency;
+      long currencyAmount = states.stream().filter(line -> line.currency.equals(currency))
+          .mapToLong(LineState::amount).sum();
+      long minimum = rule.allowZeroPayable() ? 0
+          : Math.max(context.defaultMinPayable(),
+              rule.minPayableOverride() == null ? 0 : rule.minPayableOverride());
+      long reducible = Math.min(scopedAmount, Math.max(0, currencyAmount - minimum));
       long actual = Math.min(capped, reducible);
       if (actual <= 0) {
         continue;
@@ -148,7 +181,7 @@ public final class PricingEngine {
       Map<String, Long> capacities = new LinkedHashMap<>();
       for (LineState line : scope) {
         weights.put(line.id, rule.discountBasis() == Basis.P0 ? p0.get(line.id) : line.amount);
-        capacities.put(line.id, Math.max(0, line.amount - minPayable(context, rule, line)));
+        capacities.put(line.id, line.amount);
       }
       Map<String, Long> allocation = AllocationEngine.allocate(actual, weights, capacities);
       for (LineState line : scope) {
@@ -208,6 +241,9 @@ public final class PricingEngine {
     if (scope.isEmpty()) {
       return "SCOPE_MISMATCH";
     }
+    if (scope.stream().map(line -> line.currency).distinct().count() > 1) {
+      return "CROSS_CURRENCY_SCOPE";
+    }
     long threshold = scope.stream().mapToLong(LineState::amount).sum();
     if (rule.thresholdType() == ThresholdType.AMOUNT && threshold < rule.thresholdValue()) {
       return "THRESHOLD_NOT_MET";
@@ -240,13 +276,6 @@ public final class PricingEngine {
     return MathSupport.sumExact(scope.stream()
         .map(line -> basis == Basis.P0 ? p0.get(line.id) : line.amount)
         .toList());
-  }
-
-  private long minPayable(Context context, Rule rule, LineState line) {
-    if (rule.allowZeroPayable()) {
-      return 0;
-    }
-    return Math.max(context.defaultMinPayable(), rule.minPayableOverride() == null ? 0 : rule.minPayableOverride());
   }
 
   private Map<String, CurrencyTotal> totals(List<LineState> lines) {
