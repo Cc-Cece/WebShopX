@@ -1,7 +1,7 @@
 package com.webshopx;
 
 import com.google.gson.Gson;
-import com.webshopx.promotion.pricing.MathSupport;
+import com.webshopx.promotion.pricing.AllocationEngine;
 import com.webshopx.promotion.pricing.PricingEngine;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -67,9 +67,15 @@ class CheckoutService {
     for (PricingEngine.Application application : quote.pricing().applications()) {
       if (application.userCouponId() != null) couponService.consume(connection, application.userCouponId(), userId, checkoutId);
     }
+    Map<String, Long> taxByCurrency = new HashMap<>();
+    for (CheckoutQuoteService.SourceLine source : quote.sources()) {
+      taxByCurrency.merge(source.currency(), source.taxAmount(), Math::addExact);
+    }
     for (PricingEngine.CurrencyTotal total : quote.pricing().currencyTotals().values()) {
+      long debitAmount = Math.addExact(total.payableAmount(),
+          taxByCurrency.getOrDefault(total.currency(), 0L));
       walletService.applyDelta(connection, userId, CurrencyType.valueOf(total.currency()),
-          -total.payableAmount(), "CHECKOUT_DEBIT", checkoutNo + ":" + total.currency(), true);
+          -debitAmount, "CHECKOUT_DEBIT", checkoutNo + ":" + total.currency(), true);
     }
 
     Map<String, PricingEngine.LineResult> pricingById = new HashMap<>();
@@ -330,7 +336,24 @@ class CheckoutService {
   private long readOrderId(Connection c,String orderNo)throws SQLException{try(PreparedStatement s=c.prepareStatement("SELECT id FROM orders WHERE order_no = ?")){s.setString(1,orderNo);try(ResultSet r=s.executeQuery()){if(!r.next())throw new SQLException("Legacy order missing");return r.getLong(1);}}}
   private ExistingCheckout findExisting(Connection c,long user,String key)throws SQLException{try(PreparedStatement s=c.prepareStatement("SELECT id, input_hash FROM checkout_orders WHERE user_id = ? AND idempotency_key = ?")){s.setLong(1,user);s.setString(2,key);try(ResultSet r=s.executeQuery()){return r.next()?new ExistingCheckout(r.getLong(1),r.getString(2)):null;}}}
   private CheckoutResult readResult(Connection c,long id,String state)throws SQLException{try(PreparedStatement s=c.prepareStatement("SELECT checkout_no,status FROM checkout_orders WHERE id = ?")){s.setLong(1,id);try(ResultSet r=s.executeQuery()){if(!r.next())throw new SQLException("Checkout missing");return new CheckoutResult(state,r.getString(1),r.getString(2),List.of(),Map.of());}}}
-  private FundingAmounts fundingForLine(List<PricingEngine.Application> apps,String lineId){long platform=0,seller=0;for(PricingEngine.Application a:apps){long allocated=a.allocations().getOrDefault(lineId,0L);if(allocated==0)continue;long platformPart=a.discountAmount()==0?0:MathSupport.roundHalfUp(allocated,(int)(a.funding().platformAmount()*10000/a.discountAmount()));platform=Math.addExact(platform,platformPart);seller=Math.addExact(seller,allocated-platformPart);}return new FundingAmounts(platform,seller);}
+  private FundingAmounts fundingForLine(
+      List<PricingEngine.Application> applications, String lineId) {
+    long platform = 0;
+    long seller = 0;
+    for (PricingEngine.Application application : applications) {
+      long allocated = application.allocations().getOrDefault(lineId, 0L);
+      if (allocated == 0) {
+        continue;
+      }
+      Map<String, Long> platformAllocations = AllocationEngine.allocate(
+          application.funding().platformAmount(), application.allocations(),
+          application.allocations());
+      long platformPart = platformAllocations.getOrDefault(lineId, 0L);
+      platform = Math.addExact(platform, platformPart);
+      seller = Math.addExact(seller, Math.subtractExact(allocated, platformPart));
+    }
+    return new FundingAmounts(platform, seller);
+  }
   private record ExistingCheckout(long id,String inputHash){}
   private record FundingAmounts(long platform,long seller){}
   private record GroupKey(String businessType,String currency,Long sellerId,String deliveryMode){}
