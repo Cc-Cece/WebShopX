@@ -39,6 +39,7 @@ class RechargeService {
   private final Supplier<PluginSettings> settingsSupplier;
   private final SecureRandom secureRandom = new SecureRandom();
   private final Gson gson = new Gson();
+  private final DomainBenefitService domainBenefitService;
 
   RechargeService(
       DatabaseManager databaseManager,
@@ -50,6 +51,7 @@ class RechargeService {
     this.walletService = walletService;
     this.paymentBridge = paymentBridge;
     this.settingsSupplier = settingsSupplier;
+    this.domainBenefitService = new DomainBenefitService(databaseManager);
   }
 
   boolean isPaymentAvailable() {
@@ -571,6 +573,10 @@ class RechargeService {
         throw new ServiceException(
             "payment_coin_amount_invalid", "creditedCoinAmount must be greater than 0");
       }
+      DomainBenefitService.BenefitQuote benefitQuote = domainBenefitService.quote(connection,
+          order.userId(), "USER_RECEIVES", "RECHARGE:" + order.provider(),
+          CurrencyType.SHOP_COIN.name(), creditedCoinAmount, 1);
+      creditedCoinAmount = benefitQuote.finalAmount();
       boolean credited = walletService.applyDelta(
           connection,
           order.userId(),
@@ -580,6 +586,8 @@ class RechargeService {
           order.orderId(),
           false);
       markOrderPaid(connection, order, notify, creditedCoinAmount);
+      domainBenefitService.persistGrant(connection, benefitQuote,
+          "RECHARGE:" + order.orderId());
       return WebShopXPaymentBridge.NotifyResultData.ok(credited ? "success" : "already processed");
     }
 
