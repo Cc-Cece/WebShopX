@@ -1,342 +1,469 @@
-# 领域规则与价格计算协议
+# 领域模型与价格计算协议
 
-## 1. 目标与不变量
+## 1. 本文地位
 
-本协议是优惠系统的核心。预览、下单、订单查询、取消和退款不得分别实现价格公式。
+本文定义金额、优惠、分账和退款的强制协议。任何页面、API 或服务都不能另写一套价格公式。执行者可以优化内部算法，但相同输入必须产生符合本文不变量的相同结果。
 
-`WSX-DECISION` 必须满足以下不变量：
+## 2. 全局不变量
 
-1. 同一输入快照和规则版本产生完全相同的输出。
-2. 任一商品行的最终金额不得为负。
-3. 订单最终应付不得低于适用的最低实付。
-4. 优惠总额等于所有优惠分摊总额，也等于优惠前金额减最终金额。
-5. 每个优惠的分摊之和等于该优惠实际减免。
-6. 下单后商品改价、活动改规则或券过期，不得改变历史订单价格。
-7. 幂等重试返回首次成功结果，不重复消耗库存、预算或用户券。
-8. 退款总额累计不得超过订单实际支付金额。
+1. 金额使用有符号 64 位整数存储，但业务输入必须非负并执行溢出检查。
+2. 比例使用基点 `bps`；`10000` 表示 100%，不得使用浮点数。
+3. 同币种金额才能求和、比较、凑门槛和抵扣。
+4. 钱包币种 `SHOP_COIN/GAME_COIN` 与法币小额单位是不同金额空间，永不混算。
+5. 任一商品行最终应付不得为负；默认不得低于适用最低实付。
+6. 每项优惠实际金额等于其全部商品行分摊之和。
+7. 订单总优惠等于各项即时优惠之和；返现和赠送权益不计入本次即时优惠。
+8. 用户实付、卖家应收、平台费用、税费、平台补贴与卖家让利必须满足对应业务的资金守恒式。
+9. 同一输入快照、规则版本、算法版本和选择产生确定结果，与数据库返回顺序无关。
+10. 历史订单只读取冻结结果，不用当前活动重新计算。
+11. 幂等重试返回首次成功结果，不重复扣款、用券、占预算、改库存或授予权益。
+12. 累计退款不得超过原实付；全部可退款单位最终退款之和必须等于原实付。
 
-## 2. 领域术语
+## 3. 核心对象
 
-| 术语 | 定义 |
+| 对象 | 定义 |
 |---|---|
-| 基础价 | 商品配置价格；动态定价商品则为该次报价冻结后的单位价格 |
-| 商品行 | 商品、数量、币种和冻结单价组成的最小结算单位 |
-| 促销活动 | 无需用户持券即可应用或领取后应用的营销规则 |
-| 券模板 | 定义优惠内容、资格、范围、库存和叠加关系的规则 |
-| 用户券 | 某个用户获得的一张可消费权益实例 |
-| 自动优惠 | 满足条件后由系统直接应用的促销或权益 |
-| 作用域 | 优惠可覆盖的商品行集合或费用集合 |
-| 门槛基数 | 判断“满 X”时使用的金额阶段 |
-| 计算基数 | 计算固定减免/折扣时使用的金额阶段 |
-| 优惠层 | 规定计算顺序的逻辑阶段 |
-| 槽位 | 同一商品行或订单上可被某类优惠占用的逻辑位置 |
-| 互斥组 | 组内最多允许指定数量的优惠生效 |
-| 资格 | 用户是否允许领取、持有或使用某项权益 |
-| 价格快照 | 下单时冻结的输入、规则版本、计算轨迹及分摊结果 |
-| 权益返还 | 取消/退款后恢复用户券或资格；不同于退回支付金额 |
+| `Cart` | 登录用户的持久购物意向，不锁价、不锁库存 |
+| `CartLine` | 一个来源对象、数量、选择配置和客户端观察版本 |
+| `CheckoutQuote` | 短期有效、绑定用户和购物车输入的完整报价 |
+| `CheckoutOrder` | 一次用户确认产生的父交易 |
+| `OrderGroup` | 按币种、卖家、业务域和履约策略拆出的子订单 |
+| `OrderLine` | 价格、优惠和退款的最小商品行 |
+| `PriceRule` | 自动促销、券、会员权益或业务奖励的不可变版本 |
+| `CouponTemplate` | 券的发行与使用规则 |
+| `UserCoupon` | 归属于具体用户的一张券实例 |
+| `Entitlement` | 会员、叠券槽位、白名单等用户资格 |
+| `FundingShare` | 一项优惠由平台或卖家承担的金额 |
+| `PriceSnapshot` | 冻结输入、候选、选择、计算轨迹和分摊的不可变记录 |
 
-## 3. 优惠类型
+## 4. 交易与权益方向
 
-### 3.1 价格优惠
+统一引擎必须显式区分方向：
 
-- `FIXED_PRICE`：指定商品在活动期使用固定单位价。
-- `DIRECT_REDUCTION`：按商品行固定直减。
-- `PERCENT_OFF`：按比例折扣，比例使用基点。
-- `TIERED_AMOUNT_OFF`：满金额按阶梯固定减免。
-- `TIERED_PERCENT_OFF`：满金额或满件按阶梯折扣。
-- `MULTI_BUY`：第 N 件折扣、买 N 减 M、组合价。
-- `ORDER_AMOUNT_OFF`：订单/作用域满额减。
+| 方向 | 业务 | 优惠含义 |
+|---|---|---|
+| `USER_PAYS` | 官方购买、市场直接购买、会员购买 | 降低用户应付或产生后置奖励 |
+| `USER_RECEIVES` | 官方回收、履行市场收购单 | 提高用户所得或降低平台/收购方费用 |
+| `EXTERNAL_PAY` | 法币充值 | 降低法币应付或提高到账币数量 |
+| `BID_ESCROW` | 拍卖出价 | 不改变公开出价；仅在成交后处理费用或后置权益 |
 
-### 3.2 券与资格优惠
+一条规则必须声明允许的方向，禁止将“满 100 减 20”直接用于 `USER_RECEIVES` 造成用户少收钱。
 
-- `COUPON_AMOUNT_OFF`：有门槛或无门槛固定券。
-- `COUPON_PERCENT_OFF`：折扣券，必须支持最大减免。
-- `MEMBER_REDUCTION`：会员或标签用户自动立减。
-- `FIRST_ORDER_REDUCTION`：全局、商品集合或活动范围首购。
-- `COMPENSATION_COUPON`：人工定向补偿券，单独审计。
+## 5. 金额类型
 
-### 3.3 抵扣与返还
+### 5.1 钱包金额
 
-- `POINTS_OFFSET`：未来积分系统的订单抵扣层。
-- `SHIPPING_OFFSET`：未来存在费用时用于抵费用，不抵商品。
-- `CASHBACK`：订单完成后发放，不降低本次应付；不得与即时减免混算。
-- `GIFT`：赠品权益，不改变价格，但参与预算与退款回收。
+```text
+WalletMoney(currency = SHOP_COIN | GAME_COIN, amount >= 0)
+```
 
-首期实现可以不开放所有类型，但存储模型和计算轨迹不得阻碍后续增加。
+币种最小单位就是整数 1。
 
-## 4. 价格层与执行顺序
+### 5.2 法币金额
 
-`WSX-DECISION` 默认顺序如下：
+```text
+FiatMoney(currency = ISO-4217 code, amountMinor >= 0)
+```
 
-| 层 | 名称 | 典型规则 | 默认关系 |
-|---|---|---|---|
-| P0 | 基础报价 | 固定价、动态定价报价 | 必须首先冻结 |
-| P1 | 单品价格 | 活动价、直降、会员专享价 | 同一价格槽择优，除非白名单 |
-| P2 | 商品/组合促销 | 多件折扣、阶梯价 | 按活动优先级和互斥组 |
-| P3 | 订单促销 | 满减、满折 | 可配置是否按 P1/P2 后基数判断 |
-| P4 | 优惠券 | 普通券、会员券、补偿券 | 按槽位、范围和资格组合 |
-| P5 | 权益抵扣 | 积分等 | 受抵扣比例和最低实付限制 |
-| P6 | 费用优惠 | 运费券等 | 只作用费用，不改变商品实付 |
+必须沿用支付提供方支持的法币及小额单位。折扣后的 `amountMinor` 传给支付提供方，并在回调中严格核对。
 
-返现和赠品属于“后置权益”，记录在价格快照中，但不参与 `payable_amount` 计算。
+### 5.3 比例和取整
 
-管理员可以为优惠模板选择允许的层，不能任意填写执行序号。层内用 `priority` 决定计算顺序；相同优先级使用稳定 ID 升序，保证确定性。
+```text
+discount = roundHalfUp(basis × discountBps / 10000)
+```
 
-## 5. 作用域规则
+百分比先算该规则的作用域总额，再分摊到行。不得逐行先取整后相加，否则会因拆行改变结果。
 
-### 5.1 支持的作用域
+## 6. 基础价格
 
-- `ALL_SALE_PRODUCTS`
-- `PRODUCT_IDS`
-- `PRODUCT_COLLECTION`
-- `PRODUCT_TYPE`
-- `SKU_PREFIX`（只建议迁移或批量维护使用）
-- `SERVER_ID`
-- `CHANNEL`
-- `USER_SEGMENT`
+### 6.1 官方商城
 
-作用域同时支持排除集合。排除优先于包含，例如“所有销售商品，但排除团购凭证”。
+- 固定价商品：P0 为 `products.price × quantity`。
+- 动态价商品：调用现有动态报价算法，保存首件、末件、平均、总额、需求分和下一价格；P0 使用精确总额，不用平均价乘数量反推。
+- 零价商品继续受现有 `PRODUCT_ZERO_PRICE` 及新增价格保护约束。
 
-### 5.2 作用域金额
+### 6.2 玩家市场直接出售
 
-每张优惠只计算其覆盖商品行的金额。优惠金额不得转移到作用域外商品。
+- P0 为挂单固定/动态报价得到的 `listingGross`。
+- 现有手续费和税费不属于商品优惠，按第 14 节顺序计算。
+- 购物车不锁市场数量；提交时锁挂单并重新报价。
 
-如果当前订单只有一个商品行，这一规则仍然执行；未来加入购物车后无需改变协议。
+### 6.3 市场收购与官方回收
 
-## 6. 资格规则
+- P0 是用户本应获得的回收/履约金额。
+- 正向优惠表现为 `payoutBonus`，使用户所得增加。
+- 若奖励由收购方玩家承担，必须在创建收购单时连同最大潜在奖励进入托管；否则只能由平台承担。
 
-### 6.1 资格主体
+### 6.4 充值
 
-- `USER_ID`
-- `MC_UUID`
-- 未来可扩展 `IDENTITY_GROUP`
+- `fiatBaseAmount` 是支付提供方订单金额。
+- `baseCoinAmount` 是原充值汇率应到账金额。
+- 法币减免只改变 `fiatPayableAmount`；赠币只改变 `creditedCoinAmount`。
+- 两者成本和退款处理分别记录，不能把赠币伪装成法币折扣。
 
-### 6.2 资格条件
+### 6.5 拍卖
 
-- 用户注册时间、首单/首购状态；
-- 历史已完成订单数或指定商品集合购买次数；
-- 用户标签、会员等级或白名单；
-- 指定服务器、渠道和时间窗口；
-- 风控状态为允许；
-- 领取、持有、使用次数未超限。
+- 出价和排行榜始终使用公开竞价金额，不应用个人券或会员价。
+- 成交结算可使用平台费用减免或成交后奖励，但不能追溯改变胜出条件。
+- 卖家自设商品券不适用于拍卖，避免竞价前无法确定最终优惠。
 
-资格判定有两个时点：
+## 7. 优惠类型
 
-1. **领取资格**：决定用户是否可以获得用户券。
-2. **使用资格**：结算和提交订单时重新判定，防止领取后身份变化或并发首单。
+### 7.1 即时降价
 
-首单/首次购买等排他资格必须在下单事务中锁定并消耗，不能只在预览阶段判断。
+- `FIXED_PRICE`：作用商品在指定价格层变为固定价。
+- `DIRECT_REDUCTION`：固定减免。
+- `PERCENT_OFF`：比例减免，必须有最大减免或全局明确上限。
+- `AMOUNT_THRESHOLD_OFF`：满额减。
+- `QUANTITY_THRESHOLD_OFF`：满件减/折。
+- `TIERED_OFF`：多个金额或数量阶梯，默认取最高满足档。
+- `EVERY_THRESHOLD_OFF`：每满 X 重复减 Y，必须有重复次数上限。
+- `MULTI_BUY`：第 N 件折、买 N 件组合价。
+- `FEE_REDUCTION`：只减少手续费或税费允许的部分。
+- `FIAT_PAYMENT_REDUCTION`：只减少外部支付金额。
 
-## 7. 叠加与互斥协议
+### 7.2 券
 
-### 7.1 叠加策略
+- `NORMAL_COUPON`
+- `SELLER_COUPON`
+- `PLATFORM_COUPON`
+- `MEMBER_COUPON`
+- `COMPENSATION_COUPON`
+- `RECHARGE_COUPON`
+- `PAYOUT_BONUS_COUPON`
 
-| 策略 | 含义 |
-|---|---|
-| `EXCLUSIVE_ORDER` | 生效后订单不可使用其他即时优惠 |
-| `EXCLUSIVE_SCOPE` | 覆盖的商品行不可再接受其他即时优惠 |
-| `SAME_ITEM_SINGLE` | 每个被覆盖商品行最多一张同槽优惠 |
-| `DISJOINT_SCOPE` | 与同槽优惠作用域不重叠时可共存 |
-| `CROSS_LAYER` | 允许与指定其他优惠层共同使用 |
-| `PRIVILEGED_SLOT` | 只有具备指定资格时才出现的额外槽位 |
-| `WHITELIST_COMBINATION` | 只允许与明确列出的模板、活动或槽位共存 |
+券名是运营分类；实际计算仍由金额/比例/阶梯规则决定。
 
-每个优惠必须声明：
+### 7.3 自动权益与后置奖励
 
-- `stacking_slot`
-- `stacking_policy`
-- `max_per_order`
-- `exclusive_group`（可空）
-- `compatible_slots`
-- `compatible_rule_ids`（仅特殊例外）
-- `required_entitlement`（特殊槽位必填）
+- `MEMBER_PRICE`、`MEMBER_DISCOUNT`
+- `PAYOUT_BONUS`
+- `RECHARGE_COIN_BONUS`
+- `CASHBACK`
+- `COUPON_REWARD`
+- `MEMBERSHIP_REWARD`
+- `GIFT_REWARD`
 
-### 7.2 默认槽位
+后置奖励在订单达到配置状态时发放，例如 `PAID`、`DELIVERED` 或 `COMPLETED`。发放必须幂等；退款时按规则撤销、扣回或标记人工处理。
 
-| 槽位 | 默认容量 | 示例 |
+## 8. 价格层
+
+统一顺序：
+
+| 层 | 名称 | 内容 |
+|---|---|---|
+| P0 | 基础报价 | 固定/动态商品价、市场挂单价、回收基价、充值基价 |
+| P1 | 单品身份价 | 会员价、定向价、限时固定价 |
+| P2 | 单品/多件促销 | 直降、多件、数量阶梯 |
+| P3 | 卖家订单促销 | 玩家卖家满减/满折，仅作用其子单 |
+| P4 | 平台订单促销 | 官方/跨卖家平台满减、业务促销 |
+| P5 | 优惠券 | 卖家券、平台券、会员券、补偿券 |
+| P6 | 费用权益 | 手续费减免、税费允许的减免 |
+| P7 | 外部支付优惠 | 充值法币优惠 |
+| P8 | 后置权益 | 返币、赠券、会员、赠品；不改变即时应付 |
+
+规则必须声明 `thresholdBasisLayer` 与 `discountBasisLayer`。默认门槛使用该规则执行前、同作用域当前金额；不能仅凭层号猜测。
+
+## 9. 作用域
+
+### 9.1 商品作用域
+
+- 全部可销售官方商品；
+- 官方商品 ID、SKU、商品集合、产品类型；
+- 玩家卖家 ID、市场挂单 ID、市场标签、交易模式；
+- 业务域：官方购买、市场购买、回收、收购履约、充值、团购、拍卖成交；
+- 服务器、入口渠道；
+- 包含集合与排除集合。
+
+排除优先。发布后的规则引用不可变作用域版本；商品集合后续修改不得改变历史规则版本。
+
+### 9.2 订单层级
+
+- `LINE`：单商品行；
+- `SELLER_GROUP`：同一玩家卖家的可用商品；
+- `BUSINESS_GROUP`：同业务域子订单；
+- `CURRENCY_GROUP`：同币种全部行；
+- `CHECKOUT`：父交易，但金额门槛仍必须在同币种内计算。
+
+### 9.3 不转移原则
+
+某项优惠只可分摊到其作用域内的行。某行达到最低实付后，剩余优惠可以转移给同一作用域其他可减行，不得转移到作用域外。
+
+## 10. 用户资格
+
+领取和使用分别验证：
+
+- 注册时间、全局首单；
+- 官方商品集合首购；
+- 某玩家卖家首购；
+- 历史完成订单、消费额或回流天数；
+- 会员计划/等级及有效期；
+- 管理员标签或白名单；
+- 服务器、渠道；
+- 用户 ID、绑定 MC UUID 或未来身份组；
+- 风控状态；
+- 领取、使用、预算和周期次数。
+
+首单、首购、限次等资格必须在提交事务中锁定/条件消费。预览结果不是最终授权。
+
+## 11. 叠加槽位与冲突
+
+### 11.1 默认槽位
+
+| 槽位 | 默认容量 | 作用层级 |
 |---|---:|---|
-| `ITEM_PRICE` | 每商品行 1 | 活动价、会员价 |
-| `ITEM_PROMOTION` | 每商品行 1 | 直降、多件折扣 |
-| `ORDER_PROMOTION` | 每订单 1 | 满减、满折 |
-| `NORMAL_COUPON` | 每商品行 1 | 普通商品券 |
-| `MEMBER_COUPON` | 每商品行 1 | 有会员叠加资格的专享券 |
-| `COMPENSATION` | 每订单 1 | 人工补偿券 |
-| `POINTS_OFFSET` | 每订单 1 | 积分抵扣 |
+| `ITEM_PRICE` | 每行 1 | P1 |
+| `ITEM_PROMOTION` | 每行 1 | P2 |
+| `SELLER_PROMOTION` | 每卖家组 1 | P3 |
+| `PLATFORM_PROMOTION` | 每币种组 1 | P4 |
+| `SELLER_COUPON` | 每行 1 | P5 |
+| `PLATFORM_COUPON` | 每行 1 | P5 |
+| `MEMBER_COUPON` | 每行 1，仅有资格时存在 | P5 |
+| `COMPENSATION` | 每父交易 1 | P5 |
+| `FEE_BENEFIT` | 每费用类型 1 | P6 |
+| `RECHARGE_BENEFIT` | 每充值单 1 | P7/P8 |
 
-`MEMBER_COUPON` 与 `NORMAL_COUPON` 默认兼容，但必须具备 `MEMBER_STACKING` 资格。`COMPENSATION` 是否兼容由模板显式声明。
+卖家券和平台券默认可以跨层叠加；两张都作用同一行时分别占各自槽位。两张普通平台券仍不能因用户是会员而共同占用一个 `PLATFORM_COUPON` 槽位。
 
-### 7.3 禁止的做法
+### 11.2 策略
 
-- 不允许用户标签直接关闭所有互斥检查。
-- 不允许特殊券省略最大减免、最低实付和预算限制。
-- 不允许通过修改普通券实例改变模板叠加策略。
-- 不允许一张券的剩余面额跨越到作用域外商品。
-- 不允许结算时静默改用更差组合而不返回原因。
+- `EXCLUSIVE_CHECKOUT`：整次结算排斥其他即时优惠；仅特殊业务使用。
+- `EXCLUSIVE_SCOPE`：覆盖行排斥其他即时优惠。
+- `SAME_SLOT_SINGLE`：同槽择优。
+- `DISJOINT_SCOPE`：同槽但作用行不重叠时可共存。
+- `CROSS_LAYER`：允许与声明的其他槽位共存。
+- `PRIVILEGED_SLOT`：具备指定 entitlement 才开放。
+- `WHITELIST_ONLY`：仅与明确规则/槽位组合。
 
-## 8. 门槛与金额计算
+每条规则至少保存槽位、策略、作用域容量、兼容槽位、互斥组、所需资格和每单最大使用次数。
 
-### 8.1 门槛
+### 11.3 特殊叠券
 
-优惠模板必须指定：
-
-- `threshold_type`: `NONE | AMOUNT | QUANTITY`
-- `threshold_value`
-- `threshold_basis`: `P0 | AFTER_P1 | AFTER_P2 | CURRENT_LAYER_INPUT`
-- `repeat_mode`: `ONCE | EVERY_FULL_THRESHOLD | HIGHEST_TIER`
-
-示例：满 100 减 10，若 `EVERY_FULL_THRESHOLD`，金额 250 可减 20；若 `ONCE`，只减 10。
-
-### 8.2 固定减免
+特殊用户通过 entitlement 解锁额外槽位或白名单，例如：
 
 ```text
-raw_discount = configured_amount × repeat_count
-actual_discount = min(raw_discount, max_discount, eligible_amount - protected_payable)
+普通用户：PLATFORM_COUPON × 1
+会员用户：PLATFORM_COUPON × 1 + MEMBER_COUPON × 1
+补偿用户：上述槽位 + COMPENSATION × 1（仅指定补偿券）
 ```
 
-### 8.3 比例折扣
+禁止 `canStackEverything` 一类全局绕过。
 
-`discount_rate_bps` 表示“减免比例”，例如九折的减免比例为 `1000`。
+## 12. 门槛与减免
+
+规则字段：
+
+- `thresholdType = NONE | AMOUNT | QUANTITY`
+- `thresholdValue`
+- `thresholdBasisLayer`
+- `discountBasisLayer`
+- `repeatMode = ONCE | HIGHEST_TIER | EVERY_FULL_THRESHOLD`
+- `maxRepeatCount`
+- `discountAmount` 或 `discountBps`
+- `maxDiscountAmount`
+
+固定减免：
 
 ```text
-raw_discount = round(eligible_amount × discount_rate_bps / 10000)
-actual_discount = min(raw_discount, max_discount, eligible_amount - protected_payable)
+raw = discountAmount × repeats
+actual = min(raw, maxDiscount, eligibleReducibleAmount)
 ```
 
-金额除法统一使用半入取整 `HALF_UP`。为避免分行取整累计误差，先算优惠总额，再按分摊协议分配到商品行。
+比例减免：
 
-### 8.4 最大减免与最低实付
+```text
+raw = roundHalfUp(discountBasis × discountBps / 10000)
+actual = min(raw, maxDiscount, eligibleReducibleAmount)
+```
 
-实际保护值取以下限制中最严格者：
+`eligibleReducibleAmount` 已扣除商品、规则、卖家和全局最低实付保护。
 
-- 全局/币种最低实付；
-- 商品最低实付；
-- 活动最低实付；
-- 用户资格允许的最低实付；
-- 券模板最大减免。
+## 13. 最优组合
 
-特殊叠券只能改变兼容关系，不自动突破价格保护。需要真正零元订单时，必须由具备权限的管理员显式配置 `allow_zero_payable` 并写入审计日志。
+### 13.1 候选过滤
 
-## 9. 最优组合协议
+先验证时间、状态、方向、币种、作用域、资格、持有关系、次数、库存和预算。失败候选保留原因，但不进入组合搜索。
 
-### 9.1 候选生成
+### 13.2 合法组合
 
-1. 冻结商品、数量、币种、动态报价和用户上下文。
-2. 找出时间、渠道、作用域和币种匹配的活动/用户券。
-3. 分别执行资格、库存、预算、次数和门槛预检查。
-4. 为不可用候选生成稳定原因码，不进入组合搜索。
+用冲突图/约束模型表达槽位、互斥、独占、资格、预算和最低实付。执行者可使用枚举、分支定界或其他确定性方法，但不能使用随机近似导致同输入不同结果。
 
-### 9.2 冲突图
+### 13.3 优化目标
 
-候选优惠是节点；违反独占、槽位容量、商品行重叠、组合白名单或资格要求的两项之间建立冲突边。预算、最低实付等属于组合约束。
+按顺序比较：
 
-### 9.3 优化目标
+1. 用户即时应付最小；
+2. 用户将获得的确定性后置权益价值最大（只在可比较且管理员配置价值时使用）；
+3. 更早过期的用户券优先；
+4. 用户明确选择优先；
+5. 使用券数量更少；
+6. 规则类型、版本 ID、用户券 ID 稳定升序。
 
-系统默认选择：
+卖家收入或平台成本不能覆盖第一目标偷偷让用户多付；若平台要控制补贴，应通过预算/适用范围让组合不合法。
 
-1. 最小 `payable_amount`；
-2. 应付相同则优先消耗更早到期的用户券；
-3. 仍相同则优先用户主动勾选的优惠；
-4. 仍相同则优先较少券数；
-5. 仍相同按优惠类型、模板 ID、用户券 ID 的稳定升序。
+### 13.4 手动选择
 
-当前单商品行场景可直接枚举。面向未来多商品购物车，候选数量需设上限，并使用分层剪枝/分支定界；不得用会产生非确定结果的随机近似算法。
+- 默认 `AUTO_BEST`。
+- 用户可以固定某些券或关闭标记为 `userToggleable` 的优惠。
+- 指定组合非法时返回原因和新建议，不静默换成另一组合。
+- 用户提交的是用户券 ID/规则选择，不提交任何可信金额。
 
-### 9.4 手动选择
+## 14. 市场分账公式
 
-默认交互为“系统推荐最优”。用户可以提交指定用户券 ID：
+对每个玩家卖家组、每种币种分别计算。
 
-- 如果组合有效，按用户选择计算，即使不是最低价；
-- 如果无效，返回冲突原因和可替代组合，不静默替换；
-- 自动优惠如果允许关闭，必须由规则声明 `user_toggleable=true`。
+定义：
 
-## 10. 分摊协议
+```text
+listingGross       = 挂单基础成交额
+sellerDiscount     = 卖家承担的优惠
+platformDiscount   = 平台承担的优惠
+sharedSellerPart   = 共同优惠中的卖家部分
+sharedPlatformPart = 共同优惠中的平台部分
+merchantBasis      = listingGross - sellerDiscount - sharedSellerPart
+fee                = feePolicy(merchantBasis)
+tax                = taxPolicy(merchantBasis)
+buyerMerchandise   = merchantBasis - platformDiscount - sharedPlatformPart
+buyerTotal         = buyerMerchandise + tax - allowedBuyerFeeBenefit
+sellerReceive      = merchantBasis - fee
+platformFunding    = platformDiscount + sharedPlatformPart + allowedBuyerFeeBenefit
+platformRevenue    = fee + tax - platformFunding
+```
 
-优惠总额使用“精确比例 + 最大余数法”分摊：
+约束：
 
-1. 只取优惠作用域内且仍有可减金额的商品行。
-2. 计算每行权重，默认是该优惠输入阶段的行金额。
+- `merchantBasis >= sellerMinimumReceivableBasis >= 0`；
+- `buyerMerchandise >= applicableMinPayable`；
+- 平台优惠不降低 `sellerReceive`；
+- 卖家优惠不消耗平台预算；
+- 共同承担金额分别进入卖家和平台账本；
+- 费用策略必须冻结版本，不能退款时重新读取当前费率。
+
+封闭钱包中的平台补贴必须进入平台促销资金账本。它可以是系统预算账户而非普通玩家钱包，但必须有借贷方向和业务键，不能无痕增发。
+
+## 15. 官方商城公式
+
+```text
+officialBase       = P0 总额
+officialDiscount   = 所有即时平台优惠
+buyerMerchandise   = officialBase - officialDiscount
+buyerTotal         = buyerMerchandise + applicableFees
+platformFunding    = officialDiscount
+```
+
+官方商品没有玩家卖家应收，但仍记录平台优惠成本，便于预算与报表。
+
+## 16. 回收/收购公式
+
+```text
+basePayout       = 基础回收或收购成交额
+platformBonus    = 平台承担加成
+requesterBonus   = 收购方承担加成（必须有托管）
+userReceives     = basePayout + platformBonus + requesterBonus - applicableFee
+requesterCost    = basePayout + requesterBonus
+platformFunding  = platformBonus
+```
+
+用户不能通过同一批物品同时参与相互冲突的回收奖励。奖励作用于实际验收数量，不能只按用户声明数量。
+
+## 17. 充值公式
+
+```text
+fiatBaseAmount       = 原应付法币小额单位
+fiatDiscount         = 法币即时优惠
+fiatPayableAmount    = fiatBaseAmount - fiatDiscount
+baseCoinAmount       = 原应到账商城币
+bonusCoinAmount      = 赠币/会员加成
+creditedCoinAmount   = baseCoinAmount + bonusCoinAmount
+```
+
+支付回调必须核对 `fiatPayableAmount` 和法币币种。到账钱包流水至少区分本金币与奖励币，便于退款时按政策回收奖励。若支付提供方不支持部分退款，本功能不得伪造成功退款。
+
+## 18. 分摊算法
+
+每项优惠使用最大余数法：
+
+1. 取该规则作用域内仍可减的行。
+2. 默认权重为该规则计算层输入行金额；规则可以声明数量权重，但必须版本化。
 3. 计算精确份额并向下取整。
-4. 剩余整数单位按小数余数降序逐一分配。
-5. 余数相同按商品行 ID 升序。
-6. 任一行不得超过其可减上限；溢出继续分配给下一行。
+4. 剩余最小单位按小数余数降序分配。
+5. 余数相同按稳定 `orderLineId` 升序。
+6. 达到行最低实付后，把溢出继续分给其他可减行。
+7. 若无行可承载，实际优惠截断并记录 `MIN_PAYABLE_GUARD`。
 
-每个优惠逐层分摊并记录，后续优惠以更新后的行金额为输入。
+卖家/平台共同承担先得到优惠总额，再按资金比例拆成 funding share；两个维度都必须守恒。
 
-### 10.1 示例
+## 19. 数量单位分摊
 
-商品 A 为 101，商品 B 为 99，订单满 200 减 31：
+部分交付要求把行最终金额进一步分到单位：
 
-```text
-A 精确份额 = 31 × 101 / 200 = 15.655 -> 15
-B 精确份额 = 31 ×  99 / 200 = 15.345 -> 15
-剩余 1 分给小数余数更大的 A
-最终 A 减 16，B 减 15
-```
+1. 先将 `lineFinalAmount / quantity` 向下取整为基础单位实付。
+2. 余数按单位序号从小到大各加 1。
+3. 保存压缩区间或可重放的基础值、余数和单位排序。
+4. 退款按实际未交付/退回的单位序号求和。
 
-## 11. 价格快照
+不能只保存折后平均单位价并用四舍五入反推。
 
-下单必须保存：
+## 20. 报价与价格快照
 
-- 报价 ID、规则集版本和计算时间；
-- 用户与资格快照（只存业务必需字段）；
-- 每行基础单价、数量、各层输入/输出；
-- 每项优惠的模板版本、用户券 ID、门槛基数和实际减免；
-- 每项优惠到商品行的分摊；
-- 原始金额、促销减免、券减免、权益抵扣、最终应付；
-- 候选选择模式与关键解释信息；
-- 最低实付、取整模式和算法版本。
+报价至少冻结：
 
-历史订单只读取快照，不重新运行当前优惠规则。
+- 用户、MC UUID、服务器、渠道和时间；
+- 购物车行来源、数量、版本及 P0 动态报价细节；
+- 规则/券/会员资格版本；
+- 所有候选及可用/不可用原因；
+- 选择模式和最终组合；
+- 每层输入输出、每项优惠、每行分摊与 funding share；
+- 费用/税费策略版本；
+- 各币种总额、卖家应收、平台资金和后置权益；
+- 输入哈希、规则哈希、算法版本、创建和过期时间。
 
-## 12. 取消、退款与权益返还
+下单快照是报价在事务内复核后的最终版本。报价 JSON 不可信，服务端必须从数据库复核关键资源。
 
-### 12.1 支付退款
+## 21. 取消、退款、退券与撤销权益
 
-- 未交付数量按冻结的商品行实付金额退款。
-- 多数量单行按每个单位的冻结分摊退款；不能临时用订单总额重新平均导致累计误差。
-- 若存储空间需要优化，可以保存单位分摊基值和余数落点，但结果必须可重放。
-- 累计退款采用单调计数，最后一次退款吸收取整余数，确保全退等于实付。
+### 21.1 支付退款
 
-### 12.2 用户券状态
+- 只退冻结的可退款单位实付。
+- 平台与卖家资金按原 funding share 反向冲回。
+- 费用/税费是否退按冻结策略执行。
+- 最后一次全退吸收全部取整余数。
 
-```text
-AVAILABLE -> RESERVED -> CONSUMED
-     |          |
-     v          v
-  EXPIRED    RELEASED（下单失败/报价失效）
-
-CONSUMED -> RETURNED（满足返券政策）
-CONSUMED -> CLOSED（不返券或已过期）
-```
-
-### 12.3 返券策略
+### 21.2 券返还策略
 
 - `NEVER`
 - `CANCEL_BEFORE_FULFILLMENT`
 - `FULL_REFUND_ONLY`
-- `ANY_REFUND_ONCE`（谨慎使用）
+- `ANY_REFUND_ONCE`
 - `MANUAL_REVIEW`
 
-返还时的有效期策略：
+有效期：
 
-- `KEEP_ORIGINAL_EXPIRY`（本文默认）
-- `EXTEND_FIXED_DURATION`
-- `MANUAL_COMPENSATION`
+- `KEEP_ORIGINAL_EXPIRY`（默认）；
+- `EXTEND_FIXED_DURATION`；
+- `ISSUE_COMPENSATION`。
 
-部分退款默认不拆分或恢复券面额，只退商品行实付；全退是否返券由模板策略决定。
+退款金额和返券是独立结果。部分退款默认不返整券。
 
-## 13. 稳定原因码
+### 21.3 会员与后置权益
 
-至少包括：
+- 会员商品退款策略可为“不撤销”“未使用则撤销”“按剩余期限撤销”“人工处理”。
+- 自动授予/撤销必须幂等且记录原因。
+- 已消费的奖励币不足以扣回时，不允许钱包变成非法负数；按规则拒绝退款、扣除退款金额或转人工处理，并明确展示。
 
-- `NOT_STARTED`, `EXPIRED`, `DISABLED`
-- `CURRENCY_MISMATCH`, `SCOPE_MISMATCH`, `CHANNEL_MISMATCH`
-- `THRESHOLD_NOT_MET`, `QUANTITY_NOT_MET`
-- `USER_NOT_ELIGIBLE`, `FIRST_ORDER_REQUIRED`, `ENTITLEMENT_REQUIRED`
-- `NOT_OWNED`, `ALREADY_USED`, `USER_LIMIT_REACHED`
-- `BUDGET_EXHAUSTED`, `COUPON_STOCK_EXHAUSTED`
-- `STACKING_CONFLICT`, `EXCLUSIVE_PROMOTION`, `SLOT_CAPACITY_REACHED`
-- `MIN_PAYABLE_GUARD`, `MAX_DISCOUNT_REACHED`
-- `QUOTE_EXPIRED`, `RULE_VERSION_CHANGED`
+## 22. 稳定原因码
 
-原因码进入 API；面向用户的文字由 i18n 资源渲染。
+至少实现：
+
+- 状态：`NOT_STARTED`, `EXPIRED`, `DISABLED`, `PAUSED`
+- 范围：`BUSINESS_MISMATCH`, `CURRENCY_MISMATCH`, `SCOPE_MISMATCH`, `CHANNEL_MISMATCH`
+- 资格：`USER_NOT_ELIGIBLE`, `FIRST_ORDER_REQUIRED`, `MEMBERSHIP_REQUIRED`, `ENTITLEMENT_REQUIRED`
+- 券：`NOT_OWNED`, `ALREADY_USED`, `COUPON_RESERVED`, `USER_LIMIT_REACHED`
+- 资源：`BUDGET_EXHAUSTED`, `STOCK_EXHAUSTED`, `LISTING_UNAVAILABLE`
+- 规则：`THRESHOLD_NOT_MET`, `QUANTITY_NOT_MET`, `STACKING_CONFLICT`, `EXCLUSIVE_PROMOTION`, `SLOT_CAPACITY_REACHED`
+- 价格：`MIN_PAYABLE_GUARD`, `SELLER_MINIMUM_GUARD`, `MAX_DISCOUNT_REACHED`, `PRICE_CHANGED`
+- 报价：`QUOTE_EXPIRED`, `QUOTE_INPUT_CHANGED`, `RULE_VERSION_CHANGED`
+- 交易：`IDEMPOTENCY_CONFLICT`, `PARTIAL_CHECKOUT_NOT_ALLOWED`, `REFUND_REVIEW_REQUIRED`
+
+API 返回原因码和结构化参数；前端通过 i18n 生成完整句子。
