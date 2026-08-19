@@ -273,7 +273,7 @@ jobs:
           name: compiled-jars
           path: dist/*.jar
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
 
   release:
     name: Publish Release to Current and Mirror Repos
