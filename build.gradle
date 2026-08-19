@@ -99,6 +99,7 @@ repositories {
 
 configurations {
     proguard
+    slimEmbedded
 }
 
 dependencies {
@@ -114,6 +115,9 @@ dependencies {
     implementation 'com.zaxxer:HikariCP:5.1.0'
     implementation 'com.google.code.gson:gson:2.11.0'
     implementation 'com.github.Querz:NBT:6.1'
+    // Paper's plugin.yml libraries loader resolves from Maven Central only. Querz NBT is JitPack-only,
+    // so slim variants must bundle it instead of declaring it as an external library.
+    slimEmbedded 'com.github.Querz:NBT:6.1'
     compileOnly 'com.github.MilkBowl:VaultAPI:1.7.1'
     spotbugsPlugins 'com.h3xstream.findsecbugs:findsecbugs-plugin:1.14.0'
     testCompileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
@@ -212,11 +216,18 @@ def SQLITE_NON_WINDOWS_NATIVE_GLOBS = [
         "${SQLITE_NATIVE_ROOT}FreeBSD/**"
 ]
 
+def slimEmbeddedContents = {
+    configurations.slimEmbedded.collect { dependencyJar ->
+        dependencyJar.isDirectory() ? dependencyJar : zipTree(dependencyJar)
+    }
+}
+
 def configureShadowVariant = { ShadowJar task, String classifier ->
     task.group = 'build'
     task.archiveClassifier.set(variantClassifier(classifier))
     task.from(sourceSets.main.output) {
         exclude 'plugin-slim.yml'
+        exclude 'plugin-folia-slim.yml'
     }
     task.configurations = [project.configurations.runtimeClasspath]
     task.relocate 'org.bstats', "${project.group}.libs.bstats"
@@ -231,6 +242,7 @@ def configureFoliaShadowVariant = { ShadowJar task, String classifier ->
     task.from(sourceSets.main.output) {
         exclude 'plugin.yml'
         exclude 'plugin-slim.yml'
+        exclude 'plugin-folia-slim.yml'
         rename('plugin-folia.yml', 'plugin.yml')
     }
     task.configurations = [project.configurations.runtimeClasspath]
@@ -246,12 +258,15 @@ shadowJar {
 
 tasks.register('slimJar', Jar) {
     group = 'build'
-    description = "Builds the slim plugin JAR without bundled runtime dependencies for ${targetRuntime}."
+    description = "Builds the slim plugin JAR with Maven Central runtime libraries externalized for ${targetRuntime}."
     archiveClassifier.set(variantClassifier('slim'))
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from(sourceSets.main.output) {
         exclude 'plugin.yml'
+        exclude 'plugin-folia-slim.yml'
         rename('plugin-slim.yml', 'plugin.yml')
     }
+    from(slimEmbeddedContents)
 }
 
 tasks.register('foliaPreviewJar', Jar) {
@@ -261,19 +276,23 @@ tasks.register('foliaPreviewJar', Jar) {
     from(sourceSets.main.output) {
         exclude 'plugin.yml'
         exclude 'plugin-slim.yml'
+        exclude 'plugin-folia-slim.yml'
         rename('plugin-folia.yml', 'plugin.yml')
     }
 }
 
 tasks.register('foliaSlimJar', Jar) {
     group = 'build'
-    description = "Builds the Folia slim plugin JAR without bundled runtime dependencies for ${targetRuntime}."
+    description = "Builds the Folia slim plugin JAR with Maven Central runtime libraries externalized for ${targetRuntime}."
     archiveClassifier.set(foliaVariantClassifier('slim-folia'))
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from(sourceSets.main.output) {
         exclude 'plugin.yml'
         exclude 'plugin-slim.yml'
-        rename('plugin-folia.yml', 'plugin.yml')
+        exclude 'plugin-folia.yml'
+        rename('plugin-folia-slim.yml', 'plugin.yml')
     }
+    from(slimEmbeddedContents)
 }
 
 tasks.register('fullLinuxJar', ShadowJar) {
@@ -440,7 +459,15 @@ tasks.register('checkI18nSources', Exec) {
     commandLine 'python', 'tools/check_i18n_sources.py'
 }
 
+tasks.register('checkSlimRuntimeDependencies', Exec) {
+    group = 'verification'
+    description = 'Verifies every direct runtime dependency is externalized or bundled by both slim variants.'
+    workingDir projectDir
+    commandLine 'python', 'tools/check_slim_runtime_dependencies.py'
+}
+
 check.dependsOn(tasks.named('checkI18nSources'))
+check.dependsOn(tasks.named('checkSlimRuntimeDependencies'))
 
 tasks.register('release') {
     dependsOn build
