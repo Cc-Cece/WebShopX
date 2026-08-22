@@ -1,6 +1,6 @@
 # WebShopX 跨平台 Mod 重构执行入口
 
-> 状态：待项目所有者批准。本文档集获批前，不授权修改业务代码、数据库或发布配置。
+> 状态：项目所有者已于 2026-08-22 书面授权实施。任何涉及 `main` 的状态变化仍不授权 Agent 执行。
 
 ## 1. 目标
 
@@ -46,11 +46,11 @@
 
 ## 4. 当前仓库事实
 
-- 本计划创建基线：`fd64592`，计划分支：`docs/mod-migration-plan`。
+- 经 ADR-0001 与项目所有者决定，业务基线为最新正式 `origin/main@eca332b`，计划叠加提交为 `b7bfc1b`。
 - 当前根工程是单项目 Gradle 构建，`settings.gradle` 仅声明 `WebShopX`。
 - Paper 目标由 `targetRuntime` 选择：`1.18.2+`、`1.20.6+`、`26.1+`、`26.2+`。
 - 根工程构建会同步相邻的 `webshopx-web` 前端；CI 也会检出独立前端仓库。
-- 历史分支 `feat/fabric-neoforge-mod` 包含 `webshopx-core`、`webshopx-platform-api`、`webshopx-fabric`、`webshopx-neoforge` 原型和旧计划。
+- 历史分支 `feat/fabric-neoforge-mod` 已被项目所有者判定过旧；M0 只保存拒绝复用证据，不从中采纳实现。
 - 当前工作树中的同名目录属于被 Git 忽略的历史构建残留，不是当前分支的受控源码。
 - 旧 `.docs/插件转Mod实施计划书.md` 与本计划目标不同，尤其 Forge 范围、全功能要求和 Git 审核治理不同；它只可作为调查线索，不是执行依据。
 

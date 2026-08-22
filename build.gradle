@@ -146,12 +146,18 @@ def syncWebFrontend = tasks.register('syncWebFrontend', Exec) {
     description = 'Builds webshopx-web and stages it as generated plugin resources.'
     workingDir projectDir
     outputs.dir layout.buildDirectory.dir('generated-resources/main/web')
+    if (project.hasProperty('frontendDir')) {
+        inputs.dir(file(project.property('frontendDir')))
+    }
     if (System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('windows')) {
         commandLine 'powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass',
                 '-File', file('tools/sync-web-frontend.ps1').absolutePath
     } else {
         commandLine 'pwsh', '-NoProfile',
                 '-File', file('tools/sync-web-frontend.ps1').absolutePath
+    }
+    if (project.hasProperty('frontendDir')) {
+        args '-FrontendDir', file(project.property('frontendDir')).absolutePath
     }
 }
 
@@ -431,6 +437,44 @@ tasks.register('printProjectName') {
     doLast {
         println rootProject.name
     }
+}
+
+tasks.register('verifyPaperBaselineArtifact') {
+    group = 'verification'
+    description = 'Checks the deterministic plain Paper baseline artifact and its required metadata.'
+    dependsOn tasks.named('plainPluginJar')
+
+    doLast {
+        def artifact = tasks.named('plainPluginJar', Jar).get().archiveFile.get().asFile
+        if (!artifact.isFile()) {
+            throw new GradleException("Paper baseline artifact was not created: ${artifact}")
+        }
+        def requiredEntries = [
+                'plugin.yml',
+                'config.yml',
+                'db/sqlite/schema.sql',
+                'com/webshopx/WebShopPlugin.class'
+        ]
+        def zip = new java.util.zip.ZipFile(artifact)
+        def entries
+        try {
+            entries = zip.entries().collect { it.name } as Set
+        } finally {
+            zip.close()
+        }
+        def missing = requiredEntries.findAll { !entries.contains(it) }
+        if (!missing.isEmpty()) {
+            throw new GradleException("Paper baseline artifact is missing required entries: ${missing}")
+        }
+        println "Paper baseline artifact: ${artifact} (${artifact.length()} bytes)"
+    }
+}
+
+tasks.register('paperBaseline') {
+    group = 'verification'
+    description = 'Runs the reproducible, frontend-independent Paper regression baseline.'
+    dependsOn tasks.named('test')
+    dependsOn tasks.named('verifyPaperBaselineArtifact')
 }
 
 tasks.register('checkI18nSources', Exec) {

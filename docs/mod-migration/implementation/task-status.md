@@ -4,8 +4,8 @@
 
 | Task | 状态 | 实施 PR | 审核结论 | Merge commit | 备注 |
 |---|---|---|---|---|---|
-| PLAN | in_review | 待创建 | 待项目所有者审核 | — | 当前文档计划 |
-| M0 | pending | — | — | — | 等待计划获批与 `mod-integration` 建立 |
+| PLAN | completed | 当前对话书面批准 | 项目所有者已授权实施 | `b7bfc1b` | 2026-08-22；迁移 base 改为最新 origin/main |
+| M0 | in_progress | 本地 `feature/M0-main` | 待独立审核 | — | 自动清单和 Paper 基线已完成；真实服务器 smoke/干净前端/正式审核待补 |
 | M1 | pending | — | — | — | 依赖 M0 |
 | M2 | pending | — | — | — | 依赖 M1 |
 | M3 | pending | — | — | — | 依赖 M2 |
@@ -21,8 +21,8 @@
 
 ## 当前基线备注
 
-- 计划分支：`docs/mod-migration-plan`；
-- 计划起点：`fd64592`；
+- 受控集成基线：本地 `mod-integration`；
+- 业务起点：`origin/main@eca332b`；计划叠加：`b7bfc1b`；
 - 历史 Mod 原型：`feat/fabric-neoforge-mod`，仅供 M0 只读审计；
 - 当前根 `settings.gradle` 未启用 Mod 子项目；
 - 当前本地同名 Mod 目录是被忽略的历史输出，不得当作受控源码提交。

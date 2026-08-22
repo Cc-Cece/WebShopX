@@ -1,0 +1,723 @@
+﻿{
+    "schemaVersion":  1,
+    "generatedAt":  "2026-08-22T16:06:40.8613934+00:00",
+    "baseline":  {
+                     "commit":  "b7bfc1ba452f6d9a83936a75a340942a1d3f075b",
+                     "branch":  "feature/M0-main",
+                     "os":  "Microsoft Windows 10.0.19045 ",
+                     "java":  "java version \"25.0.3\" 2026-04-21 LTS",
+                     "gradle":  "Gradle 9.3.1",
+                     "node":  "v24.11.1",
+                     "pnpm":  "10.26.1",
+                     "frontendCommit":  "6a54139e5c46c648d89d6a32c61ad4a7b15ebb25",
+                     "frontendDirtyPaths":  [
+
+                                            ]
+                 },
+    "source":  {
+                   "productionJavaFiles":  114,
+                   "testJavaFiles":  20,
+                   "services":  [
+                                    "AdminAuditService",
+                                    "AdminService",
+                                    "AuthService",
+                                    "BroadcastService",
+                                    "BStatsTelemetryService",
+                                    "BusinessLedgerLogService",
+                                    "ClusterEventBusService",
+                                    "DeliveryService",
+                                    "HomepageService",
+                                    "InventoryOperationService",
+                                    "InventoryReadSnapshotService",
+                                    "InventoryService",
+                                    "LeaderboardService",
+                                    "LocaleCenterService",
+                                    "MailboxCenterService",
+                                    "MailboxGuiService",
+                                    "MailboxService",
+                                    "MaintenanceService",
+                                    "MarketGuiService",
+                                    "MarketLimitationService",
+                                    "MarketService",
+                                    "MarketTagService",
+                                    "MaterialVisualService",
+                                    "MessageService",
+                                    "NotificationService",
+                                    "OfflineInventoryFeatureService",
+                                    "OrderService",
+                                    "PlayerDataInventoryService",
+                                    "PlayerPresenceService",
+                                    "PluginLogService",
+                                    "PluginUpdateService",
+                                    "ProductService",
+                                    "RechargeService",
+                                    "RedeemCodeService",
+                                    "RefundPolicyService",
+                                    "RelayConnectorService",
+                                    "RelaySetupService",
+                                    "RuntimeConfigService",
+                                    "ThemeCenterService",
+                                    "UserMarketSettingsService",
+                                    "VisualCustomizationService",
+                                    "VisualPackService",
+                                    "WalletService"
+                                ],
+                   "listeners":  [
+                                     "MarketGuiListener",
+                                     "PaymentListener",
+                                     "PlayerJoinListener",
+                                     "PlayerQuitListener"
+                                 ],
+                   "platformCoupling":  [
+                                            {
+                                                "path":  "src/main/java/com/webshopx/BroadcastService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/BStatsTelemetryService.java",
+                                                "categories":  [
+                                                                   "economy-provider"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/BusinessLedgerLogService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/ClusterEventBusService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/DatabaseManager.java",
+                                                "categories":  [
+                                                                   "bukkit-paper"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/DeliveryService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/EmbeddedWebServer.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory",
+                                                                   "economy-provider"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/InventoryLockManager.java",
+                                                "categories":  [
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/InventoryReadSnapshotService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/InventoryService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/InventorySnapshotJsonCodec.java",
+                                                "categories":  [
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/ItemSnapshotCodec.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/LeaderboardService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/LocaleCenterService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/MailboxCenterService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/MailboxGuiService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory",
+                                                                   "event"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/MailboxService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/MaintenanceService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/MarketGuiListener.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory",
+                                                                   "event"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/MarketGuiService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/MarketLimitationService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/MarketService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/MarketTagService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/MaterialVisualService.java",
+                                                "categories":  [
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/MessageService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "command"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/OfflineInventoryFeatureService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/OrderService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/PlayerDataGate.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory",
+                                                                   "event"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/PlayerDataInventoryService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/PlayerJoinListener.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "event"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/PlayerQuitListener.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory",
+                                                                   "event"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/PluginLogService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/PluginSettings.java",
+                                                "categories":  [
+                                                                   "bukkit-paper"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/PluginUpdateService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/ProductService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/RelayConnectorService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "event"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/RelayRpcRouter.java",
+                                                "categories":  [
+                                                                   "bukkit-paper"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/RuntimeConfigService.java",
+                                                "categories":  [
+                                                                   "item-inventory"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/SchedulerBridge.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "scheduler"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/ShopCommand.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory",
+                                                                   "command"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/StaticAssetInstaller.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "scheduler"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/TextureAssetManager.java",
+                                                "categories":  [
+                                                                   "bukkit-paper"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/ThemeCenterService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/UserMarketSettingsService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/VisualPackService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/WalletService.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "item-inventory",
+                                                                   "economy-provider"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/WebShopPlugin.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "event"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/WebShopXPaymentBridge.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "event"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/YuPayBridge.java",
+                                                "categories":  [
+                                                                   "bukkit-paper",
+                                                                   "event"
+                                                               ]
+                                            },
+                                            {
+                                                "path":  "src/main/java/com/webshopx/payment/api/WebShopXPaymentApi.java",
+                                                "categories":  [
+                                                                   "event"
+                                                               ]
+                                            }
+                                        ]
+               },
+    "external":  {
+                     "commands":  [
+                                      "webshop.admin",
+                                      "webshop.market.auction",
+                                      "webshop.market.limitation.bypass",
+                                      "webshop.use",
+                                      "webshopx"
+                                  ],
+                     "permissions":  [
+                                         "webshop.admin",
+                                         "webshop.market.auction",
+                                         "webshop.market.limitation.bypass",
+                                         "webshop.use"
+                                     ],
+                     "httpRoutes":  [
+                                        "/",
+                                        "/api/admin/admin-users/active",
+                                        "/api/admin/admin-users/list",
+                                        "/api/admin/admin-users/meta",
+                                        "/api/admin/admin-users/upsert",
+                                        "/api/admin/audit/list",
+                                        "/api/admin/auth/login",
+                                        "/api/admin/auth/logout",
+                                        "/api/admin/auth/me",
+                                        "/api/admin/economy/currency",
+                                        "/api/admin/economy/exchange",
+                                        "/api/admin/economy/leaderboard",
+                                        "/api/admin/economy/market",
+                                        "/api/admin/economy/payment-provider-config",
+                                        "/api/admin/economy/recharge-payment",
+                                        "/api/admin/economy/settings",
+                                        "/api/admin/group-buy/consume",
+                                        "/api/admin/homepage/assets",
+                                        "/api/admin/homepage/draft",
+                                        "/api/admin/homepage/publish",
+                                        "/api/admin/homepage/restore",
+                                        "/api/admin/homepage/revisions",
+                                        "/api/admin/locales",
+                                        "/api/admin/locales/action",
+                                        "/api/admin/locales/default",
+                                        "/api/admin/locales/upload",
+                                        "/api/admin/market/limitation-config",
+                                        "/api/admin/market/listings",
+                                        "/api/admin/market/tags-config",
+                                        "/api/admin/market/unlist",
+                                        "/api/admin/material-overrides/delete",
+                                        "/api/admin/material-overrides/icon",
+                                        "/api/admin/material-overrides/list",
+                                        "/api/admin/material-overrides/upsert",
+                                        "/api/admin/notifications/announce",
+                                        "/api/admin/orders/list",
+                                        "/api/admin/overview/stats",
+                                        "/api/admin/products/active",
+                                        "/api/admin/products/from-inventory",
+                                        "/api/admin/products/icon",
+                                        "/api/admin/products/list",
+                                        "/api/admin/products/refund-policy",
+                                        "/api/admin/products/reset-limit",
+                                        "/api/admin/products/snapshot-history",
+                                        "/api/admin/products/snapshot-rollback",
+                                        "/api/admin/products/upsert",
+                                        "/api/admin/redeem/create",
+                                        "/api/admin/redeem/list",
+                                        "/api/admin/refund-policy",
+                                        "/api/admin/system/auction-display",
+                                        "/api/admin/system/broadcast",
+                                        "/api/admin/system/home-link",
+                                        "/api/admin/system/logging",
+                                        "/api/admin/system/maintenance",
+                                        "/api/admin/system/market",
+                                        "/api/admin/system/notification",
+                                        "/api/admin/system/offline-inventory",
+                                        "/api/admin/system/update",
+                                        "/api/admin/system/webshop",
+                                        "/api/admin/users/list",
+                                        "/api/admin/users/logout",
+                                        "/api/admin/users/lookup",
+                                        "/api/admin/users/migrate-uuid",
+                                        "/api/admin/users/reset-password",
+                                        "/api/admin/users/unbind",
+                                        "/api/admin/users/visual-permission",
+                                        "/api/admin/users/wallet-adjust",
+                                        "/api/admin/visual/settings",
+                                        "/api/admin/visual-packs",
+                                        "/api/admin/visual-packs/delete",
+                                        "/api/admin/visual-packs/download",
+                                        "/api/admin/visual-packs/move",
+                                        "/api/admin/visual-packs/state",
+                                        "/api/admin/visual-packs/upload",
+                                        "/api/auth/login",
+                                        "/api/auth/logout",
+                                        "/api/auth/me",
+                                        "/api/homepage",
+                                        "/api/homepage/status",
+                                        "/api/inventory/discard",
+                                        "/api/inventory/fulfill",
+                                        "/api/inventory/list",
+                                        "/api/inventory/matches",
+                                        "/api/inventory/snapshot",
+                                        "/api/leaderboard/config",
+                                        "/api/leaderboard/list",
+                                        "/api/locales/",
+                                        "/api/mailbox/",
+                                        "/api/mailbox/count",
+                                        "/api/mailbox/list",
+                                        "/api/market/auction-display-settings",
+                                        "/api/market/auction-insights",
+                                        "/api/market/bid",
+                                        "/api/market/buy",
+                                        "/api/market/icon/upload",
+                                        "/api/market/listings",
+                                        "/api/market/listings/create",
+                                        "/api/market/pause",
+                                        "/api/market/price",
+                                        "/api/market/price-trend",
+                                        "/api/market/quote",
+                                        "/api/market/remark",
+                                        "/api/market/resume",
+                                        "/api/market/sell-to-buy",
+                                        "/api/market/settings",
+                                        "/api/market/supply/refresh",
+                                        "/api/market/unlist",
+                                        "/api/meta/currency",
+                                        "/api/meta/locales",
+                                        "/api/meta/market-tags",
+                                        "/api/meta/material-overrides",
+                                        "/api/meta/materials",
+                                        "/api/meta/version",
+                                        "/api/notifications/list",
+                                        "/api/notifications/mark-read",
+                                        "/api/notifications/unread-count",
+                                        "/api/orders",
+                                        "/api/orders/delivery-status",
+                                        "/api/orders/list",
+                                        "/api/orders/policy",
+                                        "/api/orders/refund",
+                                        "/api/products",
+                                        "/api/products/price-trend",
+                                        "/api/products/quote",
+                                        "/api/recharge/cancel",
+                                        "/api/recharge/create",
+                                        "/api/recharge/redirect",
+                                        "/api/recharge/status",
+                                        "/api/redeem/use",
+                                        "/api/wallet",
+                                        "/api/wallet/exchange",
+                                        "/api/wallet/ledger",
+                                        "/health",
+                                        "/home-assets/",
+                                        "/textures/",
+                                        "/visual-packs/"
+                                    ],
+                     "relayMethods":  [
+                                          "admin.auth.login",
+                                          "admin.auth.me",
+                                          "admin.orders.list",
+                                          "admin.products.list",
+                                          "admin.relay.status",
+                                          "auth.login",
+                                          "auth.logout",
+                                          "auth.me",
+                                          "health.check",
+                                          "orders.list",
+                                          "orders.place",
+                                          "products.list",
+                                          "server.info"
+                                      ]
+                 },
+    "database":  {
+                     "sqliteSchema":  "src/main/resources/db/sqlite/schema.sql",
+                     "tables":  [
+                                    "admin_audit_logs",
+                                    "bind_requests",
+                                    "delivery_queue",
+                                    "group_buy_vouchers",
+                                    "inventory_operations",
+                                    "inventory_read_snapshots",
+                                    "mailbox_items",
+                                    "market_bids",
+                                    "market_item_deliveries",
+                                    "market_listing_tags",
+                                    "market_listings",
+                                    "market_tags",
+                                    "market_trades",
+                                    "material_visual_overrides",
+                                    "notifications",
+                                    "official_item_snapshots",
+                                    "order_items",
+                                    "orders",
+                                    "player_presence",
+                                    "product_item_snapshots",
+                                    "product_user_usage",
+                                    "products",
+                                    "redeem_codes",
+                                    "redeem_usage",
+                                    "refund_requests",
+                                    "runtime_config",
+                                    "user_market_settings",
+                                    "user_visual_permissions",
+                                    "visual_packs",
+                                    "wallet_ledger",
+                                    "wallets",
+                                    "web_admins",
+                                    "web_sessions",
+                                    "web_users",
+                                    "webshop_meta",
+                                    "webshopx_recharge_order"
+                                ],
+                     "indexes":  [
+                                     "idx_admin_audit_action_time",
+                                     "idx_admin_audit_admin_time",
+                                     "idx_bind_requests_user_id",
+                                     "idx_delivery_claim",
+                                     "idx_delivery_due",
+                                     "idx_delivery_target_due",
+                                     "idx_group_buy_voucher_status_time",
+                                     "idx_inventory_operation_user_time",
+                                     "idx_inventory_read_snapshot_captured",
+                                     "idx_mailbox_target_status_time",
+                                     "idx_mailbox_user_status_time",
+                                     "idx_market_bid_bidder",
+                                     "idx_market_bid_listing_status",
+                                     "idx_market_delivery_claim",
+                                     "idx_market_delivery_due",
+                                     "idx_market_delivery_listing_type",
+                                     "idx_market_delivery_target_due",
+                                     "idx_market_delivery_trade_type",
+                                     "idx_market_listing_auction_due",
+                                     "idx_market_listing_seller",
+                                     "idx_market_listing_side_status_created",
+                                     "idx_market_listing_side_tag_status",
+                                     "idx_market_listing_status",
+                                     "idx_market_listing_tags_tag",
+                                     "idx_market_supply_location",
+                                     "idx_market_tags_enabled_priority",
+                                     "idx_market_trade_buyer",
+                                     "idx_market_trade_listing_time",
+                                     "idx_material_visual_updated",
+                                     "idx_notifications_user_created",
+                                     "idx_notifications_user_read",
+                                     "idx_orders_target_server",
+                                     "idx_orders_user_id",
+                                     "idx_player_presence_online_updated",
+                                     "idx_player_presence_server_online",
+                                     "idx_product_user_usage_user",
+                                     "idx_recharge_player_uuid",
+                                     "idx_recharge_provider_order_id",
+                                     "idx_recharge_status",
+                                     "idx_recharge_user_id",
+                                     "idx_visual_packs_order",
+                                     "idx_wallet_ledger_wallet_id",
+                                     "idx_web_admins_role_active",
+                                     "idx_web_sessions_expires_at",
+                                     "idx_web_sessions_user_id",
+                                     "uniq_bound_uuid",
+                                     "uniq_delivery_order_item",
+                                     "uniq_group_buy_voucher_code",
+                                     "uniq_group_buy_voucher_order",
+                                     "uniq_inventory_operation_key",
+                                     "uniq_market_bid_idempotency",
+                                     "uniq_market_trade_claim_token",
+                                     "uniq_market_trade_idempotency",
+                                     "uniq_official_item_snapshot_hash",
+                                     "uniq_order_product",
+                                     "uniq_orders_claim_token",
+                                     "uniq_orders_idempotency",
+                                     "uniq_orders_order_no",
+                                     "uniq_product_item_snapshot_version",
+                                     "uniq_products_sku",
+                                     "uniq_recharge_order_id",
+                                     "uniq_redeem_usage",
+                                     "uniq_refund_request_key",
+                                     "uniq_username",
+                                     "uniq_wallet_biz",
+                                     "uniq_wallet_user_id"
+                                 ]
+                 },
+    "build":  {
+                  "targetRuntimes":  [
+                                         "1.18.2+",
+                                         "1.20.6+",
+                                         "26.1+",
+                                         "26.2+"
+                                     ],
+                  "jarTasks":  [
+                                   "foliaPreviewJar",
+                                   "foliaSlimJar",
+                                   "fullFoliaJar",
+                                   "fullFoliaLinuxJar",
+                                   "fullFoliaWinJar",
+                                   "fullLinuxJar",
+                                   "fullWinJar",
+                                   "obfuscatedJar",
+                                   "plainPluginJar",
+                                   "slimJar"
+                               ],
+                  "baselineTask":  "paperBaseline"
+              },
+    "evidence":  {
+                     "sha256":  {
+                                    "src/main/resources/plugin.yml":  "49a16944c83a2e624e8432bd08389592d4c79cbd72cb74cc9f0a8a2140c7a9f5",
+                                    "src/main/resources/config.yml":  "0480d6f26e522adaf2b82358aab1cac15a5ee3755d7f81cffedd5bb0a30b6625",
+                                    "src/main/resources/db/sqlite/schema.sql":  "21b4d4a9d85b390891bfeb762c6131c2f122f98302868336fd07a3ab9c0a0b08",
+                                    "build/tmp/plain-plugin/WebShopX-dev-v3.0.0-plain-plugin.jar":  "77574545b2efa47cfa10b07777a70dbec3aec6640ebf7a3f4487ee79406d338c"
+                                },
+                     "databaseTests":  [
+                                           "SqliteSchemaScriptTest",
+                                           "SqliteBusinessSqlSmokeTest",
+                                           "SqliteConcurrencyRetryTest",
+                                           "SqliteOfficialSnapshotMigrationTest",
+                                           "MySqlBusinessSqlSmokeTest"
+                                       ]
+                 }
+}
