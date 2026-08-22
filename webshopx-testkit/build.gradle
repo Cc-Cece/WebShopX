@@ -1,0 +1,9 @@
+plugins { id 'java-library' }
+java { toolchain.languageVersion = JavaLanguageVersion.of(17) }
+dependencies {
+    api project(':webshopx-platform-api')
+    implementation project(':webshopx-core')
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.13.4'
+}
+test { useJUnitPlatform() }

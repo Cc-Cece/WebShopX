@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "webshopx",
+  "version": "${modVersion}",
+  "name": "WebShopX",
+  "description": "Server-side WebShopX runtime for modern Fabric",
+  "environment": "server",
+  "entrypoints": { "main": ["com.webshopx.fabric.WebShopXFabricMod"] },
+  "depends": { "fabricloader": ">=${loaderVersion}", "minecraft": "${minecraftVersion}", "java": ">=25" }
+}

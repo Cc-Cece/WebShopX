@@ -1,0 +1,38 @@
+plugins {
+    id 'java-library'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(17)
+}
+
+dependencies {
+    api project(':webshopx-platform-api')
+    implementation 'com.google.code.gson:gson:2.11.0'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.13.4'
+}
+
+test { useJUnitPlatform() }
+
+tasks.register('verifyPlatformIsolation') {
+    group = 'verification'
+    dependsOn tasks.named('classes')
+    doLast {
+        def forbidden = ['org/bukkit/', 'io/papermc/', 'net/minecraft/', 'net/fabricmc/', 'net/minecraftforge/', 'net/neoforged/']
+        def violations = []
+        sourceSets.main.output.classesDirs.files.each { dir ->
+            if (!dir.exists()) return
+            fileTree(dir).matching { include '**/*.class' }.files.each { classFile ->
+                byte[] bytes = classFile.bytes
+                String constants = new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1)
+                forbidden.each { token ->
+                    if (constants.contains(token)) violations << "${classFile.name}: ${token}"
+                }
+            }
+        }
+        if (!violations.isEmpty()) throw new GradleException("Core platform leakage: ${violations}")
+    }
+}
+
+check.dependsOn tasks.named('verifyPlatformIsolation')

@@ -1,0 +1,14 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="GPL-3.0-or-later"
+[[mods]]
+modId="webshopx"
+version="${modVersion}"
+displayName="WebShopX"
+description='''Server-side WebShopX runtime for modern NeoForge'''
+[[dependencies.webshopx]]
+modId="minecraft"
+type="required"
+versionRange="[${minecraftVersion}]"
+ordering="NONE"
+side="SERVER"

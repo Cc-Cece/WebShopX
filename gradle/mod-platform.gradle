@@ -1,0 +1,101 @@
+plugins.apply('java')
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(project.ext.javaVersion as int)
+    }
+}
+
+dependencies {
+    implementation project(':webshopx-loader-runtime')
+    compileOnly project(':webshopx-loader-stubs')
+    testImplementation project(':webshopx-loader-stubs')
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.13.4'
+}
+
+sourceSets {
+    main {
+        java.srcDir rootProject.file("webshopx-${project.ext.platformFamily}-common/src/main/java")
+    }
+    test {
+        java.srcDir rootProject.file('webshopx-loader-common/src/test/java')
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = project.ext.javaVersion as int
+    options.encoding = 'UTF-8'
+}
+
+processResources {
+    inputs.properties(
+            minecraftVersion: project.ext.minecraftVersion,
+            loaderVersion: project.ext.loaderVersion,
+            modVersion: project.version
+    )
+    filesMatching(['fabric.mod.json', 'META-INF/mods.toml', 'META-INF/neoforge.mods.toml']) {
+        expand(
+                minecraftVersion: project.ext.minecraftVersion,
+                loaderVersion: project.ext.loaderVersion,
+                modVersion: project.version
+        )
+    }
+}
+
+jar {
+    dependsOn ':webshopx-loader-runtime:jar', ':webshopx-core:jar', ':webshopx-platform-api:jar'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    exclude 'META-INF/*.SF', 'META-INF/*.RSA', 'META-INF/*.DSA', 'META-INF/INDEX.LIST'
+    archiveBaseName.set("webshopx-${project.ext.platformFamily}-${project.ext.artifactSuffix}")
+    manifest {
+        attributes(
+                'Implementation-Title': "WebShopX ${project.ext.platformFamily}",
+                'Implementation-Version': project.version,
+                'WebShopX-Platform': project.ext.platformFamily,
+                'WebShopX-Minecraft': project.ext.minecraftVersion,
+                'WebShopX-Loader': project.ext.loaderVersion,
+                'Automatic-Module-Name': "com.webshopx.${project.ext.platformFamily}.${project.ext.artifactSuffix.replace('-', '.')}"
+        )
+    }
+}
+
+test {
+    useJUnitPlatform()
+    systemProperty 'webshopx.platform-family', project.ext.platformFamily
+    systemProperty 'webshopx.minecraft', project.ext.minecraftVersion
+    systemProperty 'webshopx.loader', project.ext.loaderVersion
+    systemProperty 'webshopx.data-dir', layout.buildDirectory.dir('tmp/entrypoint-smoke').get().asFile.absolutePath
+}
+
+tasks.register('verifyLoaderMetadata') {
+    group = 'verification'
+    dependsOn tasks.named('jar')
+    doLast {
+        def artifact = tasks.named('jar', Jar).get().archiveFile.get().asFile
+        def zip = new java.util.zip.ZipFile(artifact)
+        try {
+            def names = zip.entries().collect { it.name } as Set
+            def expected = project.ext.metadataPath
+            if (!names.contains(expected)) {
+                throw new GradleException("${artifact.name} is missing ${expected}")
+            }
+            def forbidden = ['fabric.mod.json', 'META-INF/mods.toml', 'META-INF/neoforge.mods.toml']
+                    .findAll { it != expected && names.contains(it) }
+            if (!forbidden.isEmpty()) {
+                throw new GradleException("${artifact.name} contains foreign Loader metadata: ${forbidden}")
+            }
+            if (names.any { it.startsWith('org/bukkit/') || it.startsWith('io/papermc/') }) {
+                throw new GradleException("${artifact.name} unexpectedly packages Paper/Bukkit classes")
+            }
+            if (!names.contains(project.ext.entrypointPath)) {
+                throw new GradleException("${artifact.name} is missing entrypoint ${project.ext.entrypointPath}")
+            }
+        } finally {
+            zip.close()
+        }
+    }
+}

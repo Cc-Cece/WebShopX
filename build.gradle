@@ -14,6 +14,14 @@ group = "com.webshopx"
 String targetRuntime = hasProperty('targetRuntime')
         ? property('targetRuntime').toString().trim().toLowerCase(Locale.ROOT)
         : '1.20.6+'
+
+subprojects {
+    group = rootProject.group
+    version = rootProject.version
+    repositories {
+        mavenCentral()
+    }
+}
 if (!(targetRuntime in ['26.2+', '26.1+', '1.20.6+', '1.18.2+'])) {
     throw new GradleException("Unsupported targetRuntime: ${targetRuntime}. Allowed values: 26.2+, 26.1+, 1.20.6+, 1.18.2+")
 }
@@ -102,6 +110,7 @@ configurations {
 }
 
 dependencies {
+    implementation project(':webshopx-loader-runtime')
     compileOnly "io.papermc.paper:paper-api:${runtimePaperApiVersion}"
     compileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
     implementation 'org.bstats:bstats-bukkit:3.2.1'
@@ -475,6 +484,86 @@ tasks.register('paperBaseline') {
     description = 'Runs the reproducible, frontend-independent Paper regression baseline.'
     dependsOn tasks.named('test')
     dependsOn tasks.named('verifyPaperBaselineArtifact')
+}
+
+def modArtifactProjects = [
+        ':webshopx-fabric-1182',
+        ':webshopx-fabric-1201',
+        ':webshopx-fabric-modern',
+        ':webshopx-forge-1182',
+        ':webshopx-forge-1201',
+        ':webshopx-neoforge-1201',
+        ':webshopx-neoforge-modern'
+]
+
+tasks.register('modMatrixAssemble') {
+    group = 'build'
+    description = 'Builds every frozen server-Mod anchor artifact.'
+    dependsOn modArtifactProjects.collect { "${it}:assemble" }
+}
+
+tasks.register('coreContractTest') {
+    group = 'verification'
+    description = 'Runs platform-neutral core and shared platform contract tests.'
+    dependsOn ':webshopx-core:test', ':webshopx-platform-api:test', ':webshopx-testkit:test'
+}
+
+tasks.register('verifyModMetadata') {
+    group = 'verification'
+    description = 'Checks Loader metadata, entrypoints and cross-loader isolation in all Mod JARs.'
+    dependsOn modArtifactProjects.collect { "${it}:verifyLoaderMetadata" }
+}
+
+tasks.register('modEntrypointSmoke') {
+    group = 'verification'
+    description = 'Executes every packaged Loader entrypoint against its binary contract stubs.'
+    dependsOn modArtifactProjects.collect { "${it}:test" }
+}
+
+tasks.register('generateModReleaseManifest') {
+    group = 'distribution'
+    description = 'Writes the candidate artifact inventory with SHA-256 checksums.'
+    dependsOn tasks.named('modMatrixAssemble')
+    def outputFile = layout.buildDirectory.file('reports/mod-migration/release-manifest.json')
+    outputs.file(outputFile)
+    doLast {
+        def artifacts = modArtifactProjects.collect { path ->
+            def child = project(path)
+            def artifact = child.tasks.named('jar', Jar).get().archiveFile.get().asFile
+            [
+                    platform: child.ext.platformFamily,
+                    minecraft: child.ext.minecraftVersion,
+                    loader: child.ext.loaderVersion,
+                    java: child.ext.javaVersion,
+                    file: artifact.name,
+                    bytes: artifact.length(),
+                    sha256: java.security.MessageDigest.getInstance('SHA-256')
+                            .digest(artifact.bytes).encodeHex().toString()
+            ]
+        }
+        def destination = outputFile.get().asFile
+        destination.parentFile.mkdirs()
+        destination.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson([
+                schemaVersion: 1,
+                version: project.version.toString(),
+                sourceCommit: providers.exec {
+                    commandLine 'git', 'rev-parse', 'HEAD'
+                }.standardOutput.asText.get().trim(),
+                artifacts: artifacts
+        ])) + System.lineSeparator()
+        println "Release manifest: ${destination}"
+    }
+}
+
+tasks.register('releaseReadiness') {
+    group = 'verification'
+    description = 'Runs all locally reproducible Paper, core, Loader and artifact release gates.'
+    dependsOn tasks.named('paperBaseline')
+    dependsOn tasks.named('coreContractTest')
+    dependsOn ':webshopx-loader-runtime:test'
+    dependsOn tasks.named('verifyModMetadata')
+    dependsOn tasks.named('modEntrypointSmoke')
+    dependsOn tasks.named('generateModReleaseManifest')
 }
 
 tasks.register('checkI18nSources', Exec) {

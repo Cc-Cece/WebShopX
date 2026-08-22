@@ -1,0 +1,67 @@
+name: Mod migration gates
+
+on:
+  pull_request:
+    paths:
+      - 'webshopx-**'
+      - 'gradle/mod-platform.gradle'
+      - 'docs/mod-migration/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - '.github/workflows/mod-migration.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * 2'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mod-migration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts-and-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Java 17 toolchain
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Java 21 toolchain
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Java 25 toolchain
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+      - name: Run platform-neutral and Loader gates
+        run: ./gradlew coreContractTest :webshopx-loader-runtime:test modMatrixAssemble verifyModMetadata modEntrypointSmoke generateModReleaseManifest --stacktrace
+      - name: Upload candidate matrix
+        uses: actions/upload-artifact@v4
+        with:
+          name: webshopx-mod-candidate-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            webshopx-*/build/libs/*.jar
+            build/reports/mod-migration/release-manifest.json
+
+  paper-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Preserve Paper baseline
+        run: ./gradlew paperBaseline --stacktrace

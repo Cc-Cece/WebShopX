@@ -1,6 +1,7 @@
 package com.webshopx;
 
 import com.tchristofferson.configupdater.ConfigUpdater;
+import com.webshopx.loader.LoaderRuntime;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -84,6 +85,7 @@ public class WebShopPlugin extends JavaPlugin {
 
   @Override
   public void onEnable() {
+    LoaderRuntime.start("paper", getServer().getMinecraftVersion(), getServer().getVersion());
     refreshMainConfig();
     schedulerBridge = SchedulerBridge.create(this);
     relaySetupService = new RelaySetupService(this, schedulerBridge);
@@ -327,6 +329,7 @@ public class WebShopPlugin extends JavaPlugin {
     if (businessLedgerLogService != null) {
       businessLedgerLogService.close();
     }
+    LoaderRuntime.stop();
   }
 
   void reloadRuntimeConfig() {

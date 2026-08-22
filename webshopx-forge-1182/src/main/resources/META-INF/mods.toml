@@ -1,0 +1,14 @@
+modLoader="javafml"
+loaderVersion="[40,)"
+license="GPL-3.0-or-later"
+[[mods]]
+modId="webshopx"
+version="${modVersion}"
+displayName="WebShopX"
+description='''Server-side WebShopX runtime for Forge'''
+[[dependencies.webshopx]]
+modId="minecraft"
+mandatory=true
+versionRange="[${minecraftVersion}]"
+ordering="NONE"
+side="SERVER"
