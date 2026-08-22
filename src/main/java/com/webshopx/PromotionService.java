@@ -188,7 +188,17 @@ class PromotionService {
   private Set<String> parseScope(String raw) { Set<String> ids = new HashSet<>(); try { for (var item : gson.fromJson(raw, JsonArray.class)) ids.add(item.getAsString()); } catch (RuntimeException ignored) { } return ids; }
   private PricingEngine.Basis basis(int layer) { return layer == 0 ? PricingEngine.Basis.P0 : PricingEngine.Basis.CURRENT; }
   private void validateDraft(CampaignDraft d) { if (d == null || d.code() == null || d.code().isBlank() || d.name() == null || d.name().isBlank() || d.endAt() != null && d.startAt() != null && !d.endAt().isAfter(d.startAt())) throw new ServiceException("invalid_campaign", "Campaign input is invalid"); if (d.ownerType() == OwnerType.SELLER && d.ownerId() == null) throw new ServiceException("invalid_campaign_owner", "Seller is required"); }
-  private void validateRule(RuleDraft r) { if (r == null || r.lineIds() == null || r.lineIds().isEmpty() || r.discountAmount() < 0 || r.discountBps() < 0 || r.discountBps() > 10000 || r.platformShareBps() < 0 || r.platformShareBps() > 10000 || r.allowZeroPayable() && r.minPayableOverride() != null && r.minPayableOverride() > 0) throw new ServiceException("invalid_rule", "Promotion rule is invalid"); }
+  private void validateRule(RuleDraft r) {
+    if (r == null || r.lineIds() == null || r.lineIds().isEmpty() || r.discountAmount() < 0
+        || r.discountBps() < 0 || r.discountBps() > 10000
+        || r.platformShareBps() < 0 || r.platformShareBps() > 10000) {
+      throw new ServiceException("invalid_rule", "Promotion rule is invalid");
+    }
+    if (r.allowZeroPayable() && r.minPayableOverride() != null && r.minPayableOverride() > 0) {
+      throw new ServiceException("invalid_zero_payable",
+          "Allow-zero payable cannot be combined with a positive minimum payable");
+    }
+  }
   private static Long nullableLong(ResultSet r, String c) throws SQLException { Object v = r.getObject(c); return v == null ? null : ((Number) v).longValue(); }
   private static Instant toInstant(Timestamp t) { return t == null ? null : t.toInstant(); }
   private static void setTime(PreparedStatement s, int i, Instant v) throws SQLException { if (v == null) s.setObject(i, null); else s.setTimestamp(i, Timestamp.from(v)); }
