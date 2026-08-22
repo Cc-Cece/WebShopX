@@ -1202,11 +1202,25 @@ class MarketService {
             normalizedIdempotency,
             deliveryModeRaw,
             expectedUnitPrice,
-            expectedBuyerTotal));
+            expectedBuyerTotal,
+            null,
+            true));
     if (result.state() == TradeState.CREATED) {
       publishTradeCreatedEvent(result.tradeId());
     }
     return result;
+  }
+
+  TradeResult buyListingInCheckout(
+      Connection connection,
+      long buyerUserId,
+      long listingId,
+      int buyQuantity,
+      String idempotencyKey,
+      String deliveryModeRaw,
+      FrozenMarketPricing pricing) throws SQLException {
+    return buyListingInTransaction(connection, buyerUserId, listingId, buyQuantity,
+        normalizeIdempotencyKey(idempotencyKey), deliveryModeRaw, null, null, pricing, false);
   }
 
   BidResult placeBid(long bidderUserId, long listingId, long bidAmount, String idempotencyKey) {
@@ -2020,7 +2034,9 @@ class MarketService {
       String idempotencyKey,
       String deliveryModeRaw,
       Long expectedUnitPrice,
-      Long expectedBuyerTotal) throws SQLException {
+      Long expectedBuyerTotal,
+      FrozenMarketPricing frozenPricing,
+      boolean debitWallet) throws SQLException {
     int cooldownSeconds = normalizedOrderCooldownSeconds();
     ExistingTrade existingTrade = readExistingTrade(connection, buyerUserId, idempotencyKey);
     if (existingTrade != null) {
@@ -2087,10 +2103,10 @@ class MarketService {
     assertExpectedQuote(quote, expectedUnitPrice, expectedBuyerTotal);
     long tradeUnitPrice = quote.unitPrice();
     long tradeSubtotal = quote.totalPrice();
-    long fee = quote.feeAmount();
-    long tax = quote.taxAmount();
-    long buyerTotal = quote.buyerTotal();
-    long sellerReceive = quote.sellerReceive();
+    long fee = frozenPricing == null ? quote.feeAmount() : frozenPricing.feeAmount();
+    long tax = frozenPricing == null ? quote.taxAmount() : frozenPricing.taxAmount();
+    long buyerTotal = frozenPricing == null ? quote.buyerTotal() : frozenPricing.buyerTotal();
+    long sellerReceive = frozenPricing == null ? quote.sellerReceive() : frozenPricing.sellerReceive();
     LocalDateTime now = TimeSupport.utcNow();
     DeliveryMode deliveryMode = resolveDeliveryMode(deliveryModeRaw);
     LocalDateTime refundDeadline = deliveryMode == DeliveryMode.IMMEDIATE && cooldownSeconds > 0
@@ -2100,14 +2116,16 @@ class MarketService {
 
     String buyerDebitBizId = "mkt-buy:" + buyer.userId() + ":" + idempotencyKey;
 
-    walletService.applyDelta(
-        connection,
-        buyer.userId(),
-        listing.currency(),
-        -buyerTotal,
-        "MARKET_BUY",
-        buyerDebitBizId,
-        true);
+    if (debitWallet) {
+      walletService.applyDelta(
+          connection,
+          buyer.userId(),
+          listing.currency(),
+          -buyerTotal,
+          "MARKET_BUY",
+          buyerDebitBizId,
+          true);
+    }
 
     long tradeId = insertTrade(
         connection,
@@ -6302,6 +6320,8 @@ class MarketService {
       long nextDemandScore,
       long nextUnitPrice) {
   }
+
+  record FrozenMarketPricing(long buyerTotal, long sellerReceive, long feeAmount, long taxAmount) {}
 
   record UnlistResult(long listingId, CurrencyType currency, long price, int quantity) {
   }

@@ -72,6 +72,7 @@ class SchemaManager {
     migrateMailboxItems(connection);
     createNotifications(connection);
     migrateNotifications(connection);
+    PromotionSchema.installMysql(connection);
     return null;
   }
 

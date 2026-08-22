@@ -12,10 +12,30 @@ enum AdminRole {
       AdminPermission.PRODUCT_ZERO_PRICE,
       AdminPermission.ORDER_VIEW,
       AdminPermission.ECONOMY_MANAGE,
-      AdminPermission.HOMEPAGE_MANAGE)),
-  MARKET_MODERATOR(EnumSet.of(AdminPermission.MARKET_MANAGE)),
-  SUPPORT_ADMIN(EnumSet.of(AdminPermission.USER_SUPPORT, AdminPermission.ORDER_VIEW)),
-  AUDITOR(EnumSet.of(AdminPermission.AUDIT_VIEW));
+      AdminPermission.HOMEPAGE_MANAGE,
+      AdminPermission.PROMOTION_VIEW,
+      AdminPermission.PROMOTION_MANAGE,
+      AdminPermission.COUPON_MANAGE,
+      AdminPermission.COUPON_GRANT,
+      AdminPermission.COUPON_COMPENSATE,
+      AdminPermission.MEMBERSHIP_VIEW,
+      AdminPermission.MEMBERSHIP_MANAGE,
+      AdminPermission.MEMBERSHIP_GRANT,
+      AdminPermission.PROMOTION_FINANCE_VIEW)),
+  MARKET_MODERATOR(EnumSet.of(
+      AdminPermission.MARKET_MANAGE,
+      AdminPermission.PROMOTION_VIEW,
+      AdminPermission.SELLER_PROMOTION_MODERATE)),
+  SUPPORT_ADMIN(EnumSet.of(
+      AdminPermission.USER_SUPPORT,
+      AdminPermission.ORDER_VIEW,
+      AdminPermission.PROMOTION_VIEW,
+      AdminPermission.MEMBERSHIP_VIEW)),
+  AUDITOR(EnumSet.of(
+      AdminPermission.AUDIT_VIEW,
+      AdminPermission.PROMOTION_VIEW,
+      AdminPermission.MEMBERSHIP_VIEW,
+      AdminPermission.PROMOTION_FINANCE_VIEW));
 
   private final Set<AdminPermission> permissions;
 

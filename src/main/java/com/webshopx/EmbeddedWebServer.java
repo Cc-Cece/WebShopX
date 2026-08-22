@@ -96,6 +96,7 @@ class EmbeddedWebServer {
   private final MailboxService mailboxService;
   private final MailboxCenterService mailboxCenterService;
   private final RefundPolicyService refundPolicyService;
+  private final CommerceHttpApi commerceHttpApi;
   private static final int MATERIAL_ICON_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
   private static final Set<String> MATERIAL_ICON_ALLOWED_EXTENSIONS =
       Set.of("png", "webp", "jpg", "jpeg", "gif");
@@ -178,6 +179,8 @@ class EmbeddedWebServer {
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build();
     this.localeCenterService = new LocaleCenterService(plugin, () -> this.webUserRoot);
+    this.commerceHttpApi = new CommerceHttpApi(databaseManager, authService, adminService,
+        productService, marketService, walletService, orderService);
   }
 
   void start(Path staticRoot, Path webUserRoot) throws IOException {
@@ -324,6 +327,7 @@ class EmbeddedWebServer {
     server.createContext("/api/admin/admin-users/list", this::handleAdminAdminUsersList);
     server.createContext("/api/admin/admin-users/upsert", this::handleAdminAdminUsersUpsert);
     server.createContext("/api/admin/admin-users/active", this::handleAdminAdminUsersActive);
+    commerceHttpApi.register(server);
     server.createContext("/home-assets/", this::handleHomepageAsset);
     server.createContext("/textures/", this::handleTextureAsset);
     server.createContext("/visual-packs/", this::handleVisualPackAsset);

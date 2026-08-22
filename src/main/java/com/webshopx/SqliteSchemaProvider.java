@@ -98,6 +98,20 @@ final class SqliteSchemaProvider implements SchemaProvider {
     assertTableExists(connection, "visual_packs");
     assertTableExists(connection, "official_item_snapshots");
     assertTableExists(connection, "product_item_snapshots");
+    assertTableExists(connection, "commerce_carts");
+    assertTableExists(connection, "promotion_campaigns");
+    assertTableExists(connection, "coupon_templates");
+    assertTableExists(connection, "membership_plans");
+    assertTableExists(connection, "checkout_quotes");
+    assertTableExists(connection, "checkout_orders");
+    assertTableExists(connection, "checkout_discounts");
+    assertTableExists(connection, "checkout_discount_allocations");
+    assertTableExists(connection, "checkout_funding_shares");
+    assertTableExists(connection, "checkout_line_payment_units");
+    assertTableExists(connection, "commerce_refund_adjustments");
+    assertTableExists(connection, "membership_codes");
+    assertTableExists(connection, "membership_product_bindings");
+    assertTableExists(connection, "benefit_grants");
 
     assertColumnExists(connection, "web_users", "auth_state");
     assertColumnExists(connection, "products", "snapshot_id");
