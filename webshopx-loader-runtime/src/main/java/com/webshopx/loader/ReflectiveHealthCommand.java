@@ -122,6 +122,9 @@ public final class ReflectiveHealthCommand {
       Object dispatcher, Method register, Class<?> literalBuilder, Class<?> commandType)
       throws ReflectiveOperationException {
     register.invoke(dispatcher, command(
+        literalBuilder, commandType, "webshopx-item-probe", null,
+        invocation -> LoaderRuntime.nativeItemProbe()));
+    register.invoke(dispatcher, command(
         literalBuilder, commandType, "webshopx-balance", null,
         invocation -> {
           var player = requirePlayer(invocation.source());

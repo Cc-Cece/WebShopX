@@ -25,6 +25,7 @@ final class LoaderScheduler implements PlatformPorts.Scheduler, AutoCloseable {
   private final ThreadLocal<Boolean> asyncThread = ThreadLocal.withInitial(() -> false);
   private final ThreadLocal<Boolean> serverThread = ThreadLocal.withInitial(() -> false);
   private volatile Executor serverExecutor;
+  private volatile Object nativeServer;
 
   @Override
   public CompletionStage<Void> runGlobal(Runnable action) {
@@ -72,6 +73,7 @@ final class LoaderScheduler implements PlatformPorts.Scheduler, AutoCloseable {
   @Override
   public void close() {
     serverExecutor = null;
+    nativeServer = null;
     if (closed.compareAndSet(false, true)) async.shutdownNow();
   }
 
@@ -80,10 +82,16 @@ final class LoaderScheduler implements PlatformPorts.Scheduler, AutoCloseable {
       throw new IllegalArgumentException("native server does not implement Executor: " + server.getClass().getName());
     }
     serverExecutor = executor;
+    nativeServer = server;
   }
 
   void unbind() {
     serverExecutor = null;
+    nativeServer = null;
+  }
+
+  Object nativeServer() {
+    return nativeServer;
   }
 
   private void runAsyncAction(Runnable action, CompletableFuture<Void> result) {

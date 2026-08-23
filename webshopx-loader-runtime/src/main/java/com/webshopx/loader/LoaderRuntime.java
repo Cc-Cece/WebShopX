@@ -6,7 +6,6 @@ import com.webshopx.AdminService;
 import com.webshopx.AdminAuditService;
 import com.webshopx.WalletService;
 import com.webshopx.RedeemCodeService;
-import com.webshopx.core.OpaqueItemCodec;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.CapabilitySnapshot.Capability;
 import com.webshopx.platform.CapabilitySnapshot.CapabilityState;
@@ -34,6 +33,7 @@ public final class LoaderRuntime {
   private static LoaderLifecycle lifecycle;
   private static LoaderScheduler scheduler;
   private static NativePlayerDirectory playerDirectory;
+  private static NativeItemCodec itemCodec;
   private static boolean nativeLifecycleInstalled;
   private static boolean shutdownHookInstalled;
 
@@ -99,6 +99,7 @@ public final class LoaderRuntime {
     lifecycle = null;
     if (playerDirectory != null) playerDirectory.clear();
     playerDirectory = null;
+    itemCodec = null;
     nativeLifecycleInstalled = false;
     if (instanceGuard != null) instanceGuard.close();
     instanceGuard = null;
@@ -143,6 +144,13 @@ public final class LoaderRuntime {
         + " minecraft=" + identity.minecraftVersion() + " loader=" + identity.loaderVersion();
   }
 
+  static String nativeItemProbe() {
+    NativeItemCodec current = itemCodec;
+    return current == null
+        ? "WebShopX item-roundtrip=FAIL reason=codec_not_started"
+        : current.probeRoundTrip();
+  }
+
   private static synchronized void installShutdownHook() {
     if (shutdownHookInstalled) return;
     Runtime.getRuntime().addShutdownHook(new Thread(LoaderRuntime::stop, "webshopx-shutdown"));
@@ -170,18 +178,6 @@ public final class LoaderRuntime {
     if (playerDirectory == null) playerDirectory = new NativePlayerDirectory(identity.serverId());
     if (!nativeLifecycleInstalled) lifecycle.fireReady();
     PlatformPorts.PlayerDirectory players = playerDirectory;
-    PlatformPorts.InventoryGateway inventories = new PlatformPorts.InventoryGateway() {
-      public CompletionStage<PlatformResult<com.webshopx.platform.InventoryTypes.InventorySnapshot>> snapshot(
-          UUID id, boolean offline) {
-        return CompletableFuture.completedFuture(new PlatformResult.Unavailable<>(
-            "inventory", "native inventory adapter is unavailable", Duration.ZERO));
-      }
-      public CompletionStage<PlatformResult<com.webshopx.platform.InventoryTypes.InventoryMutationResult>> compareAndApply(
-          com.webshopx.platform.InventoryTypes.InventoryMutation mutation) {
-        return CompletableFuture.completedFuture(new PlatformResult.Unavailable<>(
-            "inventory", "native inventory adapter is unavailable", Duration.ZERO));
-      }
-    };
     PlatformPorts.CommandGateway commands = command ->
         new PlatformResult.Unavailable<>("commands", "native command adapter is unavailable", Duration.ZERO);
     PlatformPorts.PermissionProvider permissions = new NativePermissionProvider(playerDirectory, scheduler);
@@ -189,7 +185,10 @@ public final class LoaderRuntime {
     PlatformPorts.MessagingGateway messaging = new NativeMessagingGateway(playerDirectory, scheduler);
     PlatformPorts.EventPublisher events = event -> PlatformResult.success(null);
     Path base = Path.of(System.getProperty("webshopx.data-dir", "config/webshopx"));
-    OpaqueItemCodec items = new OpaqueItemCodec(loader + "-native", 1, Clock.systemUTC());
+    NativeItemCodec items = new NativeItemCodec(identity, scheduler::nativeServer, Clock.systemUTC());
+    itemCodec = items;
+    PlatformPorts.InventoryGateway inventories =
+        new NativeInventoryGateway(playerDirectory, scheduler, items, identity);
     return new PlatformPorts.Bundle(lifecycle, scheduler, players, inventories, items, commands,
         permissions, economy, messaging, events,
         new PlatformPorts.Paths(base, base, base.resolve("web"), base.resolve("uploads"), base.resolve("logs")),

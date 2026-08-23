@@ -72,6 +72,10 @@ final class NativePlayerDirectory implements PlatformPorts.PlayerDirectory {
     nativePlayers.clear();
   }
 
+  Optional<Object> nativePlayer(UUID playerId) {
+    return Optional.ofNullable(nativePlayers.get(playerId));
+  }
+
   boolean sendText(UUID playerId, String text) {
     Object player = nativePlayers.get(playerId);
     if (player == null) return false;
