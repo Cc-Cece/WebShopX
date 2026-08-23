@@ -975,14 +975,19 @@ tasks.register('verifyRcEvidence') {
             throw new GradleException("RC evidence source mismatch. expected=${commit}, actual=${evidence.sourceCommit}")
         }
         def required = [
-                'paper-regression', 'contracts-and-artifacts', 'database-and-redis',
+                'paper-regression', 'paper-folia-real-server', 'contracts-and-artifacts',
+                'frontend-lint-types-unit-build', 'reproducible-clean-cache',
+                'database-mariadb', 'database-mysql', 'redis-relay',
+                'mixed-cluster', 'migration-reconciliation', 'rollback-restore',
+                'real-player-item-corpus',
                 'server-fabric-1.18.2', 'server-fabric-1.19.4',
                 'server-fabric-1.20', 'server-fabric-1.20.4',
                 'server-fabric-1.20.5', 'server-fabric-26.2',
                 'server-forge-1.18.2', 'server-forge-1.19.4',
                 'server-forge-1.20', 'server-forge-1.20.1',
                 'server-neoforge-1.20.1', 'server-neoforge-1.20.2', 'server-neoforge-26.2',
-                'dependency-scan', 'codeql', 'browser-landing', 'browser-health'
+                'dependency-scan', 'security-scan', 'codeql', 'license-scan', 'sbom-validate',
+                'browser-landing', 'browser-health', 'browser-critical-journeys'
         ] as Set
         def checks = (evidence.checks ?: []).collectEntries { check -> [(check.id): check] }
         def missing = required - checks.keySet()
@@ -991,8 +996,16 @@ tasks.register('verifyRcEvidence') {
         }
         required.each { id ->
             def check = checks[id]
+            java.time.Instant generatedAt
+            try {
+                generatedAt = java.time.Instant.parse(check.generatedAtUtc?.toString())
+            } catch (RuntimeException ignored) {
+                throw new GradleException("RC check has a missing or invalid timestamp: ${id}")
+            }
+            def now = java.time.Instant.now()
             if (check.status != 'passed' || check.sourceCommit != commit || !check.environment ||
-                    !(check.evidenceSha256 ==~ /[0-9a-f]{64}/)) {
+                    !(check.evidenceSha256 ==~ /[0-9a-f]{64}/) ||
+                    generatedAt.isAfter(now.plusSeconds(300)) || generatedAt.isBefore(now.minusSeconds(86_400))) {
                 throw new GradleException("RC check is skipped, stale or incomplete: ${id}")
             }
         }

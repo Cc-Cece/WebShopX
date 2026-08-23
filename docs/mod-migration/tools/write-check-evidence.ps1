@@ -17,7 +17,12 @@ $lines = foreach ($file in $files) {
     "$hash  $($file.Name)"
 }
 $bytes = [Text.Encoding]::UTF8.GetBytes(($lines -join "`n") + "`n")
-$digest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+$sha256 = [Security.Cryptography.SHA256]::Create()
+try {
+    $digest = ([BitConverter]::ToString($sha256.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+} finally {
+    $sha256.Dispose()
+}
 $destination = [IO.Path]::GetFullPath($OutputFile)
 [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($destination)) | Out-Null
 [ordered]@{
@@ -26,6 +31,7 @@ $destination = [IO.Path]::GetFullPath($OutputFile)
     status = 'passed'
     sourceCommit = $SourceCommit
     environment = $Environment
+    generatedAtUtc = [DateTime]::UtcNow.ToString('o')
     evidenceSha256 = $digest
     files = @($lines)
 } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $destination -Encoding utf8
