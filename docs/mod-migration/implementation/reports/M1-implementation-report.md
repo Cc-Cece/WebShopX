@@ -9,7 +9,10 @@
 - 七个发行单元均在真实 dedicated server 完成启动、`webshopx-health` 命令、版本身份、完整 SQLite schema 初始化、原生 ServerStarted/ServerStopping 事件桥、`READY → STOPPED` 健康快照和干净停止；每端日志均确认 `native lifecycle ... installed=true` 与 `native server lifecycle ready`。
 - Fabric API 精确冻结为 0.77.0+1.18.2、0.92.6+1.20.1、0.158.0+26.2。
 
-## 最终真实启动证据（2026-08-23，Asia/Shanghai）
+## M1 时点真实启动证据（2026-08-23，Asia/Shanghai）
+
+下列 hash 固化 M1 门禁时点，不是 M9 最终候选；最终 hash 只读取
+`build/reports/mod-migration/release-manifest.json`。
 
 | 单元 | SHA-256 | 结果 |
 |---|---|---|

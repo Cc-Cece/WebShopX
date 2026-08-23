@@ -75,6 +75,10 @@ M0 基线与历史原型审计
 
 任务状态只记录在 [implementation/task-status.md](implementation/task-status.md)。文档中写了代码或测试，不等于任务完成；必须同时满足完成定义、证据要求和一次正式审核。
 
+M0–M9 实施交接从 [统一审核包](review/implementation-review-packet.md) 开始；管理员与玩家分别使用
+[安装/升级/回滚指南](operations-guide.md) 和 [玩家说明](player-guide.md)。构建生成的
+`build/reports/mod-migration/readiness.json` 是机器可读状态，不能替代独立审核结论。
+
 ## 6. 关键角色
 
 - 项目所有者：唯一可以批准或执行任何涉及 `main` 的合并、关闭、重开、变基、标签和正式发布操作的人。
