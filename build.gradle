@@ -575,6 +575,9 @@ tasks.register('generateModReleaseManifest') {
     description = 'Writes the candidate artifact inventory with SHA-256 checksums.'
     dependsOn tasks.named('modMatrixAssemble')
     def outputFile = layout.buildDirectory.file('reports/mod-migration/release-manifest.json')
+    inputs.property('sourceCommit', providers.exec {
+        commandLine 'git', 'rev-parse', 'HEAD'
+    }.standardOutput.asText.map { it.trim() })
     outputs.file(outputFile)
     doLast {
         def artifacts = modArtifactProjects.collect { path ->
@@ -636,6 +639,9 @@ tasks.register('generateModSbom') {
     description = 'Writes an SPDX 2.3 inventory for every independently distributed Mod artifact.'
     dependsOn tasks.named('modMatrixAssemble')
     def outputFile = layout.buildDirectory.file('reports/mod-migration/mod-sbom.spdx.json')
+    inputs.property('sourceCommit', providers.exec {
+        commandLine 'git', 'rev-parse', 'HEAD'
+    }.standardOutput.asText.map { it.trim() })
     outputs.file(outputFile)
     doLast {
         def packages = []
@@ -694,6 +700,11 @@ tasks.register('generateModReadiness') {
     dependsOn tasks.named('verifySupportMatrix')
     dependsOn ':webshopx-core:performanceBudget'
     def outputFile = layout.buildDirectory.file('reports/mod-migration/readiness.json')
+    inputs.file(layout.projectDirectory.file('docs/mod-migration/support-matrix.json'))
+    inputs.file(layout.buildDirectory.file('reports/mod-migration/release-manifest.json'))
+    inputs.file(layout.buildDirectory.file('reports/mod-migration/mod-sbom.spdx.json'))
+    inputs.file(project(':webshopx-core').layout.buildDirectory
+            .file('reports/mod-migration/performance-budget.json'))
     outputs.file(outputFile)
     doLast {
         def support = new groovy.json.JsonSlurper().parse(
