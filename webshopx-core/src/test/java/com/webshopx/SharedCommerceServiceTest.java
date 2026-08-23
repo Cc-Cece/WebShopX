@@ -1,6 +1,8 @@
 package com.webshopx;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.webshopx.SharedCommerceService.ListingRequest;
@@ -63,7 +65,14 @@ class SharedCommerceServiceTest {
     assertEquals(purchase, commerce.purchase(new PurchaseRequest(
         buyer, buyerId, product.id(), 2, "purchase-1", "fabric-a")));
     assertEquals(900, wallets.getBalance(buyer).shopCoin());
+    var delivery = commerce.pendingDeliveries(buyerId, "fabric-a").get(0);
+    assertTrue(commerce.claimDelivery(delivery.id(), "fabric-a"));
+    assertFalse(commerce.claimDelivery(delivery.id(), "fabric-a"));
+    commerce.markDeliveryRetry(delivery.id(), "inventory_full");
     assertEquals(1, commerce.pendingDeliveries(buyerId, "fabric-a").size());
+    assertTrue(commerce.claimDelivery(delivery.id(), "fabric-a"));
+    commerce.markDelivered(delivery.id(), 2);
+    assertEquals(0, commerce.pendingDeliveries(buyerId, "fabric-a").size());
 
     ItemEnvelope item = envelope("minecraft:diamond", 3, "modded-payload");
     var listing = commerce.createListing(new ListingRequest(

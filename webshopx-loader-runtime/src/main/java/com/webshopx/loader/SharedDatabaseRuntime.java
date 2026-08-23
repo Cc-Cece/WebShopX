@@ -72,6 +72,11 @@ final class SharedDatabaseRuntime implements AutoCloseable {
         database, WalletService.ExchangePolicy::disabled, null, null);
     RedeemCodeService redeemCodes = new RedeemCodeService(database, wallet);
     AdminService administration = new AdminService(database, authentication, wallet);
+    administration.ensureBootstrapAdmin(new AdminService.AdminBootstrapSettings(
+        Boolean.parseBoolean(System.getProperty("webshopx.admin.bootstrap.enabled", "false")),
+        System.getProperty("webshopx.admin.bootstrap.username", "admin"),
+        System.getProperty("webshopx.admin.bootstrap.password", ""),
+        System.getProperty("webshopx.admin.bootstrap.role", "SUPER_ADMIN")));
     AdminAuditService audit = new AdminAuditService(database);
     SharedCommerceService commerce = new SharedCommerceService(database, wallet);
     return new SharedDatabaseRuntime(

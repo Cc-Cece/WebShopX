@@ -13,6 +13,7 @@ import java.lang.reflect.Constructor;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -99,6 +100,30 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
         version, identity.modpackFingerprint());
   }
 
+  PlatformResult<ItemEnvelope> createEnvelope(String registryId, int count) {
+    if (registryId == null || !registryId.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")
+        || count < 1 || count > 99_999) {
+      return PlatformResult.rejected("ITEM_CREATE_INVALID", "error.item.create_invalid");
+    }
+    try {
+      ClassLoader loader = server.get().getClass().getClassLoader();
+      Class<?> locationType = loadFirst(loader,
+          "net.minecraft.resources.ResourceLocation", "net.minecraft.resources.Identifier",
+          "net.minecraft.class_2960");
+      Object location = resourceLocation(locationType, registryId);
+      Object itemRegistry = itemRegistry(loader);
+      Object nativeItem = registryValue(itemRegistry, location);
+      Object stack = constructStack(loader, nativeItem, count);
+      if (stack == null || isEmpty(stack)) {
+        return PlatformResult.rejected("ITEM_REGISTRY_MISSING", "error.item.registry_missing");
+      }
+      return encode(stack, identity);
+    } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+      lastFailure = failure.getClass().getSimpleName() + ":" + Objects.toString(failure.getMessage(), "");
+      return PlatformResult.rejected("ITEM_CREATE_FAILED", "error.item.create_failed");
+    }
+  }
+
   Object decodeNativeTag(Object tag) throws ReflectiveOperationException {
     return version == 1 ? decodeLegacy(tag) : decodeModern(tag);
   }
@@ -139,9 +164,16 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
         PlatformResult<ItemEnvelope> reencoded = encode(restored.value(), identity);
         if (reencoded instanceof PlatformResult.Success<ItemEnvelope> second
             && success.value().payloadHash().equals(second.value().payloadHash())) {
+          PlatformResult<ItemEnvelope> created = createEnvelope("minecraft:diamond", 3);
+          if (!(created instanceof PlatformResult.Success<ItemEnvelope> generated)
+              || generated.value().count() != 3
+              || !(decode(generated.value(), domain()) instanceof PlatformResult.Success<?>)) {
+            return "WebShopX item-roundtrip=FAIL reason=registry_create detail=" + lastFailure;
+          }
           return "WebShopX item-roundtrip=PASS codec=" + id + " version=" + version
               + " registry=" + success.value().registryId()
-              + " hash=" + success.value().payloadHash();
+              + " hash=" + success.value().payloadHash()
+              + " registry-create=PASS createdHash=" + generated.value().payloadHash();
         }
       }
       return "WebShopX item-roundtrip=FAIL reason=" + last + " candidates=" + candidates
@@ -153,20 +185,97 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
 
   private static Object constructStack(ClassLoader loader, Object nativeItem)
       throws ReflectiveOperationException {
+    return constructStack(loader, nativeItem, 1);
+  }
+
+  private static Object constructStack(ClassLoader loader, Object nativeItem, int count)
+      throws ReflectiveOperationException {
     Class<?> stackType = loadFirst(loader,
         "net.minecraft.world.item.ItemStack", "net.minecraft.class_1799");
     for (Constructor<?> constructor : stackType.getConstructors()) {
-      if (constructor.getParameterCount() == 1
-          && constructor.getParameterTypes()[0].isInstance(nativeItem)) {
-        return constructor.newInstance(nativeItem);
-      }
       if (constructor.getParameterCount() == 2
           && constructor.getParameterTypes()[0].isInstance(nativeItem)
           && constructor.getParameterTypes()[1] == int.class) {
-        return constructor.newInstance(nativeItem, 1);
+        return constructor.newInstance(nativeItem, count);
+      }
+    }
+    if (count == 1) {
+      for (Constructor<?> constructor : stackType.getConstructors()) {
+        if (constructor.getParameterCount() == 1
+            && constructor.getParameterTypes()[0].isInstance(nativeItem)) {
+          return constructor.newInstance(nativeItem);
+        }
       }
     }
     return null;
+  }
+
+  private static Object resourceLocation(Class<?> type, String id) throws ReflectiveOperationException {
+    for (String name : List.of("parse", "tryParse", "method_60654", "method_12836")) {
+      try {
+        Method factory = type.getMethod(name, String.class);
+        Object value = factory.invoke(null, id);
+        if (value != null) return value;
+      } catch (NoSuchMethodException ignored) {
+        // Try the next API generation.
+      }
+    }
+    try {
+      return type.getConstructor(String.class).newInstance(id);
+    } catch (NoSuchMethodException missingSingleArgument) {
+      String[] parts = id.split(":", 2);
+      return type.getConstructor(String.class, String.class).newInstance(parts[0], parts[1]);
+    }
+  }
+
+  private static Object itemRegistry(ClassLoader loader) throws ReflectiveOperationException {
+    ReflectiveOperationException last = null;
+    for (String className : List.of("net.minecraft.core.registries.BuiltInRegistries",
+        "net.minecraft.core.Registry", "net.minecraft.class_7923", "net.minecraft.class_2378")) {
+      try {
+        Class<?> type = Class.forName(className, false, loader);
+        return staticField(type, "ITEM", "f_257033_", "f_122827_", "field_41178", "field_11142");
+      } catch (ReflectiveOperationException failure) {
+        last = failure;
+      }
+    }
+    throw last == null ? new ClassNotFoundException("item registry") : last;
+  }
+
+  private static Object registryValue(Object registry, Object location)
+      throws ReflectiveOperationException {
+    List<Class<?>> apiTypes = new java.util.ArrayList<>();
+    for (String className : List.of("net.minecraft.core.DefaultedRegistry",
+        "net.minecraft.core.Registry", "net.minecraft.class_7922", "net.minecraft.class_2378")) {
+      try {
+        Class<?> type = Class.forName(className, false, registry.getClass().getClassLoader());
+        if (type.isInstance(registry)) apiTypes.add(type);
+      } catch (ClassNotFoundException ignored) {
+        // Try the next runtime API generation.
+      }
+    }
+    apiTypes.add(registry.getClass());
+    for (Class<?> apiType : apiTypes) {
+      for (String name : List.of("getValue", "method_10223", "m_7745_", "m_6246_", "get")) {
+        Method get = Arrays.stream(apiType.getMethods())
+            .filter(value -> value.getName().equals(name) && value.getParameterCount() == 1)
+            .filter(value -> value.getParameterTypes()[0].isInstance(location))
+            .findFirst().orElse(null);
+        if (get == null) continue;
+        Object value = get.invoke(registry, location);
+        if (value instanceof java.util.Optional<?> optional) {
+          if (optional.isEmpty()) return null;
+          value = optional.get();
+          try {
+            value = method(value.getClass(), new String[]{"value", "method_40237"}, 0).invoke(value);
+          } catch (NoSuchMethodException notAHolder) {
+            // The optional already contains the native item on this API generation.
+          }
+        }
+        return value;
+      }
+    }
+    throw new NoSuchMethodException("item registry lookup");
   }
 
   private static Class<?> loadFirst(ClassLoader loader, String... names)

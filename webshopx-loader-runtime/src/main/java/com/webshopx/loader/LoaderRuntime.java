@@ -2,6 +2,7 @@ package com.webshopx.loader;
 
 import com.webshopx.core.WebShopXCoreRuntime;
 import com.webshopx.core.RedisEventBridge;
+import com.webshopx.core.SharedHttpApi;
 import com.webshopx.AuthService;
 import com.webshopx.AdminService;
 import com.webshopx.AdminAuditService;
@@ -36,7 +37,10 @@ public final class LoaderRuntime {
   private static LoaderScheduler scheduler;
   private static NativePlayerDirectory playerDirectory;
   private static NativeItemCodec itemCodec;
+  private static NativeInventoryGateway inventoryGateway;
+  private static NativeDeliveryCoordinator deliveries;
   private static RedisEventBridge redisEvents;
+  private static SharedHttpApi httpApi;
   private static boolean nativeLifecycleInstalled;
   private static boolean shutdownHookInstalled;
 
@@ -50,12 +54,31 @@ public final class LoaderRuntime {
     installShutdownHook();
     PlatformPorts.Bundle bundle = minimalBundle(loader, minecraftVersion, loaderVersion);
     try {
-      if (!"paper".equals(loader)) databaseRuntime = SharedDatabaseRuntime.start(bundle.paths().data());
+      if (!"paper".equals(loader)) {
+        databaseRuntime = SharedDatabaseRuntime.start(bundle.paths().data());
+        deliveries = new NativeDeliveryCoordinator(databaseRuntime.commerce(), inventoryGateway,
+            itemCodec, scheduler, bundle.identity().serverId());
+        if (Boolean.parseBoolean(System.getProperty("webshopx.http.enabled", "true"))) {
+          httpApi = new SharedHttpApi(
+              System.getProperty("webshopx.http.host", "127.0.0.1"),
+              Integer.getInteger("webshopx.http.port", 8123),
+              System.getProperty("webshopx.http.allowed-origin", ""),
+              databaseRuntime.authentication(), databaseRuntime.wallet(),
+              databaseRuntime.commerce(), databaseRuntime.administration(),
+              bundle.identity(), bundle.capabilities());
+          httpApi.start();
+          System.out.printf("[WebShopX] HTTP API listening on %s:%d%n",
+              System.getProperty("webshopx.http.host", "127.0.0.1"), httpApi.port());
+        }
+      }
       active = new WebShopXCoreRuntime(bundle);
       active.start();
     } catch (RuntimeException failure) {
       if (databaseRuntime != null) databaseRuntime.close();
       databaseRuntime = null;
+      deliveries = null;
+      if (httpApi != null) httpApi.close();
+      httpApi = null;
       instanceGuard.close();
       instanceGuard = null;
       throw failure;
@@ -95,6 +118,8 @@ public final class LoaderRuntime {
       RuntimeHealth.write(platform.paths().data(), platform.identity(), platform.capabilities(), active.state());
     }
     active = null;
+    if (httpApi != null) httpApi.close();
+    httpApi = null;
     if (databaseRuntime != null) databaseRuntime.close();
     databaseRuntime = null;
     if (scheduler != null) scheduler.close();
@@ -103,6 +128,8 @@ public final class LoaderRuntime {
     if (playerDirectory != null) playerDirectory.clear();
     playerDirectory = null;
     itemCodec = null;
+    inventoryGateway = null;
+    deliveries = null;
     if (redisEvents != null) redisEvents.close();
     redisEvents = null;
     nativeLifecycleInstalled = false;
@@ -185,6 +212,10 @@ public final class LoaderRuntime {
     states.put(Capability.DATABASE,
         CapabilityState.available(System.getProperty("webshopx.database.type", "sqlite")
             + " database configured"));
+    states.put(Capability.HTTP_API,
+        Boolean.parseBoolean(System.getProperty("webshopx.http.enabled", "true"))
+            ? CapabilityState.available("embedded authenticated HTTP API")
+            : CapabilityState.unavailable("disabled by configuration"));
     if (lifecycle == null) lifecycle = new LoaderLifecycle();
     if (scheduler == null) scheduler = new LoaderScheduler();
     if (playerDirectory == null) playerDirectory = new NativePlayerDirectory(identity.serverId());
@@ -216,8 +247,9 @@ public final class LoaderRuntime {
     Path base = Path.of(System.getProperty("webshopx.data-dir", "config/webshopx"));
     NativeItemCodec items = new NativeItemCodec(identity, scheduler::nativeServer, Clock.systemUTC());
     itemCodec = items;
-    PlatformPorts.InventoryGateway inventories =
+    NativeInventoryGateway inventories =
         new NativeInventoryGateway(playerDirectory, scheduler, items, identity);
+    inventoryGateway = inventories;
     return new PlatformPorts.Bundle(lifecycle, scheduler, players, inventories, items, commands,
         permissions, economy, messaging, events,
         new PlatformPorts.Paths(base, base, base.resolve("web"), base.resolve("uploads"), base.resolve("logs")),
@@ -247,6 +279,8 @@ public final class LoaderRuntime {
     current.joined(eventOrHandler).ifPresent(player -> {
       SharedDatabaseRuntime database = databaseRuntime;
       if (database != null) database.presence().markOnline(player.id(), player.name());
+      NativeDeliveryCoordinator coordinator = deliveries;
+      if (coordinator != null) coordinator.deliverPending(player.id());
     });
   }
 

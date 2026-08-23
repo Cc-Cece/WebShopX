@@ -175,6 +175,22 @@ public final class SharedCommerceService {
     });
   }
 
+  public boolean claimDelivery(long deliveryId, String serverId) {
+    if (serverId == null || serverId.isBlank()) {
+      throw new IllegalArgumentException("serverId must not be blank");
+    }
+    return database.inTransaction(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "UPDATE delivery_queue SET status='PROCESSING',claimed_at=CURRENT_TIMESTAMP,"
+              + "last_error=NULL WHERE id=? AND status IN ('PENDING','RETRY') "
+              + "AND (target_server_id IS NULL OR target_server_id=?)")) {
+        statement.setLong(1, deliveryId);
+        statement.setString(2, serverId);
+        return statement.executeUpdate() == 1;
+      }
+    });
+  }
+
   public void markDelivered(long deliveryId, int deliveredQuantity) {
     if (deliveredQuantity < 1) throw new ServiceException("invalid_quantity", "Quantity is invalid");
     database.inTransaction(connection -> {
@@ -182,12 +198,39 @@ public final class SharedCommerceService {
           "UPDATE delivery_queue SET delivered_quantity=delivered_quantity+?,"
               + "status=CASE WHEN delivered_quantity+?>=quantity THEN 'DELIVERED' ELSE 'PENDING' END,"
               + "delivered_at=CASE WHEN delivered_quantity+?>=quantity THEN CURRENT_TIMESTAMP ELSE delivered_at END "
-              + "WHERE id=? AND status IN ('PENDING','RETRY') AND delivered_quantity+?<=quantity")) {
+              + "WHERE id=? AND status='PROCESSING' AND delivered_quantity+?<=quantity")) {
         statement.setInt(1, deliveredQuantity);
         statement.setInt(2, deliveredQuantity);
         statement.setInt(3, deliveredQuantity);
         statement.setLong(4, deliveryId);
         statement.setInt(5, deliveredQuantity);
+        if (statement.executeUpdate() != 1) {
+          throw new ServiceException("delivery_conflict", "Delivery state changed");
+        }
+      }
+      return null;
+    });
+  }
+
+  public void markDeliveryRetry(long deliveryId, String error) {
+    transitionDelivery(deliveryId, "RETRY", error);
+  }
+
+  public void markDeliveryUnknown(long deliveryId, String error) {
+    transitionDelivery(deliveryId, "UNKNOWN", error);
+  }
+
+  private void transitionDelivery(long deliveryId, String status, String error) {
+    String safeError = error == null ? "unspecified" : error;
+    if (safeError.length() > 500) safeError = safeError.substring(0, 500);
+    String finalError = safeError;
+    database.inTransaction(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "UPDATE delivery_queue SET status=?,last_error=?,retry_count=retry_count+1,"
+              + "next_retry_at=CURRENT_TIMESTAMP WHERE id=? AND status='PROCESSING'")) {
+        statement.setString(1, status);
+        statement.setString(2, finalError);
+        statement.setLong(3, deliveryId);
         if (statement.executeUpdate() != 1) {
           throw new ServiceException("delivery_conflict", "Delivery state changed");
         }
