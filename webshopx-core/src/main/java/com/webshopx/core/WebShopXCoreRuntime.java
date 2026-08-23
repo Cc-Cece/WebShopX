@@ -34,9 +34,10 @@ public final class WebShopXCoreRuntime implements AutoCloseable {
   }
 
   @Override
-  public void close() {
-    State previous = state.getAndSet(State.STOPPING);
-    if (previous != State.STOPPED) state.set(State.STOPPED);
+  public synchronized void close() {
+    if (state.get() == State.STOPPED) return;
+    state.set(State.STOPPING);
+    state.set(State.STOPPED);
   }
 
   public enum State { NEW, STARTING, READY, STOPPING, STOPPED }

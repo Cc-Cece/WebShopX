@@ -20,13 +20,16 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 /** Loader-independent bootstrap. Loader-specific adapters can replace ports one at a time. */
 public final class LoaderRuntime {
   private static volatile WebShopXCoreRuntime active;
   private static RuntimeInstanceGuard instanceGuard;
   private static SharedDatabaseRuntime databaseRuntime;
+  private static LoaderLifecycle lifecycle;
+  private static LoaderScheduler scheduler;
+  private static NativePlayerDirectory playerDirectory;
+  private static boolean nativeLifecycleInstalled;
   private static boolean shutdownHookInstalled;
 
   private LoaderRuntime() { }
@@ -60,7 +63,24 @@ public final class LoaderRuntime {
     return start(loader, version.minecraft(), version.loader());
   }
 
+  /** Installs Fabric lifecycle/player callbacks before core bootstrap. */
+  public static synchronized boolean prepareFabric() {
+    prepareNativeState();
+    nativeLifecycleInstalled = ReflectiveNativeLifecycle.installFabric();
+    logNativeLifecycle("fabric", nativeLifecycleInstalled);
+    return nativeLifecycleInstalled;
+  }
+
+  /** Installs Forge or NeoForge lifecycle/player callbacks before core bootstrap. */
+  public static synchronized boolean prepareEventBus(String loader, String eventBusHolder) {
+    prepareNativeState();
+    nativeLifecycleInstalled = ReflectiveNativeLifecycle.installEventBus(eventBusHolder);
+    logNativeLifecycle(loader, nativeLifecycleInstalled);
+    return nativeLifecycleInstalled;
+  }
+
   public static synchronized void stop() {
+    if (lifecycle != null) lifecycle.fireStopping();
     if (active != null) {
       PlatformPorts.Bundle platform = active.platform();
       active.close();
@@ -69,6 +89,12 @@ public final class LoaderRuntime {
     active = null;
     if (databaseRuntime != null) databaseRuntime.close();
     databaseRuntime = null;
+    if (scheduler != null) scheduler.close();
+    scheduler = null;
+    lifecycle = null;
+    if (playerDirectory != null) playerDirectory.clear();
+    playerDirectory = null;
+    nativeLifecycleInstalled = false;
     if (instanceGuard != null) instanceGuard.close();
     instanceGuard = null;
   }
@@ -107,19 +133,11 @@ public final class LoaderRuntime {
     states.put(Capability.DATABASE,
         CapabilityState.available("SQLite standalone; MySQL/MariaDB drivers bundled"));
     CapabilitySnapshot capabilities = new CapabilitySnapshot(Instant.now(), states);
-    ImmediateLifecycle lifecycle = new ImmediateLifecycle();
-    PlatformPorts.Scheduler scheduler = new DirectScheduler();
-    PlatformPorts.PlayerDirectory players = new PlatformPorts.PlayerDirectory() {
-      public CompletionStage<Optional<PlatformPorts.PlayerSnapshot>> find(UUID id) {
-        return CompletableFuture.completedFuture(Optional.empty());
-      }
-      public CompletionStage<Optional<PlatformPorts.PlayerSnapshot>> find(String name) {
-        return CompletableFuture.completedFuture(Optional.empty());
-      }
-      public CompletionStage<List<PlatformPorts.PlayerSnapshot>> onlinePlayers() {
-        return CompletableFuture.completedFuture(List.of());
-      }
-    };
+    if (lifecycle == null) lifecycle = new LoaderLifecycle();
+    if (scheduler == null) scheduler = new LoaderScheduler();
+    if (playerDirectory == null) playerDirectory = new NativePlayerDirectory(identity.serverId());
+    if (!nativeLifecycleInstalled) lifecycle.fireReady();
+    PlatformPorts.PlayerDirectory players = playerDirectory;
     PlatformPorts.InventoryGateway inventories = new PlatformPorts.InventoryGateway() {
       public CompletionStage<PlatformResult<com.webshopx.platform.InventoryTypes.InventorySnapshot>> snapshot(
           UUID id, boolean offline) {
@@ -155,24 +173,44 @@ public final class LoaderRuntime {
         identity, capabilities);
   }
 
-  private static final class ImmediateLifecycle implements PlatformPorts.Lifecycle {
-    private final List<Runnable> stopping = new CopyOnWriteArrayList<>();
-    public void onReady(Runnable listener) { listener.run(); }
-    public void onStopping(Runnable listener) { stopping.add(listener); }
+  static synchronized void nativeServerStarted(Object server) {
+    if (scheduler == null || lifecycle == null || active == null) return;
+    try {
+      scheduler.bind(server);
+      lifecycle.fireReady();
+      PlatformPorts.Bundle platform = active.platform();
+      RuntimeHealth.write(platform.paths().data(), platform.identity(), platform.capabilities(), active.state());
+      System.out.println("[WebShopX] native server lifecycle ready");
+    } catch (RuntimeException failure) {
+      System.err.printf("[WebShopX] native server binding failed: %s%n", failure);
+    }
   }
 
-  private static final class DirectScheduler implements PlatformPorts.Scheduler {
-    public CompletionStage<Void> runGlobal(Runnable action) { return run(action); }
-    public CompletionStage<Void> runForPlayer(UUID id, Runnable action) { return run(action); }
-    public CompletionStage<Void> runAsync(Runnable action) { return CompletableFuture.runAsync(action); }
-    public PlatformPorts.ScheduledHandle schedule(Duration delay, Duration period, Runnable action) {
-      return () -> { };
+  static void nativeServerStopping() {
+    stop();
+  }
+
+  static void nativePlayerJoined(Object eventOrHandler) {
+    NativePlayerDirectory current = playerDirectory;
+    if (current != null) current.joined(eventOrHandler);
+  }
+
+  static void nativePlayerDisconnected(Object eventOrHandler) {
+    NativePlayerDirectory current = playerDirectory;
+    if (current != null) current.disconnected(eventOrHandler);
+  }
+
+  private static void prepareNativeState() {
+    if (active != null) throw new IllegalStateException("native lifecycle must be prepared before runtime start");
+    if (lifecycle == null) lifecycle = new LoaderLifecycle();
+    if (scheduler == null) scheduler = new LoaderScheduler();
+    if (playerDirectory == null) {
+      playerDirectory = new NativePlayerDirectory(System.getProperty("webshopx.server-id", "standalone"));
     }
-    public boolean isOnRequiredThread(PlatformPorts.ThreadScope scope, UUID id) { return true; }
-    private CompletionStage<Void> run(Runnable action) {
-      try { action.run(); return CompletableFuture.completedFuture(null); }
-      catch (RuntimeException error) { return CompletableFuture.failedFuture(error); }
-    }
+  }
+
+  private static void logNativeLifecycle(String loader, boolean installed) {
+    System.out.printf("[WebShopX] native lifecycle loader=%s installed=%s%n", loader, installed);
   }
 
   private static final class UnavailableEconomy implements PlatformPorts.EconomyProvider {

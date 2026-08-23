@@ -29,6 +29,8 @@ class LoaderRuntimeTest {
     assertTrue(Files.readString(temporaryDirectory.resolve("health.json")).contains("\"state\": \"READY\""));
     LoaderRuntime.stop();
     assertTrue(Files.readString(temporaryDirectory.resolve("health.json")).contains("\"state\": \"STOPPED\""));
+    first.close();
+    assertEquals(WebShopXCoreRuntime.State.STOPPED, first.state());
     assertFalse(LoaderRuntime.active().isPresent());
   }
 }

@@ -8,6 +8,7 @@ import net.minecraftforge.fml.common.Mod;
 @Mod("webshopx")
 public final class WebShopXNeoForgeMod {
   public WebShopXNeoForgeMod() {
+    LoaderRuntime.prepareEventBus("neoforge", "net.minecraftforge.common.MinecraftForge");
     LoaderRuntime.startDetected("neoforge");
     ReflectiveHealthCommand.installEventBus("net.minecraftforge.common.MinecraftForge");
   }
