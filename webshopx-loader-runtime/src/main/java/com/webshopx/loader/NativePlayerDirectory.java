@@ -3,8 +3,10 @@ package com.webshopx.loader;
 import com.webshopx.platform.PlatformPorts;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -18,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Online-player index populated by native connection events without exposing Minecraft classes. */
 final class NativePlayerDirectory implements PlatformPorts.PlayerDirectory {
   private final Map<UUID, PlatformPorts.PlayerSnapshot> online = new ConcurrentHashMap<>();
+  private final Map<UUID, Object> nativePlayers = new ConcurrentHashMap<>();
   private final String serverId;
 
   NativePlayerDirectory(String serverId) {
@@ -41,15 +44,21 @@ final class NativePlayerDirectory implements PlatformPorts.PlayerDirectory {
   }
 
   Optional<PlatformPorts.PlayerSnapshot> joined(Object eventOrHandler) {
-    Optional<Profile> nativeProfile = profile(eventOrHandler);
+    Object nativePlayer = findServerPlayer(eventOrHandler).orElse(null);
+    Optional<Profile> nativeProfile = nativePlayer == null
+        ? profile(eventOrHandler) : directProfile(nativePlayer);
     nativeProfile.ifPresent(profile -> online.put(profile.id(),
         new PlatformPorts.PlayerSnapshot(profile.id(), profile.name(), true, serverId, Locale.ROOT)));
+    nativeProfile.ifPresent(profile -> {
+      if (nativePlayer != null) nativePlayers.put(profile.id(), nativePlayer);
+    });
     return nativeProfile.map(profile -> online.get(profile.id()));
   }
 
   Optional<PlatformPorts.PlayerSnapshot> disconnected(Object eventOrHandler) {
     Optional<Profile> nativeProfile = profile(eventOrHandler);
     return nativeProfile.map(profile -> {
+      nativePlayers.remove(profile.id());
       PlatformPorts.PlayerSnapshot removed = online.remove(profile.id());
       return removed == null
           ? new PlatformPorts.PlayerSnapshot(profile.id(), profile.name(), false, serverId, Locale.ROOT)
@@ -60,6 +69,35 @@ final class NativePlayerDirectory implements PlatformPorts.PlayerDirectory {
 
   void clear() {
     online.clear();
+    nativePlayers.clear();
+  }
+
+  boolean sendText(UUID playerId, String text) {
+    Object player = nativePlayers.get(playerId);
+    if (player == null) return false;
+    try {
+      ClassLoader loader = player.getClass().getClassLoader();
+      Class<?> component = loadFirst(loader,
+          "net.minecraft.network.chat.Component", "net.minecraft.class_2561");
+      Method factory = Arrays.stream(component.getMethods())
+          .filter(method -> Modifier.isStatic(method.getModifiers()))
+          .filter(method -> method.getParameterCount() == 1 && method.getParameterTypes()[0] == String.class)
+          .filter(method -> component.isAssignableFrom(method.getReturnType()))
+          .sorted((left, right) -> factoryPriority(left.getName()) - factoryPriority(right.getName()))
+          .findFirst().orElseThrow(() -> new NoSuchMethodException("text component factory"));
+      Object message = factory.invoke(null, text);
+      Method sender = Arrays.stream(player.getClass().getMethods())
+          .filter(method -> method.getParameterCount() == 1)
+          .filter(method -> method.getReturnType() == void.class)
+          .filter(method -> method.getParameterTypes()[0].isInstance(message))
+          .filter(method -> method.getName().equals("sendSystemMessage")
+              || method.getName().equals("sendMessage") || method.getName().equals("method_43496"))
+          .findFirst().orElseThrow(() -> new NoSuchMethodException("player system-message method"));
+      sender.invoke(player, message);
+      return true;
+    } catch (ReflectiveOperationException | LinkageError failure) {
+      throw new IllegalStateException("cannot send native player message", failure);
+    }
   }
 
   static Optional<PlatformPorts.PlayerSnapshot> snapshotOf(Object nativeObject, String serverId) {
@@ -91,6 +129,50 @@ final class NativePlayerDirectory implements PlatformPorts.PlayerDirectory {
     String name = candidate.getClass().getName();
     return name.equals("net.minecraft.class_3222")
         || name.endsWith(".ServerPlayer") || name.endsWith("$ServerPlayer");
+  }
+
+  private static Optional<Object> findServerPlayer(Object root) {
+    if (root == null) return Optional.empty();
+    ArrayDeque<Node> queue = new ArrayDeque<>();
+    IdentityHashMap<Object, Boolean> visited = new IdentityHashMap<>();
+    queue.add(new Node(root, 0));
+    while (!queue.isEmpty()) {
+      Node node = queue.removeFirst();
+      Object value = node.value();
+      if (value == null || visited.put(value, Boolean.TRUE) != null) continue;
+      if (isServerPlayer(value)) return Optional.of(value);
+      if (node.depth() >= 3 || !isGameType(value.getClass())) continue;
+      for (Field field : fields(value.getClass())) {
+        if (!isGameType(field.getType())) continue;
+        try {
+          if (field.trySetAccessible()) {
+            Object child = field.get(value);
+            if (child != null) queue.addLast(new Node(child, node.depth() + 1));
+          }
+        } catch (IllegalAccessException | RuntimeException ignored) {
+          // Continue scanning the remaining native fields.
+        }
+      }
+    }
+    return Optional.empty();
+  }
+
+  private static Class<?> loadFirst(ClassLoader loader, String... names) throws ClassNotFoundException {
+    for (String name : names) {
+      try {
+        return Class.forName(name, false, loader);
+      } catch (ClassNotFoundException ignored) {
+        // Try the runtime namespace used by the next Loader.
+      }
+    }
+    throw new ClassNotFoundException(String.join(", ", names));
+  }
+
+  private static int factoryPriority(String name) {
+    if (name.equals("literal")) return 0;
+    if (name.equals("of")) return 1;
+    if (name.equals("method_43470")) return 2;
+    return 10;
   }
 
   private static Optional<Profile> profile(Object root) {

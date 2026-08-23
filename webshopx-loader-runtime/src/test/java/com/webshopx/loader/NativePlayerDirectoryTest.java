@@ -33,4 +33,15 @@ class NativePlayerDirectoryTest {
     assertTrue(NativePlayerDirectory.commandSourcePlayer(
         FakeCommandSource.console(profile), "server-a").isEmpty());
   }
+
+  @Test void sendsNativeSystemMessageToTrackedOnlinePlayer() {
+    UUID id = UUID.randomUUID();
+    FakeCommandSource source = FakeCommandSource.player(new GameProfile(id, "Message_Player"));
+    NativePlayerDirectory directory = new NativePlayerDirectory("server-a");
+    assertTrue(directory.joined(source).isPresent());
+    assertTrue(directory.sendText(id, "hello from WebShopX"));
+    assertEquals(java.util.List.of("hello from WebShopX"), source.messages());
+    directory.disconnected(source);
+    assertTrue(!directory.sendText(id, "offline"));
+  }
 }

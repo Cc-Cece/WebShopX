@@ -188,14 +188,7 @@ public final class LoaderRuntime {
         CompletableFuture.completedFuture(new PlatformResult.Unavailable<>(
             "permission", "permission provider is unavailable", Duration.ZERO));
     PlatformPorts.EconomyProvider economy = new UnavailableEconomy();
-    PlatformPorts.MessagingGateway messaging = new PlatformPorts.MessagingGateway() {
-      public PlatformResult<Void> send(UUID id, PlatformPorts.Message message) {
-        return new PlatformResult.Unavailable<>("messaging", "messaging adapter is unavailable", Duration.ZERO);
-      }
-      public PlatformResult<Void> broadcast(PlatformPorts.Message message) {
-        return new PlatformResult.Unavailable<>("messaging", "messaging adapter is unavailable", Duration.ZERO);
-      }
-    };
+    PlatformPorts.MessagingGateway messaging = new NativeMessagingGateway(playerDirectory, scheduler);
     PlatformPorts.EventPublisher events = event -> PlatformResult.success(null);
     Path base = Path.of(System.getProperty("webshopx.data-dir", "config/webshopx"));
     OpaqueItemCodec items = new OpaqueItemCodec(loader + "-native", 1, Clock.systemUTC());
