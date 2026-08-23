@@ -45,4 +45,6 @@
 5. 当前会话无 in-app browser 导致的单一浏览器证据堵塞是否已在审核环境关闭；
 6. support matrix 只宣传七个精确组合，不外推版本。
 
-审核结论填写在 `final-review-report.md`，正式 checklist 保持由独立审核 Agent 操作。
+独立统一审核已于 2026-08-23 完成：M0 为 `accepted`，M1–M9 为 `changes_required`，
+最终意见为 `release_blocked`。见 `reports/M0-M9-consolidated-review.md`、`final-review-checklist.md`
+和 `final-review-report.md`。

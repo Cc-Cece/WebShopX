@@ -733,8 +733,8 @@ tasks.register('generateModReadiness') {
                 ],
                 evidenceBlockers: [[
                         gate: 'interactive browser critical path',
-                        reason: 'the current Codex session exposes no in-app browser instance',
-                        compensatingEvidence: 'SharedHttpApiTest plus real dedicated-server HTTP startup'
+                        reason: 'interactive browser evidence has not been recorded in the implementation packet',
+                        compensatingEvidence: 'SharedHttpApiTest plus real Fabric dedicated-server landing and health responses'
                 ]],
                 artifactManifest: 'release-manifest.json',
                 sbom: 'mod-sbom.spdx.json'

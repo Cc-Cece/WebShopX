@@ -26,12 +26,16 @@ round-trip 平均 ≤2 ms、HTTP health p95 ≤250 ms、编码 ≤8 KiB、测试
 
 ## 明确堵塞
 
-2026-08-23 按内置浏览器控制技能连接验收时，当前会话返回可用浏览器列表 `[]`。技能禁止改用
-无关浏览器后端冒充，因此交互浏览器关键路径没有被标为通过。补偿证据是
-`SharedHttpApiTest` 的真实 socket 流程（landing/health、登录、Bearer、钱包、商品、幂等下单、
-发货、logout、精确 CORS、CSP、未授权/恶意 origin/malformed/64 KiB 上限）和七服务端 HTTP
-启动/停止。统一审核时只需在提供 in-app browser 的会话重跑 `/` 与 `/health` 即可关闭该环境
-堵塞；无需代码或数据变更。
+2026-08-23 首次连接时没有浏览器实例。随后已连接两个 Chrome 扩展实例，并在真实 Fabric 1.18.2
+服务端上使用当前候选 JAR 启动 HTTP API：`GET /` 返回 `200` 和 “Server API is ready.”，
+`GET /health` 返回 `200`、`status=UP`、`minecraftVersion=1.18.2`、`loaderVersion=0.19.3`。
+但 Browser 组件在会话中更新后，活动控制服务与新组件版本不匹配，导航前即拒绝连接；旧组件文件
+也已被缓存更新替换。因此交互浏览器关键路径仍不能标为通过，且禁止改用无关浏览器后端冒充。
+
+补偿证据是上述真实 dedicated-server HTTP 响应，以及 `SharedHttpApiTest` 的真实 socket 流程
+（landing/health、登录、Bearer、钱包、商品、幂等下单、发货、logout、精确 CORS、CSP、
+未授权/恶意 origin/malformed/64 KiB 上限）和七服务端 HTTP 启动/停止。重启 Codex 使浏览器
+控制服务与已安装组件同步后，只需重跑 `/` 与 `/health` 即可关闭该环境堵塞；无需代码或数据变更。
 
 ## 发布边界
 
