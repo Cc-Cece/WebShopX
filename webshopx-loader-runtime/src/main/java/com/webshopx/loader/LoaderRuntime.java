@@ -170,6 +170,8 @@ public final class LoaderRuntime {
     states.put(Capability.RELAY, CapabilityState.available("core event contract"));
     states.put(Capability.MOD_ITEM_CODEC,
         CapabilityState.available("lossless opaque native payload envelope"));
+    states.put(Capability.OFFLINE_INVENTORY,
+        CapabilityState.available("atomic playerdata NBT compare-and-apply"));
     states.put(Capability.DATABASE,
         CapabilityState.available("SQLite standalone; MySQL/MariaDB drivers bundled"));
     CapabilitySnapshot capabilities = new CapabilitySnapshot(Instant.now(), states);

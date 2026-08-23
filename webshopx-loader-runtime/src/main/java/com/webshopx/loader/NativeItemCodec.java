@@ -99,6 +99,18 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
         version, identity.modpackFingerprint());
   }
 
+  Object decodeNativeTag(Object tag) throws ReflectiveOperationException {
+    return version == 1 ? decodeLegacy(tag) : decodeModern(tag);
+  }
+
+  Object envelopeTag(ItemEnvelope envelope) throws ReflectiveOperationException {
+    PlatformResult<ItemEnvelope> validation = envelopes.validate(envelope, domain());
+    if (!(validation instanceof PlatformResult.Success<ItemEnvelope> success)) {
+      throw new IllegalArgumentException("invalid native item envelope");
+    }
+    return parseTag(new String(success.value().payload(), StandardCharsets.UTF_8));
+  }
+
   String probeRoundTrip() {
     try {
       ClassLoader loader = server.get().getClass().getClassLoader();
@@ -256,7 +268,17 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
 
   private Class<?> requireItemClass() {
     Class<?> result = nativeItemClass;
-    if (result == null) throw new IllegalStateException("native ItemStack class has not been observed");
+    if (result == null) {
+      Object nativeServer = server.get();
+      if (nativeServer == null) throw new IllegalStateException("native server is not bound");
+      try {
+        result = loadFirst(nativeServer.getClass().getClassLoader(),
+            "net.minecraft.world.item.ItemStack", "net.minecraft.class_1799");
+        nativeItemClass = result;
+      } catch (ClassNotFoundException failure) {
+        throw new IllegalStateException("native ItemStack class is unavailable", failure);
+      }
+    }
     return result;
   }
 

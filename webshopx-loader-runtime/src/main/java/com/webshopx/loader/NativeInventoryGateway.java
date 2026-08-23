@@ -31,6 +31,7 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
   private final LoaderScheduler scheduler;
   private final NativeItemCodec items;
   private final PlatformIdentity identity;
+  private final OfflineInventoryStore offline;
   private final Map<String, InventoryMutationResult> completed = new LinkedHashMap<>();
 
   NativeInventoryGateway(NativePlayerDirectory players, LoaderScheduler scheduler,
@@ -39,17 +40,23 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
     this.scheduler = scheduler;
     this.items = items;
     this.identity = identity;
+    this.offline = new OfflineInventoryStore(items, identity, scheduler);
   }
 
   @Override
   public CompletionStage<PlatformResult<InventorySnapshot>> snapshot(UUID playerId, boolean allowOffline) {
     Optional<Object> player = players.nativePlayer(playerId);
     if (player.isEmpty()) {
-      String reason = allowOffline
-          ? "offline player data adapter is unavailable"
-          : "player is not online";
-      return CompletableFuture.completedFuture(new PlatformResult.Unavailable<>(
-          "inventory", reason, Duration.ZERO));
+      if (!allowOffline) return CompletableFuture.completedFuture(new PlatformResult.Unavailable<>(
+          "inventory", "player is not online", Duration.ZERO));
+      CompletableFuture<PlatformResult<InventorySnapshot>> result = new CompletableFuture<>();
+      scheduler.runGlobal(() -> result.complete(players.nativePlayer(playerId).isPresent()
+          ? PlatformResult.rejected("PLAYER_STATE_CHANGED", "error.inventory.player_state_changed")
+          : offline.snapshot(playerId))).whenComplete((ignored, failure) -> {
+            if (failure != null) result.complete(new PlatformResult.Unavailable<>(
+                "offline_inventory", "native scheduler is unavailable", Duration.ZERO));
+          });
+      return result;
     }
     CompletableFuture<PlatformResult<InventorySnapshot>> result = new CompletableFuture<>();
     scheduler.runForPlayer(playerId, () -> {
@@ -74,8 +81,16 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
       if (prior != null) return CompletableFuture.completedFuture(PlatformResult.success(prior));
     }
     Optional<Object> player = players.nativePlayer(mutation.playerId());
-    if (player.isEmpty()) return CompletableFuture.completedFuture(new PlatformResult.Unavailable<>(
-        "inventory", "player is not online", Duration.ZERO));
+    if (player.isEmpty()) {
+      CompletableFuture<PlatformResult<InventoryMutationResult>> result = new CompletableFuture<>();
+      scheduler.runGlobal(() -> result.complete(players.nativePlayer(mutation.playerId()).isPresent()
+          ? PlatformResult.rejected("PLAYER_STATE_CHANGED", "error.inventory.player_state_changed")
+          : offline.compareAndApply(mutation))).whenComplete((ignored, failure) -> {
+            if (failure != null) result.complete(new PlatformResult.Unavailable<>(
+                "offline_inventory", "native scheduler is unavailable", Duration.ZERO));
+          });
+      return result;
+    }
     CompletableFuture<PlatformResult<InventoryMutationResult>> result = new CompletableFuture<>();
     scheduler.runForPlayer(mutation.playerId(), () ->
         result.complete(applyOnServerThread(mutation, player.orElseThrow())))
