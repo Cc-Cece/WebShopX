@@ -15,7 +15,11 @@ public final class FakeCommandSource {
   }
 
   public static FakeCommandSource player(GameProfile profile) {
-    return new FakeCommandSource(new ServerPlayer(profile), profile);
+    return player(profile, 0);
+  }
+
+  public static FakeCommandSource player(GameProfile profile, int permissionLevel) {
+    return new FakeCommandSource(new ServerPlayer(profile, permissionLevel), profile);
   }
 
   public static FakeCommandSource console(GameProfile cachedProfile) {
@@ -29,8 +33,13 @@ public final class FakeCommandSource {
   public static final class ServerPlayer {
     private final GameProfile profile;
     private final List<String> messages = new ArrayList<>();
-    private ServerPlayer(GameProfile profile) { this.profile = profile; }
+    private final int permissionLevel;
+    private ServerPlayer(GameProfile profile, int permissionLevel) {
+      this.profile = profile;
+      this.permissionLevel = permissionLevel;
+    }
     public void sendSystemMessage(Component message) { messages.add(message.text()); }
+    public boolean hasPermissions(int required) { return permissionLevel >= required; }
   }
 
   private static final class FakeServer {

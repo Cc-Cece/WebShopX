@@ -12,9 +12,9 @@
 
 已交付封闭 `PlatformResult`、完整端口边界、能力快照、兼容域、4 MiB 有界不可变 `ItemEnvelope`、hash/domain/codec 拒绝、opaque native codec、幂等 compare-and-apply 参考背包、部分容量、版本冲突、operation ID 去重、legacy/modern allowlist 和 contract tests。Loader runtime 已接入 Fabric/Forge/NeoForge 原生 ServerStarted/ServerStopping 与玩家连接事件；全局/玩家任务通过原生 `MinecraftServer` executor 分派，未绑定时明确失败，异步周期任务可取消且停服关闭。原生命令现提供健康、密码设置、余额查询与兑换码路径；命令身份只接受命令源的直接 `ServerPlayer` 实体，控制台对象图中的 profile cache 不得冒充玩家。Fabric 1.20.1 真实专服已验证业务命令注册及控制台 `player_only` 拒绝。
 
-原生玩家桥还会保留在线 `ServerPlayer` 句柄，并通过原生 text component 工厂和服务端线程发送单播/广播；离线玩家与反射失败返回明确 `Unavailable`，测试覆盖加入、消息、退出后拒绝。
+原生玩家桥还会保留在线 `ServerPlayer` 句柄，并通过原生 text component 工厂和服务端线程发送单播/广播；离线玩家与反射失败返回明确 `Unavailable`。原生权限桥在玩家线程读取 vanilla operator level（普通管理节点 level 2、root/super 节点 level 4），未安装第三方权限 Provider 时不伪造节点支持。测试覆盖加入、消息、权限级别、退出后拒绝。
 
-尚未完成：玩家桥仍需七单元真实登录/离线与消息验证；在线/离线背包、权限与真实物品 serialization adapter 尚未完成。
+尚未完成：玩家桥仍需七单元真实登录/离线、消息与权限验证；在线/离线背包、第三方细粒度权限与真实物品 serialization adapter 尚未完成。
 
 ## M4–M6
 

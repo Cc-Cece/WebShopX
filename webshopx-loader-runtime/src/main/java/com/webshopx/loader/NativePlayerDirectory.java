@@ -100,6 +100,22 @@ final class NativePlayerDirectory implements PlatformPorts.PlayerDirectory {
     }
   }
 
+  Optional<Boolean> hasPermissionLevel(UUID playerId, int level) {
+    Object player = nativePlayers.get(playerId);
+    if (player == null) return Optional.empty();
+    try {
+      Method permission = Arrays.stream(player.getClass().getMethods())
+          .filter(method -> method.getParameterCount() == 1 && method.getParameterTypes()[0] == int.class)
+          .filter(method -> method.getReturnType() == boolean.class)
+          .filter(method -> method.getName().equals("hasPermissions")
+              || method.getName().equals("hasPermissionLevel") || method.getName().equals("method_5687"))
+          .findFirst().orElseThrow(() -> new NoSuchMethodException("player permission-level method"));
+      return Optional.of((Boolean) permission.invoke(player, level));
+    } catch (ReflectiveOperationException | LinkageError failure) {
+      throw new IllegalStateException("cannot query native player permission", failure);
+    }
+  }
+
   static Optional<PlatformPorts.PlayerSnapshot> snapshotOf(Object nativeObject, String serverId) {
     return profile(nativeObject).map(profile -> new PlatformPorts.PlayerSnapshot(
         profile.id(), profile.name(), true, serverId, Locale.ROOT));

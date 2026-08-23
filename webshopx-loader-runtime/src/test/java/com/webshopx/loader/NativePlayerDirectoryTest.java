@@ -44,4 +44,15 @@ class NativePlayerDirectoryTest {
     directory.disconnected(source);
     assertTrue(!directory.sendText(id, "offline"));
   }
+
+  @Test void queriesTrackedNativeOperatorLevel() {
+    UUID id = UUID.randomUUID();
+    FakeCommandSource source = FakeCommandSource.player(new GameProfile(id, "Operator"), 3);
+    NativePlayerDirectory directory = new NativePlayerDirectory("server-a");
+    directory.joined(source);
+    assertEquals(java.util.Optional.of(true), directory.hasPermissionLevel(id, 2));
+    assertEquals(java.util.Optional.of(false), directory.hasPermissionLevel(id, 4));
+    directory.disconnected(source);
+    assertTrue(directory.hasPermissionLevel(id, 2).isEmpty());
+  }
 }

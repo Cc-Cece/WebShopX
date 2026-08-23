@@ -184,9 +184,7 @@ public final class LoaderRuntime {
     };
     PlatformPorts.CommandGateway commands = command ->
         new PlatformResult.Unavailable<>("commands", "native command adapter is unavailable", Duration.ZERO);
-    PlatformPorts.PermissionProvider permissions = (id, permission, context) ->
-        CompletableFuture.completedFuture(new PlatformResult.Unavailable<>(
-            "permission", "permission provider is unavailable", Duration.ZERO));
+    PlatformPorts.PermissionProvider permissions = new NativePermissionProvider(playerDirectory, scheduler);
     PlatformPorts.EconomyProvider economy = new UnavailableEconomy();
     PlatformPorts.MessagingGateway messaging = new NativeMessagingGateway(playerDirectory, scheduler);
     PlatformPorts.EventPublisher events = event -> PlatformResult.success(null);
