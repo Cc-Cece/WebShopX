@@ -1,6 +1,7 @@
 package com.webshopx.neoforge;
 
 import com.webshopx.loader.LoaderRuntime;
+import com.webshopx.loader.ReflectiveHealthCommand;
 import net.minecraftforge.fml.common.Mod;
 
 /** NeoForge 1.20.1 retained the legacy Forge-package FML annotation. */
@@ -8,5 +9,6 @@ import net.minecraftforge.fml.common.Mod;
 public final class WebShopXNeoForgeMod {
   public WebShopXNeoForgeMod() {
     LoaderRuntime.startDetected("neoforge");
+    ReflectiveHealthCommand.installEventBus("net.minecraftforge.common.MinecraftForge");
   }
 }

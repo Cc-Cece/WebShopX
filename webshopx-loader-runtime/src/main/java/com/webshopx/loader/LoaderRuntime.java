@@ -77,6 +77,14 @@ public final class LoaderRuntime {
     return Optional.ofNullable(active);
   }
 
+  public static String healthLine() {
+    WebShopXCoreRuntime runtime = active;
+    if (runtime == null) return "WebShopX state=STOPPED";
+    PlatformIdentity identity = runtime.platform().identity();
+    return "WebShopX state=" + runtime.state() + " platform=" + identity.platform()
+        + " minecraft=" + identity.minecraftVersion() + " loader=" + identity.loaderVersion();
+  }
+
   private static synchronized void installShutdownHook() {
     if (shutdownHookInstalled) return;
     Runtime.getRuntime().addShutdownHook(new Thread(LoaderRuntime::stop, "webshopx-shutdown"));

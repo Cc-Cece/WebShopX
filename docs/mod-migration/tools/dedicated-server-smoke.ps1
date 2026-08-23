@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory = $true)][string]$WorkingDirectory,
     [string]$ExpectedMinecraft,
     [string]$ExpectedLoader,
+    [string]$HealthCommand,
     [int]$Port = 25622,
     [int]$TimeoutSeconds = 180
 )
@@ -76,6 +77,11 @@ try {
     if (-not $started) {
         throw "Server did not report both WebShopX readiness and Minecraft readiness within $TimeoutSeconds seconds"
     }
+    if ($HealthCommand) {
+        $process.StandardInput.WriteLine($HealthCommand)
+        $process.StandardInput.Flush()
+        Start-Sleep -Seconds 1
+    }
     $process.StandardInput.WriteLine('stop')
     $process.StandardInput.Flush()
     if (-not $process.WaitForExit(30000)) { throw 'Server did not stop within 30 seconds' }
@@ -99,6 +105,9 @@ if ($ExpectedMinecraft -and $combined -notmatch ('minecraft=' + [regex]::Escape(
 }
 if ($ExpectedLoader -and $combined -notmatch ('loaderVersion=' + [regex]::Escape($ExpectedLoader) + '\b')) {
     throw "WebShopX did not report expected Loader version $ExpectedLoader"
+}
+if ($HealthCommand -and $combined -notmatch 'WebShopX state=READY') {
+    throw "Health command did not return the READY identity line: $HealthCommand"
 }
 $errorPattern = '(?im)^.*(?:\[[^]]*/ERROR\]|\sERROR\s|Exception in thread|Caused by: .*Exception).*$'
 $unexpectedErrors = [regex]::Matches($combined, $errorPattern) | ForEach-Object { $_.Value } |

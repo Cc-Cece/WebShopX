@@ -39,13 +39,15 @@ processResources {
     inputs.properties(
             minecraftVersion: project.ext.minecraftVersion,
             loaderVersion: project.ext.loaderVersion,
-            modVersion: loaderMetadataVersion
+            modVersion: loaderMetadataVersion,
+            fabricApiVersion: project.ext.has('fabricApiVersion') ? project.ext.fabricApiVersion : ''
     )
     filesMatching(['fabric.mod.json', 'META-INF/mods.toml', 'META-INF/neoforge.mods.toml']) {
         expand(
                 minecraftVersion: project.ext.minecraftVersion,
                 loaderVersion: project.ext.loaderVersion,
-                modVersion: loaderMetadataVersion
+                modVersion: loaderMetadataVersion,
+                fabricApiVersion: project.ext.has('fabricApiVersion') ? project.ext.fabricApiVersion : ''
         )
     }
 }
