@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: 6a54139e5c46c648d89d6a32c61ad4a7b15ebb25
+          ref: 1f3e4e5e25f72407ce2956762dc34b9b3c53c24f
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:
@@ -230,7 +230,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: 6a54139e5c46c648d89d6a32c61ad4a7b15ebb25
+          ref: 1f3e4e5e25f72407ce2956762dc34b9b3c53c24f
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:
@@ -338,7 +338,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: 6a54139e5c46c648d89d6a32c61ad4a7b15ebb25
+          ref: 1f3e4e5e25f72407ce2956762dc34b9b3c53c24f
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:
@@ -418,7 +418,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: 6a54139e5c46c648d89d6a32c61ad4a7b15ebb25
+          ref: 1f3e4e5e25f72407ce2956762dc34b9b3c53c24f
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:
