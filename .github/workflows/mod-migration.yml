@@ -188,7 +188,7 @@ jobs:
             -LaunchArguments $env:WEBSHOPX_LAUNCH_ARGS -ModJar $jar.FullName `
             -WorkingDirectory $env:WEBSHOPX_SERVER_WORK `
             -ExpectedMinecraft '${{ matrix.minecraft }}' -ExpectedLoader '${{ matrix.loader }}' `
-            -HealthCommand 'webshopx-health' -ProbeCommand 'webshopx-item-roundtrip' `
+            -HealthCommand 'webshopx-health' -ProbeCommand 'webshopx-item-probe' `
             -ExpectedProbePattern 'item-roundtrip=PASS','fixtures=PASS\(8,domain,hash,codec\)' |
             Set-Content (Join-Path $env:WEBSHOPX_SERVER_WORK 'smoke-evidence.json')
       - uses: actions/upload-artifact@v4
