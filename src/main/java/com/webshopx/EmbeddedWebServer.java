@@ -1642,7 +1642,7 @@ class EmbeddedWebServer {
   }
 
   private JsonObject deploymentModeJson(PluginSettings settings) {
-    PluginSettings.DatabaseSettings databaseSettings = settings.databaseSettings();
+    DatabaseSettings databaseSettings = settings.databaseSettings();
     PluginSettings.ClusterSettings clusterSettings = settings.clusterSettings();
     PluginSettings.RedisSettings redisSettings = settings.redisSettings();
     DbType databaseType = databaseSettings.type();

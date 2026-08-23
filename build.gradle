@@ -150,6 +150,8 @@ sourceSets {
             exclude 'com/webshopx/ClaimTokenGenerator.java'
             exclude 'com/webshopx/ClaimTokenRepository.java'
             exclude 'com/webshopx/CurrencyType.java'
+            exclude 'com/webshopx/DatabaseManager.java'
+            exclude 'com/webshopx/DatabaseSettings.java'
             exclude 'com/webshopx/DatabaseDialect.java'
             exclude 'com/webshopx/DbType.java'
             exclude 'com/webshopx/MapUtils.java'

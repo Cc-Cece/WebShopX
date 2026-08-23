@@ -14,9 +14,8 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
-import org.bukkit.plugin.java.JavaPlugin;
 
-class DatabaseManager {
+public class DatabaseManager {
   private static final Pattern SQLITE_FOR_UPDATE_PATTERN =
       Pattern.compile("(?i)\\s+FOR\\s+UPDATE\\b");
   private static final Pattern SQLITE_NOW_PATTERN =
@@ -29,20 +28,20 @@ class DatabaseManager {
   private static final Pattern SQLITE_CAST_AS_CHAR_PATTERN =
       Pattern.compile("(?i)CAST\\s*\\((.+?)\\s+AS\\s+CHAR\\s*\\)");
 
-  private final JavaPlugin plugin;
-  private final PluginSettings.DatabaseSettings settings;
+  private final Logger logger;
+  private final DatabaseSettings settings;
   private final DatabaseDialect dialect;
   private final SqlProvider sqlProvider;
   private HikariDataSource dataSource;
 
-  DatabaseManager(JavaPlugin plugin, PluginSettings.DatabaseSettings settings) {
-    this.plugin = plugin;
+  public DatabaseManager(Logger logger, DatabaseSettings settings) {
+    this.logger = logger == null ? Logger.getLogger(DatabaseManager.class.getName()) : logger;
     this.settings = settings;
     this.dialect = DatabaseDialect.forType(settings.type());
     this.sqlProvider = SqlProvider.forType(settings.type());
   }
 
-  void start() {
+  public void start() {
     ensureDriverLoaded();
     if (dialect.dbType().isSqlite()) {
       ensureSqliteDirectoryExists();
@@ -59,10 +58,7 @@ class DatabaseManager {
             exception);
       }
       if (containsMissingRsaPublicKey(exception) && settings.canAutoRetryWithPublicKeyRetrieval()) {
-        MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
-        plugin
-            .getLogger()
-            .warning(ms.getConsole("console.database_retry_with_public_key_retrieval"));
+        logger.warning("console.database_retry_with_public_key_retrieval");
         this.dataSource = createDataSource(settings.mysqlJdbcUrl(true));
         return;
       }
@@ -164,14 +160,14 @@ class DatabaseManager {
     return false;
   }
 
-  void close() {
+  public void close() {
     if (dataSource != null) {
       dataSource.close();
       dataSource = null;
     }
   }
 
-  Connection getConnection() throws SQLException {
+  public Connection getConnection() throws SQLException {
     if (dataSource == null) {
       throw new IllegalStateException("Data source is not initialized");
     }
@@ -182,16 +178,15 @@ class DatabaseManager {
     return connection;
   }
 
-  <T> T withConnection(SqlFunction<T> function) {
+  public <T> T withConnection(SqlFunction<T> function) {
     return executeWithRetry("Database operation failed", false, function);
   }
 
-  <T> T inTransaction(SqlFunction<T> function) {
+  public <T> T inTransaction(SqlFunction<T> function) {
     return executeWithRetry("Transaction failed", true, function);
   }
 
   void logFailure(String message, Exception exception) {
-    Logger logger = plugin.getLogger();
     logger.log(Level.SEVERE, message, exception);
   }
 
@@ -286,21 +281,13 @@ class DatabaseManager {
         boolean canRetry = attempt < maxRetries && isRetryableSqliteException(exception);
         if (!canRetry) {
           if (dialect.dbType().isSqlite() && isRetryableSqliteException(exception)) {
-            MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
-            plugin
-                .getLogger()
-                .log(Level.SEVERE, ms.formatConsole("console.sqlite_retry_exhausted", MapUtils.mapOf("attempt", attempt)), exception);
+            logger.log(Level.SEVERE, "console.sqlite_retry_exhausted attempt=" + attempt, exception);
           }
           throw new DataAccessException(failureMessage, exception);
         }
         int nextAttempt = attempt + 1;
         Level level = nextAttempt >= maxRetries ? Level.WARNING : Level.FINE;
-        MessageService ms = new MessageService(plugin, () -> PluginSettings.fromConfig(plugin.getConfig()));
-        plugin
-            .getLogger()
-            .log(
-                level,
-                ms.formatConsole("console.sqlite_retrying", MapUtils.mapOf("attempt", nextAttempt, "max", maxRetries)));
+        logger.log(level, "console.sqlite_retrying attempt=" + nextAttempt + " max=" + maxRetries);
         sleepBeforeRetry(attempt);
         attempt = nextAttempt;
       }
@@ -328,20 +315,20 @@ class DatabaseManager {
     }
   }
 
-  DbType dbType() {
+  public DbType dbType() {
     return dialect.dbType();
   }
 
-  DatabaseDialect dialect() {
+  public DatabaseDialect dialect() {
     return dialect;
   }
 
-  SqlProvider sqlProvider() {
+  public SqlProvider sqlProvider() {
     return sqlProvider;
   }
 
   @FunctionalInterface
-  interface SqlFunction<T> {
+  public interface SqlFunction<T> {
     T apply(Connection connection) throws SQLException;
   }
 

@@ -26,6 +26,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class LoaderRuntime {
   private static volatile WebShopXCoreRuntime active;
   private static RuntimeInstanceGuard instanceGuard;
+  private static SharedDatabaseRuntime databaseRuntime;
   private static boolean shutdownHookInstalled;
 
   private LoaderRuntime() { }
@@ -37,8 +38,17 @@ public final class LoaderRuntime {
         Path.of(System.getProperty("webshopx.data-dir", "config/webshopx")), loader);
     installShutdownHook();
     PlatformPorts.Bundle bundle = minimalBundle(loader, minecraftVersion, loaderVersion);
-    active = new WebShopXCoreRuntime(bundle);
-    active.start();
+    try {
+      if (!"paper".equals(loader)) databaseRuntime = SharedDatabaseRuntime.start(bundle.paths().data());
+      active = new WebShopXCoreRuntime(bundle);
+      active.start();
+    } catch (RuntimeException failure) {
+      if (databaseRuntime != null) databaseRuntime.close();
+      databaseRuntime = null;
+      instanceGuard.close();
+      instanceGuard = null;
+      throw failure;
+    }
     RuntimeHealth.write(bundle.paths().data(), bundle.identity(), bundle.capabilities(), active.state());
     System.out.printf("[WebShopX] ready loader=%s minecraft=%s loaderVersion=%s domain=%s%n",
         loader, minecraftVersion, loaderVersion, bundle.identity().modpackFingerprint());
@@ -57,6 +67,8 @@ public final class LoaderRuntime {
       RuntimeHealth.write(platform.paths().data(), platform.identity(), platform.capabilities(), active.state());
     }
     active = null;
+    if (databaseRuntime != null) databaseRuntime.close();
+    databaseRuntime = null;
     if (instanceGuard != null) instanceGuard.close();
     instanceGuard = null;
   }
@@ -84,6 +96,8 @@ public final class LoaderRuntime {
     states.put(Capability.RELAY, CapabilityState.available("core event contract"));
     states.put(Capability.MOD_ITEM_CODEC,
         CapabilityState.available("lossless opaque native payload envelope"));
+    states.put(Capability.DATABASE,
+        CapabilityState.available("SQLite standalone; MySQL/MariaDB drivers bundled"));
     CapabilitySnapshot capabilities = new CapabilitySnapshot(Instant.now(), states);
     ImmediateLifecycle lifecycle = new ImmediateLifecycle();
     PlatformPorts.Scheduler scheduler = new DirectScheduler();

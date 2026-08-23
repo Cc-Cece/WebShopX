@@ -31,7 +31,7 @@ class RefundPolicyServiceTest {
     }
     DatabaseManager databaseManager = new DatabaseManager(
         null,
-        new PluginSettings.DatabaseSettings(
+        new DatabaseSettings(
             DbType.SQLITE,
             "",
             0,

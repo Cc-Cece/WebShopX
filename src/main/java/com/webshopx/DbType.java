@@ -2,12 +2,12 @@ package com.webshopx;
 
 import java.util.Locale;
 
-enum DbType {
+public enum DbType {
   MYSQL,
   MARIADB,
   SQLITE;
 
-  static DbType fromRaw(String raw) {
+  public static DbType fromRaw(String raw) {
     if (raw == null || raw.isBlank()) {
       return MYSQL;
     }
@@ -20,11 +20,11 @@ enum DbType {
     };
   }
 
-  boolean isMysqlFamily() {
+  public boolean isMysqlFamily() {
     return this == MYSQL || this == MARIADB;
   }
 
-  boolean isSqlite() {
+  public boolean isSqlite() {
     return this == SQLITE;
   }
 }

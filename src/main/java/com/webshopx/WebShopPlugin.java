@@ -745,7 +745,7 @@ public class WebShopPlugin extends JavaPlugin {
   }
 
   private void initializeDatabase() {
-    databaseManager = new DatabaseManager(this, settings.databaseSettings());
+    databaseManager = new DatabaseManager(getLogger(), settings.databaseSettings());
     try {
       databaseManager.start();
       SchemaProvider.forType(settings.databaseSettings().type()).ensureSchema(databaseManager, settings);

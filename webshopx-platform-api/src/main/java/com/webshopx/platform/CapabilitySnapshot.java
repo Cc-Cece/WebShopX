@@ -16,7 +16,7 @@ public record CapabilitySnapshot(Instant capturedAt, Map<Capability, CapabilityS
 
   public enum Capability {
     ECONOMY, PERMISSION, OFFLINE_INVENTORY, STANDARD_GUI, CLIENT_ENHANCEMENT,
-    MOD_ITEM_CODEC, RELAY, REDIS, PAYMENT_PROVIDER
+    MOD_ITEM_CODEC, DATABASE, RELAY, REDIS, PAYMENT_PROVIDER
   }
 
   public record CapabilityState(Status status, String detail) {
