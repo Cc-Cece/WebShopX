@@ -241,9 +241,13 @@ def frontendSourceDirectory = {
 }
 
 def commandText = { File directory, List<String> command ->
+    def executable = command[0]
+    if (System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('windows') && executable == 'pnpm') {
+        executable = 'pnpm.cmd'
+    }
     providers.exec {
         workingDir directory
-        commandLine command
+        commandLine([executable] + command.drop(1))
     }.standardOutput.asText.get().trim()
 }
 
