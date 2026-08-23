@@ -209,6 +209,14 @@ public final class LoaderRuntime {
         CapabilityState.available("lossless opaque native payload envelope"));
     states.put(Capability.OFFLINE_INVENTORY,
         CapabilityState.available("atomic playerdata NBT compare-and-apply"));
+    states.put(Capability.PERMISSION,
+        CapabilityState.available("vanilla operator levels; online queries only"));
+    states.put(Capability.ECONOMY,
+        CapabilityState.unsupported("internal ShopCoin ledger only; no external economy adapter"));
+    states.put(Capability.PAYMENT_PROVIDER,
+        CapabilityState.unsupported("no Loader payment provider registered"));
+    states.put(Capability.CLIENT_ENHANCEMENT,
+        CapabilityState.unsupported("server-only release; use HTTP and commands"));
     states.put(Capability.DATABASE,
         CapabilityState.available(System.getProperty("webshopx.database.type", "sqlite")
             + " database configured"));

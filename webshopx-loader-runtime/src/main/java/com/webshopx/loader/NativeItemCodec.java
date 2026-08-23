@@ -170,10 +170,15 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
               || !(decode(generated.value(), domain()) instanceof PlatformResult.Success<?>)) {
             return "WebShopX item-roundtrip=FAIL reason=registry_create detail=" + lastFailure;
           }
+          String corpus = probeCorpus(generated.value());
+          if (!corpus.startsWith("PASS")) {
+            return "WebShopX item-roundtrip=FAIL reason=fixture_corpus detail=" + corpus;
+          }
           return "WebShopX item-roundtrip=PASS codec=" + id + " version=" + version
               + " registry=" + success.value().registryId()
               + " hash=" + success.value().payloadHash()
-              + " registry-create=PASS createdHash=" + generated.value().payloadHash();
+              + " registry-create=PASS createdHash=" + generated.value().payloadHash()
+              + " fixtures=" + corpus;
         }
       }
       return "WebShopX item-roundtrip=FAIL reason=" + last + " candidates=" + candidates
@@ -181,6 +186,56 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
     } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
       return "WebShopX item-roundtrip=FAIL reason=" + failure.getClass().getSimpleName();
     }
+  }
+
+  private String probeCorpus(ItemEnvelope reference) {
+    List<String> registryIds = List.of("minecraft:stone", "minecraft:diamond_sword",
+        "minecraft:enchanted_book", "minecraft:potion", "minecraft:written_book",
+        "minecraft:filled_map", "minecraft:shulker_box", "minecraft:bundle");
+    int passed = 0;
+    for (String registryId : registryIds) {
+      PlatformResult<ItemEnvelope> created = createEnvelope(registryId, 1);
+      if (!(created instanceof PlatformResult.Success<ItemEnvelope> envelope)
+          || !(decode(envelope.value(), domain()) instanceof PlatformResult.Success<?>)) {
+        return "registry:" + registryId + ":" + resultCode(created);
+      }
+      passed++;
+    }
+    CompatibilityDomain foreign = new CompatibilityDomain(identity.platform(), identity.loader(),
+        identity.minecraftVersion(), version, "sha256:foreign-modpack");
+    ItemEnvelope incompatible = copy(reference, reference.payload(), reference.payloadHash(), foreign, reference.codec());
+    PlatformResult<Object> rejectedDomain = decode(incompatible, domain());
+    if (!(rejectedDomain instanceof PlatformResult.Rejected<Object> rejected)
+        || !"ITEM_DOMAIN_INCOMPATIBLE".equals(rejected.errorCode())) {
+      return "domain_rejection_failed";
+    }
+    byte[] corrupt = reference.payload();
+    corrupt[0] ^= 1;
+    ItemEnvelope damaged = copy(reference, corrupt, reference.payloadHash(), domain(), reference.codec());
+    PlatformResult<Object> rejectedHash = decode(damaged, domain());
+    if (!(rejectedHash instanceof PlatformResult.Rejected<Object> hashFailure)
+        || !"ITEM_HASH_MISMATCH".equals(hashFailure.errorCode())) {
+      return "hash_rejection_failed";
+    }
+    ItemEnvelope unknown = copy(reference, reference.payload(), reference.payloadHash(), domain(), "missing-codec");
+    PlatformResult<Object> rejectedCodec = decode(unknown, domain());
+    if (!(rejectedCodec instanceof PlatformResult.Rejected<Object> codecFailure)
+        || !"ITEM_CODEC_UNKNOWN".equals(codecFailure.errorCode())) {
+      return "codec_rejection_failed";
+    }
+    return "PASS(" + passed + ",domain,hash,codec)";
+  }
+
+  private static ItemEnvelope copy(ItemEnvelope source, byte[] payload, String hash,
+      CompatibilityDomain domain, String codec) {
+    return new ItemEnvelope(source.schemaVersion(), codec, source.codecVersion(), domain,
+        source.registryId(), source.count(), source.payloadEncoding(), payload, hash,
+        source.summary(), source.createdAt());
+  }
+
+  private static String resultCode(PlatformResult<?> result) {
+    return result instanceof PlatformResult.Rejected<?> rejected
+        ? rejected.errorCode() : result.getClass().getSimpleName();
   }
 
   private static Object constructStack(ClassLoader loader, Object nativeItem)

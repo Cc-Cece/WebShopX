@@ -26,7 +26,11 @@ class LoaderRuntimeTest {
     WebShopXCoreRuntime second = LoaderRuntime.start("fabric", "1.20.1", "0.19.3");
     assertEquals(first, second);
     assertEquals(WebShopXCoreRuntime.State.READY, first.state());
-    assertEquals(Status.UNAVAILABLE, first.platform().capabilities().state(Capability.ECONOMY).status());
+    assertEquals(Status.UNSUPPORTED, first.platform().capabilities().state(Capability.ECONOMY).status());
+    assertEquals(Status.AVAILABLE,
+        first.platform().capabilities().state(Capability.PERMISSION).status());
+    assertEquals(Status.UNSUPPORTED,
+        first.platform().capabilities().state(Capability.CLIENT_ENHANCEMENT).status());
     assertEquals(Status.AVAILABLE,
         first.platform().capabilities().state(Capability.MOD_ITEM_CODEC).status());
     assertTrue(Files.readString(temporaryDirectory.resolve("health.json")).contains("\"state\": \"READY\""));

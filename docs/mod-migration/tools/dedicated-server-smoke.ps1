@@ -7,6 +7,8 @@ param(
     [string]$ExpectedMinecraft,
     [string]$ExpectedLoader,
     [string]$HealthCommand,
+    [string[]]$ProbeCommand = @(),
+    [string[]]$ExpectedProbePattern = @(),
     [int]$Port = 25622,
     [int]$TimeoutSeconds = 180
 )
@@ -80,8 +82,12 @@ try {
     if ($HealthCommand) {
         $process.StandardInput.WriteLine($HealthCommand)
         $process.StandardInput.Flush()
-        Start-Sleep -Seconds 1
     }
+    foreach ($command in $ProbeCommand) {
+        $process.StandardInput.WriteLine($command)
+        $process.StandardInput.Flush()
+    }
+    if ($HealthCommand -or $ProbeCommand.Count -gt 0) { Start-Sleep -Seconds 1 }
     $process.StandardInput.WriteLine('stop')
     $process.StandardInput.Flush()
     if (-not $process.WaitForExit(30000)) { throw 'Server did not stop within 30 seconds' }
@@ -109,6 +115,11 @@ if ($ExpectedLoader -and $combined -notmatch ('loaderVersion=' + [regex]::Escape
 if ($HealthCommand -and $combined -notmatch 'WebShopX state=READY') {
     throw "Health command did not return the READY identity line: $HealthCommand"
 }
+foreach ($pattern in $ExpectedProbePattern) {
+    if ($combined -notmatch $pattern) {
+        throw "Server output did not match required probe pattern: $pattern"
+    }
+}
 $errorPattern = '(?im)^.*(?:\[[^]]*/ERROR\]|\sERROR\s|Exception in thread|Caused by: .*Exception).*$'
 $unexpectedErrors = [regex]::Matches($combined, $errorPattern) | ForEach-Object { $_.Value } |
     Where-Object { $_ -notmatch 'Appender DebugFile|Only supported on (?:OSX/BSD|Linux)' }
@@ -122,5 +133,6 @@ $hash = (Get-FileHash -LiteralPath $mod -Algorithm SHA256).Hash.ToLowerInvariant
     sha256 = $hash
     port = $Port
     cleanStop = $true
+    probes = @($ExpectedProbePattern)
     evidence = $stdout
 } | ConvertTo-Json
