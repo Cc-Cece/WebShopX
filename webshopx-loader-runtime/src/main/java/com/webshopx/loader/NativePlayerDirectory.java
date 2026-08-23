@@ -62,6 +62,37 @@ final class NativePlayerDirectory implements PlatformPorts.PlayerDirectory {
     online.clear();
   }
 
+  static Optional<PlatformPorts.PlayerSnapshot> snapshotOf(Object nativeObject, String serverId) {
+    return profile(nativeObject).map(profile -> new PlatformPorts.PlayerSnapshot(
+        profile.id(), profile.name(), true, serverId, Locale.ROOT));
+  }
+
+  static Optional<PlatformPorts.PlayerSnapshot> commandSourcePlayer(Object commandSource, String serverId) {
+    if (commandSource == null) return Optional.empty();
+    for (Field field : fields(commandSource.getClass())) {
+      if (!isGameType(field.getType())) continue;
+      try {
+        if (!field.trySetAccessible()) continue;
+        Object candidate = field.get(commandSource);
+        if (!isServerPlayer(candidate)) continue;
+        Optional<Profile> candidateProfile = directProfile(candidate);
+        if (candidateProfile.isPresent()) {
+          return candidateProfile.map(profile -> snapshot(profile, serverId));
+        }
+      } catch (IllegalAccessException | RuntimeException ignored) {
+        // A different direct entity field may still be readable.
+      }
+    }
+    return Optional.empty();
+  }
+
+  private static boolean isServerPlayer(Object candidate) {
+    if (candidate == null) return false;
+    String name = candidate.getClass().getName();
+    return name.equals("net.minecraft.class_3222")
+        || name.endsWith(".ServerPlayer") || name.endsWith("$ServerPlayer");
+  }
+
   private static Optional<Profile> profile(Object root) {
     if (root == null) return Optional.empty();
     ArrayDeque<Node> queue = new ArrayDeque<>();
@@ -95,6 +126,41 @@ final class NativePlayerDirectory implements PlatformPorts.PlayerDirectory {
       }
     }
     return Optional.empty();
+  }
+
+  private static Optional<Profile> directProfile(Object value) {
+    if (value == null || !isGameType(value.getClass())) return Optional.empty();
+    if (value.getClass().getName().equals("com.mojang.authlib.GameProfile")) {
+      return readProfile(value);
+    }
+    for (Field field : fields(value.getClass())) {
+      if (!field.getType().getName().equals("com.mojang.authlib.GameProfile")) continue;
+      try {
+        if (field.trySetAccessible()) return readProfile(field.get(value));
+      } catch (IllegalAccessException | RuntimeException ignored) {
+        return Optional.empty();
+      }
+    }
+    return Optional.empty();
+  }
+
+  private static Optional<Profile> readProfile(Object value) {
+    if (value == null) return Optional.empty();
+    try {
+      Method getId = value.getClass().getMethod("getId");
+      Method getName = value.getClass().getMethod("getName");
+      Object id = getId.invoke(value);
+      Object name = getName.invoke(value);
+      if (id instanceof UUID uuid && name instanceof String text) return Optional.of(new Profile(uuid, text));
+    } catch (ReflectiveOperationException ignored) {
+      return Optional.empty();
+    }
+    return Optional.empty();
+  }
+
+  private static PlatformPorts.PlayerSnapshot snapshot(Profile profile, String serverId) {
+    return new PlatformPorts.PlayerSnapshot(
+        profile.id(), profile.name(), true, serverId, Locale.ROOT);
   }
 
   private static boolean isGameType(Class<?> type) {

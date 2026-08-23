@@ -1,5 +1,6 @@
 package com.webshopx.loader;
 
+import com.webshopx.ServiceException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.Arrays;
@@ -111,10 +112,97 @@ public final class ReflectiveHealthCommand {
           .filter(method -> method.getName().equals("register") && method.getParameterCount() == 1)
           .findFirst().orElseThrow();
       register.invoke(dispatcher, builder);
+      registerBusinessCommands(dispatcher, register, literalBuilder, commandType);
     } catch (ReflectiveOperationException | LinkageError failure) {
       throw new IllegalStateException("cannot register WebShopX health command", failure);
     }
   }
+
+  private static void registerBusinessCommands(
+      Object dispatcher, Method register, Class<?> literalBuilder, Class<?> commandType)
+      throws ReflectiveOperationException {
+    register.invoke(dispatcher, command(
+        literalBuilder, commandType, "webshopx-balance", null,
+        invocation -> {
+          var player = requirePlayer(invocation.source());
+          var user = LoaderRuntime.administration().orElseThrow()
+              .lookupUser(player.id().toString())
+              .orElseThrow(() -> new ServiceException("not_bound", "Set a WebShopX password first"));
+          return "WebShopX balance shopCoin=" + user.shopCoin() + " gameCoin=" + user.gameCoin();
+        }));
+    register.invoke(dispatcher, command(
+        literalBuilder, commandType, "webshopx-password", "password",
+        invocation -> {
+          var player = requirePlayer(invocation.source());
+          var result = LoaderRuntime.authentication().orElseThrow()
+              .setPasswordFromGame(player.id(), player.name(), invocation.argument());
+          return "WebShopX password updated userId=" + result.userId();
+        }));
+    register.invoke(dispatcher, command(
+        literalBuilder, commandType, "webshopx-redeem", "code",
+        invocation -> {
+          var player = requirePlayer(invocation.source());
+          var user = LoaderRuntime.administration().orElseThrow()
+              .lookupUser(player.id().toString())
+              .orElseThrow(() -> new ServiceException("not_bound", "Set a WebShopX password first"));
+          var result = LoaderRuntime.redeemCodes().orElseThrow().redeem(user.userId(), invocation.argument());
+          return "WebShopX redeem status=" + result.status() + " shopCoin="
+              + result.balance().shopCoin() + " gameCoin=" + result.balance().gameCoin();
+        }));
+  }
+
+  private static Object command(
+      Class<?> literalBuilder, Class<?> commandType, String name, String argumentName,
+      NativeCommand action) throws ReflectiveOperationException {
+    Object literal = literalBuilder.getMethod("literal", String.class).invoke(null, name);
+    Object target = literal;
+    if (argumentName != null) {
+      Class<?> argumentType = Class.forName("com.mojang.brigadier.arguments.ArgumentType");
+      Class<?> stringType = Class.forName("com.mojang.brigadier.arguments.StringArgumentType");
+      Object word = stringType.getMethod("word").invoke(null);
+      Class<?> required = Class.forName("com.mojang.brigadier.builder.RequiredArgumentBuilder");
+      target = required.getMethod("argument", String.class, argumentType)
+          .invoke(null, argumentName, word);
+    }
+    String capturedArgument = argumentName;
+    Object handler = Proxy.newProxyInstance(commandType.getClassLoader(), new Class<?>[]{commandType},
+        (proxy, method, arguments) -> {
+          if (!method.getName().equals("run")) return null;
+          Object context = arguments[0];
+          Object source = context.getClass().getMethod("getSource").invoke(context);
+          String value = capturedArgument == null ? null
+              : (String) context.getClass().getMethod("getArgument", String.class, Class.class)
+                  .invoke(context, capturedArgument, String.class);
+          try {
+            send(source, action.execute(new NativeInvocation(source, value)));
+            return 1;
+          } catch (ServiceException expected) {
+            send(source, "WebShopX error=" + expected.code() + " message=" + expected.getMessage());
+            return 0;
+          } catch (RuntimeException failure) {
+            send(source, "WebShopX error=internal_error");
+            System.err.printf("[WebShopX] native command %s failed: %s%n", name, failure);
+            return 0;
+          }
+        });
+    target.getClass().getMethod("executes", commandType).invoke(target, handler);
+    if (argumentName != null) {
+      Class<?> argumentBuilder = Class.forName("com.mojang.brigadier.builder.ArgumentBuilder");
+      literal.getClass().getMethod("then", argumentBuilder).invoke(literal, target);
+    }
+    return literal;
+  }
+
+  private static com.webshopx.platform.PlatformPorts.PlayerSnapshot requirePlayer(Object source) {
+    String serverId = LoaderRuntime.active().map(runtime -> runtime.platform().identity().serverId())
+        .orElse("standalone");
+    return NativePlayerDirectory.commandSourcePlayer(source, serverId)
+        .orElseThrow(() -> new ServiceException("player_only", "This command requires a player"));
+  }
+
+  @FunctionalInterface
+  private interface NativeCommand { String execute(NativeInvocation invocation); }
+  private record NativeInvocation(Object source, String argument) { }
 
   private static void send(Object source, String message) {
     System.out.println(message);

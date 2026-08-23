@@ -10,7 +10,7 @@
 
 ## M3
 
-已交付封闭 `PlatformResult`、完整端口边界、能力快照、兼容域、4 MiB 有界不可变 `ItemEnvelope`、hash/domain/codec 拒绝、opaque native codec、幂等 compare-and-apply 参考背包、部分容量、版本冲突、operation ID 去重、legacy/modern allowlist 和 contract tests。Loader runtime 已接入 Fabric/Forge/NeoForge 原生 ServerStarted/ServerStopping 与玩家连接事件；全局/玩家任务通过原生 `MinecraftServer` executor 分派，未绑定时明确失败，异步周期任务可取消且停服关闭。Fabric 1.20.1 与 Forge 1.20.1 已在真实专服证明事件桥安装、ServerStarted 后 READY、健康命令和 ServerStopping 后 STOPPED。
+已交付封闭 `PlatformResult`、完整端口边界、能力快照、兼容域、4 MiB 有界不可变 `ItemEnvelope`、hash/domain/codec 拒绝、opaque native codec、幂等 compare-and-apply 参考背包、部分容量、版本冲突、operation ID 去重、legacy/modern allowlist 和 contract tests。Loader runtime 已接入 Fabric/Forge/NeoForge 原生 ServerStarted/ServerStopping 与玩家连接事件；全局/玩家任务通过原生 `MinecraftServer` executor 分派，未绑定时明确失败，异步周期任务可取消且停服关闭。原生命令现提供健康、密码设置、余额查询与兑换码路径；命令身份只接受命令源的直接 `ServerPlayer` 实体，控制台对象图中的 profile cache 不得冒充玩家。Fabric 1.20.1 真实专服已验证业务命令注册及控制台 `player_only` 拒绝。
 
 尚未完成：玩家桥仍需七单元真实登录/离线验证；在线/离线背包、消息、权限与真实物品 serialization adapter 尚未完成。
 
@@ -18,7 +18,7 @@
 
 Fabric、Forge、NeoForge 的精确入口、元数据、Java 下限、Fabric API、完整 schema、健康命令、原生生命周期/调度桥和进程停止已在七个真实服务端复验；支持矩阵仍只标 `startup_verified`。
 
-尚未完成：各 Loader 的真实玩家登录 fixture、库存/消息/权限/GUI/原生 item adapter 和插件版完整业务矩阵。不得将当前产物宣传为 full。
+尚未完成：各 Loader 的真实玩家登录与业务命令成功路径 fixture、库存/消息/权限/GUI/原生 item adapter 和插件版完整业务矩阵。不得将当前产物宣传为 full。
 
 ## M7
 
