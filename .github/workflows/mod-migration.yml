@@ -44,7 +44,7 @@ jobs:
           java-version: '25'
           cache: gradle
       - name: Run platform-neutral and Loader gates
-        run: ./gradlew releaseReadiness --stacktrace
+        run: ./gradlew localReadiness --stacktrace
       - name: Scan candidate filesystem and bundled dependencies
         id: dependency-scan
         uses: anchore/scan-action@v7
@@ -58,6 +58,25 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: ${{ steps.dependency-scan.outputs.sarif }}
+      - name: Freeze contracts and scan evidence
+        shell: pwsh
+        run: |
+          & docs/mod-migration/tools/write-check-evidence.ps1 `
+            -Id 'contracts-and-artifacts' -SourceCommit '${{ github.sha }}' `
+            -Environment 'ubuntu-latest/java-17+21+25' `
+            -EvidencePath @('build/reports/mod-migration','webshopx-core/build/reports/tests/test') `
+            -OutputFile 'build/required-checks/contracts-and-artifacts.check.json'
+          & docs/mod-migration/tools/write-check-evidence.ps1 `
+            -Id 'dependency-scan' -SourceCommit '${{ github.sha }}' `
+            -Environment 'anchore-scan-action-v7/grype-high' `
+            -EvidencePath @('${{ steps.dependency-scan.outputs.sarif }}') `
+            -OutputFile 'build/required-checks/dependency-scan.check.json'
+      - name: Upload contracts and scan evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: contracts-evidence-${{ github.sha }}
+          if-no-files-found: error
+          path: build/required-checks/*.check.json
       - name: Upload candidate matrix
         uses: actions/upload-artifact@v4
         with:
@@ -82,6 +101,19 @@ jobs:
           cache: gradle
       - name: Preserve Paper baseline
         run: ./gradlew paperBaseline --stacktrace
+      - name: Freeze Paper evidence
+        shell: pwsh
+        run: >-
+          & docs/mod-migration/tools/write-check-evidence.ps1
+          -Id 'paper-regression' -SourceCommit '${{ github.sha }}'
+          -Environment 'ubuntu-latest/java-21'
+          -EvidencePath @('build/test-results/test','build/tmp/plain-plugin')
+          -OutputFile 'build/required-checks/paper-regression.check.json'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paper-evidence-${{ github.sha }}
+          if-no-files-found: error
+          path: build/required-checks/*.check.json
 
   database-and-redis:
     runs-on: ubuntu-latest
@@ -137,6 +169,19 @@ jobs:
           --tests com.webshopx.core.RedisEventBridgeIntegrationTest
           --tests com.webshopx.core.RedisReconnectIntegrationTest
           --rerun-tasks --stacktrace
+      - name: Freeze database and Redis evidence
+        shell: pwsh
+        run: >-
+          & docs/mod-migration/tools/write-check-evidence.ps1
+          -Id 'database-and-redis' -SourceCommit '${{ github.sha }}'
+          -Environment 'ubuntu-latest/mariadb-11.4/redis-7/java-25'
+          -EvidencePath @('webshopx-core/build/test-results/test')
+          -OutputFile 'build/required-checks/database-and-redis.check.json'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: database-redis-check-evidence-${{ github.sha }}
+          if-no-files-found: error
+          path: build/required-checks/*.check.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -191,6 +236,20 @@ jobs:
             -HealthCommand 'webshopx-health' -ProbeCommand 'webshopx-item-probe' `
             -ExpectedProbePattern 'item-roundtrip=PASS','fixtures=PASS\(8,domain,hash,codec\)' |
             Set-Content (Join-Path $env:WEBSHOPX_SERVER_WORK 'smoke-evidence.json')
+      - name: Freeze dedicated-server evidence
+        shell: pwsh
+        run: |
+          $id = 'server-${{ matrix.platform }}-${{ matrix.minecraft }}'
+          & docs/mod-migration/tools/write-check-evidence.ps1 `
+            -Id $id -SourceCommit '${{ github.sha }}' `
+            -Environment 'ubuntu-latest/${{ matrix.platform }}-${{ matrix.loader }}/minecraft-${{ matrix.minecraft }}/java-${{ matrix.java }}' `
+            -EvidencePath @((Join-Path $env:WEBSHOPX_SERVER_WORK 'smoke-evidence.json'),(Join-Path $env:WEBSHOPX_SERVER_WORK 'config/webshopx/health.json')) `
+            -OutputFile "build/required-checks/$id.check.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-evidence-${{ matrix.platform }}-${{ matrix.minecraft }}-${{ github.sha }}
+          if-no-files-found: error
+          path: build/required-checks/*.check.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -219,3 +278,128 @@ jobs:
       - name: Compile CodeQL database
         run: ./gradlew classes :webshopx-loader-runtime:classes --stacktrace
       - uses: github/codeql-action/analyze@v4
+      - name: Freeze CodeQL evidence
+        shell: pwsh
+        run: >-
+          & docs/mod-migration/tools/write-check-evidence.ps1
+          -Id 'codeql' -SourceCommit '${{ github.sha }}'
+          -Environment 'ubuntu-latest/codeql-v4/java-kotlin'
+          -EvidencePath @('build/classes','webshopx-loader-runtime/build/classes','.github/workflows/mod-migration.yml')
+          -OutputFile 'build/required-checks/codeql.check.json'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codeql-evidence-${{ github.sha }}
+          if-no-files-found: error
+          path: build/required-checks/*.check.json
+
+  browser-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Start shared HTTP fixture
+        shell: bash
+        run: |
+          mkdir -p build/reports/mod-migration/browser build/tmp/browser-fixture
+          ./gradlew :webshopx-core:browserAcceptanceFixture \
+            -PbrowserFixturePort=8123 \
+            -PbrowserFixtureDirectory="$PWD/build/tmp/browser-fixture" \
+            > build/tmp/browser-fixture/fixture.log 2>&1 &
+          echo $! > build/tmp/browser-fixture/gradle.pid
+          for attempt in $(seq 1 120); do
+            if curl --fail --silent http://127.0.0.1:8123/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat build/tmp/browser-fixture/fixture.log
+          exit 1
+      - name: Install Chromium
+        run: npx --yes playwright@1.55.0 install --with-deps chromium
+      - name: Verify visible landing and health pages
+        env:
+          WEBSHOPX_BROWSER_BASE: http://127.0.0.1:8123
+          WEBSHOPX_BROWSER_EVIDENCE: build/reports/mod-migration/browser
+        run: npx --yes @playwright/test@1.55.0 test docs/mod-migration/tools/browser-acceptance.spec.mjs --reporter=line
+      - name: Stop shared HTTP fixture
+        if: always()
+        shell: bash
+        run: |
+          touch build/tmp/browser-fixture/stop
+          if test -f build/tmp/browser-fixture/gradle.pid; then
+            wait "$(cat build/tmp/browser-fixture/gradle.pid)" || true
+          fi
+      - name: Freeze browser evidence
+        shell: pwsh
+        run: |
+          & docs/mod-migration/tools/write-check-evidence.ps1 `
+            -Id 'browser-landing' -SourceCommit '${{ github.sha }}' `
+            -Environment 'ubuntu-latest/playwright-1.55.0/chromium' `
+            -EvidencePath @('build/reports/mod-migration/browser/landing.json','build/reports/mod-migration/browser/landing.png') `
+            -OutputFile 'build/required-checks/browser-landing.check.json'
+          & docs/mod-migration/tools/write-check-evidence.ps1 `
+            -Id 'browser-health' -SourceCommit '${{ github.sha }}' `
+            -Environment 'ubuntu-latest/playwright-1.55.0/chromium' `
+            -EvidencePath @('build/reports/mod-migration/browser/health.json','build/reports/mod-migration/browser/health.png') `
+            -OutputFile 'build/required-checks/browser-health.check.json'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-evidence-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            build/reports/mod-migration/browser
+            build/tmp/browser-fixture/fixture.log
+            build/required-checks/*.check.json
+
+  rc-readiness:
+    needs: [contracts-and-artifacts, paper-regression, database-and-redis, dedicated-server-matrix, codeql, browser-acceptance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Java 17 toolchain
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Java 21 toolchain
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Java 25 toolchain
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-evidence-${{ github.sha }}'
+          path: build/required-check-input
+          merge-multiple: true
+      - name: Rebuild frozen local candidate
+        run: ./gradlew localReadiness --rerun-tasks --stacktrace
+      - name: Assemble immutable required-check packet
+        shell: pwsh
+        run: |
+          & docs/mod-migration/tools/assemble-rc-evidence.ps1 `
+            -SourceCommit '${{ github.sha }}' -EvidenceDirectory 'build/required-check-input' `
+            -ReleaseManifest 'build/reports/mod-migration/release-manifest.json' `
+            -Sbom 'build/reports/mod-migration/mod-sbom.spdx.json' `
+            -OutputFile 'build/reports/mod-migration/required-checks.json'
+      - name: Enforce RC readiness
+        run: ./gradlew releaseReadiness -PrcEvidence=build/reports/mod-migration/required-checks.json --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rc-readiness-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            build/reports/mod-migration/required-checks.json
+            build/reports/mod-migration/release-manifest.json
+            build/reports/mod-migration/mod-sbom.spdx.json
+            build/reports/mod-migration/readiness.json

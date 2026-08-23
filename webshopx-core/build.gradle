@@ -104,6 +104,16 @@ tasks.register('performanceBudget', Test) {
     systemProperty 'webshopx.performance.report', report.get().asFile.absolutePath
 }
 
+tasks.register('browserAcceptanceFixture', JavaExec) {
+    group = 'verification'
+    description = 'Runs the shared HTTP API until the browser acceptance stop file is created.'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.webshopx.core.BrowserAcceptanceFixtureMain'
+    args providers.gradleProperty('browserFixturePort').orElse('8123').get(),
+            providers.gradleProperty('browserFixtureDirectory')
+                    .orElse(layout.buildDirectory.dir('tmp/browser-acceptance').get().asFile.absolutePath).get()
+}
+
 tasks.register('verifyPlatformIsolation') {
     group = 'verification'
     dependsOn tasks.named('classes')

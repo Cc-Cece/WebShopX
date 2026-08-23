@@ -215,6 +215,19 @@ def syncWebFrontend = tasks.register('syncWebFrontend', Exec) {
     }
 }
 
+def gitText = { String... arguments ->
+    providers.exec {
+        commandLine(['git'] + arguments.toList())
+    }.standardOutput.asText.get().trim()
+}
+
+def requireCleanSourceTree = {
+    String status = gitText('status', '--porcelain=v1', '--untracked-files=all')
+    if (!status.isEmpty()) {
+        throw new GradleException('Release evidence requires a clean Git worktree. Commit or remove every tracked and untracked change first.')
+    }
+}
+
 processResources {
     mustRunAfter syncWebFrontend
     filesMatching("**/plugin*.yml") {
@@ -570,6 +583,12 @@ tasks.register('modEntrypointSmoke') {
     dependsOn modArtifactProjects.collect { "${it}:test" }
 }
 
+tasks.register('verifyFrozenSource') {
+    group = 'verification'
+    description = 'Fails closed unless release evidence is generated from a clean Git worktree.'
+    doLast { requireCleanSourceTree() }
+}
+
 tasks.register('generateModReleaseManifest') {
     group = 'distribution'
     description = 'Writes the candidate artifact inventory with SHA-256 checksums.'
@@ -579,6 +598,7 @@ tasks.register('generateModReleaseManifest') {
         commandLine 'git', 'rev-parse', 'HEAD'
     }.standardOutput.asText.map { it.trim() })
     outputs.file(outputFile)
+    doFirst { requireCleanSourceTree() }
     doLast {
         def artifacts = modArtifactProjects.collect { path ->
             def child = project(path)
@@ -643,8 +663,10 @@ tasks.register('generateModSbom') {
         commandLine 'git', 'rev-parse', 'HEAD'
     }.standardOutput.asText.map { it.trim() })
     outputs.file(outputFile)
+    doFirst { requireCleanSourceTree() }
     doLast {
         def packages = []
+        def relationships = []
         modArtifactProjects.eachWithIndex { path, index ->
             def child = project(path)
             def artifact = child.tasks.named('jar', Jar).get().archiveFile.get().asFile
@@ -668,6 +690,79 @@ tasks.register('generateModSbom') {
                     ]]
             ]
         }
+        def licenses = [
+                'com.zaxxer:HikariCP': 'Apache-2.0',
+                'redis.clients:jedis': 'MIT',
+                'org.apache.commons:commons-pool2': 'Apache-2.0',
+                'org.json:json': 'LicenseRef-JSON',
+                'org.xerial:sqlite-jdbc': 'Apache-2.0',
+                'org.mariadb.jdbc:mariadb-java-client': 'LGPL-2.1-or-later'
+        ]
+        def runtimeArtifacts = project(':webshopx-core').configurations.runtimeClasspath
+                .resolvedConfiguration.resolvedArtifacts
+                .findAll { it.moduleVersion.id.group != project.group.toString() }
+                .sort { left, right ->
+                    "${left.moduleVersion.id.group}:${left.name}:${left.moduleVersion.id.version}" <=>
+                            "${right.moduleVersion.id.group}:${right.name}:${right.moduleVersion.id.version}"
+                }
+        runtimeArtifacts.eachWithIndex { dependency, dependencyIndex ->
+            def id = dependency.moduleVersion.id
+            String coordinate = "${id.group}:${dependency.name}".toString()
+            def spdxId = "SPDXRef-Dependency-${dependencyIndex + 1}"
+            def license = licenses.get(coordinate)
+            if (license == null) {
+                throw new GradleException("No reviewed SPDX license mapping for runtime dependency ${coordinate}:${id.version}")
+            }
+            packages << [
+                    SPDXID: spdxId,
+                    name: coordinate,
+                    versionInfo: id.version,
+                    downloadLocation: "https://repo1.maven.org/maven2/${id.group.replace('.', '/')}/${dependency.name}/${id.version}/",
+                    filesAnalyzed: false,
+                    licenseConcluded: license,
+                    licenseDeclared: license,
+                    checksums: [[
+                            algorithm: 'SHA256',
+                            checksumValue: java.security.MessageDigest.getInstance('SHA-256')
+                                    .digest(dependency.file.bytes).encodeHex().toString()
+                    ]],
+                    externalRefs: [[
+                            referenceCategory: 'PACKAGE-MANAGER',
+                            referenceType: 'purl',
+                            referenceLocator: "pkg:maven/${id.group}/${dependency.name}@${id.version}"
+                    ]]
+            ]
+            modArtifactProjects.indices.each { artifactIndex ->
+                relationships << [
+                        spdxElementId: "SPDXRef-Package-${artifactIndex + 1}",
+                        relationshipType: 'CONTAINS',
+                        relatedSpdxElement: spdxId
+                ]
+            }
+        }
+        def gsonId = 'SPDXRef-Dependency-Gson'
+        packages << [
+                SPDXID: gsonId,
+                name: 'com.google.code.gson:gson',
+                versionInfo: '2.11.0',
+                downloadLocation: 'https://repo1.maven.org/maven2/com/google/code/gson/gson/2.11.0/',
+                filesAnalyzed: false,
+                licenseConcluded: 'Apache-2.0',
+                licenseDeclared: 'Apache-2.0',
+                externalRefs: [[
+                        referenceCategory: 'PACKAGE-MANAGER',
+                        referenceType: 'purl',
+                        referenceLocator: 'pkg:maven/com.google.code.gson/gson@2.11.0'
+                ]],
+                comment: 'Compile-time HTTP JSON API dependency; supplied by the supported Minecraft runtime.'
+        ]
+        modArtifactProjects.indices.each { artifactIndex ->
+            relationships << [
+                    spdxElementId: "SPDXRef-Package-${artifactIndex + 1}",
+                    relationshipType: 'DEPENDS_ON',
+                    relatedSpdxElement: gsonId
+            ]
+        }
         def commit = providers.exec { commandLine 'git', 'rev-parse', 'HEAD' }
                 .standardOutput.asText.get().trim()
         def commitTime = providers.exec { commandLine 'git', 'show', '-s', '--format=%cI', 'HEAD' }
@@ -680,9 +775,13 @@ tasks.register('generateModSbom') {
                 documentNamespace: "https://webshopx.invalid/spdx/${commit}",
                 creationInfo: [created: commitTime, creators: ['Tool: Gradle-WebShopX']],
                 packages: packages,
+                relationships: relationships,
                 hasExtractedLicensingInfos: [[
                         licenseId: 'LicenseRef-WebShopX-Restricted',
                         extractedText: 'See the LICENSE file distributed with WebShopX.'
+                ], [
+                        licenseId: 'LicenseRef-JSON',
+                        extractedText: 'The JSON Java package license; see https://www.json.org/license.html.'
                 ]]
         ]
         def destination = outputFile.get().asFile
@@ -706,6 +805,7 @@ tasks.register('generateModReadiness') {
     inputs.file(project(':webshopx-core').layout.buildDirectory
             .file('reports/mod-migration/performance-budget.json'))
     outputs.file(outputFile)
+    doFirst { requireCleanSourceTree() }
     doLast {
         def support = new groovy.json.JsonSlurper().parse(
                 layout.projectDirectory.file('docs/mod-migration/support-matrix.json').asFile)
@@ -743,9 +843,10 @@ tasks.register('generateModReadiness') {
     }
 }
 
-tasks.register('releaseReadiness') {
+tasks.register('localReadiness') {
     group = 'verification'
-    description = 'Runs all locally reproducible Paper, core, Loader and artifact release gates.'
+    description = 'Runs all locally reproducible Paper, core, Loader and artifact gates without claiming RC readiness.'
+    dependsOn tasks.named('verifyFrozenSource')
     dependsOn tasks.named('paperBaseline')
     dependsOn tasks.named('coreContractTest')
     dependsOn tasks.named('platformContractTest')
@@ -757,6 +858,61 @@ tasks.register('releaseReadiness') {
     dependsOn tasks.named('generateModSbom')
     dependsOn tasks.named('generateModReadiness')
     dependsOn tasks.named('verifySupportMatrix')
+}
+
+tasks.register('verifyRcEvidence') {
+    group = 'verification'
+    description = 'Fails closed unless immutable required-check evidence matches the current source and candidate hashes.'
+    dependsOn tasks.named('localReadiness')
+    def evidencePath = providers.gradleProperty('rcEvidence')
+    inputs.property('rcEvidence', evidencePath.orElse(''))
+    doLast {
+        if (!evidencePath.isPresent()) {
+            throw new GradleException('RC evidence is required. Pass -PrcEvidence=<required-checks.json>.')
+        }
+        def evidenceFile = file(evidencePath.get())
+        if (!evidenceFile.isFile()) {
+            throw new GradleException("RC evidence file does not exist: ${evidenceFile}")
+        }
+        def evidence = new groovy.json.JsonSlurper().parse(evidenceFile)
+        def commit = gitText('rev-parse', 'HEAD')
+        if (evidence.schemaVersion != 1 || evidence.sourceCommit != commit) {
+            throw new GradleException("RC evidence source mismatch. expected=${commit}, actual=${evidence.sourceCommit}")
+        }
+        def required = [
+                'paper-regression', 'contracts-and-artifacts', 'database-and-redis',
+                'server-fabric-1.18.2', 'server-fabric-1.20.1', 'server-fabric-26.2',
+                'server-forge-1.18.2', 'server-forge-1.20.1',
+                'server-neoforge-1.20.1', 'server-neoforge-26.2',
+                'dependency-scan', 'codeql', 'browser-landing', 'browser-health'
+        ] as Set
+        def checks = (evidence.checks ?: []).collectEntries { check -> [(check.id): check] }
+        def missing = required - checks.keySet()
+        if (!missing.isEmpty()) {
+            throw new GradleException("RC evidence is missing required checks: ${missing.sort()}")
+        }
+        required.each { id ->
+            def check = checks[id]
+            if (check.status != 'passed' || check.sourceCommit != commit || !check.environment ||
+                    !(check.evidenceSha256 ==~ /[0-9a-f]{64}/)) {
+                throw new GradleException("RC check is skipped, stale or incomplete: ${id}")
+            }
+        }
+        def manifestFile = layout.buildDirectory.file('reports/mod-migration/release-manifest.json').get().asFile
+        def sbomFile = layout.buildDirectory.file('reports/mod-migration/mod-sbom.spdx.json').get().asFile
+        def sha256 = { File candidate -> java.security.MessageDigest.getInstance('SHA-256')
+                .digest(candidate.bytes).encodeHex().toString() }
+        if (evidence.releaseManifestSha256 != sha256(manifestFile) ||
+                evidence.sbomSha256 != sha256(sbomFile)) {
+            throw new GradleException('RC evidence artifact hashes do not match the current manifest/SBOM.')
+        }
+    }
+}
+
+tasks.register('releaseReadiness') {
+    group = 'verification'
+    description = 'Validates local gates and immutable external RC evidence; missing or stale evidence fails closed.'
+    dependsOn tasks.named('verifyRcEvidence')
 }
 
 tasks.register('checkI18nSources', Exec) {
