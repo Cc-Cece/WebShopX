@@ -89,7 +89,20 @@ sourceSets {
     }
 }
 
-test { useJUnitPlatform() }
+test {
+    useJUnitPlatform { excludeTags 'performance' }
+}
+
+tasks.register('performanceBudget', Test) {
+    group = 'verification'
+    description = 'Runs bounded RC performance probes and writes their machine-readable measurements.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'performance' }
+    def report = layout.buildDirectory.file('reports/mod-migration/performance-budget.json')
+    outputs.file(report)
+    systemProperty 'webshopx.performance.report', report.get().asFile.absolutePath
+}
 
 tasks.register('verifyPlatformIsolation') {
     group = 'verification'

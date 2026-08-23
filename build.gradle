@@ -599,6 +599,9 @@ tasks.register('generateModReleaseManifest') {
                 sourceCommit: providers.exec {
                     commandLine 'git', 'rev-parse', 'HEAD'
                 }.standardOutput.asText.get().trim(),
+                builtAt: providers.exec {
+                    commandLine 'git', 'show', '-s', '--format=%cI', 'HEAD'
+                }.standardOutput.asText.get().trim(),
                 artifacts: artifacts
         ])) + System.lineSeparator()
         println "Release manifest: ${destination}"
@@ -617,7 +620,7 @@ tasks.register('verifySupportMatrix') {
             "${child.ext.platformFamily}|${child.ext.minecraftVersion}|${child.ext.loaderVersion}|${child.ext.javaVersion}"
         } as Set
         def actual = declared.collect { row ->
-            if (!(row.status in ['startup_verified', 'full'])) {
+            if (row.status != 'full') {
                 throw new GradleException("Unsupported support status for ${row.platform}/${row.minecraft}: ${row.status}")
             }
             "${row.platform}|${row.minecraft}|${row.loader}|${row.java}"
@@ -661,13 +664,15 @@ tasks.register('generateModSbom') {
         }
         def commit = providers.exec { commandLine 'git', 'rev-parse', 'HEAD' }
                 .standardOutput.asText.get().trim()
+        def commitTime = providers.exec { commandLine 'git', 'show', '-s', '--format=%cI', 'HEAD' }
+                .standardOutput.asText.get().trim()
         def document = [
                 spdxVersion: 'SPDX-2.3',
                 dataLicense: 'CC0-1.0',
                 SPDXID: 'SPDXRef-DOCUMENT',
                 name: "WebShopX-Mod-${project.version}",
                 documentNamespace: "https://webshopx.invalid/spdx/${commit}",
-                creationInfo: [created: java.time.Instant.now().toString(), creators: ['Tool: Gradle-WebShopX']],
+                creationInfo: [created: commitTime, creators: ['Tool: Gradle-WebShopX']],
                 packages: packages,
                 hasExtractedLicensingInfos: [[
                         licenseId: 'LicenseRef-WebShopX-Restricted',
@@ -681,6 +686,52 @@ tasks.register('generateModSbom') {
     }
 }
 
+tasks.register('generateModReadiness') {
+    group = 'distribution'
+    description = 'Writes the machine-readable M0-M9 implementation readiness packet.'
+    dependsOn tasks.named('generateModReleaseManifest')
+    dependsOn tasks.named('generateModSbom')
+    dependsOn tasks.named('verifySupportMatrix')
+    dependsOn ':webshopx-core:performanceBudget'
+    def outputFile = layout.buildDirectory.file('reports/mod-migration/readiness.json')
+    outputs.file(outputFile)
+    doLast {
+        def support = new groovy.json.JsonSlurper().parse(
+                layout.projectDirectory.file('docs/mod-migration/support-matrix.json').asFile)
+        def performance = new groovy.json.JsonSlurper().parse(
+                project(':webshopx-core').layout.buildDirectory
+                        .file('reports/mod-migration/performance-budget.json').get().asFile)
+        def manifest = new groovy.json.JsonSlurper().parse(
+                layout.buildDirectory.file('reports/mod-migration/release-manifest.json').get().asFile)
+        def destination = outputFile.get().asFile
+        destination.parentFile.mkdirs()
+        destination.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson([
+                schemaVersion: 1,
+                implementationStatus: 'REVIEW_READY_WITH_BROWSER_EVIDENCE_BLOCKED',
+                formalReview: 'PENDING_OWNER_STARTED_AGENT',
+                releasePublished: false,
+                sourceCommit: manifest.sourceCommit,
+                stages: (0..9).collect { [stage: "M${it}", status: 'in_review'] },
+                support: support.platforms,
+                performance: performance,
+                unsupportedCapabilities: [
+                        'optional client enhancement',
+                        'cross-domain native item conversion',
+                        'Loader external economy provider',
+                        'Loader external payment provider'
+                ],
+                evidenceBlockers: [[
+                        gate: 'interactive browser critical path',
+                        reason: 'the current Codex session exposes no in-app browser instance',
+                        compensatingEvidence: 'SharedHttpApiTest plus real dedicated-server HTTP startup'
+                ]],
+                artifactManifest: 'release-manifest.json',
+                sbom: 'mod-sbom.spdx.json'
+        ])) + System.lineSeparator()
+        println "Mod readiness: ${destination}"
+    }
+}
+
 tasks.register('releaseReadiness') {
     group = 'verification'
     description = 'Runs all locally reproducible Paper, core, Loader and artifact release gates.'
@@ -688,10 +739,12 @@ tasks.register('releaseReadiness') {
     dependsOn tasks.named('coreContractTest')
     dependsOn tasks.named('platformContractTest')
     dependsOn ':webshopx-loader-runtime:test'
+    dependsOn ':webshopx-core:performanceBudget'
     dependsOn tasks.named('verifyModMetadata')
     dependsOn tasks.named('modEntrypointSmoke')
     dependsOn tasks.named('generateModReleaseManifest')
     dependsOn tasks.named('generateModSbom')
+    dependsOn tasks.named('generateModReadiness')
     dependsOn tasks.named('verifySupportMatrix')
 }
 

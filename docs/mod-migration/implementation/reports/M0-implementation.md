@@ -7,7 +7,7 @@
 
 ## 结果先行
 
-迁移基线已改为最新正式 `origin/main`，旧 Mod 原型全部拒绝复用。新增可重复的 `paperBaseline` 聚合任务和机器可读 inventory；现有 Paper 单元/SQLite 测试、基线产物内容检查、干净前端构建以及真实 Paper/Folia 启停 smoke 通过。M0 仍不能宣称正式完成：玩家登录/下单/发货交易 smoke、MySQL Testcontainers 实例和完整性能压测证据尚未在本机形成，且独立正式审核尚未执行。
+迁移基线已改为最新正式 `origin/main`，旧 Mod 原型全部拒绝复用。新增可重复的 `paperBaseline` 聚合任务和机器可读 inventory；现有 Paper 单元/SQLite 测试、基线产物内容检查、干净前端构建以及真实 Paper/Folia 启停 smoke 通过。M0 实施完成并等待 M0–M9 统一审核；当时记录的玩家交易、MariaDB、Redis 和性能证据缺口已分别在 M2–M9 自动测试与真实环境中关闭。
 
 ## 范围与清单
 
@@ -51,16 +51,16 @@
 
 ## 数据与对账
 
-已有 `SqliteSchemaScriptTest`、`SqliteBusinessSqlSmokeTest`、`SqliteConcurrencyRetryTest`、`SqliteOfficialSnapshotMigrationTest`、`MySqlBusinessSqlSmokeTest` 分别覆盖 schema、业务 SQL、SQLite 并发重试、官方快照迁移和 MySQL 路径。M9 对账必须在匿名生产近似快照上比较表行数、钱包余额、流水、订单状态和 ItemEnvelope hash；当前 schema 尚无 ItemEnvelope 字段，因此不得声称迁移已完成。
+已有 `SqliteSchemaScriptTest`、`SqliteBusinessSqlSmokeTest`、`SqliteConcurrencyRetryTest`、`SqliteOfficialSnapshotMigrationTest`、`MySqlBusinessSqlSmokeTest` 分别覆盖 schema、业务 SQL、SQLite 并发重试、官方快照迁移和 MySQL 路径。M9 新增 `MigrationRollbackRehearsalTest`，在生产形态副本上重复 migration、恢复冷备份并对账用户数、钱包余额、流水、订单状态、发货状态和市场 `ItemEnvelope` hash。
 
 ## 性能基线
 
-本机冷执行 `paperBaseline` 约 17 秒，增量执行约 1 秒，plain JAR 约 9.8 MiB。Paper 1.20.6 首次 ready 11.892 秒，Folia 1.20.6 复用初始化后的 ready 7.036 秒；均使用 512 MiB–1 GiB JVM、视距/模拟距离 2。空闲内存、tick、API 延迟、批量发货、Redis 重连与 codec 指标尚未采集；这些是 M0 正式审核前的证据缺口，不以估算替代。
+本机冷执行 `paperBaseline` 约 17 秒，增量执行约 1 秒，plain JAR 约 9.8 MiB。Paper 1.20.6 首次 ready 11.892 秒，Folia 1.20.6 复用初始化后的 ready 7.036 秒；均使用 512 MiB–1 GiB JVM、视距/模拟距离 2。M9 的 `performanceBudget` 固化数据库启动、HTTP p95、批量购买吞吐、codec 大小/耗时、heap 与 server-thread blocking 数值，真实 Redis 重连另由进程故障注入测试覆盖。
 
 ## 已知缺口与回退
 
 - 相邻 `webshopx-web` 含 3 个用户未提交文件；未覆盖这些修改。干净构建改用独立 worktree `origin/main@6a54139`，并修复 Gradle 未把显式 `frontendDir` 计入任务输入的问题。
-- Paper/Folia 启停、数据库初始化和 HTTP 启动已验证，但没有真实玩家登录、下单、发货和重启恢复 smoke 证据。
-- 本机无 Docker；`MySqlBusinessSqlSmokeTest` 明确 skipped，不能把通用 `test` 绿色解释为 MySQL 已验证。
+- M0 原始 Paper/Folia smoke 不含真实客户端；后续共享 HTTP 交易、native inventory/player fixture、七 Loader 原生发货和重启恢复测试提供对应证据。
+- 本机仍无 Docker，但 M8 已使用 WSL 中真实 MariaDB 10.11 双节点运行集成测试；CI 使用 MariaDB 11.4 service 重复同一门禁。
 - Paper 1.20.6 日志将调度器报告为 `folia`，原因是 Paper 包含可反射获取的区域调度 API；当前启停无异常，但 M2 平台契约必须消除按类存在性判断产品身份的歧义。
 - 回退只需撤销 M0 的 Gradle task、脚本、inventory、ADR 和报告；未改生产逻辑、schema、API 或配置。

@@ -1,0 +1,85 @@
+param(
+    [Parameter(Mandatory = $true)][ValidateSet('fabric','forge','neoforge')][string]$Platform,
+    [Parameter(Mandatory = $true)][string]$Minecraft,
+    [Parameter(Mandatory = $true)][string]$Loader,
+    [string]$FabricApi,
+    [Parameter(Mandatory = $true)][string]$WorkingDirectory,
+    [Parameter(Mandatory = $true)][string]$Java
+)
+
+$ErrorActionPreference = 'Stop'
+$work = [IO.Path]::GetFullPath($WorkingDirectory)
+New-Item -ItemType Directory -Force -Path $work, (Join-Path $work 'mods') | Out-Null
+
+function Download([string]$Url, [string]$Destination) {
+    if (-not (Test-Path -LiteralPath $Destination -PathType Leaf)) {
+        $last = $null
+        foreach ($attempt in 1..3) {
+            try {
+                Invoke-WebRequest -Uri $Url -OutFile $Destination
+                return
+            } catch {
+                $last = $_
+                if (Test-Path -LiteralPath $Destination) { Remove-Item -LiteralPath $Destination -Force }
+                if ($attempt -lt 3) { Start-Sleep -Seconds (2 * $attempt) }
+            }
+        }
+        throw $last
+    }
+}
+
+if ($Platform -eq 'fabric') {
+    $server = Join-Path $work "fabric-server-$Minecraft-$Loader.jar"
+    $url = "https://meta.fabricmc.net/v2/versions/loader/$Minecraft/$Loader/1.1.1/server/jar"
+    Download $url $server
+    if (-not $FabricApi) { throw 'FabricApi is required for a Fabric smoke server' }
+    $apiName = "fabric-api-$FabricApi.jar"
+    $api = Join-Path $work "mods/$apiName"
+    $encodedVersion = [Uri]::EscapeDataString($FabricApi)
+    Download "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/$encodedVersion/$apiName" $api
+    [ordered]@{ serverJar = $server; launchArguments = $null } | ConvertTo-Json
+    exit 0
+}
+
+$coordinate = if ($Platform -eq 'forge') {
+    [ordered]@{
+        groupPath = 'net/minecraftforge/forge'
+        artifact = 'forge'
+        version = "$Minecraft-$Loader"
+    }
+} elseif ($Minecraft -eq '1.20.1') {
+    [ordered]@{
+        groupPath = 'net/neoforged/forge'
+        artifact = 'forge'
+        version = "$Minecraft-$Loader"
+    }
+} else {
+    [ordered]@{
+        groupPath = 'net/neoforged/neoforge'
+        artifact = 'neoforge'
+        version = $Loader
+    }
+}
+$installerName = "$($coordinate.artifact)-$($coordinate.version)-installer.jar"
+$installer = Join-Path $work $installerName
+$repository = if ($Platform -eq 'forge') { 'https://maven.minecraftforge.net' } else { 'https://maven.neoforged.net/releases' }
+Download "$repository/$($coordinate.groupPath)/$($coordinate.version)/$installerName" $installer
+$install = $null
+foreach ($attempt in 1..3) {
+    $install = Start-Process -FilePath $Java -ArgumentList @('-jar', $installer, '--installServer') `
+        -WorkingDirectory $work -Wait -PassThru -NoNewWindow `
+        -RedirectStandardOutput (Join-Path $work "installer-$attempt.log") `
+        -RedirectStandardError (Join-Path $work "installer-$attempt-error.log")
+    if ($install.ExitCode -eq 0) { break }
+    if ($attempt -lt 3) { Start-Sleep -Seconds (3 * $attempt) }
+}
+if ($install.ExitCode -ne 0) {
+    throw "$Platform installer exited with $($install.ExitCode); see installer logs in $work"
+}
+$argumentName = if ($IsWindows -or $env:OS -eq 'Windows_NT') { 'win_args.txt' } else { 'unix_args.txt' }
+$argumentFile = Get-ChildItem -LiteralPath (Join-Path $work 'libraries') -Recurse -File -Filter $argumentName |
+    Where-Object { $_.FullName -match [regex]::Escape($coordinate.artifact) } |
+    Select-Object -First 1
+if (-not $argumentFile) { throw "Installed server did not create $argumentName" }
+$relative = [IO.Path]::GetRelativePath($work, $argumentFile.FullName).Replace('\', '/')
+[ordered]@{ serverJar = $null; launchArguments = "@`"$relative`"" } | ConvertTo-Json
