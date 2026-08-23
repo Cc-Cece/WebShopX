@@ -13,6 +13,7 @@ dependencies {
     implementation('com.zaxxer:HikariCP:5.1.0') {
         exclude group: 'org.slf4j', module: 'slf4j-api'
     }
+    implementation 'redis.clients:jedis:5.2.0'
     runtimeOnly 'org.xerial:sqlite-jdbc:3.50.3.0'
     runtimeOnly('org.mariadb.jdbc:mariadb-java-client:3.3.3') {
         exclude group: 'com.github.waffle', module: 'waffle-jna'

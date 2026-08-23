@@ -1,6 +1,7 @@
 package com.webshopx.loader;
 
 import com.webshopx.core.WebShopXCoreRuntime;
+import com.webshopx.core.RedisEventBridge;
 import com.webshopx.AuthService;
 import com.webshopx.AdminService;
 import com.webshopx.AdminAuditService;
@@ -35,6 +36,7 @@ public final class LoaderRuntime {
   private static LoaderScheduler scheduler;
   private static NativePlayerDirectory playerDirectory;
   private static NativeItemCodec itemCodec;
+  private static RedisEventBridge redisEvents;
   private static boolean nativeLifecycleInstalled;
   private static boolean shutdownHookInstalled;
 
@@ -101,6 +103,8 @@ public final class LoaderRuntime {
     if (playerDirectory != null) playerDirectory.clear();
     playerDirectory = null;
     itemCodec = null;
+    if (redisEvents != null) redisEvents.close();
+    redisEvents = null;
     nativeLifecycleInstalled = false;
     if (instanceGuard != null) instanceGuard.close();
     instanceGuard = null;
@@ -179,8 +183,8 @@ public final class LoaderRuntime {
     states.put(Capability.OFFLINE_INVENTORY,
         CapabilityState.available("atomic playerdata NBT compare-and-apply"));
     states.put(Capability.DATABASE,
-        CapabilityState.available("SQLite standalone; MySQL/MariaDB drivers bundled"));
-    CapabilitySnapshot capabilities = new CapabilitySnapshot(Instant.now(), states);
+        CapabilityState.available(System.getProperty("webshopx.database.type", "sqlite")
+            + " database configured"));
     if (lifecycle == null) lifecycle = new LoaderLifecycle();
     if (scheduler == null) scheduler = new LoaderScheduler();
     if (playerDirectory == null) playerDirectory = new NativePlayerDirectory(identity.serverId());
@@ -192,6 +196,23 @@ public final class LoaderRuntime {
     PlatformPorts.EconomyProvider economy = new UnavailableEconomy();
     PlatformPorts.MessagingGateway messaging = new NativeMessagingGateway(playerDirectory, scheduler);
     PlatformPorts.EventPublisher events = event -> PlatformResult.success(null);
+    if (Boolean.getBoolean("webshopx.redis.enabled")) {
+      try {
+        redisEvents = new RedisEventBridge(
+            System.getProperty("webshopx.redis.host", "127.0.0.1"),
+            Integer.getInteger("webshopx.redis.port", 6379),
+            System.getProperty("webshopx.redis.password", ""),
+            System.getProperty("webshopx.redis.channel", "webshopx:events"),
+            incoming -> System.out.printf("[WebShopX] relay event id=%s type=%s source=%s%n",
+                incoming.id(), incoming.type(), incoming.serverId()));
+        events = redisEvents;
+        states.put(Capability.REDIS, CapabilityState.available("Redis pub/sub connected"));
+      } catch (RuntimeException failure) {
+        states.put(Capability.REDIS,
+            CapabilityState.unavailable("Redis connection failed: " + failure.getClass().getSimpleName()));
+      }
+    }
+    CapabilitySnapshot capabilities = new CapabilitySnapshot(Instant.now(), states);
     Path base = Path.of(System.getProperty("webshopx.data-dir", "config/webshopx"));
     NativeItemCodec items = new NativeItemCodec(identity, scheduler::nativeServer, Clock.systemUTC());
     itemCodec = items;

@@ -42,14 +42,24 @@ final class SharedDatabaseRuntime implements AutoCloseable {
   }
 
   static SharedDatabaseRuntime start(Path dataDirectory) {
+    DbType type = DbType.fromRaw(System.getProperty("webshopx.database.type", "sqlite"));
     DatabaseSettings settings = new DatabaseSettings(
-        DbType.SQLITE, "", 0, "", "", "", false, false, "", 2,
+        type,
+        System.getProperty("webshopx.database.host", "127.0.0.1"),
+        Integer.getInteger("webshopx.database.port", 3306),
+        System.getProperty("webshopx.database.schema", "webshopx"),
+        System.getProperty("webshopx.database.username", "webshopx"),
+        System.getProperty("webshopx.database.password", ""),
+        Boolean.getBoolean("webshopx.database.use-ssl"),
+        Boolean.getBoolean("webshopx.database.allow-public-key-retrieval"),
+        System.getProperty("webshopx.database.server-rsa-public-key-file", ""),
+        Integer.getInteger("webshopx.database.pool-size", 4),
         dataDirectory.resolve("webshopx.db").toString(), "WAL", "NORMAL",
         5_000, 5, List.of(10, 50, 100, 250, 500));
     DatabaseManager database = new DatabaseManager(
         Logger.getLogger("com.webshopx.loader.database"), settings);
     database.start();
-    SchemaProvider.forType(DbType.SQLITE).ensureSchema(database, ZoneOffset.UTC);
+    SchemaProvider.forType(type).ensureSchema(database, ZoneOffset.UTC);
     int tokenLength = Integer.getInteger("webshopx.auth.token-length", 48);
     int sessionHours = Integer.getInteger("webshopx.auth.session-hours", 24);
     AuthService authentication = new AuthService(

@@ -257,7 +257,8 @@ public class DatabaseManager {
   }
 
   private <T> T executeWithRetry(String failureMessage, boolean transactional, SqlFunction<T> function) {
-    int maxRetries = dialect.dbType().isSqlite() ? settings.normalizedSqliteMaxRetries() : 0;
+    int maxRetries = dialect.dbType().isSqlite() ? settings.normalizedSqliteMaxRetries()
+        : transactional && dialect.dbType().isMysqlFamily() ? 3 : 0;
     int attempt = 0;
     while (true) {
       try (Connection connection = getConnection()) {
@@ -278,16 +279,17 @@ public class DatabaseManager {
           connection.setAutoCommit(previousAutoCommit);
         }
       } catch (SQLException exception) {
-        boolean canRetry = attempt < maxRetries && isRetryableSqliteException(exception);
+        boolean retryable = isRetryableTransactionException(exception);
+        boolean canRetry = attempt < maxRetries && retryable;
         if (!canRetry) {
-          if (dialect.dbType().isSqlite() && isRetryableSqliteException(exception)) {
-            logger.log(Level.SEVERE, "console.sqlite_retry_exhausted attempt=" + attempt, exception);
+          if (retryable) {
+            logger.log(Level.SEVERE, "console.database_retry_exhausted attempt=" + attempt, exception);
           }
           throw new DataAccessException(failureMessage, exception);
         }
         int nextAttempt = attempt + 1;
         Level level = nextAttempt >= maxRetries ? Level.WARNING : Level.FINE;
-        logger.log(level, "console.sqlite_retrying attempt=" + nextAttempt + " max=" + maxRetries);
+        logger.log(level, "console.database_retrying attempt=" + nextAttempt + " max=" + maxRetries);
         sleepBeforeRetry(attempt);
         attempt = nextAttempt;
       }
@@ -296,6 +298,25 @@ public class DatabaseManager {
 
   private boolean isRetryableSqliteException(SQLException exception) {
     return containsText(exception, "database is locked", "sqlite_busy", "sqlite_locked", "busy");
+  }
+
+  private boolean isRetryableTransactionException(SQLException exception) {
+    if (dialect.dbType().isSqlite()) {
+      return isRetryableSqliteException(exception);
+    }
+    if (!dialect.dbType().isMysqlFamily()) {
+      return false;
+    }
+    SQLException current = exception;
+    while (current != null) {
+      if ("40001".equals(current.getSQLState())
+          || current.getErrorCode() == 1213
+          || current.getErrorCode() == 1205) {
+        return true;
+      }
+      current = current.getNextException();
+    }
+    return containsText(exception, "deadlock found", "lock wait timeout");
   }
 
   private void sleepBeforeRetry(int attempt) {
