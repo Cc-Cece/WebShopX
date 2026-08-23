@@ -148,21 +148,27 @@ sourceSets {
             exclude 'com/webshopx/AdminPermission.java'
             exclude 'com/webshopx/AdminRole.java'
             exclude 'com/webshopx/ClaimTokenGenerator.java'
+            exclude 'com/webshopx/ClaimTokenRepository.java'
             exclude 'com/webshopx/CurrencyType.java'
             exclude 'com/webshopx/DatabaseDialect.java'
             exclude 'com/webshopx/DbType.java'
             exclude 'com/webshopx/MapUtils.java'
+            exclude 'com/webshopx/InventoryLockManager.java'
+            exclude 'com/webshopx/MarketAlgorithmRegistry.java'
             exclude 'com/webshopx/MarketSide.java'
             exclude 'com/webshopx/MarketTagCodes.java'
             exclude 'com/webshopx/MysqlDialect.java'
             exclude 'com/webshopx/MysqlSqlProvider.java'
             exclude 'com/webshopx/PasswordHasher.java'
             exclude 'com/webshopx/RechargeOrderStatus.java'
+            exclude 'com/webshopx/RelayRpcRequest.java'
+            exclude 'com/webshopx/RelayRpcResponse.java'
             exclude 'com/webshopx/ServiceException.java'
             exclude 'com/webshopx/SqliteDialect.java'
             exclude 'com/webshopx/SqliteSqlProvider.java'
             exclude 'com/webshopx/SqlProvider.java'
             exclude 'com/webshopx/TimeSupport.java'
+            exclude 'com/webshopx/payment/api/**'
         }
         resources {
             srcDir layout.buildDirectory.dir('generated-resources/main')
@@ -526,6 +532,11 @@ tasks.register('coreContractTest') {
     group = 'verification'
     description = 'Runs platform-neutral core and shared platform contract tests.'
     dependsOn ':webshopx-core:test', ':webshopx-platform-api:test', ':webshopx-testkit:test'
+}
+
+tasks.register('platformContractTest') {
+    group = 'verification'
+    dependsOn ':webshopx-testkit:platformContractTest'
 }
 
 tasks.register('verifyModMetadata') {

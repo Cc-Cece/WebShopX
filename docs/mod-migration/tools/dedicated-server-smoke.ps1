@@ -33,7 +33,9 @@ Set-Content -LiteralPath (Join-Path $work 'eula.txt') -Encoding ascii -Value 'eu
 $stdout = Join-Path $work 'console.log'
 $stderr = Join-Path $work 'console-error.log'
 $runtimeLock = Join-Path $work 'config/webshopx/runtime.lock'
+$healthFile = Join-Path $work 'config/webshopx/health.json'
 if (Test-Path -LiteralPath $runtimeLock -PathType Leaf) { Remove-Item -LiteralPath $runtimeLock -Force }
+if (Test-Path -LiteralPath $healthFile -PathType Leaf) { Remove-Item -LiteralPath $healthFile -Force }
 $start = [Diagnostics.ProcessStartInfo]::new()
 $start.FileName = $Java
 $start.Arguments = if ($LaunchArguments) {
@@ -64,7 +66,9 @@ try {
         Start-Sleep -Milliseconds 500
         $serverLog = Join-Path $work 'logs/latest.log'
         $text = if (Test-Path -LiteralPath $serverLog) { Get-Content -LiteralPath $serverLog -Raw } else { '' }
-        if ((Test-Path -LiteralPath $runtimeLock -PathType Leaf) -and $text -match 'Done \(') {
+        $health = if (Test-Path -LiteralPath $healthFile) { Get-Content -LiteralPath $healthFile -Raw } else { '' }
+        if ((Test-Path -LiteralPath $runtimeLock -PathType Leaf) -and
+            $health -match '"state"\s*:\s*"READY"' -and $text -match 'Done \(') {
             $started = $true
             break
         }
@@ -78,6 +82,10 @@ try {
     $stdoutTask.Result | Set-Content -LiteralPath $stdout -Encoding utf8
     $stderrTask.Result | Set-Content -LiteralPath $stderr -Encoding utf8
     if ($process.ExitCode -ne 0) { throw "Server exited with code $($process.ExitCode)" }
+    $stoppedHealth = if (Test-Path -LiteralPath $healthFile) { Get-Content -LiteralPath $healthFile -Raw } else { '' }
+    if ($stoppedHealth -notmatch '"state"\s*:\s*"STOPPED"') {
+        throw 'WebShopX did not persist STOPPED health after dedicated server shutdown'
+    }
 } finally {
     if ($launched -and -not $process.HasExited) { $process.Kill($true); $process.WaitForExit() }
     if ($stdoutTask) { $stdoutTask.Result | Set-Content -LiteralPath $stdout -Encoding utf8 }

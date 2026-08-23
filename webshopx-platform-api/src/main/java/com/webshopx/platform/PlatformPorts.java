@@ -104,6 +104,7 @@ public final class PlatformPorts {
       Scheduler scheduler,
       PlayerDirectory players,
       InventoryGateway inventories,
+      ItemCodec<?> items,
       CommandGateway commands,
       PermissionProvider permissions,
       EconomyProvider economy,

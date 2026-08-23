@@ -1,6 +1,7 @@
 package com.webshopx.loader;
 
 import com.webshopx.core.WebShopXCoreRuntime;
+import com.webshopx.core.OpaqueItemCodec;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.CapabilitySnapshot.Capability;
 import com.webshopx.platform.CapabilitySnapshot.CapabilityState;
@@ -10,6 +11,7 @@ import com.webshopx.platform.PlatformPorts;
 import com.webshopx.platform.PlatformResult;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
@@ -24,6 +26,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class LoaderRuntime {
   private static volatile WebShopXCoreRuntime active;
   private static RuntimeInstanceGuard instanceGuard;
+  private static boolean shutdownHookInstalled;
 
   private LoaderRuntime() { }
 
@@ -32,9 +35,11 @@ public final class LoaderRuntime {
     if (active != null && active.state() != WebShopXCoreRuntime.State.STOPPED) return active;
     instanceGuard = RuntimeInstanceGuard.acquire(
         Path.of(System.getProperty("webshopx.data-dir", "config/webshopx")), loader);
+    installShutdownHook();
     PlatformPorts.Bundle bundle = minimalBundle(loader, minecraftVersion, loaderVersion);
     active = new WebShopXCoreRuntime(bundle);
     active.start();
+    RuntimeHealth.write(bundle.paths().data(), bundle.identity(), bundle.capabilities(), active.state());
     System.out.printf("[WebShopX] ready loader=%s minecraft=%s loaderVersion=%s domain=%s%n",
         loader, minecraftVersion, loaderVersion, bundle.identity().modpackFingerprint());
     return active;
@@ -46,7 +51,11 @@ public final class LoaderRuntime {
   }
 
   public static synchronized void stop() {
-    if (active != null) active.close();
+    if (active != null) {
+      PlatformPorts.Bundle platform = active.platform();
+      active.close();
+      RuntimeHealth.write(platform.paths().data(), platform.identity(), platform.capabilities(), active.state());
+    }
     active = null;
     if (instanceGuard != null) instanceGuard.close();
     instanceGuard = null;
@@ -54,6 +63,12 @@ public final class LoaderRuntime {
 
   public static Optional<WebShopXCoreRuntime> active() {
     return Optional.ofNullable(active);
+  }
+
+  private static synchronized void installShutdownHook() {
+    if (shutdownHookInstalled) return;
+    Runtime.getRuntime().addShutdownHook(new Thread(LoaderRuntime::stop, "webshopx-shutdown"));
+    shutdownHookInstalled = true;
   }
 
   static PlatformPorts.Bundle minimalBundle(String loader, String minecraft, String loaderVersion) {
@@ -67,6 +82,8 @@ public final class LoaderRuntime {
       states.put(capability, CapabilityState.unavailable("adapter not installed"));
     }
     states.put(Capability.RELAY, CapabilityState.available("core event contract"));
+    states.put(Capability.MOD_ITEM_CODEC,
+        CapabilityState.available("lossless opaque native payload envelope"));
     CapabilitySnapshot capabilities = new CapabilitySnapshot(Instant.now(), states);
     ImmediateLifecycle lifecycle = new ImmediateLifecycle();
     PlatformPorts.Scheduler scheduler = new DirectScheduler();
@@ -109,7 +126,8 @@ public final class LoaderRuntime {
     };
     PlatformPorts.EventPublisher events = event -> PlatformResult.success(null);
     Path base = Path.of(System.getProperty("webshopx.data-dir", "config/webshopx"));
-    return new PlatformPorts.Bundle(lifecycle, scheduler, players, inventories, commands,
+    OpaqueItemCodec items = new OpaqueItemCodec(loader + "-native", 1, Clock.systemUTC());
+    return new PlatformPorts.Bundle(lifecycle, scheduler, players, inventories, items, commands,
         permissions, economy, messaging, events,
         new PlatformPorts.Paths(base, base, base.resolve("web"), base.resolve("uploads"), base.resolve("logs")),
         identity, capabilities);
