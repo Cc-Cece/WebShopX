@@ -34,13 +34,18 @@ def extractedCoreSources = [
         'com/webshopx/DbType.java',
         'com/webshopx/MapUtils.java',
         'com/webshopx/InventoryLockManager.java',
+        'com/webshopx/InventoryOperationService.java',
+        'com/webshopx/HomepageService.java',
         'com/webshopx/MarketAlgorithmRegistry.java',
         'com/webshopx/MarketSide.java',
         'com/webshopx/MarketTagCodes.java',
+        'com/webshopx/MaterialVisualService.java',
         'com/webshopx/MysqlDialect.java',
         'com/webshopx/MysqlSqlProvider.java',
         'com/webshopx/PasswordHasher.java',
+        'com/webshopx/NotificationService.java',
         'com/webshopx/RechargeOrderStatus.java',
+        'com/webshopx/RefundPolicyService.java',
         'com/webshopx/RelayRpcRequest.java',
         'com/webshopx/RelayRpcResponse.java',
         'com/webshopx/ServiceException.java',
@@ -48,6 +53,7 @@ def extractedCoreSources = [
         'com/webshopx/SqliteSqlProvider.java',
         'com/webshopx/SqlProvider.java',
         'com/webshopx/TimeSupport.java',
+        'com/webshopx/VisualCustomizationService.java',
         'com/webshopx/payment/api/**'
 ]
 
