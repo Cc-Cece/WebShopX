@@ -42,14 +42,12 @@ final class CommerceHttpApi {
     this.promotionService = sharedPromotions.promotionService();
     this.couponService = sharedPromotions.couponService();
     this.membershipService = sharedPromotions.membershipService();
+    CommerceCheckoutPort checkoutPort =
+        new PaperCommerceCheckoutAdapter(
+            databaseManager, productService, marketService, orderService);
     this.quoteService =
         new CheckoutQuoteService(
-            databaseManager,
-            cartService,
-            productService,
-            marketService,
-            promotionService,
-            membershipService);
+            databaseManager, cartService, checkoutPort, promotionService, membershipService);
     this.checkoutService =
         new CheckoutService(
             databaseManager,
@@ -57,8 +55,7 @@ final class CommerceHttpApi {
             quoteService,
             couponService,
             walletService,
-            orderService,
-            marketService,
+            checkoutPort,
             membershipService);
     this.refundService = new CommerceRefundService(databaseManager, walletService, couponService);
     this.settingsSupplier = java.util.Objects.requireNonNull(settingsSupplier, "settingsSupplier");

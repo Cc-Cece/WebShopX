@@ -17,8 +17,7 @@ import java.util.UUID;
 class CheckoutQuoteService {
   private final DatabaseManager databaseManager;
   private final CartService cartService;
-  private final ProductService productService;
-  private final MarketService marketService;
+  private final CommerceCheckoutPort checkoutPort;
   private final PromotionService promotionService;
   private final MembershipService membershipService;
   private final PricingEngine pricingEngine = new PricingEngine();
@@ -27,14 +26,12 @@ class CheckoutQuoteService {
   CheckoutQuoteService(
       DatabaseManager databaseManager,
       CartService cartService,
-      ProductService productService,
-      MarketService marketService,
+      CommerceCheckoutPort checkoutPort,
       PromotionService promotionService,
       MembershipService membershipService) {
     this.databaseManager = databaseManager;
     this.cartService = cartService;
-    this.productService = productService;
-    this.marketService = marketService;
+    this.checkoutPort = checkoutPort;
     this.promotionService = promotionService;
     this.membershipService = membershipService;
   }
@@ -168,65 +165,43 @@ class CheckoutQuoteService {
 
   private SourceLine assembleSource(long userId, CartService.CartLine line) {
     if (line.sourceType() == CartService.SourceType.OFFICIAL_PRODUCT) {
-      ProductService.ProductView product =
-          productService.listActiveProductsForUser(userId).stream()
-              .filter(item -> item.id() == line.sourceId())
-              .findFirst()
-              .orElseThrow(
-                  () -> new ServiceException("SOURCE_NOT_CARTABLE", "Product is unavailable"));
-      if (product.productSemantic() == ProductService.ProductSemantic.RECYCLE)
-        throw new ServiceException("SOURCE_NOT_CARTABLE", "Recycle products use recycle quote");
-      ProductService.ProductPriceQuote price =
-          productService.quoteOrderPrice(product, line.quantity());
+      CommerceCheckoutPort.OfficialQuote price =
+          checkoutPort.quoteOfficial(userId, line.sourceId(), line.quantity());
       return new SourceLine(
           line.id(),
           line.sourceType(),
           line.sourceId(),
           "OFFICIAL_PRODUCT:" + line.sourceId(),
           line.quantity(),
-          product.currency().name(),
+          price.currency(),
           price.totalAmount(),
           null,
           line.deliveryMode(),
-          String.valueOf(price.currentDemandScore()),
+          price.sourceVersion(),
           price.firstUnitPrice(),
           price.lastUnitPrice(),
           price.averageUnitPrice(),
           0,
           0);
     }
-    MarketService.PurchaseQuote price =
-        marketService.quotePurchase(userId, line.sourceId(), line.quantity());
-    Long sellerId =
-        databaseManager.withConnection(connection -> sellerId(connection, line.sourceId()));
+    CommerceCheckoutPort.MarketQuote price =
+        checkoutPort.quoteMarket(userId, line.sourceId(), line.quantity());
     return new SourceLine(
         line.id(),
         line.sourceType(),
         line.sourceId(),
         "MARKET_LISTING:" + line.sourceId(),
         line.quantity(),
-        price.currency().name(),
-        price.totalPrice(),
-        sellerId,
+        price.currency(),
+        price.totalAmount(),
+        price.sellerUserId(),
         line.deliveryMode(),
-        String.valueOf(price.currentDemandScore()),
+        price.sourceVersion(),
         price.firstUnitPrice(),
         price.lastUnitPrice(),
         price.averageUnitPrice(),
         price.feeAmount(),
         price.taxAmount());
-  }
-
-  private Long sellerId(Connection connection, long listingId) throws SQLException {
-    try (PreparedStatement statement =
-        connection.prepareStatement("SELECT seller_user_id FROM market_listings WHERE id = ?")) {
-      statement.setLong(1, listingId);
-      try (ResultSet result = statement.executeQuery()) {
-        if (!result.next())
-          throw new ServiceException("LISTING_UNAVAILABLE", "Listing is unavailable");
-        return result.getLong(1);
-      }
-    }
   }
 
   private void persist(Connection connection, Quote quote) throws SQLException {

@@ -22,8 +22,7 @@ class CheckoutService {
   private final CheckoutQuoteService quoteService;
   private final CouponService couponService;
   private final WalletService walletService;
-  private final OrderService orderService;
-  private final MarketService marketService;
+  private final CommerceCheckoutPort checkoutPort;
   private final MembershipService membershipService;
   private final Gson gson = CommerceJson.create();
 
@@ -33,16 +32,14 @@ class CheckoutService {
       CheckoutQuoteService quoteService,
       CouponService couponService,
       WalletService walletService,
-      OrderService orderService,
-      MarketService marketService,
+      CommerceCheckoutPort checkoutPort,
       MembershipService membershipService) {
     this.databaseManager = databaseManager;
     this.cartService = cartService;
     this.quoteService = quoteService;
     this.couponService = couponService;
     this.walletService = walletService;
-    this.orderService = orderService;
-    this.marketService = marketService;
+    this.checkoutPort = checkoutPort;
     this.membershipService = membershipService;
   }
 
@@ -172,8 +169,8 @@ class CheckoutService {
       String legacyType;
       long legacyId;
       if (source.sourceType() == CartService.SourceType.OFFICIAL_PRODUCT) {
-        OrderService.OrderPlacementResult result =
-            orderService.placeOrderInCheckout(
+        CommerceCheckoutPort.Placement result =
+            checkoutPort.placeOfficial(
                 connection,
                 userId,
                 source.sourceId(),
@@ -181,21 +178,21 @@ class CheckoutService {
                 checkoutNo + ":official:" + source.cartLineId(),
                 source.deliveryMode(),
                 buyerTotal);
-        legacyType = "ORDER";
-        legacyId = readOrderId(connection, result.orderNo());
+        legacyType = result.legacyType();
+        legacyId = result.legacyId();
       } else {
-        MarketService.TradeResult result =
-            marketService.buyListingInCheckout(
+        CommerceCheckoutPort.Placement result =
+            checkoutPort.placeMarket(
                 connection,
                 userId,
                 source.sourceId(),
                 source.quantity(),
                 checkoutNo + ":market:" + source.cartLineId(),
                 source.deliveryMode(),
-                new MarketService.FrozenMarketPricing(
+                new CommerceCheckoutPort.FrozenMarketPricing(
                     buyerTotal, sellerReceive, source.feeAmount(), source.taxAmount()));
-        legacyType = "MARKET_TRADE";
-        legacyId = result.tradeId();
+        legacyType = result.legacyType();
+        legacyId = result.legacyId();
       }
       long checkoutLineId =
           insertLine(
@@ -527,16 +524,6 @@ class CheckoutService {
       s.setString(6, json);
       s.setString(7, PricingEngine.stableHash(json));
       s.executeUpdate();
-    }
-  }
-
-  private long readOrderId(Connection c, String orderNo) throws SQLException {
-    try (PreparedStatement s = c.prepareStatement("SELECT id FROM orders WHERE order_no = ?")) {
-      s.setString(1, orderNo);
-      try (ResultSet r = s.executeQuery()) {
-        if (!r.next()) throw new SQLException("Legacy order missing");
-        return r.getLong(1);
-      }
     }
   }
 
