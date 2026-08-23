@@ -170,6 +170,7 @@ sourceSets {
             exclude 'com/webshopx/MysqlSchemaProvider.java'
             exclude 'com/webshopx/PasswordHasher.java'
             exclude 'com/webshopx/PlayerPresenceService.java'
+            exclude 'com/webshopx/PromotionSchema.java'
             exclude 'com/webshopx/NotificationService.java'
             exclude 'com/webshopx/RechargeOrderStatus.java'
             exclude 'com/webshopx/RedeemCodeService.java'

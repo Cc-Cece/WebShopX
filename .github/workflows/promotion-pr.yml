@@ -1,0 +1,26 @@
+name: Promotion system PR
+
+on:
+  pull_request:
+    branches: [docs/promotion-system-research]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Validate promotion implementation
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon clean test \
+            -x checkstyleMain -x checkstyleTest -x spotbugsMain -x spotbugsTest \
+            -PtargetRuntime='1.20.6+'

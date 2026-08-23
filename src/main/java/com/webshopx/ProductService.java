@@ -1554,7 +1554,8 @@ class ProductService {
     RECYCLE_ITEM,
     RECYCLE_COMMAND_ITEM,
     RECYCLE_CUSTOM_ITEM,
-    GROUP_BUY_VOUCHER;
+    GROUP_BUY_VOUCHER,
+    MEMBERSHIP;
 
     static ProductType fromRaw(String raw) {
       if (raw == null || raw.isBlank()) {
@@ -1682,6 +1683,7 @@ class ProductService {
         case SNAPSHOT_ITEM -> FulfillmentType.ITEM_SNAPSHOT;
         case POTION_EFFECT -> FulfillmentType.POTION_EFFECT;
         case GROUP_BUY_VOUCHER -> FulfillmentType.VOUCHER;
+        case MEMBERSHIP -> FulfillmentType.ENTITLEMENT;
         default -> FulfillmentType.NONE;
       };
     }
@@ -1733,6 +1735,7 @@ class ProductService {
     ITEM_SNAPSHOT,
     POTION_EFFECT,
     VOUCHER,
+    ENTITLEMENT,
     NONE
   }
 

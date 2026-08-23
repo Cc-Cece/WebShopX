@@ -97,6 +97,7 @@ class EmbeddedWebServer {
   private final MailboxService mailboxService;
   private final MailboxCenterService mailboxCenterService;
   private final RefundPolicyService refundPolicyService;
+  private final CommerceHttpApi commerceHttpApi;
   private static final int MATERIAL_ICON_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
   private static final Set<String> MATERIAL_ICON_ALLOWED_EXTENSIONS =
       Set.of("png", "webp", "jpg", "jpeg", "gif");
@@ -179,6 +180,8 @@ class EmbeddedWebServer {
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build();
     this.localeCenterService = new LocaleCenterService(plugin, () -> this.webUserRoot);
+    this.commerceHttpApi = new CommerceHttpApi(databaseManager, authService, adminService,
+        productService, marketService, walletService, orderService);
   }
 
   void start(Path staticRoot, Path webUserRoot) throws IOException {
@@ -328,6 +331,7 @@ class EmbeddedWebServer {
     register("/home-assets/", this::handleHomepageAsset);
     register("/textures/", this::handleTextureAsset);
     register("/visual-packs/", this::handleVisualPackAsset);
+    commerceHttpApi.register(server);
 
     // Only serve static files in INTERNAL mode
     if (serverMode == PluginSettings.ServerMode.INTERNAL) {

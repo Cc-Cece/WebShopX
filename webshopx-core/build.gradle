@@ -54,6 +54,7 @@ def extractedCoreSources = [
         'com/webshopx/MysqlSchemaProvider.java',
         'com/webshopx/PasswordHasher.java',
         'com/webshopx/PlayerPresenceService.java',
+        'com/webshopx/PromotionSchema.java',
         'com/webshopx/NotificationService.java',
         'com/webshopx/RechargeOrderStatus.java',
         'com/webshopx/RedeemCodeService.java',

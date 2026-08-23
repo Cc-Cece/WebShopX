@@ -59,7 +59,20 @@ public final class SharedRouteContract {
       "/api/admin/visual/settings", "/api/admin/visual-packs",
       "/api/admin/visual-packs/delete", "/api/admin/visual-packs/download",
       "/api/admin/visual-packs/move", "/api/admin/visual-packs/state",
-      "/api/admin/visual-packs/upload");
+      "/api/admin/visual-packs/upload",
+      "/api/cart", "/api/cart/clear", "/api/cart/lines/add", "/api/cart/lines/remove",
+      "/api/cart/lines/update", "/api/checkout/quote", "/api/checkout/submit",
+      "/api/checkouts/refund", "/api/coupons/claim", "/api/coupons/mine",
+      "/api/membership/me", "/api/membership/redeem",
+      "/api/seller/promotions/action", "/api/seller/promotions/create",
+      "/api/seller/promotions/list", "/api/admin/promotions/action",
+      "/api/admin/promotions/create", "/api/admin/promotions/emergency-stop",
+      "/api/admin/promotions/list", "/api/admin/promotions/publish",
+      "/api/admin/coupons/grant", "/api/admin/coupons/templates",
+      "/api/admin/coupons/templates/create", "/api/admin/membership/codes/create",
+      "/api/admin/membership/grant", "/api/admin/membership/plans",
+      "/api/admin/membership/plans/create", "/api/admin/membership/plans/publish",
+      "/api/admin/membership/products/bind", "/api/admin/membership/revoke");
 
   private SharedRouteContract() { }
 
