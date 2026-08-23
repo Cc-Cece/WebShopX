@@ -10,6 +10,7 @@ import com.webshopx.PlayerPresenceService;
 import com.webshopx.RedeemCodeService;
 import com.webshopx.SchemaProvider;
 import com.webshopx.WalletService;
+import com.webshopx.SharedCommerceService;
 import java.nio.file.Path;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -24,11 +25,12 @@ final class SharedDatabaseRuntime implements AutoCloseable {
   private final RedeemCodeService redeemCodes;
   private final AdminService administration;
   private final AdminAuditService audit;
+  private final SharedCommerceService commerce;
 
   private SharedDatabaseRuntime(
       DatabaseManager database, AuthService authentication, PlayerPresenceService presence,
       WalletService wallet, RedeemCodeService redeemCodes, AdminService administration,
-      AdminAuditService audit) {
+      AdminAuditService audit, SharedCommerceService commerce) {
     this.database = database;
     this.authentication = authentication;
     this.presence = presence;
@@ -36,6 +38,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
     this.redeemCodes = redeemCodes;
     this.administration = administration;
     this.audit = audit;
+    this.commerce = commerce;
   }
 
   static SharedDatabaseRuntime start(Path dataDirectory) {
@@ -60,8 +63,9 @@ final class SharedDatabaseRuntime implements AutoCloseable {
     RedeemCodeService redeemCodes = new RedeemCodeService(database, wallet);
     AdminService administration = new AdminService(database, authentication, wallet);
     AdminAuditService audit = new AdminAuditService(database);
+    SharedCommerceService commerce = new SharedCommerceService(database, wallet);
     return new SharedDatabaseRuntime(
-        database, authentication, presence, wallet, redeemCodes, administration, audit);
+        database, authentication, presence, wallet, redeemCodes, administration, audit, commerce);
   }
 
   AuthService authentication() { return authentication; }
@@ -70,6 +74,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
   RedeemCodeService redeemCodes() { return redeemCodes; }
   AdminService administration() { return administration; }
   AdminAuditService audit() { return audit; }
+  SharedCommerceService commerce() { return commerce; }
 
   @Override public void close() {
     presence.markServerOffline(presence.currentServerId());

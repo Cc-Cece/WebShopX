@@ -59,6 +59,7 @@ def extractedCoreSources = [
         'com/webshopx/ServiceException.java',
         'com/webshopx/SchemaManager.java',
         'com/webshopx/SchemaProvider.java',
+        'com/webshopx/SharedCommerceService.java',
         'com/webshopx/SqliteDialect.java',
         'com/webshopx/SqliteSqlProvider.java',
         'com/webshopx/SqliteSchemaProvider.java',

@@ -1,6 +1,7 @@
 package com.webshopx.loader;
 
 import com.webshopx.ServiceException;
+import com.webshopx.SharedCommerceService;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.Arrays;
@@ -151,6 +152,36 @@ public final class ReflectiveHealthCommand {
           var result = LoaderRuntime.redeemCodes().orElseThrow().redeem(user.userId(), invocation.argument());
           return "WebShopX redeem status=" + result.status() + " shopCoin="
               + result.balance().shopCoin() + " gameCoin=" + result.balance().gameCoin();
+        }));
+    register.invoke(dispatcher, command(
+        literalBuilder, commandType, "webshopx-shop", null,
+        invocation -> {
+          var products = LoaderRuntime.commerce().orElseThrow().products(false);
+          if (products.isEmpty()) return "WebShopX shop products=0";
+          return "WebShopX shop products=" + products.size() + " first="
+              + products.get(0).id() + ":" + products.get(0).sku()
+              + " price=" + products.get(0).price() + " " + products.get(0).currency();
+        }));
+    register.invoke(dispatcher, command(
+        literalBuilder, commandType, "webshopx-buy", "productId",
+        invocation -> {
+          var player = requirePlayer(invocation.source());
+          var user = LoaderRuntime.administration().orElseThrow()
+              .lookupUser(player.id().toString())
+              .orElseThrow(() -> new ServiceException("not_bound", "Set a WebShopX password first"));
+          long productId;
+          try {
+            productId = Long.parseLong(invocation.argument());
+          } catch (NumberFormatException invalid) {
+            throw new ServiceException("invalid_product", "Product id must be numeric");
+          }
+          String idempotency = "native:" + player.id() + ":" + productId + ":"
+              + java.util.UUID.randomUUID();
+          var purchase = LoaderRuntime.commerce().orElseThrow().purchase(
+              new SharedCommerceService.PurchaseRequest(
+                  user.userId(), player.id(), productId, 1, idempotency, player.serverId()));
+          return "WebShopX purchase order=" + purchase.orderNo() + " total="
+              + purchase.total() + " " + purchase.currency();
         }));
   }
 

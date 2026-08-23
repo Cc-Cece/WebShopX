@@ -6,6 +6,7 @@ import com.webshopx.AdminService;
 import com.webshopx.AdminAuditService;
 import com.webshopx.WalletService;
 import com.webshopx.RedeemCodeService;
+import com.webshopx.SharedCommerceService;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.CapabilitySnapshot.Capability;
 import com.webshopx.platform.CapabilitySnapshot.CapabilityState;
@@ -134,6 +135,11 @@ public final class LoaderRuntime {
   public static Optional<AdminAuditService> audit() {
     SharedDatabaseRuntime current = databaseRuntime;
     return current == null ? Optional.empty() : Optional.of(current.audit());
+  }
+
+  public static Optional<SharedCommerceService> commerce() {
+    SharedDatabaseRuntime current = databaseRuntime;
+    return current == null ? Optional.empty() : Optional.of(current.commerce());
   }
 
   public static String healthLine() {
