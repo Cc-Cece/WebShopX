@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
+import com.google.gson.JsonObject;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -133,5 +134,22 @@ class AuthServiceTest {
     RedeemCodeService.RedeemResult duplicate = redeem.redeem(userId, "WELCOME_2026");
     assertEquals(RedeemCodeService.RedeemStatus.ALREADY_USED, duplicate.status());
     assertEquals(first.balance(), duplicate.balance());
+  }
+
+  @Test void bootstrapAdminReceivesExplicitRoleAndPermissionSet() {
+    WalletService wallet = new WalletService(
+        database, WalletService.ExchangePolicy::disabled, null, null);
+    AdminService admins = new AdminService(database, service, wallet);
+    admins.ensureBootstrapAdmin(new AdminService.AdminBootstrapSettings(
+        true, "Root_Admin", "root-admin-secret", "SUPER_ADMIN"));
+    AdminService.AdminLoginResult login = admins.login("Root_Admin", "root-admin-secret");
+    assertTrue(login.admin().isSuperAdmin());
+    assertTrue(login.admin().allows(AdminPermission.ECONOMY_MANAGE));
+    assertTrue(login.admin().permissionCodes().contains("PRODUCT_MANAGE"));
+    JsonObject detail = new JsonObject();
+    detail.addProperty("source", "core-test");
+    AdminAuditService audit = new AdminAuditService(database);
+    audit.log(login.admin(), "LOGIN", "ADMIN", String.valueOf(login.admin().userId()), detail, "127.0.0.1");
+    assertEquals("LOGIN", audit.list(10).get(0).action());
   }
 }

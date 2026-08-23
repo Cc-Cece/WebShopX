@@ -146,7 +146,9 @@ sourceSets {
     main {
         java {
             exclude 'com/webshopx/AdminPermission.java'
+            exclude 'com/webshopx/AdminAuditService.java'
             exclude 'com/webshopx/AdminRole.java'
+            exclude 'com/webshopx/AdminService.java'
             exclude 'com/webshopx/AuthService.java'
             exclude 'com/webshopx/ClaimTokenGenerator.java'
             exclude 'com/webshopx/ClaimTokenRepository.java'

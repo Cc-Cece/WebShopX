@@ -4,7 +4,7 @@
 
 ## M2
 
-已把数据库配置、连接池、SQL dialect/provider、完整 SQLite/MySQL schema migration、支付 SPI、值对象，以及认证/会话、钱包/幂等账本/兑换、兑换码、跨节点玩家在线状态、首页、通知、退款、可视化、库存编排等无平台服务移入 `webshopx-core`；根 Paper 从 core 消费同一 class，禁止双写。Vault 发现和交易已收敛为 Paper-only `VaultGameCoinProvider`，共享钱包通过 `GameCoinProvider` 端口运行。Loader 数据库运行时现已实际组装认证、钱包、兑换码与在线状态业务图。真实 SQLite 测试覆盖密码替换撤销会话、过期会话、账本去重、原子兑换、余额不足、兑换码用户限额与节点离线清理。`verifyPlatformIsolation`、`paperBaseline` 和 `releaseReadiness` 通过。
+已把数据库配置、连接池、SQL dialect/provider、完整 SQLite/MySQL schema migration、支付 SPI、值对象，以及认证/会话、钱包/幂等账本/兑换、兑换码、管理员/RBAC/审计、跨节点玩家在线状态、首页、通知、退款、可视化、库存编排等无平台服务移入 `webshopx-core`；根 Paper 从 core 消费同一 class，禁止双写。Vault 发现和交易已收敛为 Paper-only `VaultGameCoinProvider`，共享钱包通过 `GameCoinProvider` 端口运行。Loader 数据库运行时现已实际组装认证、钱包、兑换码、管理员、审计与在线状态业务图。真实 SQLite 测试覆盖密码替换撤销会话、过期会话、账本去重、原子兑换、余额不足、兑换码用户限额、超级管理员权限/审计与节点离线清理。`verifyPlatformIsolation`、`paperBaseline` 和 `releaseReadiness` 通过。
 
 尚未完成：订单、市场、充值、HTTP/Relay 编排仍有 Bukkit 或 Paper 组合根依赖，未达到完整 Paper/Mod 业务等价。
 

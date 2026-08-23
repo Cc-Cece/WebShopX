@@ -2,6 +2,8 @@ package com.webshopx.loader;
 
 import com.webshopx.core.WebShopXCoreRuntime;
 import com.webshopx.AuthService;
+import com.webshopx.AdminService;
+import com.webshopx.AdminAuditService;
 import com.webshopx.WalletService;
 import com.webshopx.RedeemCodeService;
 import com.webshopx.core.OpaqueItemCodec;
@@ -121,6 +123,16 @@ public final class LoaderRuntime {
   public static Optional<RedeemCodeService> redeemCodes() {
     SharedDatabaseRuntime current = databaseRuntime;
     return current == null ? Optional.empty() : Optional.of(current.redeemCodes());
+  }
+
+  public static Optional<AdminService> administration() {
+    SharedDatabaseRuntime current = databaseRuntime;
+    return current == null ? Optional.empty() : Optional.of(current.administration());
+  }
+
+  public static Optional<AdminAuditService> audit() {
+    SharedDatabaseRuntime current = databaseRuntime;
+    return current == null ? Optional.empty() : Optional.of(current.audit());
   }
 
   public static String healthLine() {

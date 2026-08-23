@@ -9,17 +9,17 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 
-class AdminAuditService {
+public class AdminAuditService {
   private static final int DEFAULT_LIMIT = 100;
   private static final int MAX_LIMIT = 500;
 
   private final DatabaseManager databaseManager;
 
-  AdminAuditService(DatabaseManager databaseManager) {
+  public AdminAuditService(DatabaseManager databaseManager) {
     this.databaseManager = databaseManager;
   }
 
-  void log(
+  public void log(
       AdminService.AdminUser admin,
       String action,
       String targetType,
@@ -65,7 +65,7 @@ class AdminAuditService {
     }
   }
 
-  List<AuditView> list(int requestedLimit) {
+  public List<AuditView> list(int requestedLimit) {
     int limit = normalizeLimit(requestedLimit);
     return databaseManager.withConnection(connection -> readAuditLogs(connection, limit));
   }
@@ -108,7 +108,7 @@ class AdminAuditService {
     return Math.min(limit, MAX_LIMIT);
   }
 
-  record AuditView(
+  public record AuditView(
       long id,
       long adminUserId,
       String adminUsername,

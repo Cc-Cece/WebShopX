@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.webshopx.core.WebShopXCoreRuntime;
 import com.webshopx.CurrencyType;
+import com.webshopx.AdminService;
 import com.webshopx.platform.CapabilitySnapshot.Capability;
 import com.webshopx.platform.CapabilitySnapshot.Status;
 import org.junit.jupiter.api.AfterEach;
@@ -35,6 +36,10 @@ class LoaderRuntimeTest {
     var wallet = LoaderRuntime.wallet().orElseThrow();
     assertEquals(25L, wallet.adjustBalance(
         created.userId(), CurrencyType.SHOP_COIN, 25L, "TEST", "test-credit").shopCoin());
+    var administration = LoaderRuntime.administration().orElseThrow();
+    administration.ensureBootstrapAdmin(new AdminService.AdminBootstrapSettings(
+        true, "Loader_Admin", "loader-admin-secret", "SUPER_ADMIN"));
+    assertTrue(administration.login("Loader_Admin", "loader-admin-secret").admin().isSuperAdmin());
     assertEquals(25L, wallet.adjustBalance(
         created.userId(), CurrencyType.SHOP_COIN, 25L, "TEST", "test-credit").shopCoin());
     LoaderRuntime.stop();

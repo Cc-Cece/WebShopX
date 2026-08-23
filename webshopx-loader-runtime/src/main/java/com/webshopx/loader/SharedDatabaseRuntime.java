@@ -1,6 +1,8 @@
 package com.webshopx.loader;
 
 import com.webshopx.AuthService;
+import com.webshopx.AdminService;
+import com.webshopx.AdminAuditService;
 import com.webshopx.DatabaseManager;
 import com.webshopx.DatabaseSettings;
 import com.webshopx.DbType;
@@ -20,15 +22,20 @@ final class SharedDatabaseRuntime implements AutoCloseable {
   private final PlayerPresenceService presence;
   private final WalletService wallet;
   private final RedeemCodeService redeemCodes;
+  private final AdminService administration;
+  private final AdminAuditService audit;
 
   private SharedDatabaseRuntime(
       DatabaseManager database, AuthService authentication, PlayerPresenceService presence,
-      WalletService wallet, RedeemCodeService redeemCodes) {
+      WalletService wallet, RedeemCodeService redeemCodes, AdminService administration,
+      AdminAuditService audit) {
     this.database = database;
     this.authentication = authentication;
     this.presence = presence;
     this.wallet = wallet;
     this.redeemCodes = redeemCodes;
+    this.administration = administration;
+    this.audit = audit;
   }
 
   static SharedDatabaseRuntime start(Path dataDirectory) {
@@ -51,13 +58,18 @@ final class SharedDatabaseRuntime implements AutoCloseable {
     WalletService wallet = new WalletService(
         database, WalletService.ExchangePolicy::disabled, null, null);
     RedeemCodeService redeemCodes = new RedeemCodeService(database, wallet);
-    return new SharedDatabaseRuntime(database, authentication, presence, wallet, redeemCodes);
+    AdminService administration = new AdminService(database, authentication, wallet);
+    AdminAuditService audit = new AdminAuditService(database);
+    return new SharedDatabaseRuntime(
+        database, authentication, presence, wallet, redeemCodes, administration, audit);
   }
 
   AuthService authentication() { return authentication; }
   PlayerPresenceService presence() { return presence; }
   WalletService wallet() { return wallet; }
   RedeemCodeService redeemCodes() { return redeemCodes; }
+  AdminService administration() { return administration; }
+  AdminAuditService audit() { return audit; }
 
   @Override public void close() {
     presence.markServerOffline(presence.currentServerId());

@@ -240,7 +240,7 @@ public class WebShopPlugin extends JavaPlugin {
           playerDataInventoryService);
 
       // Products are managed via admin backend; no seed import from config.
-      adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());
+      adminService.ensureBootstrapAdmin(adminBootstrapSettings(settings));
 
       registerCommands();
       registerPaymentListener();
@@ -347,6 +347,12 @@ public class WebShopPlugin extends JavaPlugin {
         new WalletService.ExchangeDirection(exchange.gameToShop().enabled(), exchange.gameToShop().ratio()));
   }
 
+  private static AdminService.AdminBootstrapSettings adminBootstrapSettings(PluginSettings settings) {
+    PluginSettings.AdminBootstrapSettings admin = settings.adminBootstrapSettings();
+    return new AdminService.AdminBootstrapSettings(
+        admin.enabled(), admin.username(), admin.password(), admin.role());
+  }
+
   void reloadRuntimeConfig() {
     refreshMainConfig();
     PluginSettings fileSettings = PluginSettings.fromConfig(getConfig());
@@ -373,7 +379,7 @@ public class WebShopPlugin extends JavaPlugin {
     }
     // Products are managed via admin backend; no seed import from config.
     if (adminService != null) {
-      adminService.ensureBootstrapAdmin(settings.adminBootstrapSettings());
+      adminService.ensureBootstrapAdmin(adminBootstrapSettings(settings));
     }
     if (broadcastService != null) {
       broadcastService.reload();

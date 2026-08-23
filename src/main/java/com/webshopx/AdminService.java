@@ -18,20 +18,20 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-class AdminService {
+public class AdminService {
   private final DatabaseManager databaseManager;
   private final SqlProvider sqlProvider;
   private final AuthService authService;
   private final WalletService walletService;
 
-  AdminService(DatabaseManager databaseManager, AuthService authService, WalletService walletService) {
+  public AdminService(DatabaseManager databaseManager, AuthService authService, WalletService walletService) {
     this.databaseManager = databaseManager;
     this.sqlProvider = databaseManager.sqlProvider();
     this.authService = authService;
     this.walletService = walletService;
   }
 
-  void ensureBootstrapAdmin(PluginSettings.AdminBootstrapSettings settings) {
+  public void ensureBootstrapAdmin(AdminBootstrapSettings settings) {
     if (settings == null || !settings.enabled()) {
       return;
     }
@@ -57,7 +57,7 @@ class AdminService {
     });
   }
 
-  AdminLoginResult login(String identifier, String password) {
+  public AdminLoginResult login(String identifier, String password) {
     AuthService.AuthResult result = authService.login(identifier, password);
     AdminRecord adminRecord = readAdminRecord(result.user().id());
     if (adminRecord == null || !adminRecord.active()) {
@@ -67,7 +67,7 @@ class AdminService {
     return new AdminLoginResult(result, adminUserFrom(result.user(), adminRecord));
   }
 
-  AdminUser requireAdmin(AuthService.AuthUser user, AdminPermission permission) {
+  public AdminUser requireAdmin(AuthService.AuthUser user, AdminPermission permission) {
     AdminRecord record = readAdminRecord(user.id());
     if (record == null || !record.active()) {
       throw new ServiceException("forbidden", "Admin permission required");
@@ -78,7 +78,7 @@ class AdminService {
     return adminUserFrom(user, record);
   }
 
-  AdminUser requireSuperAdmin(AuthService.AuthUser user) {
+  public AdminUser requireSuperAdmin(AuthService.AuthUser user) {
     AdminUser admin = getAdminUser(user);
     if (!admin.isSuperAdmin()) {
       throw new ServiceException("forbidden", "Super admin permission required");
@@ -86,7 +86,7 @@ class AdminService {
     return admin;
   }
 
-  AdminUser getAdminUser(AuthService.AuthUser user) {
+  public AdminUser getAdminUser(AuthService.AuthUser user) {
     AdminRecord record = readAdminRecord(user.id());
     if (record == null || !record.active()) {
       throw new ServiceException("forbidden", "Admin permission required");
@@ -94,7 +94,7 @@ class AdminService {
     return adminUserFrom(user, record);
   }
 
-  Optional<UserSupportView> lookupUser(String identifier) {
+  public Optional<UserSupportView> lookupUser(String identifier) {
     if (identifier == null || identifier.isBlank()) {
       return Optional.empty();
     }
@@ -115,11 +115,11 @@ class AdminService {
     });
   }
 
-  List<AdminAccessView> listAdmins() {
+  public List<AdminAccessView> listAdmins() {
     return databaseManager.withConnection(this::readAdminViews);
   }
 
-  AdminAccessView upsertAdmin(
+  public AdminAccessView upsertAdmin(
       long actorUserId,
       String identifier,
       boolean superAdmin,
@@ -145,7 +145,7 @@ class AdminService {
     });
   }
 
-  AdminAccessView setAdminActive(long actorUserId, long targetUserId, boolean active) {
+  public AdminAccessView setAdminActive(long actorUserId, long targetUserId, boolean active) {
     return databaseManager.inTransaction(connection -> {
       AdminAccessView existing = readAdminView(connection, targetUserId);
       if (existing == null) {
@@ -167,7 +167,7 @@ class AdminService {
     });
   }
 
-  List<PermissionGroup> listPermissionGroups() {
+  public List<PermissionGroup> listPermissionGroups() {
     return List.of(
         new PermissionGroup(
             "catalog",
@@ -235,7 +235,7 @@ class AdminService {
                     "admin.permissions.permission.HOMEPAGE_MANAGE.description"))));
   }
 
-  List<PermissionTemplate> listPermissionTemplates() {
+  public List<PermissionTemplate> listPermissionTemplates() {
     return List.of(
         new PermissionTemplate(
             "SHOP_ADMIN",
@@ -269,12 +269,12 @@ class AdminService {
             sortedPermissionCodes(EnumSet.allOf(AdminPermission.class))));
   }
 
-  void resetPassword(long userId, String newPassword) {
+  public void resetPassword(long userId, String newPassword) {
     authService.resetPassword(userId, newPassword);
     authService.logoutAllSessions(userId);
   }
 
-  void unbindUser(long userId) {
+  public void unbindUser(long userId) {
     databaseManager.withConnection(connection -> {
       String sql = "UPDATE web_users SET bound_uuid = NULL WHERE id = ?";
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -285,7 +285,7 @@ class AdminService {
     });
   }
 
-  UuidMigrationResult migrateUserUuid(long userId, UUID expectedOldUuid, UUID newUuid) {
+  public UuidMigrationResult migrateUserUuid(long userId, UUID expectedOldUuid, UUID newUuid) {
     if (expectedOldUuid == null || newUuid == null) {
       throw new ServiceException("bad_request", "Both oldUuid and newUuid are required");
     }
@@ -387,11 +387,11 @@ class AdminService {
     }
   }
 
-  void forceLogout(long userId) {
+  public void forceLogout(long userId) {
     authService.logoutAllSessions(userId);
   }
 
-  WalletService.WalletBalance adjustWallet(long userId, CurrencyType currency, long delta, String reason) {
+  public WalletService.WalletBalance adjustWallet(long userId, CurrencyType currency, long delta, String reason) {
     String normalizedReason = reason == null || reason.isBlank() ? "ADMIN_ADJUST" : reason.trim();
     if (normalizedReason.length() > 32) {
       normalizedReason = normalizedReason.substring(0, 32);
@@ -400,7 +400,7 @@ class AdminService {
     return walletService.adjustBalance(userId, currency, delta, normalizedReason, bizId);
   }
 
-  java.util.List<UserListItem> listUsers(String keyword, int limit) {
+  public java.util.List<UserListItem> listUsers(String keyword, int limit) {
     int normalizedLimit = Math.max(1, Math.min(limit, 300));
     String likeKeyword = keyword == null || keyword.isBlank() ? null : "%" + keyword.trim() + "%";
     return databaseManager.withConnection(connection -> {
@@ -710,10 +710,10 @@ class AdminService {
     }
   }
 
-  record AdminLoginResult(AuthService.AuthResult authResult, AdminUser admin) {
+  public record AdminLoginResult(AuthService.AuthResult authResult, AdminUser admin) {
   }
 
-  record AdminUser(
+  public record AdminUser(
       long userId,
       String username,
       UUID boundUuid,
@@ -722,15 +722,15 @@ class AdminService {
       String roleLabel,
       String templateKey) {
 
-    AdminUser {
+    public AdminUser {
       permissions = Collections.unmodifiableSet(EnumSet.copyOf(permissions));
     }
 
-    boolean allows(AdminPermission permission) {
+    public boolean allows(AdminPermission permission) {
       return permission == null || isSuperAdmin || permissions.contains(permission);
     }
 
-    List<String> permissionCodes() {
+    public List<String> permissionCodes() {
       List<String> codes = new ArrayList<>();
       for (AdminPermission permission : permissions) {
         codes.add(permission.name());
@@ -752,7 +752,7 @@ class AdminService {
     }
   }
 
-  record AdminAccessView(
+  public record AdminAccessView(
       long userId,
       String username,
       UUID boundUuid,
@@ -765,13 +765,13 @@ class AdminService {
       LocalDateTime updatedAt) {
   }
 
-  record PermissionDefinition(String code, String label, String description) {
+  public record PermissionDefinition(String code, String label, String description) {
   }
 
-  record PermissionGroup(String key, String label, List<PermissionDefinition> permissions) {
+  public record PermissionGroup(String key, String label, List<PermissionDefinition> permissions) {
   }
 
-  record PermissionTemplate(
+  public record PermissionTemplate(
       String key,
       String label,
       String description,
@@ -787,7 +787,7 @@ class AdminService {
       LocalDateTime createdAt) {
   }
 
-  record UserSupportView(
+  public record UserSupportView(
       long userId,
       String username,
       UUID boundUuid,
@@ -797,7 +797,7 @@ class AdminService {
       long gameCoin) {
   }
 
-  record UserListItem(
+  public record UserListItem(
       long userId,
       String username,
       UUID boundUuid,
@@ -807,10 +807,13 @@ class AdminService {
       long gameCoin) {
   }
 
-  record UuidMigrationResult(
+  public record UuidMigrationResult(
       long userId,
       UUID oldUuid,
       UUID newUuid,
       Map<String, Integer> migrated) {
   }
+
+  public record AdminBootstrapSettings(
+      boolean enabled, String username, String password, String role) { }
 }

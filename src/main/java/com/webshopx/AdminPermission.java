@@ -1,6 +1,6 @@
 package com.webshopx;
 
-enum AdminPermission {
+public enum AdminPermission {
   REDEEM_MANAGE,
   PRODUCT_MANAGE,
   PRODUCT_OFFLINE_INVENTORY_IMPORT,

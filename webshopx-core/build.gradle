@@ -19,13 +19,16 @@ dependencies {
     }
     testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'
     testImplementation 'org.xerial:sqlite-jdbc:3.50.3.0'
+    testImplementation 'com.google.code.gson:gson:2.11.0'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.13.4'
     testRuntimeOnly 'org.slf4j:slf4j-simple:1.7.36'
 }
 
 def extractedCoreSources = [
         'com/webshopx/AdminPermission.java',
+        'com/webshopx/AdminAuditService.java',
         'com/webshopx/AdminRole.java',
+        'com/webshopx/AdminService.java',
         'com/webshopx/AuthService.java',
         'com/webshopx/ClaimTokenGenerator.java',
         'com/webshopx/ClaimTokenRepository.java',
