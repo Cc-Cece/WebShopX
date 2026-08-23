@@ -586,15 +586,94 @@ tasks.register('generateModReleaseManifest') {
     }
 }
 
+tasks.register('verifySupportMatrix') {
+    group = 'verification'
+    description = 'Ensures the checked-in support matrix exactly matches the frozen build matrix.'
+    def matrixFile = layout.projectDirectory.file('docs/mod-migration/support-matrix.json')
+    inputs.file(matrixFile)
+    doLast {
+        def declared = new groovy.json.JsonSlurper().parse(matrixFile.asFile).platforms
+        def expected = modArtifactProjects.collect { path ->
+            def child = project(path)
+            "${child.ext.platformFamily}|${child.ext.minecraftVersion}|${child.ext.loaderVersion}|${child.ext.javaVersion}"
+        } as Set
+        def actual = declared.collect { row ->
+            if (!(row.status in ['startup_verified', 'full'])) {
+                throw new GradleException("Unsupported support status for ${row.platform}/${row.minecraft}: ${row.status}")
+            }
+            "${row.platform}|${row.minecraft}|${row.loader}|${row.java}"
+        } as Set
+        if (actual != expected) {
+            throw new GradleException("Support matrix differs from build matrix. expected=${expected}, actual=${actual}")
+        }
+    }
+}
+
+tasks.register('generateModSbom') {
+    group = 'distribution'
+    description = 'Writes an SPDX 2.3 inventory for every independently distributed Mod artifact.'
+    dependsOn tasks.named('modMatrixAssemble')
+    def outputFile = layout.buildDirectory.file('reports/mod-migration/mod-sbom.spdx.json')
+    outputs.file(outputFile)
+    doLast {
+        def packages = []
+        modArtifactProjects.eachWithIndex { path, index ->
+            def child = project(path)
+            def artifact = child.tasks.named('jar', Jar).get().archiveFile.get().asFile
+            packages << [
+                    SPDXID: "SPDXRef-Package-${index + 1}",
+                    name: artifact.name,
+                    versionInfo: project.version.toString(),
+                    downloadLocation: 'NOASSERTION',
+                    filesAnalyzed: false,
+                    licenseConcluded: 'LicenseRef-WebShopX-Restricted',
+                    licenseDeclared: 'LicenseRef-WebShopX-Restricted',
+                    checksums: [[
+                            algorithm: 'SHA256',
+                            checksumValue: java.security.MessageDigest.getInstance('SHA-256')
+                                    .digest(artifact.bytes).encodeHex().toString()
+                    ]],
+                    externalRefs: [[
+                            referenceCategory: 'PACKAGE-MANAGER',
+                            referenceType: 'purl',
+                            referenceLocator: "pkg:minecraft/${child.ext.platformFamily}@${child.ext.minecraftVersion}?loader=${child.ext.loaderVersion}"
+                    ]]
+            ]
+        }
+        def commit = providers.exec { commandLine 'git', 'rev-parse', 'HEAD' }
+                .standardOutput.asText.get().trim()
+        def document = [
+                spdxVersion: 'SPDX-2.3',
+                dataLicense: 'CC0-1.0',
+                SPDXID: 'SPDXRef-DOCUMENT',
+                name: "WebShopX-Mod-${project.version}",
+                documentNamespace: "https://webshopx.invalid/spdx/${commit}",
+                creationInfo: [created: java.time.Instant.now().toString(), creators: ['Tool: Gradle-WebShopX']],
+                packages: packages,
+                hasExtractedLicensingInfos: [[
+                        licenseId: 'LicenseRef-WebShopX-Restricted',
+                        extractedText: 'See the LICENSE file distributed with WebShopX.'
+                ]]
+        ]
+        def destination = outputFile.get().asFile
+        destination.parentFile.mkdirs()
+        destination.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(document)) + System.lineSeparator()
+        println "Mod SBOM: ${destination}"
+    }
+}
+
 tasks.register('releaseReadiness') {
     group = 'verification'
     description = 'Runs all locally reproducible Paper, core, Loader and artifact release gates.'
     dependsOn tasks.named('paperBaseline')
     dependsOn tasks.named('coreContractTest')
+    dependsOn tasks.named('platformContractTest')
     dependsOn ':webshopx-loader-runtime:test'
     dependsOn tasks.named('verifyModMetadata')
     dependsOn tasks.named('modEntrypointSmoke')
     dependsOn tasks.named('generateModReleaseManifest')
+    dependsOn tasks.named('generateModSbom')
+    dependsOn tasks.named('verifySupportMatrix')
 }
 
 tasks.register('checkI18nSources', Exec) {

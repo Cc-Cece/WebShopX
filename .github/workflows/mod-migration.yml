@@ -43,7 +43,7 @@ jobs:
           java-version: '25'
           cache: gradle
       - name: Run platform-neutral and Loader gates
-        run: ./gradlew coreContractTest :webshopx-loader-runtime:test modMatrixAssemble verifyModMetadata modEntrypointSmoke generateModReleaseManifest --stacktrace
+        run: ./gradlew coreContractTest platformContractTest :webshopx-loader-runtime:test modMatrixAssemble verifyModMetadata verifySupportMatrix modEntrypointSmoke generateModReleaseManifest generateModSbom --stacktrace
       - name: Upload candidate matrix
         uses: actions/upload-artifact@v4
         with:
@@ -52,6 +52,7 @@ jobs:
           path: |
             webshopx-*/build/libs/*.jar
             build/reports/mod-migration/release-manifest.json
+            build/reports/mod-migration/mod-sbom.spdx.json
 
   paper-regression:
     runs-on: ubuntu-latest

@@ -3,12 +3,12 @@
   "frozenAt": "2026-08-23",
   "policy": "Only exact rows with dedicated-server evidence may be advertised",
   "platforms": [
-    {"platform":"fabric","minecraft":"1.18.2","loader":"0.19.3","java":17,"metadata":"fabric.mod.json","status":"implemented"},
-    {"platform":"fabric","minecraft":"1.20.1","loader":"0.19.3","java":17,"metadata":"fabric.mod.json","status":"implemented"},
-    {"platform":"fabric","minecraft":"26.2","loader":"0.19.3","java":25,"metadata":"fabric.mod.json","status":"implemented"},
-    {"platform":"forge","minecraft":"1.18.2","loader":"40.3.12","java":17,"metadata":"META-INF/mods.toml","status":"implemented"},
-    {"platform":"forge","minecraft":"1.20.1","loader":"47.4.23","java":17,"metadata":"META-INF/mods.toml","status":"implemented"},
-    {"platform":"neoforge","minecraft":"1.20.1","loader":"47.1.106","java":17,"metadata":"META-INF/mods.toml","status":"implemented"},
-    {"platform":"neoforge","minecraft":"26.2","loader":"26.2.0.65","java":25,"metadata":"META-INF/neoforge.mods.toml","status":"implemented"}
+    {"platform":"fabric","minecraft":"1.18.2","loader":"0.19.3","java":17,"metadata":"fabric.mod.json","status":"startup_verified"},
+    {"platform":"fabric","minecraft":"1.20.1","loader":"0.19.3","java":17,"metadata":"fabric.mod.json","status":"startup_verified"},
+    {"platform":"fabric","minecraft":"26.2","loader":"0.19.3","java":25,"metadata":"fabric.mod.json","status":"startup_verified"},
+    {"platform":"forge","minecraft":"1.18.2","loader":"40.3.12","java":17,"metadata":"META-INF/mods.toml","status":"startup_verified"},
+    {"platform":"forge","minecraft":"1.20.1","loader":"47.4.23","java":17,"metadata":"META-INF/mods.toml","status":"startup_verified"},
+    {"platform":"neoforge","minecraft":"1.20.1","loader":"47.1.106","java":17,"metadata":"META-INF/mods.toml","status":"startup_verified"},
+    {"platform":"neoforge","minecraft":"26.2","loader":"26.2.0.65","java":25,"metadata":"META-INF/neoforge.mods.toml","status":"startup_verified"}
   ]
 }
