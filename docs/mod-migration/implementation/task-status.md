@@ -5,16 +5,16 @@
 | Task | 状态 | 实施 PR | 审核结论 | Merge commit | 备注 |
 |---|---|---|---|---|---|
 | PLAN | completed | 当前对话书面批准 | 项目所有者已授权实施 | `b7bfc1b` | 2026-08-22；迁移 base 改为最新 origin/main |
-| M0 | in_progress | 本地 `feature/M0-main` | 待独立审核 | — | 自动清单和 Paper 基线已完成；真实服务器 smoke/干净前端/正式审核待补 |
-| M1 | pending | — | — | — | 依赖 M0 |
-| M2 | pending | — | — | — | 依赖 M1 |
-| M3 | pending | — | — | — | 依赖 M2 |
-| M4 | pending | — | — | — | 依赖 M3 |
-| M5 | pending | — | — | — | 依赖 M3；正式完成依赖共享契约冻结 |
-| M6 | pending | — | — | — | 依赖 M3；正式完成依赖共享契约冻结 |
-| M7 | pending | — | — | — | 依赖 M4/M6 |
-| M8 | pending | — | — | — | 依赖 M4–M7 |
-| M9 | pending | — | — | — | 依赖 M8 |
+| M0 | in_review | 本地 `feature/M0-main` | 等待统一审核 | — | 基线、清单、Paper/Folia 真实 smoke 与干净前端门禁已完成 |
+| M1 | in_review | 本地 `feature/M0-main` | 等待统一审核 | — | 七个精确单元真实启动、健康命令、schema、停止均通过 |
+| M2 | in_progress | 本地 `feature/M0-main` | — | — | 数据库/schema 与首批无平台服务已抽取；业务图尚未全量迁移 |
+| M3 | in_progress | 本地 `feature/M0-main` | — | — | 契约/envelope/reference adapter 已完成；原生 adapter 待补 |
+| M4 | in_progress | 本地 `feature/M0-main` | — | — | Fabric 三锚点 startup_verified；全功能待补 |
+| M5 | in_progress | 本地 `feature/M0-main` | — | — | Forge 两锚点 startup_verified；全功能待补 |
+| M6 | in_progress | 本地 `feature/M0-main` | — | — | NeoForge 两锚点 startup_verified；全功能待补 |
+| M7 | in_progress | 本地 `feature/M0-main` | — | — | server-only ADR 与转换策略完成；真实 fixture 待补 |
+| M8 | in_progress | 本地 `feature/M0-main` | — | — | 一致性原语完成；真实混合集群/Provider 待补 |
+| M9 | in_progress | 本地 `feature/M0-main` | — | — | manifest/SBOM/CI 门禁完成；依赖 M4–M8 的 RC 门禁待补 |
 | FINAL | pending | — | — | — | 只产生发布建议；main 由所有者决定 |
 
 状态只使用：`pending`、`in_progress`、`in_review`、`changes_required`、`blocked`、`completed`。
