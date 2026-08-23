@@ -1,5 +1,10 @@
 plugins.apply('java')
 
+def rawModVersion = project.version.toString()
+def loaderMetadataVersion = rawModVersion.startsWith('dev-v')
+        ? rawModVersion.substring('dev-v'.length()) + '-dev'
+        : rawModVersion.startsWith('v') ? rawModVersion.substring(1) : rawModVersion
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(project.ext.javaVersion as int)
@@ -16,7 +21,8 @@ dependencies {
 
 sourceSets {
     main {
-        java.srcDir rootProject.file("webshopx-${project.ext.platformFamily}-common/src/main/java")
+        def sourceFamily = project.ext.has('sourceFamily') ? project.ext.sourceFamily : project.ext.platformFamily
+        java.srcDir rootProject.file("webshopx-${sourceFamily}-common/src/main/java")
     }
     test {
         java.srcDir rootProject.file('webshopx-loader-common/src/test/java')
@@ -32,13 +38,13 @@ processResources {
     inputs.properties(
             minecraftVersion: project.ext.minecraftVersion,
             loaderVersion: project.ext.loaderVersion,
-            modVersion: project.version
+            modVersion: loaderMetadataVersion
     )
     filesMatching(['fabric.mod.json', 'META-INF/mods.toml', 'META-INF/neoforge.mods.toml']) {
         expand(
                 minecraftVersion: project.ext.minecraftVersion,
                 loaderVersion: project.ext.loaderVersion,
-                modVersion: project.version
+                modVersion: loaderMetadataVersion
         )
     }
 }
@@ -58,7 +64,7 @@ jar {
                 'WebShopX-Platform': project.ext.platformFamily,
                 'WebShopX-Minecraft': project.ext.minecraftVersion,
                 'WebShopX-Loader': project.ext.loaderVersion,
-                'Automatic-Module-Name': "com.webshopx.${project.ext.platformFamily}.${project.ext.artifactSuffix.replace('-', '.')}"
+                'Automatic-Module-Name': "com.webshopx.${project.ext.platformFamily}.mc${project.ext.artifactSuffix.replaceAll('[^A-Za-z0-9]', '_')}"
         )
     }
 }

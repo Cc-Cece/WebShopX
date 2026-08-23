@@ -40,6 +40,11 @@ public final class LoaderRuntime {
     return active;
   }
 
+  public static WebShopXCoreRuntime startDetected(String loader) {
+    LoaderEnvironment.Version version = LoaderEnvironment.detect(loader);
+    return start(loader, version.minecraft(), version.loader());
+  }
+
   public static synchronized void stop() {
     if (active != null) active.close();
     active = null;

@@ -144,6 +144,26 @@ tasks.withType(JavaCompile).configureEach {
 
 sourceSets {
     main {
+        java {
+            exclude 'com/webshopx/AdminPermission.java'
+            exclude 'com/webshopx/AdminRole.java'
+            exclude 'com/webshopx/ClaimTokenGenerator.java'
+            exclude 'com/webshopx/CurrencyType.java'
+            exclude 'com/webshopx/DatabaseDialect.java'
+            exclude 'com/webshopx/DbType.java'
+            exclude 'com/webshopx/MapUtils.java'
+            exclude 'com/webshopx/MarketSide.java'
+            exclude 'com/webshopx/MarketTagCodes.java'
+            exclude 'com/webshopx/MysqlDialect.java'
+            exclude 'com/webshopx/MysqlSqlProvider.java'
+            exclude 'com/webshopx/PasswordHasher.java'
+            exclude 'com/webshopx/RechargeOrderStatus.java'
+            exclude 'com/webshopx/ServiceException.java'
+            exclude 'com/webshopx/SqliteDialect.java'
+            exclude 'com/webshopx/SqliteSqlProvider.java'
+            exclude 'com/webshopx/SqlProvider.java'
+            exclude 'com/webshopx/TimeSupport.java'
+        }
         resources {
             srcDir layout.buildDirectory.dir('generated-resources/main')
         }

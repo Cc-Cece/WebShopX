@@ -1,2 +1,2 @@
-ext { platformFamily='neoforge'; minecraftVersion='1.20.1'; loaderVersion='47.1.106'; javaVersion=17; artifactSuffix='1.20.1'; metadataPath='META-INF/mods.toml'; entrypointPath='com/webshopx/neoforge/WebShopXNeoForgeMod.class' }
+ext { platformFamily='neoforge'; sourceFamily='neoforge-legacy'; minecraftVersion='1.20.1'; loaderVersion='47.1.106'; javaVersion=17; artifactSuffix='1.20.1'; metadataPath='META-INF/mods.toml'; entrypointPath='com/webshopx/neoforge/WebShopXNeoForgeMod.class' }
 apply from: rootProject.file('gradle/mod-platform.gradle')

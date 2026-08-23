@@ -8,9 +8,45 @@ java {
 
 dependencies {
     api project(':webshopx-platform-api')
-    implementation 'com.google.code.gson:gson:2.11.0'
+    compileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.13.4'
+}
+
+def extractedCoreSources = [
+        'com/webshopx/AdminPermission.java',
+        'com/webshopx/AdminRole.java',
+        'com/webshopx/ClaimTokenGenerator.java',
+        'com/webshopx/CurrencyType.java',
+        'com/webshopx/DatabaseDialect.java',
+        'com/webshopx/DbType.java',
+        'com/webshopx/MapUtils.java',
+        'com/webshopx/MarketSide.java',
+        'com/webshopx/MarketTagCodes.java',
+        'com/webshopx/MysqlDialect.java',
+        'com/webshopx/MysqlSqlProvider.java',
+        'com/webshopx/PasswordHasher.java',
+        'com/webshopx/RechargeOrderStatus.java',
+        'com/webshopx/ServiceException.java',
+        'com/webshopx/SqliteDialect.java',
+        'com/webshopx/SqliteSqlProvider.java',
+        'com/webshopx/SqlProvider.java',
+        'com/webshopx/TimeSupport.java'
+]
+
+sourceSets {
+    main {
+        java {
+            srcDir rootProject.file('src/main/java')
+            include 'com/webshopx/core/**'
+            include extractedCoreSources
+        }
+        resources {
+            srcDir rootProject.file('src/main/resources')
+            include 'db/sqlite/**'
+            include 'db/mysql/**'
+        }
+    }
 }
 
 test { useJUnitPlatform() }
