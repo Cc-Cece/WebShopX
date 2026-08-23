@@ -11,6 +11,7 @@ plugins {
 version = 'dev-v3.0.0'
 
 group = "com.webshopx"
+ext.pinnedFrontendCommit = '1f3e4e5e25f72407ce2956762dc34b9b3c53c24f'
 String targetRuntime = hasProperty('targetRuntime')
         ? property('targetRuntime').toString().trim().toLowerCase(Locale.ROOT)
         : '1.20.6+'
@@ -227,6 +228,42 @@ def requireCleanSourceTree = {
     if (!status.isEmpty()) {
         throw new GradleException('Release evidence requires a clean Git worktree. Commit or remove every tracked and untracked change first.')
     }
+}
+
+def frontendSourceDirectory = {
+    File candidate = project.hasProperty('frontendDir')
+            ? file(project.property('frontendDir'))
+            : new File(rootProject.projectDir.parentFile, 'webshopx-web')
+    if (!new File(candidate, '.git').exists()) {
+        throw new GradleException("Frontend source is not a Git worktree: ${candidate}")
+    }
+    candidate.canonicalFile
+}
+
+def commandText = { File directory, List<String> command ->
+    providers.exec {
+        workingDir directory
+        commandLine command
+    }.standardOutput.asText.get().trim()
+}
+
+def sha256File = { File candidate ->
+    java.security.MessageDigest.getInstance('SHA-256')
+            .digest(candidate.bytes).encodeHex().toString()
+}
+
+def requirePinnedCleanFrontend = {
+    File frontend = frontendSourceDirectory()
+    String commit = commandText(frontend, ['git', 'rev-parse', 'HEAD'])
+    if (commit != pinnedFrontendCommit) {
+        throw new GradleException(
+                "Frontend source commit mismatch. expected=${pinnedFrontendCommit}, actual=${commit}, directory=${frontend}")
+    }
+    String status = commandText(frontend, ['git', 'status', '--porcelain=v1', '--untracked-files=all'])
+    if (!status.isEmpty()) {
+        throw new GradleException("Release evidence requires a clean frontend Git worktree: ${frontend}")
+    }
+    frontend
 }
 
 processResources {
@@ -594,12 +631,17 @@ tasks.register('generateModReleaseManifest') {
     group = 'distribution'
     description = 'Writes the candidate artifact inventory with SHA-256 checksums.'
     dependsOn tasks.named('modMatrixAssemble')
+    dependsOn tasks.named('packagePluginVariants')
+    dependsOn syncWebFrontend
     def outputFile = layout.buildDirectory.file('reports/mod-migration/release-manifest.json')
     inputs.property('sourceCommit', providers.exec {
         commandLine 'git', 'rev-parse', 'HEAD'
     }.standardOutput.asText.map { it.trim() })
     outputs.file(outputFile)
-    doFirst { requireCleanSourceTree() }
+    doFirst {
+        requireCleanSourceTree()
+        requirePinnedCleanFrontend()
+    }
     doLast {
         def artifacts = modArtifactProjects.collect { path ->
             def child = project(path)
@@ -612,9 +654,39 @@ tasks.register('generateModReleaseManifest') {
                     java: child.ext.javaVersion,
                     file: artifact.name,
                     bytes: artifact.length(),
-                    sha256: java.security.MessageDigest.getInstance('SHA-256')
-                            .digest(artifact.bytes).encodeHex().toString()
+                    sha256: sha256File(artifact)
             ]
+        }
+        def paperTasks = ['slimJar', 'shadowJar', 'fullLinuxJar', 'fullWinJar']
+        if (includeFoliaVariants) {
+            paperTasks.addAll(['foliaSlimJar', 'fullFoliaJar', 'fullFoliaLinuxJar', 'fullFoliaWinJar'])
+        }
+        paperTasks.each { taskName ->
+            def artifact = tasks.named(taskName, Jar).get().archiveFile.get().asFile
+            artifacts << [
+                    platform: taskName.toLowerCase(Locale.ROOT).contains('folia') ? 'folia' : 'paper-compatible',
+                    minecraft: targetRuntime,
+                    minecraftRange: targetRuntime,
+                    loader: 'bukkit-plugin-api',
+                    java: runtimeJavaLanguageVersion,
+                    variant: taskName,
+                    file: artifact.name,
+                    bytes: artifact.length(),
+                    sha256: sha256File(artifact)
+            ]
+        }
+        File frontend = requirePinnedCleanFrontend()
+        File stagedWeb = layout.buildDirectory.dir('generated-resources/main/web').get().asFile
+        def frontendFiles = fileTree(stagedWeb).files.sort { left, right -> left.path <=> right.path }.collect { asset ->
+            [
+                    path: stagedWeb.toPath().relativize(asset.toPath()).toString().replace('\\', '/'),
+                    bytes: asset.length(),
+                    sha256: sha256File(asset)
+            ]
+        }
+        def frontendTreeDigest = java.security.MessageDigest.getInstance('SHA-256')
+        frontendFiles.each { asset ->
+            frontendTreeDigest.update("${asset.path}\u0000${asset.sha256}\n".getBytes(java.nio.charset.StandardCharsets.UTF_8))
         }
         def destination = outputFile.get().asFile
         destination.parentFile.mkdirs()
@@ -627,6 +699,14 @@ tasks.register('generateModReleaseManifest') {
                 builtAt: providers.exec {
                     commandLine 'git', 'show', '-s', '--format=%cI', 'HEAD'
                 }.standardOutput.asText.get().trim(),
+                frontend: [
+                        repository: commandText(frontend, ['git', 'config', '--get', 'remote.origin.url']),
+                        sourceCommit: pinnedFrontendCommit,
+                        node: commandText(frontend, ['node', '--version']),
+                        pnpm: commandText(frontend, ['pnpm', '--version']),
+                        assetTreeSha256: frontendTreeDigest.digest().encodeHex().toString(),
+                        assets: frontendFiles
+                ],
                 artifacts: artifacts
         ])) + System.lineSeparator()
         println "Release manifest: ${destination}"
@@ -820,8 +900,8 @@ tasks.register('generateModReadiness') {
         destination.parentFile.mkdirs()
         destination.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson([
                 schemaVersion: 1,
-                implementationStatus: 'REVIEW_READY_WITH_BROWSER_EVIDENCE_BLOCKED',
-                formalReview: 'PENDING_OWNER_STARTED_AGENT',
+                implementationStatus: 'IMPLEMENTATION_IN_PROGRESS',
+                formalReview: 'CHANGES_REQUIRED',
                 releasePublished: false,
                 sourceCommit: manifest.sourceCommit,
                 stages: (0..9).collect { [stage: "M${it}", status: 'in_review'] },
@@ -833,11 +913,20 @@ tasks.register('generateModReadiness') {
                         'Loader external economy provider',
                         'Loader external payment provider'
                 ],
-                evidenceBlockers: [[
-                        gate: 'interactive browser critical path',
-                        reason: 'interactive browser evidence has not been recorded in the implementation packet',
-                        compensatingEvidence: 'SharedHttpApiTest plus real Fabric dedicated-server landing and health responses'
-                ]],
+                openReviewFindings: [
+                        'M1-R01', 'M2-R02', 'M4-R03', 'M3-R04', 'M8-R05',
+                        'M9-R06', 'M9-R07', 'M9-R08', 'M9-R09'
+                ],
+                evidenceBlockers: [
+                        [gate: 'shared product contract', reason: 'Paper and Loader full route/use-case parity is not yet proven'],
+                        [gate: 'supported version matrix', reason: 'Every promised version/compatibility interval lacks immutable real-server evidence'],
+                        [gate: 'real player and item corpus', reason: 'Real player, third-party item and failure-recovery evidence is incomplete'],
+                        [gate: 'mixed cluster', reason: 'Paper/Fabric/Forge/NeoForge shared MariaDB and Redis reconciliation evidence is incomplete'],
+                        [gate: 'migration and rollback', reason: 'Production-like snapshot migration, restore and rollback reconciliation evidence is incomplete'],
+                        [gate: 'interactive browser critical journeys', reason: 'Authenticated user/admin journeys and failure-state browser evidence is incomplete'],
+                        [gate: 'supply chain and RC', reason: 'Complete artifact SBOM, security scans and reproducible clean-cache RC evidence is incomplete'],
+                        [gate: 'remote review workflow', reason: 'Traceable implementation PR and all required checks are not yet available']
+                ],
                 artifactManifest: 'release-manifest.json',
                 sbom: 'mod-sbom.spdx.json'
         ])) + System.lineSeparator()
