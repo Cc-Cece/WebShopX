@@ -56,6 +56,7 @@ processResources {
 }
 
 jar {
+    dependsOn rootProject.tasks.named('syncWebFrontend')
     dependsOn ':webshopx-loader-runtime:jar', ':webshopx-core:jar', ':webshopx-platform-api:jar'
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from {
@@ -106,6 +107,9 @@ tasks.register('verifyLoaderMetadata') {
             }
             if (!names.contains(project.ext.entrypointPath)) {
                 throw new GradleException("${artifact.name} is missing entrypoint ${project.ext.entrypointPath}")
+            }
+            if (!names.contains('web/index.html') || !names.contains('web/assets-manifest.txt')) {
+                throw new GradleException("${artifact.name} is missing the pinned static frontend")
             }
         } finally {
             zip.close()

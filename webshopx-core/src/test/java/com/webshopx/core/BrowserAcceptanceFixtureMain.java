@@ -1,12 +1,15 @@
 package com.webshopx.core;
 
 import com.webshopx.AdminService;
+import com.webshopx.AdminAuditService;
 import com.webshopx.AuthService;
 import com.webshopx.DatabaseManager;
 import com.webshopx.DatabaseSettings;
 import com.webshopx.DbType;
 import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceService;
+import com.webshopx.NotificationService;
+import com.webshopx.RedeemCodeService;
 import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.PlatformIdentity;
@@ -44,7 +47,9 @@ public final class BrowserAcceptanceFixtureMain {
           new EnumMap<>(CapabilitySnapshot.Capability.class);
       states.put(CapabilitySnapshot.Capability.HTTP_API,
           CapabilitySnapshot.CapabilityState.available("browser acceptance fixture"));
-      api = new SharedHttpApi("127.0.0.1", port, "", auth, wallets, commerce, admin,
+      api = new SharedHttpApi("127.0.0.1", port, "", auth, wallets, commerce,
+          new RedeemCodeService(database, wallets), new NotificationService(database), admin,
+          new AdminAuditService(database),
           new PlatformIdentity("fixture", "fixture", "ci", "ci", "browser-node",
               "sha256:browser-fixture"),
           new CapabilitySnapshot(Instant.now(), states));

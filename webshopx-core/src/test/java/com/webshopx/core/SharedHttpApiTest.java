@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.webshopx.AdminService;
+import com.webshopx.AdminAuditService;
 import com.webshopx.AuthService;
 import com.webshopx.CurrencyType;
 import com.webshopx.DatabaseManager;
@@ -14,6 +15,8 @@ import com.webshopx.DatabaseSettings;
 import com.webshopx.DbType;
 import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceService;
+import com.webshopx.NotificationService;
+import com.webshopx.RedeemCodeService;
 import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.PlatformIdentity;
@@ -62,7 +65,9 @@ class SharedHttpApiTest {
     states.put(CapabilitySnapshot.Capability.HTTP_API,
         CapabilitySnapshot.CapabilityState.available("test"));
     api = new SharedHttpApi("127.0.0.1", 0, "https://shop.example", auth, wallets,
-        commerce, admin, new PlatformIdentity("fabric", "fabric", "1.20.1", "test",
+        commerce, new RedeemCodeService(database, wallets), new NotificationService(database),
+        admin, new AdminAuditService(database),
+        new PlatformIdentity("fabric", "fabric", "1.20.1", "test",
         "node-a", "sha256:test"), new CapabilitySnapshot(Instant.now(), states));
     api.start();
     base = "http://127.0.0.1:" + api.port();
@@ -109,6 +114,14 @@ class SharedHttpApiTest {
   @Test void oversizedAndMalformedRequestsFailClosed() throws Exception {
     assertEquals(413, post("/api/auth/login", "x".repeat(70_000), null, null).statusCode());
     assertEquals(400, post("/api/auth/login", "[]", null, null).statusCode());
+  }
+
+  @Test void servesLandingAndDistinguishesContractCapabilities() throws Exception {
+    HttpResponse<String> landing = get("/", null);
+    assertEquals(200, landing.statusCode());
+    assertTrue(landing.body().contains("WebShopX"));
+    assertEquals(501, get("/api/orders/refund", null).statusCode());
+    assertEquals(404, get("/not-a-webshopx-route.json", null).statusCode());
   }
 
   private HttpResponse<String> get(String path, String token) throws Exception {

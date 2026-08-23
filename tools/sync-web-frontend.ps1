@@ -55,6 +55,22 @@ if (Test-Path (Split-Path $stageRoot -Parent)) {
 New-Item -ItemType Directory -Path $stageRoot | Out-Null
 Copy-Item -Path (Join-Path $distRoot "*") -Destination $stageRoot -Recurse -Force
 
+# Do not preload every emitted font or retain the optional remote font import. Both produce noisy
+# browser warnings and make the otherwise self-contained server UI depend on a third-party host.
+$indexPath = Join-Path $stageRoot "index.html"
+$index = [IO.File]::ReadAllLines($indexPath) |
+    Where-Object { $_ -notmatch '<link\s+rel="preload"\s+as="font"' }
+[IO.File]::WriteAllLines($indexPath, $index, [Text.UTF8Encoding]::new($false))
+Get-ChildItem -LiteralPath (Join-Path $stageRoot "assets") -Filter "*.css" -File |
+    ForEach-Object {
+        $css = [IO.File]::ReadAllText($_.FullName)
+        $css = [Text.RegularExpressions.Regex]::Replace(
+            $css, '@import\s+url\(["'']https://fonts\.googleapis\.com/[^;]+;?', '')
+        $css = [Text.RegularExpressions.Regex]::Replace(
+            $css, '@import\s+["'']https://fonts\.googleapis\.com/[^"'']+["''];?', '')
+        [IO.File]::WriteAllText($_.FullName, $css, [Text.UTF8Encoding]::new($false))
+    }
+
 # LocaleCenterService serves these source JSON files through /api/locales.
 $frontendI18n = Join-Path $frontendRoot "src\i18n"
 $runtimeI18n = Join-Path $stageRoot "i18n"

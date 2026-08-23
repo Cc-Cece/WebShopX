@@ -271,6 +271,25 @@ public final class SharedCommerceService {
     });
   }
 
+  public List<Listing> listings(boolean includeInactive) {
+    return database.withConnection(connection -> {
+      String sql = "SELECT id,seller_user_id,seller_uuid,currency,price,quantity,raw_item_blob,"
+          + "remark,status FROM market_listings"
+          + (includeInactive ? "" : " WHERE status='ACTIVE'") + " ORDER BY id DESC";
+      try (PreparedStatement statement = connection.prepareStatement(sql);
+           ResultSet result = statement.executeQuery()) {
+        List<Listing> values = new ArrayList<>();
+        while (result.next()) {
+          values.add(new Listing(result.getLong(1), result.getLong(2),
+              UUID.fromString(result.getString(3)), CurrencyType.valueOf(result.getString(4)),
+              result.getLong(5), result.getInt(6), envelopes.decode(result.getBytes(7)),
+              result.getString(8), result.getString(9)));
+        }
+        return List.copyOf(values);
+      }
+    });
+  }
+
   public MarketTrade buyListing(MarketBuyRequest request) {
     requireKey(request.idempotencyKey());
     if (request.quantity() < 1) throw new ServiceException("invalid_quantity", "Quantity is invalid");
@@ -509,7 +528,7 @@ public final class SharedCommerceService {
     });
   }
 
-  private Recharge rechargeByOrder(String orderId) {
+  public Recharge rechargeByOrder(String orderId) {
     return database.withConnection(connection -> rechargeByOrder(connection, orderId));
   }
 

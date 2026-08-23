@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.webshopx.AdminService;
+import com.webshopx.AdminAuditService;
 import com.webshopx.AuthService;
 import com.webshopx.CurrencyType;
 import com.webshopx.DatabaseManager;
@@ -11,6 +12,8 @@ import com.webshopx.DatabaseSettings;
 import com.webshopx.DbType;
 import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceService;
+import com.webshopx.NotificationService;
+import com.webshopx.RedeemCodeService;
 import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.CompatibilityDomain;
@@ -86,7 +89,8 @@ class ReleasePerformanceBudgetTest {
       states.put(CapabilitySnapshot.Capability.HTTP_API,
           CapabilitySnapshot.CapabilityState.available("performance"));
       api = new SharedHttpApi("127.0.0.1", 0, "", auth, wallets, commerce,
-          new AdminService(database, auth, wallets),
+          new RedeemCodeService(database, wallets), new NotificationService(database),
+          new AdminService(database, auth, wallets), new AdminAuditService(database),
           new PlatformIdentity("fabric", "fabric", "1.20.1", "test",
               "performance-node", "sha256:performance"),
           new CapabilitySnapshot(Instant.now(), states));

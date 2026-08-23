@@ -12,17 +12,18 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-class NotificationService {
+public final class NotificationService {
   private static final int DEFAULT_LIMIT = 30;
   private static final int MAX_LIMIT = 100;
 
   private final DatabaseManager databaseManager;
 
-  NotificationService(DatabaseManager databaseManager) {
+  public NotificationService(DatabaseManager databaseManager) {
     this.databaseManager = databaseManager;
   }
 
-  List<NotificationView> listForUser(long userId, int requestedLimit, Long cursor, boolean unreadOnly) {
+  public List<NotificationView> listForUser(
+      long userId, int requestedLimit, Long cursor, boolean unreadOnly) {
     int limit = normalizeLimit(requestedLimit);
     return databaseManager.withConnection(connection -> {
       StringBuilder sql = new StringBuilder(
@@ -69,7 +70,7 @@ class NotificationService {
     });
   }
 
-  long countUnread(long userId) {
+  public long countUnread(long userId) {
     return databaseManager.withConnection(connection -> {
       String sql = """
           SELECT COUNT(*) AS cnt
@@ -86,7 +87,7 @@ class NotificationService {
     });
   }
 
-  int markRead(long userId, long notificationId) {
+  public int markRead(long userId, long notificationId) {
     if (notificationId <= 0L) {
       return 0;
     }
@@ -107,7 +108,7 @@ class NotificationService {
     });
   }
 
-  int markAllRead(long userId) {
+  public int markAllRead(long userId) {
     return databaseManager.withConnection(connection -> {
       String sql = """
           UPDATE notifications
@@ -123,11 +124,12 @@ class NotificationService {
     });
   }
 
-  void createNotification(long userId, String type, String title, String content) {
+  public void createNotification(long userId, String type, String title, String content) {
     createNotification(userId, type, title, content, null);
   }
 
-  void createNotification(long userId, String type, String title, String content, String dataJson) {
+  public void createNotification(
+      long userId, String type, String title, String content, String dataJson) {
     if (userId <= 0L) {
       return;
     }
@@ -143,7 +145,7 @@ class NotificationService {
     });
   }
 
-  void createNotifications(List<Long> userIds, String type, String title, String content) {
+  public void createNotifications(List<Long> userIds, String type, String title, String content) {
     if (userIds == null || userIds.isEmpty()) {
       return;
     }
@@ -182,7 +184,7 @@ class NotificationService {
     });
   }
 
-  int createSystemAnnouncement(String title, String content) {
+  public int createSystemAnnouncement(String title, String content) {
     String normalizedTitle = normalizeText(title, 128);
     String normalizedContent = normalizeText(content, 4000);
     if (normalizedTitle.isBlank() || normalizedContent.isBlank()) {
@@ -202,7 +204,7 @@ class NotificationService {
     });
   }
 
-  Long findUserIdByBoundUuid(UUID boundUuid) {
+  public Long findUserIdByBoundUuid(UUID boundUuid) {
     if (boundUuid == null) {
       return null;
     }
@@ -272,7 +274,7 @@ class NotificationService {
     return normalized.substring(0, maxLength);
   }
 
-  record NotificationView(
+  public record NotificationView(
       long id,
       long userId,
       String type,

@@ -41,7 +41,7 @@ async function capture(page, id, expectedText) {
 test.beforeAll(async () => mkdir(output, { recursive: true }));
 
 test('landing is visibly ready without console errors', async ({ page }) => {
-  await capture(page, 'landing', 'Server API is ready.');
+  await capture(page, 'landing', 'WebShopX');
 });
 
 test('health is visibly UP without console errors', async ({ page }) => {

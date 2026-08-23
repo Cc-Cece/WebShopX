@@ -83,10 +83,16 @@ sourceSets {
         }
         resources {
             srcDir rootProject.file('src/main/resources')
+            srcDir rootProject.layout.buildDirectory.dir('generated-resources/main')
             include 'db/sqlite/**'
             include 'db/mysql/**'
+            include 'web/**'
         }
     }
+}
+
+tasks.named('processResources') {
+    mustRunAfter rootProject.tasks.named('syncWebFrontend')
 }
 
 test {
@@ -108,6 +114,7 @@ tasks.register('browserAcceptanceFixture', JavaExec) {
     group = 'verification'
     description = 'Runs the shared HTTP API until the browser acceptance stop file is created.'
     classpath = sourceSets.test.runtimeClasspath
+    dependsOn rootProject.tasks.named('syncWebFrontend')
     mainClass = 'com.webshopx.core.BrowserAcceptanceFixtureMain'
     args providers.gradleProperty('browserFixturePort').orElse('8123').get(),
             providers.gradleProperty('browserFixtureDirectory')

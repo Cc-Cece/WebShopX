@@ -64,7 +64,9 @@ public final class LoaderRuntime {
               Integer.getInteger("webshopx.http.port", 8123),
               System.getProperty("webshopx.http.allowed-origin", ""),
               databaseRuntime.authentication(), databaseRuntime.wallet(),
-              databaseRuntime.commerce(), databaseRuntime.administration(),
+              databaseRuntime.commerce(), databaseRuntime.redeemCodes(),
+              databaseRuntime.notifications(), databaseRuntime.administration(),
+              databaseRuntime.audit(),
               bundle.identity(), bundle.capabilities());
           httpApi.start();
           System.out.printf("[WebShopX] HTTP API listening on %s:%d%n",

@@ -7,6 +7,7 @@ import com.webshopx.DatabaseManager;
 import com.webshopx.DatabaseSettings;
 import com.webshopx.DbType;
 import com.webshopx.PlayerPresenceService;
+import com.webshopx.NotificationService;
 import com.webshopx.RedeemCodeService;
 import com.webshopx.SchemaProvider;
 import com.webshopx.WalletService;
@@ -26,11 +27,13 @@ final class SharedDatabaseRuntime implements AutoCloseable {
   private final AdminService administration;
   private final AdminAuditService audit;
   private final SharedCommerceService commerce;
+  private final NotificationService notifications;
 
   private SharedDatabaseRuntime(
       DatabaseManager database, AuthService authentication, PlayerPresenceService presence,
       WalletService wallet, RedeemCodeService redeemCodes, AdminService administration,
-      AdminAuditService audit, SharedCommerceService commerce) {
+      AdminAuditService audit, SharedCommerceService commerce,
+      NotificationService notifications) {
     this.database = database;
     this.authentication = authentication;
     this.presence = presence;
@@ -39,6 +42,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
     this.administration = administration;
     this.audit = audit;
     this.commerce = commerce;
+    this.notifications = notifications;
   }
 
   static SharedDatabaseRuntime start(Path dataDirectory) {
@@ -79,8 +83,10 @@ final class SharedDatabaseRuntime implements AutoCloseable {
         System.getProperty("webshopx.admin.bootstrap.role", "SUPER_ADMIN")));
     AdminAuditService audit = new AdminAuditService(database);
     SharedCommerceService commerce = new SharedCommerceService(database, wallet);
+    NotificationService notifications = new NotificationService(database);
     return new SharedDatabaseRuntime(
-        database, authentication, presence, wallet, redeemCodes, administration, audit, commerce);
+        database, authentication, presence, wallet, redeemCodes, administration, audit, commerce,
+        notifications);
   }
 
   AuthService authentication() { return authentication; }
@@ -90,6 +96,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
   AdminService administration() { return administration; }
   AdminAuditService audit() { return audit; }
   SharedCommerceService commerce() { return commerce; }
+  NotificationService notifications() { return notifications; }
 
   @Override public void close() {
     presence.markServerOffline(presence.currentServerId());

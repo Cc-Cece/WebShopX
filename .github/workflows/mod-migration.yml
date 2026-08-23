@@ -27,6 +27,22 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          repository: Cc-Cece/webshopx-vuetify-web
+          ref: 6a54139e5c46c648d89d6a32c61ad4a7b15ebb25
+          path: .frontend/webshopx-web
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: .frontend/webshopx-web/pnpm-lock.yaml
+      - name: Install pinned frontend dependencies
+        working-directory: .frontend/webshopx-web
+        run: pnpm install --frozen-lockfile
       - name: Install Java 17 toolchain
         uses: actions/setup-java@v5
         with:
@@ -211,6 +227,22 @@ jobs:
           - { platform: neoforge, minecraft: '26.2', loader: '26.2.0.65', java: 25, project: webshopx-neoforge-modern, fabricApi: '' }
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          repository: Cc-Cece/webshopx-vuetify-web
+          ref: 6a54139e5c46c648d89d6a32c61ad4a7b15ebb25
+          path: .frontend/webshopx-web
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: .frontend/webshopx-web/pnpm-lock.yaml
+      - name: Install pinned frontend dependencies
+        working-directory: .frontend/webshopx-web
+        run: pnpm install --frozen-lockfile
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -303,6 +335,22 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          repository: Cc-Cece/webshopx-vuetify-web
+          ref: 6a54139e5c46c648d89d6a32c61ad4a7b15ebb25
+          path: .frontend/webshopx-web
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: .frontend/webshopx-web/pnpm-lock.yaml
+      - name: Install pinned frontend dependencies
+        working-directory: .frontend/webshopx-web
+        run: pnpm install --frozen-lockfile
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -367,6 +415,22 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          repository: Cc-Cece/webshopx-vuetify-web
+          ref: 6a54139e5c46c648d89d6a32c61ad4a7b15ebb25
+          path: .frontend/webshopx-web
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: .frontend/webshopx-web/pnpm-lock.yaml
+      - name: Install pinned frontend dependencies
+        working-directory: .frontend/webshopx-web
+        run: pnpm install --frozen-lockfile
       - name: Install Java 17 toolchain
         uses: actions/setup-java@v5
         with:

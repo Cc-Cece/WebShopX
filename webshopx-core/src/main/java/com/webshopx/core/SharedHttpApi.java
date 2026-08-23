@@ -7,9 +7,12 @@ import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.webshopx.AdminPermission;
+import com.webshopx.AdminAuditService;
 import com.webshopx.AdminService;
 import com.webshopx.AuthService;
 import com.webshopx.CurrencyType;
+import com.webshopx.NotificationService;
+import com.webshopx.RedeemCodeService;
 import com.webshopx.ServiceException;
 import com.webshopx.SharedCommerceService;
 import com.webshopx.SharedCommerceService.ProductInput;
@@ -18,10 +21,12 @@ import com.webshopx.SharedCommerceService.PurchaseRequest;
 import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.PlatformIdentity;
+import com.webshopx.platform.ItemEnvelope;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -34,7 +39,10 @@ public final class SharedHttpApi implements AutoCloseable {
   private final AuthService auth;
   private final WalletService wallets;
   private final SharedCommerceService commerce;
+  private final RedeemCodeService redeemCodes;
+  private final NotificationService notifications;
   private final AdminService administration;
+  private final AdminAuditService audit;
   private final PlatformIdentity identity;
   private final CapabilitySnapshot capabilities;
   private final String allowedOrigin;
@@ -43,12 +51,16 @@ public final class SharedHttpApi implements AutoCloseable {
   private final HttpServer server;
 
   public SharedHttpApi(String host, int port, String allowedOrigin, AuthService auth,
-      WalletService wallets, SharedCommerceService commerce, AdminService administration,
+      WalletService wallets, SharedCommerceService commerce, RedeemCodeService redeemCodes,
+      NotificationService notifications, AdminService administration, AdminAuditService audit,
       PlatformIdentity identity, CapabilitySnapshot capabilities) {
     this.auth = Objects.requireNonNull(auth, "auth");
     this.wallets = Objects.requireNonNull(wallets, "wallets");
     this.commerce = Objects.requireNonNull(commerce, "commerce");
+    this.redeemCodes = Objects.requireNonNull(redeemCodes, "redeemCodes");
+    this.notifications = Objects.requireNonNull(notifications, "notifications");
     this.administration = Objects.requireNonNull(administration, "administration");
+    this.audit = Objects.requireNonNull(audit, "audit");
     this.identity = Objects.requireNonNull(identity, "identity");
     this.capabilities = Objects.requireNonNull(capabilities, "capabilities");
     this.allowedOrigin = allowedOrigin == null ? "" : allowedOrigin.trim();
@@ -82,14 +94,16 @@ public final class SharedHttpApi implements AutoCloseable {
         respond(exchange, 200, Map.of("status", "UP", "platform", identity,
             "capabilities", Map.of("capturedAt", capabilities.capturedAt().toString(),
                 "states", capabilities.states())));
-      } else if (path.equals("/") && method(exchange, "GET")) {
-        byte[] body = ("<!doctype html><meta charset=utf-8><title>WebShopX</title>"
-            + "<main><h1>WebShopX</h1><p>Server API is ready.</p></main>")
-            .getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
-        exchange.sendResponseHeaders(200, body.length);
-        exchange.getResponseBody().write(body);
+      } else if (path.equals("/config.js") && method(exchange, "GET")) {
+        byte[] script = ("window.WEBSHOPX_CONFIG=Object.assign({},window.WEBSHOPX_CONFIG||{},"
+            + "{apiBaseUrl:'/api',serverMode:'INTERNAL',locale:{preferApi:true,"
+            + "fallbackLocale:'zh-CN'}});").getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "text/javascript; charset=utf-8");
+        exchange.sendResponseHeaders(200, script.length);
+        exchange.getResponseBody().write(script);
         exchange.close();
+      } else if (!path.startsWith("/api/") && method(exchange, "GET")) {
+        serveStatic(exchange, path);
       } else if (path.equals("/api/auth/login") && method(exchange, "POST")) {
         JsonObject input = body(exchange);
         var result = auth.login(requiredString(input, "identifier"), requiredString(input, "password"));
@@ -110,6 +124,15 @@ public final class SharedHttpApi implements AutoCloseable {
             .stream().map(entry -> Map.of(
                 "currency", entry.currency(), "delta", entry.delta(), "bizType", entry.bizType(),
                 "bizId", entry.bizId(), "createdAt", entry.createdAt().toString())).toList());
+      } else if (path.equals("/api/wallet/exchange") && method(exchange, "POST")) {
+        var current = user(exchange);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, wallets.exchange(current.id(), currency(input, "from"),
+            currency(input, "to"), requiredLong(input, "amount"),
+            requiredString(input, "idempotencyKey")));
+      } else if (path.equals("/api/redeem/use") && method(exchange, "POST")) {
+        var current = user(exchange);
+        respond(exchange, 200, redeemCodes.redeem(current.id(), requiredString(body(exchange), "code")));
       } else if (path.equals("/api/products") && method(exchange, "GET")) {
         respond(exchange, 200, commerce.products(false));
       } else if (path.equals("/api/orders") && method(exchange, "POST")) {
@@ -123,6 +146,107 @@ public final class SharedHttpApi implements AutoCloseable {
         var user = user(exchange);
         if (user.boundUuid() == null) throw new ServiceException("not_bound", "User is not bound");
         respond(exchange, 200, commerce.pendingDeliveries(user.boundUuid(), identity.serverId()));
+      } else if (path.equals("/api/mailbox/list") && method(exchange, "GET")) {
+        var current = boundUser(exchange);
+        respond(exchange, 200, commerce.pendingDeliveries(current.boundUuid(), identity.serverId()));
+      } else if (path.equals("/api/mailbox/count") && method(exchange, "GET")) {
+        var current = boundUser(exchange);
+        respond(exchange, 200, Map.of("count",
+            commerce.pendingDeliveries(current.boundUuid(), identity.serverId()).size()));
+      } else if (path.equals("/api/market/listings") && method(exchange, "GET")) {
+        respond(exchange, 200, commerce.listings(false));
+      } else if (path.equals("/api/market/listings/create") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        if (!input.has("item") || !input.get("item").isJsonObject()) {
+          throw new IllegalArgumentException("item is required");
+        }
+        ItemEnvelope item = gson.fromJson(input.get("item"), ItemEnvelope.class);
+        respond(exchange, 200, commerce.createListing(new SharedCommerceService.ListingRequest(
+            current.id(), current.boundUuid(), currency(input, "currency"),
+            requiredLong(input, "price"), optionalInt(input, "quantity", item.count()),
+            item, optionalString(input, "remark", null))));
+      } else if (path.equals("/api/market/buy") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, commerce.buyListing(new SharedCommerceService.MarketBuyRequest(
+            current.id(), current.boundUuid(), requiredLong(input, "listingId"),
+            optionalInt(input, "quantity", 1), requiredString(input, "idempotencyKey"),
+            identity.serverId())));
+      } else if (path.equals("/api/recharge/create") && method(exchange, "POST")) {
+        var current = user(exchange);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, commerce.createRecharge(new SharedCommerceService.RechargeRequest(
+            current.id(), current.boundUuid(), requiredLong(input, "amountMinor"),
+            requiredString(input, "currency"), requiredLong(input, "coinAmount"),
+            requiredString(input, "provider"), requiredString(input, "idempotencyKey"),
+            optionalString(input, "description", "WebShopX recharge"))));
+      } else if (path.equals("/api/recharge/status") && method(exchange, "GET")) {
+        user(exchange);
+        respond(exchange, 200, commerce.rechargeByOrder(requiredQuery(exchange, "orderId")));
+      } else if (path.equals("/api/notifications/list") && method(exchange, "GET")) {
+        var current = user(exchange);
+        respond(exchange, 200, notifications.listForUser(current.id(),
+            queryInt(exchange, "limit", 30), queryLong(exchange, "cursor"),
+            queryBoolean(exchange, "unreadOnly", false)));
+      } else if (path.equals("/api/notifications/unread-count") && method(exchange, "GET")) {
+        var current = user(exchange);
+        respond(exchange, 200, Map.of("count", notifications.countUnread(current.id())));
+      } else if (path.equals("/api/notifications/mark-read") && method(exchange, "POST")) {
+        var current = user(exchange);
+        JsonObject input = body(exchange);
+        int changed = input.has("all") && input.get("all").getAsBoolean()
+            ? notifications.markAllRead(current.id())
+            : notifications.markRead(current.id(), requiredLong(input, "notificationId"));
+        respond(exchange, 200, Map.of("updated", changed));
+      } else if (path.equals("/api/meta/version") && method(exchange, "GET")) {
+        respond(exchange, 200, Map.of("platform", identity.platform(),
+            "minecraft", identity.minecraftVersion(), "loader", identity.loaderVersion(),
+            "serverId", identity.serverId()));
+      } else if (path.equals("/api/meta/locales") && method(exchange, "GET")) {
+        respond(exchange, 200, Map.of("default", "zh-CN", "supported", List.of("zh-CN", "en-US")));
+      } else if (path.equals("/api/meta/material-overrides") && method(exchange, "GET")) {
+        respond(exchange, 200, List.of());
+      } else if (path.equals("/api/meta/materials") && method(exchange, "GET")) {
+        respond(exchange, 200, List.of());
+      } else if (path.equals("/api/meta/market-tags") && method(exchange, "GET")) {
+        respond(exchange, 200, List.of());
+      } else if (path.equals("/api/meta/currency") && method(exchange, "GET")) {
+        respond(exchange, 200, Map.of("currencies", List.of("SHOP_COIN", "GAME_COIN")));
+      } else if (path.equals("/api/admin/auth/login") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        respond(exchange, 200, administration.login(requiredString(input, "identifier"),
+            requiredString(input, "password")));
+      } else if (path.equals("/api/admin/auth/me") && method(exchange, "GET")) {
+        respond(exchange, 200, administration.getAdminUser(user(exchange)));
+      } else if (path.equals("/api/admin/users/list") && method(exchange, "GET")) {
+        var actor = user(exchange);
+        administration.requireAdmin(actor, AdminPermission.USER_SUPPORT);
+        respond(exchange, 200, administration.listUsers(query(exchange, "keyword"),
+            queryInt(exchange, "limit", 100)));
+      } else if (path.equals("/api/admin/audit/list") && method(exchange, "GET")) {
+        var actor = user(exchange);
+        administration.requireAdmin(actor, AdminPermission.AUDIT_VIEW);
+        respond(exchange, 200, audit.list(queryInt(exchange, "limit", 100)));
+      } else if (path.equals("/api/admin/redeem/list") && method(exchange, "GET")) {
+        var actor = user(exchange);
+        administration.requireAdmin(actor, AdminPermission.REDEEM_MANAGE);
+        respond(exchange, 200, redeemCodes.listCodes(queryInt(exchange, "limit", 100)));
+      } else if (path.equals("/api/admin/redeem/create") && method(exchange, "POST")) {
+        var actor = user(exchange);
+        administration.requireAdmin(actor, AdminPermission.REDEEM_MANAGE);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, Map.of("code", redeemCodes.createCode(
+            optionalLong(input, "shopCoin", 0), optionalLong(input, "gameCoin", 0),
+            optionalInt(input, "maxUses", 1), optionalInt(input, "perUserMaxUses", 1),
+            input.has("expiresInMinutes") ? input.get("expiresInMinutes").getAsInt() : null,
+            optionalString(input, "code", null))));
+      } else if (path.equals("/api/admin/notifications/announce") && method(exchange, "POST")) {
+        var actor = user(exchange);
+        administration.requireAdmin(actor, AdminPermission.USER_SUPPORT);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, Map.of("created", notifications.createSystemAnnouncement(
+            requiredString(input, "title"), requiredString(input, "content"))));
       } else if (path.equals("/api/admin/products") && method(exchange, "POST")) {
         var user = user(exchange);
         administration.requireAdmin(user, AdminPermission.PRODUCT_MANAGE);
@@ -144,6 +268,9 @@ public final class SharedHttpApi implements AutoCloseable {
         respond(exchange, 200, wallets.adjustBalance(requiredLong(input, "userId"),
             CurrencyType.valueOf(requiredString(input, "currency").toUpperCase()),
             requiredLong(input, "delta"), "ADMIN_ADJUST", requiredString(input, "idempotencyKey")));
+      } else if (SharedRouteContract.routes().contains(path)) {
+        respond(exchange, 501, error("capability_unavailable",
+            "The route is part of the shared contract but is unavailable on this server"));
       } else {
         respond(exchange, 404, error("not_found", "Route was not found"));
       }
@@ -172,6 +299,12 @@ public final class SharedHttpApi implements AutoCloseable {
         .orElseThrow(() -> new ServiceException("unauthorized", "Authentication required"));
   }
 
+  private AuthService.AuthUser boundUser(HttpExchange exchange) {
+    AuthService.AuthUser current = user(exchange);
+    if (current.boundUuid() == null) throw new ServiceException("not_bound", "User is not bound");
+    return current;
+  }
+
   private static String token(HttpExchange exchange) {
     String authorization = exchange.getRequestHeaders().getFirst("Authorization");
     if (authorization == null || !authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
@@ -195,7 +328,9 @@ public final class SharedHttpApi implements AutoCloseable {
     Headers headers = exchange.getResponseHeaders();
     headers.set("X-Content-Type-Options", "nosniff");
     headers.set("Cache-Control", "no-store");
-    headers.set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'");
+    headers.set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; "
+        + "font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; "
+        + "frame-ancestors 'none'; object-src 'none'; base-uri 'self'");
     String origin = exchange.getRequestHeaders().getFirst("Origin");
     if (!allowedOrigin.isEmpty() && allowedOrigin.equals(origin)) {
       headers.set("Access-Control-Allow-Origin", origin);
@@ -203,6 +338,48 @@ public final class SharedHttpApi implements AutoCloseable {
       headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key");
       headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     }
+  }
+
+  private void serveStatic(HttpExchange exchange, String path) throws IOException {
+    if (path.indexOf('\0') >= 0 || path.contains("..") || path.contains("\\")) {
+      respond(exchange, 400, error("invalid_path", "Static path is invalid"));
+      return;
+    }
+    String relative = path.equals("/") ? "index.html" : path.substring(1);
+    byte[] bytes = resource("web/" + relative);
+    if (bytes == null && !relative.contains(".")) bytes = resource("web/index.html");
+    if (bytes == null && relative.equals("index.html")) {
+      bytes = ("<!doctype html><meta charset=utf-8><title>WebShopX</title>"
+          + "<main><h1>WebShopX</h1><p>Server API is ready.</p></main>")
+          .getBytes(StandardCharsets.UTF_8);
+    }
+    if (bytes == null) {
+      respond(exchange, 404, error("not_found", "Static asset was not found"));
+      return;
+    }
+    exchange.getResponseHeaders().set("Content-Type", contentType(relative));
+    exchange.sendResponseHeaders(200, bytes.length);
+    exchange.getResponseBody().write(bytes);
+    exchange.close();
+  }
+
+  private byte[] resource(String name) throws IOException {
+    try (var input = SharedHttpApi.class.getClassLoader().getResourceAsStream(name)) {
+      return input == null ? null : input.readAllBytes();
+    }
+  }
+
+  private static String contentType(String path) {
+    String lower = path.toLowerCase(java.util.Locale.ROOT);
+    if (lower.endsWith(".html")) return "text/html; charset=utf-8";
+    if (lower.endsWith(".js")) return "text/javascript; charset=utf-8";
+    if (lower.endsWith(".css")) return "text/css; charset=utf-8";
+    if (lower.endsWith(".json")) return "application/json; charset=utf-8";
+    if (lower.endsWith(".svg")) return "image/svg+xml";
+    if (lower.endsWith(".png")) return "image/png";
+    if (lower.endsWith(".webp")) return "image/webp";
+    if (lower.endsWith(".woff2")) return "font/woff2";
+    return "application/octet-stream";
   }
 
   private void respond(HttpExchange exchange, int status, Object value) throws IOException {
@@ -240,19 +417,44 @@ public final class SharedHttpApi implements AutoCloseable {
     if (!input.has(key)) throw new IllegalArgumentException(key + " is required");
     return input.get(key).getAsLong();
   }
+  private static long optionalLong(JsonObject input, String key, long fallback) {
+    return input.has(key) ? input.get(key).getAsLong() : fallback;
+  }
+  private static CurrencyType currency(JsonObject input, String key) {
+    return CurrencyType.valueOf(requiredString(input, key).toUpperCase());
+  }
   private static int optionalInt(JsonObject input, String key, int fallback) {
     return input.has(key) ? input.get(key).getAsInt() : fallback;
   }
   private static int queryInt(HttpExchange exchange, String key, int fallback) {
+    String value = query(exchange, key);
+    if (value == null) return fallback;
+    try { return Integer.parseInt(value); } catch (NumberFormatException ignored) { return fallback; }
+  }
+  private static Long queryLong(HttpExchange exchange, String key) {
+    String value = query(exchange, key);
+    if (value == null) return null;
+    try { return Long.parseLong(value); } catch (NumberFormatException ignored) { return null; }
+  }
+  private static boolean queryBoolean(HttpExchange exchange, String key, boolean fallback) {
+    String value = query(exchange, key);
+    return value == null ? fallback : Boolean.parseBoolean(value);
+  }
+  private static String requiredQuery(HttpExchange exchange, String key) {
+    String value = query(exchange, key);
+    if (value == null || value.isBlank()) throw new IllegalArgumentException(key + " is required");
+    return value;
+  }
+  private static String query(HttpExchange exchange, String key) {
     String query = exchange.getRequestURI().getRawQuery();
-    if (query == null) return fallback;
+    if (query == null) return null;
     for (String part : query.split("&")) {
       String[] pair = part.split("=", 2);
       if (pair[0].equals(key) && pair.length == 2) {
-        try { return Integer.parseInt(pair[1]); } catch (NumberFormatException ignored) { return fallback; }
+        return java.net.URLDecoder.decode(pair[1], StandardCharsets.UTF_8);
       }
     }
-    return fallback;
+    return null;
   }
 
   @Override public void close() {
