@@ -9,6 +9,6 @@ description='''Server-side WebShopX runtime for Forge'''
 [[dependencies.webshopx]]
 modId="minecraft"
 mandatory=true
-versionRange="[${minecraftVersion}]"
+versionRange="${minecraftVersionRange}"
 ordering="NONE"
 side="SERVER"

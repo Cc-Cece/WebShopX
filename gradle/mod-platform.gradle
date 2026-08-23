@@ -39,6 +39,7 @@ tasks.withType(JavaCompile).configureEach {
 processResources {
     inputs.properties(
             minecraftVersion: project.ext.minecraftVersion,
+            minecraftVersionRange: project.ext.minecraftVersionRange,
             loaderVersion: project.ext.loaderVersion,
             modVersion: loaderMetadataVersion,
             fabricApiVersion: project.ext.has('fabricApiVersion') ? project.ext.fabricApiVersion : ''
@@ -46,6 +47,7 @@ processResources {
     filesMatching(['fabric.mod.json', 'META-INF/mods.toml', 'META-INF/neoforge.mods.toml']) {
         expand(
                 minecraftVersion: project.ext.minecraftVersion,
+                minecraftVersionRange: project.ext.minecraftVersionRange,
                 loaderVersion: project.ext.loaderVersion,
                 modVersion: loaderMetadataVersion,
                 fabricApiVersion: project.ext.has('fabricApiVersion') ? project.ext.fabricApiVersion : ''
@@ -67,6 +69,7 @@ jar {
                 'Implementation-Version': project.version,
                 'WebShopX-Platform': project.ext.platformFamily,
                 'WebShopX-Minecraft': project.ext.minecraftVersion,
+                'WebShopX-Minecraft-Range': project.ext.minecraftVersionRange,
                 'WebShopX-Loader': project.ext.loaderVersion,
                 'Automatic-Module-Name': "com.webshopx.${project.ext.platformFamily}.mc${project.ext.artifactSuffix.replaceAll('[^A-Za-z0-9]', '_')}"
         )

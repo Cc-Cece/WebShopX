@@ -6,5 +6,5 @@
   "description": "Server-side WebShopX runtime for modern Fabric",
   "environment": "server",
   "entrypoints": { "main": ["com.webshopx.fabric.WebShopXFabricMod"] },
-  "depends": { "fabricloader": ">=${loaderVersion}", "fabric-api": "${fabricApiVersion}", "minecraft": "${minecraftVersion}", "java": ">=25" }
+  "depends": { "fabricloader": ">=${loaderVersion}", "minecraft": "${minecraftVersionRange}", "java": ">=17" }
 }

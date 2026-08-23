@@ -606,6 +606,7 @@ tasks.register('generateModReleaseManifest') {
             [
                     platform: child.ext.platformFamily,
                     minecraft: child.ext.minecraftVersion,
+                    minecraftRange: child.ext.minecraftVersionRange,
                     loader: child.ext.loaderVersion,
                     java: child.ext.javaVersion,
                     file: artifact.name,
@@ -640,13 +641,13 @@ tasks.register('verifySupportMatrix') {
         def declared = new groovy.json.JsonSlurper().parse(matrixFile.asFile).platforms
         def expected = modArtifactProjects.collect { path ->
             def child = project(path)
-            "${child.ext.platformFamily}|${child.ext.minecraftVersion}|${child.ext.loaderVersion}|${child.ext.javaVersion}"
+            "${child.ext.platformFamily}|${child.ext.minecraftVersion}|${child.ext.minecraftVersionRange}|${child.ext.loaderVersion}|${child.ext.javaVersion}"
         } as Set
         def actual = declared.collect { row ->
-            if (row.status != 'full') {
+            if (!(row.status in ['unverified', 'full'])) {
                 throw new GradleException("Unsupported support status for ${row.platform}/${row.minecraft}: ${row.status}")
             }
-            "${row.platform}|${row.minecraft}|${row.loader}|${row.java}"
+            "${row.platform}|${row.minecraft}|${row.minecraftRange}|${row.loader}|${row.java}"
         } as Set
         if (actual != expected) {
             throw new GradleException("Support matrix differs from build matrix. expected=${expected}, actual=${actual}")
@@ -881,9 +882,12 @@ tasks.register('verifyRcEvidence') {
         }
         def required = [
                 'paper-regression', 'contracts-and-artifacts', 'database-and-redis',
-                'server-fabric-1.18.2', 'server-fabric-1.20.1', 'server-fabric-26.2',
-                'server-forge-1.18.2', 'server-forge-1.20.1',
-                'server-neoforge-1.20.1', 'server-neoforge-26.2',
+                'server-fabric-1.18.2', 'server-fabric-1.19.4',
+                'server-fabric-1.20', 'server-fabric-1.20.4',
+                'server-fabric-1.20.5', 'server-fabric-26.2',
+                'server-forge-1.18.2', 'server-forge-1.19.4',
+                'server-forge-1.20', 'server-forge-1.20.1',
+                'server-neoforge-1.20.1', 'server-neoforge-1.20.2', 'server-neoforge-26.2',
                 'dependency-scan', 'codeql', 'browser-landing', 'browser-health'
         ] as Set
         def checks = (evidence.checks ?: []).collectEntries { check -> [(check.id): check] }

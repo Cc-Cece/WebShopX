@@ -1,2 +1,2 @@
-ext { platformFamily='forge'; minecraftVersion='1.18.2'; loaderVersion='40.3.12'; javaVersion=17; artifactSuffix='1.18.2'; metadataPath='META-INF/mods.toml'; entrypointPath='com/webshopx/forge/WebShopXForgeMod.class' }
+ext { platformFamily='forge'; minecraftVersion='1.18.2'; minecraftVersionRange='[1.18.2,1.20)'; loaderVersion='40.3.12'; javaVersion=17; artifactSuffix='1.18.2'; metadataPath='META-INF/mods.toml'; entrypointPath='com/webshopx/forge/WebShopXForgeMod.class' }
 apply from: rootProject.file('gradle/mod-platform.gradle')

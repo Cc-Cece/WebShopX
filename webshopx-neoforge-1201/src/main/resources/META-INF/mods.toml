@@ -9,6 +9,6 @@ description='''Server-side WebShopX runtime for NeoForge 1.20.1'''
 [[dependencies.webshopx]]
 modId="minecraft"
 mandatory=true
-versionRange="[${minecraftVersion}]"
+versionRange="${minecraftVersionRange}"
 ordering="NONE"
 side="SERVER"

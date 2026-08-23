@@ -40,7 +40,9 @@
 | NeoForge | 1.20.1 | 待验证 | 待验证 | 待验证 | ModDevGradle 待验证 | 待填 | planned |
 | NeoForge | 最新冻结版 | 待验证 | 待验证 | 待验证 | ModDevGradle 待验证 | 待填 | planned |
 
-只有经过依赖解析、编译、服务器启动 smoke、元数据检查和核心测试后，状态才能从 `planned` 变为 `verified`。
+只有经过依赖解析、编译、兼容区间双边界服务器启动 smoke、元数据检查和核心测试后，状态才能从
+`planned` 变为 `verified`。机器源 `support-matrix.json` 在外部 RC 证据完成前保持 `unverified`；
+不得由本地构建自行提升为 `full`。
 
 ## 4. 功能支持状态
 

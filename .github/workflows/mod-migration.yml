@@ -196,12 +196,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { platform: fabric, minecraft: '1.18.2', loader: '0.19.3', java: 17, project: webshopx-fabric-1182, fabricApi: '0.77.0+1.18.2' }
-          - { platform: fabric, minecraft: '1.20.1', loader: '0.19.3', java: 17, project: webshopx-fabric-1201, fabricApi: '0.92.6+1.20.1' }
-          - { platform: fabric, minecraft: '26.2', loader: '0.19.3', java: 25, project: webshopx-fabric-modern, fabricApi: '0.158.0+26.2' }
+          - { platform: fabric, minecraft: '1.18.2', loader: '0.19.3', java: 17, project: webshopx-fabric-1182, fabricApi: '' }
+          - { platform: fabric, minecraft: '1.19.4', loader: '0.19.3', java: 17, project: webshopx-fabric-1182, fabricApi: '' }
+          - { platform: fabric, minecraft: '1.20', loader: '0.19.3', java: 17, project: webshopx-fabric-1201, fabricApi: '' }
+          - { platform: fabric, minecraft: '1.20.4', loader: '0.19.3', java: 17, project: webshopx-fabric-1201, fabricApi: '' }
+          - { platform: fabric, minecraft: '1.20.5', loader: '0.19.3', java: 21, project: webshopx-fabric-modern, fabricApi: '' }
+          - { platform: fabric, minecraft: '26.2', loader: '0.19.3', java: 25, project: webshopx-fabric-modern, fabricApi: '' }
           - { platform: forge, minecraft: '1.18.2', loader: '40.3.12', java: 17, project: webshopx-forge-1182, fabricApi: '' }
+          - { platform: forge, minecraft: '1.19.4', loader: '45.4.3', java: 17, project: webshopx-forge-1182, fabricApi: '' }
+          - { platform: forge, minecraft: '1.20', loader: '46.0.14', java: 17, project: webshopx-forge-1201, fabricApi: '' }
           - { platform: forge, minecraft: '1.20.1', loader: '47.4.23', java: 17, project: webshopx-forge-1201, fabricApi: '' }
           - { platform: neoforge, minecraft: '1.20.1', loader: '47.1.106', java: 17, project: webshopx-neoforge-1201, fabricApi: '' }
+          - { platform: neoforge, minecraft: '1.20.2', loader: '20.2.93', java: 17, project: webshopx-neoforge-modern, fabricApi: '' }
           - { platform: neoforge, minecraft: '26.2', loader: '26.2.0.65', java: 25, project: webshopx-neoforge-modern, fabricApi: '' }
     steps:
       - uses: actions/checkout@v6

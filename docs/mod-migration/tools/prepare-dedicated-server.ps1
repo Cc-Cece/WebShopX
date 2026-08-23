@@ -32,11 +32,12 @@ if ($Platform -eq 'fabric') {
     $server = Join-Path $work "fabric-server-$Minecraft-$Loader.jar"
     $url = "https://meta.fabricmc.net/v2/versions/loader/$Minecraft/$Loader/1.1.1/server/jar"
     Download $url $server
-    if (-not $FabricApi) { throw 'FabricApi is required for a Fabric smoke server' }
-    $apiName = "fabric-api-$FabricApi.jar"
-    $api = Join-Path $work "mods/$apiName"
-    $encodedVersion = [Uri]::EscapeDataString($FabricApi)
-    Download "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/$encodedVersion/$apiName" $api
+    if ($FabricApi) {
+        $apiName = "fabric-api-$FabricApi.jar"
+        $api = Join-Path $work "mods/$apiName"
+        $encodedVersion = [Uri]::EscapeDataString($FabricApi)
+        Download "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/$encodedVersion/$apiName" $api
+    }
     [ordered]@{ serverJar = $server; launchArguments = $null } | ConvertTo-Json
     exit 0
 }
