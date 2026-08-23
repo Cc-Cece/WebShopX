@@ -7,6 +7,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -15,25 +16,31 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 
-class AuthService {
+public class AuthService {
   private static final String USERNAME_PATTERN = "^[A-Za-z0-9_]{3,32}$";
   private static final String STATE_ACTIVE = "ACTIVE";
 
   private final DatabaseManager databaseManager;
   private final SqlProvider sqlProvider;
-  private final Supplier<PluginSettings> settingsSupplier;
+  private final Supplier<SessionSettings> settingsSupplier;
   private final PasswordHasher passwordHasher;
   private final SecureRandom secureRandom;
+  private final Clock clock;
 
-  AuthService(DatabaseManager databaseManager, Supplier<PluginSettings> settingsSupplier) {
+  public AuthService(DatabaseManager databaseManager, Supplier<SessionSettings> settingsSupplier) {
+    this(databaseManager, settingsSupplier, Clock.systemDefaultZone());
+  }
+
+  AuthService(DatabaseManager databaseManager, Supplier<SessionSettings> settingsSupplier, Clock clock) {
     this.databaseManager = databaseManager;
     this.sqlProvider = databaseManager.sqlProvider();
     this.settingsSupplier = settingsSupplier;
     this.passwordHasher = new PasswordHasher();
     this.secureRandom = new SecureRandom();
+    this.clock = clock;
   }
 
-  AuthResult login(String identifier, String password) {
+  public AuthResult login(String identifier, String password) {
     validatePassword(password);
     if (identifier == null || identifier.isBlank()) {
       throw new ServiceException("invalid_identifier", "Username or UUID is required");
@@ -43,7 +50,7 @@ class AuthService {
     return createSession(userId);
   }
 
-  InGamePasswordResult setPasswordFromGame(UUID playerUuid, String playerName, String password) {
+  public InGamePasswordResult setPasswordFromGame(UUID playerUuid, String playerName, String password) {
     if (playerUuid == null) {
       throw new ServiceException("bad_request", "Player UUID is required");
     }
@@ -55,7 +62,7 @@ class AuthService {
     return result;
   }
 
-  void logout(String token) {
+  public void logout(String token) {
     if (token == null || token.isBlank()) {
       return;
     }
@@ -69,7 +76,7 @@ class AuthService {
     });
   }
 
-  void logoutAllSessions(long userId) {
+  public void logoutAllSessions(long userId) {
     databaseManager.withConnection(connection -> {
       String sql = "DELETE FROM web_sessions WHERE user_id = ?";
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -80,14 +87,14 @@ class AuthService {
     });
   }
 
-  Optional<AuthUser> findUserBySession(String token) {
+  public Optional<AuthUser> findUserBySession(String token) {
     if (token == null || token.isBlank()) {
       return Optional.empty();
     }
     return databaseManager.withConnection(connection -> readUserBySession(connection, token.trim()));
   }
 
-  long createUserForAdminBootstrap(Connection connection, String username, String password)
+  public long createUserForAdminBootstrap(Connection connection, String username, String password)
       throws SQLException {
     validateCredentials(username, password);
     long userId = createUser(connection, username.trim(), password, STATE_ACTIVE, null);
@@ -95,7 +102,7 @@ class AuthService {
     return userId;
   }
 
-  void resetPassword(long userId, String newPassword) {
+  public void resetPassword(long userId, String newPassword) {
     validatePassword(newPassword);
     databaseManager.withConnection(connection -> {
       String salt = passwordHasher.newSalt();
@@ -312,7 +319,7 @@ class AuthService {
   private AuthResult createSession(long userId) {
     String token = randomToken(settingsSupplier.get().accessTokenLength());
     LocalDateTime expiresAt =
-        LocalDateTime.now().plusHours(Math.max(1, settingsSupplier.get().sessionExpireHours()));
+        LocalDateTime.now(clock).plusHours(settingsSupplier.get().sessionExpireHours());
     databaseManager.withConnection(connection -> {
       String sql = "INSERT INTO web_sessions (token, user_id, expires_at) VALUES (?, ?, ?)";
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -354,7 +361,7 @@ class AuthService {
           return Optional.empty();
         }
         LocalDateTime expiresAt = parseSessionExpiresAt(resultSet.getObject("expires_at"));
-        if (expiresAt == null || !expiresAt.isAfter(LocalDateTime.now())) {
+        if (expiresAt == null || !expiresAt.isAfter(LocalDateTime.now(clock))) {
           return Optional.empty();
         }
         String boundUuidRaw = resultSet.getString("bound_uuid");
@@ -419,13 +426,20 @@ class AuthService {
     }
   }
 
-  record AuthUser(long id, String username, UUID boundUuid) {
+  public record AuthUser(long id, String username, UUID boundUuid) {
   }
 
-  record AuthResult(AuthUser user, String sessionToken, LocalDateTime expiresAt) {
+  public record AuthResult(AuthUser user, String sessionToken, LocalDateTime expiresAt) {
   }
 
-  record InGamePasswordResult(long userId, String username, boolean created) {
+  public record InGamePasswordResult(long userId, String username, boolean created) {
+  }
+
+  public record SessionSettings(int accessTokenLength, int sessionExpireHours) {
+    public SessionSettings {
+      accessTokenLength = Math.max(24, Math.min(256, accessTokenLength));
+      sessionExpireHours = Math.max(1, Math.min(24 * 365, sessionExpireHours));
+    }
   }
 
   private record UserAccount(long userId, String username, UUID boundUuid) {

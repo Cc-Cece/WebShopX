@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 
-class RedeemCodeService {
+public class RedeemCodeService {
   private static final String CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
   private final DatabaseManager databaseManager;
@@ -18,14 +18,14 @@ class RedeemCodeService {
   private final WalletService walletService;
   private final SecureRandom secureRandom;
 
-  RedeemCodeService(DatabaseManager databaseManager, WalletService walletService) {
+  public RedeemCodeService(DatabaseManager databaseManager, WalletService walletService) {
     this.databaseManager = databaseManager;
     this.sqlProvider = databaseManager.sqlProvider();
     this.walletService = walletService;
     this.secureRandom = new SecureRandom();
   }
 
-  String createCode(
+  public String createCode(
       long shopCoin,
       long gameCoin,
       int maxUses,
@@ -72,14 +72,14 @@ class RedeemCodeService {
     throw new IllegalStateException("Could not generate a unique redeem code");
   }
 
-  RedeemResult redeem(long userId, String rawCode) {
+  public RedeemResult redeem(long userId, String rawCode) {
     String code = normalizeCode(rawCode);
     RedeemStatus status = databaseManager.inTransaction(connection -> redeemInTransaction(connection, userId, code));
     WalletService.WalletBalance balance = walletService.getBalance(userId);
     return new RedeemResult(status, balance);
   }
 
-  List<RedeemCodeView> listCodes(int requestedLimit) {
+  public List<RedeemCodeView> listCodes(int requestedLimit) {
     int limit = Math.min(Math.max(1, requestedLimit), 500);
     return databaseManager.withConnection(connection -> {
       String sql = """
@@ -283,7 +283,7 @@ class RedeemCodeService {
       boolean active) {
   }
 
-  enum RedeemStatus {
+  public enum RedeemStatus {
     SUCCESS,
     INVALID_CODE,
     EXPIRED,
@@ -292,10 +292,10 @@ class RedeemCodeService {
     USER_LIMIT_REACHED
   }
 
-  record RedeemResult(RedeemStatus status, WalletService.WalletBalance balance) {
+  public record RedeemResult(RedeemStatus status, WalletService.WalletBalance balance) {
   }
 
-  record RedeemCodeView(
+  public record RedeemCodeView(
       String code,
       long shopCoin,
       long gameCoin,

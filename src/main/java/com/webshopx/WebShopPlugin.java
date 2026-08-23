@@ -129,14 +129,22 @@ public class WebShopPlugin extends JavaPlugin {
         getLogger().log(Level.WARNING, "Failed to initialize bStats telemetry service; continuing without telemetry.", exception);
         bStatsTelemetryService = null;
       }
-      playerPresenceService = new PlayerPresenceService(databaseManager, this::settings);
+      playerPresenceService = new PlayerPresenceService(databaseManager, () ->
+          new PlayerPresenceService.PresenceSettings(
+              settings().clusterSettings().serverId(),
+              settings().clusterSettings().presenceTtlSeconds()));
       clusterEventBusService = new ClusterEventBusService(
           this,
           this::settings,
           this::handleClusterConfigRefreshEvent);
 
-      authService = new AuthService(databaseManager, this::settings);
-      walletService = new WalletService(this, databaseManager, this::settings, businessLedgerLogService);
+      authService = new AuthService(databaseManager, () -> new AuthService.SessionSettings(
+          settings().accessTokenLength(), settings().sessionExpireHours()));
+      walletService = new WalletService(
+          databaseManager,
+          () -> walletExchangePolicy(settings()),
+          new VaultGameCoinProvider(this),
+          businessLedgerLogService::logWalletLedger);
       yuPayBridge = new YuPayBridge(this);
       paymentBridge = new WebShopXPaymentBridge(this, yuPayBridge, this::settings);
       rechargeService = new RechargeService(databaseManager, walletService, paymentBridge, this::settings);
@@ -330,6 +338,13 @@ public class WebShopPlugin extends JavaPlugin {
       businessLedgerLogService.close();
     }
     LoaderRuntime.stop();
+  }
+
+  private static WalletService.ExchangePolicy walletExchangePolicy(PluginSettings settings) {
+    PluginSettings.ExchangeSettings exchange = settings.exchangeSettings();
+    return new WalletService.ExchangePolicy(
+        new WalletService.ExchangeDirection(exchange.shopToGame().enabled(), exchange.shopToGame().ratio()),
+        new WalletService.ExchangeDirection(exchange.gameToShop().enabled(), exchange.gameToShop().ratio()));
   }
 
   void reloadRuntimeConfig() {

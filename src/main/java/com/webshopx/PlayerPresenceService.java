@@ -7,18 +7,18 @@ import java.sql.SQLException;
 import java.util.UUID;
 import java.util.function.Supplier;
 
-class PlayerPresenceService {
+public class PlayerPresenceService {
   private final DatabaseManager databaseManager;
   private final SqlProvider sqlProvider;
-  private final Supplier<PluginSettings> settingsSupplier;
+  private final Supplier<PresenceSettings> settingsSupplier;
 
-  PlayerPresenceService(DatabaseManager databaseManager, Supplier<PluginSettings> settingsSupplier) {
+  public PlayerPresenceService(DatabaseManager databaseManager, Supplier<PresenceSettings> settingsSupplier) {
     this.databaseManager = databaseManager;
     this.sqlProvider = databaseManager.sqlProvider();
     this.settingsSupplier = settingsSupplier;
   }
 
-  void markOnline(UUID playerUuid, String username) {
+  public void markOnline(UUID playerUuid, String username) {
     if (playerUuid == null) {
       return;
     }
@@ -38,7 +38,7 @@ class PlayerPresenceService {
     });
   }
 
-  void markOffline(UUID playerUuid) {
+  public void markOffline(UUID playerUuid) {
     if (playerUuid == null) {
       return;
     }
@@ -62,7 +62,7 @@ class PlayerPresenceService {
     });
   }
 
-  void markServerOffline(String serverId) {
+  public void markServerOffline(String serverId) {
     if (serverId == null || serverId.isBlank()) {
       return;
     }
@@ -80,15 +80,15 @@ class PlayerPresenceService {
     });
   }
 
-  String resolveOnlineServer(UUID playerUuid) {
+  public String resolveOnlineServer(UUID playerUuid) {
     return databaseManager.withConnection(connection -> resolveOnlineServer(connection, playerUuid));
   }
 
-  String resolveOnlineServer(Connection connection, UUID playerUuid) throws SQLException {
+  public String resolveOnlineServer(Connection connection, UUID playerUuid) throws SQLException {
     if (playerUuid == null) {
       return null;
     }
-    int ttlSeconds = Math.max(30, settingsSupplier.get().clusterSettings().presenceTtlSeconds());
+    int ttlSeconds = settingsSupplier.get().presenceTtlSeconds();
     String sql =
         """
         SELECT server_id
@@ -115,7 +115,14 @@ class PlayerPresenceService {
     }
   }
 
-  String currentServerId() {
-    return settingsSupplier.get().clusterSettings().serverId();
+  public String currentServerId() {
+    return settingsSupplier.get().serverId();
+  }
+
+  public record PresenceSettings(String serverId, int presenceTtlSeconds) {
+    public PresenceSettings {
+      serverId = serverId == null ? "" : serverId.trim();
+      presenceTtlSeconds = Math.max(30, Math.min(86_400, presenceTtlSeconds));
+    }
   }
 }

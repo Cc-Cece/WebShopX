@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.webshopx.core.WebShopXCoreRuntime;
+import com.webshopx.CurrencyType;
 import com.webshopx.platform.CapabilitySnapshot.Capability;
 import com.webshopx.platform.CapabilitySnapshot.Status;
 import org.junit.jupiter.api.AfterEach;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.nio.file.Files;
+import java.util.UUID;
 
 class LoaderRuntimeTest {
   @TempDir Path temporaryDirectory;
@@ -27,10 +29,19 @@ class LoaderRuntimeTest {
     assertEquals(Status.AVAILABLE,
         first.platform().capabilities().state(Capability.MOD_ITEM_CODEC).status());
     assertTrue(Files.readString(temporaryDirectory.resolve("health.json")).contains("\"state\": \"READY\""));
+    var auth = LoaderRuntime.authentication().orElseThrow();
+    var created = auth.setPasswordFromGame(UUID.randomUUID(), "Loader_User", "loader-secret");
+    assertEquals("Loader_User", auth.login("Loader_User", "loader-secret").user().username());
+    var wallet = LoaderRuntime.wallet().orElseThrow();
+    assertEquals(25L, wallet.adjustBalance(
+        created.userId(), CurrencyType.SHOP_COIN, 25L, "TEST", "test-credit").shopCoin());
+    assertEquals(25L, wallet.adjustBalance(
+        created.userId(), CurrencyType.SHOP_COIN, 25L, "TEST", "test-credit").shopCoin());
     LoaderRuntime.stop();
     assertTrue(Files.readString(temporaryDirectory.resolve("health.json")).contains("\"state\": \"STOPPED\""));
     first.close();
     assertEquals(WebShopXCoreRuntime.State.STOPPED, first.state());
     assertFalse(LoaderRuntime.active().isPresent());
+    assertTrue(LoaderRuntime.authentication().isEmpty());
   }
 }

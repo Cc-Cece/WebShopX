@@ -3,11 +3,11 @@ package com.webshopx;
 /**
  * Supported currency types for wallet and pricing.
  */
-enum CurrencyType {
+public enum CurrencyType {
   SHOP_COIN,
   GAME_COIN;
 
-  static CurrencyType fromConfig(String raw) {
+  public static CurrencyType fromConfig(String raw) {
     if (raw == null) {
       return SHOP_COIN;
     }

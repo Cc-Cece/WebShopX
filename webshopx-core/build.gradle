@@ -20,11 +20,13 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'
     testImplementation 'org.xerial:sqlite-jdbc:3.50.3.0'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.13.4'
+    testRuntimeOnly 'org.slf4j:slf4j-simple:1.7.36'
 }
 
 def extractedCoreSources = [
         'com/webshopx/AdminPermission.java',
         'com/webshopx/AdminRole.java',
+        'com/webshopx/AuthService.java',
         'com/webshopx/ClaimTokenGenerator.java',
         'com/webshopx/ClaimTokenRepository.java',
         'com/webshopx/CurrencyType.java',
@@ -44,8 +46,10 @@ def extractedCoreSources = [
         'com/webshopx/MysqlSqlProvider.java',
         'com/webshopx/MysqlSchemaProvider.java',
         'com/webshopx/PasswordHasher.java',
+        'com/webshopx/PlayerPresenceService.java',
         'com/webshopx/NotificationService.java',
         'com/webshopx/RechargeOrderStatus.java',
+        'com/webshopx/RedeemCodeService.java',
         'com/webshopx/RefundPolicyService.java',
         'com/webshopx/RelayRpcRequest.java',
         'com/webshopx/RelayRpcResponse.java',
@@ -58,6 +62,7 @@ def extractedCoreSources = [
         'com/webshopx/SqlProvider.java',
         'com/webshopx/TimeSupport.java',
         'com/webshopx/VisualCustomizationService.java',
+        'com/webshopx/WalletService.java',
         'com/webshopx/payment/api/**'
 ]
 

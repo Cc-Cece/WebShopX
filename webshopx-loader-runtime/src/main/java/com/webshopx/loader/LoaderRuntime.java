@@ -1,6 +1,9 @@
 package com.webshopx.loader;
 
 import com.webshopx.core.WebShopXCoreRuntime;
+import com.webshopx.AuthService;
+import com.webshopx.WalletService;
+import com.webshopx.RedeemCodeService;
 import com.webshopx.core.OpaqueItemCodec;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.CapabilitySnapshot.Capability;
@@ -103,6 +106,23 @@ public final class LoaderRuntime {
     return Optional.ofNullable(active);
   }
 
+  /** Platform-neutral authentication graph backed by the Loader-owned database. */
+  public static Optional<AuthService> authentication() {
+    SharedDatabaseRuntime current = databaseRuntime;
+    return current == null ? Optional.empty() : Optional.of(current.authentication());
+  }
+
+  /** Shared idempotent wallet graph; external game-coin integration is capability-gated. */
+  public static Optional<WalletService> wallet() {
+    SharedDatabaseRuntime current = databaseRuntime;
+    return current == null ? Optional.empty() : Optional.of(current.wallet());
+  }
+
+  public static Optional<RedeemCodeService> redeemCodes() {
+    SharedDatabaseRuntime current = databaseRuntime;
+    return current == null ? Optional.empty() : Optional.of(current.redeemCodes());
+  }
+
   public static String healthLine() {
     WebShopXCoreRuntime runtime = active;
     if (runtime == null) return "WebShopX state=STOPPED";
@@ -192,12 +212,20 @@ public final class LoaderRuntime {
 
   static void nativePlayerJoined(Object eventOrHandler) {
     NativePlayerDirectory current = playerDirectory;
-    if (current != null) current.joined(eventOrHandler);
+    if (current == null) return;
+    current.joined(eventOrHandler).ifPresent(player -> {
+      SharedDatabaseRuntime database = databaseRuntime;
+      if (database != null) database.presence().markOnline(player.id(), player.name());
+    });
   }
 
   static void nativePlayerDisconnected(Object eventOrHandler) {
     NativePlayerDirectory current = playerDirectory;
-    if (current != null) current.disconnected(eventOrHandler);
+    if (current == null) return;
+    current.disconnected(eventOrHandler).ifPresent(player -> {
+      SharedDatabaseRuntime database = databaseRuntime;
+      if (database != null) database.presence().markOffline(player.id());
+    });
   }
 
   private static void prepareNativeState() {

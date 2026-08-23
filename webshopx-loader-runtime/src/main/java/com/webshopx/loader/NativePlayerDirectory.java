@@ -40,13 +40,22 @@ final class NativePlayerDirectory implements PlatformPorts.PlayerDirectory {
     return CompletableFuture.completedFuture(List.copyOf(online.values()));
   }
 
-  void joined(Object eventOrHandler) {
-    profile(eventOrHandler).ifPresent(profile -> online.put(profile.id(),
+  Optional<PlatformPorts.PlayerSnapshot> joined(Object eventOrHandler) {
+    Optional<Profile> nativeProfile = profile(eventOrHandler);
+    nativeProfile.ifPresent(profile -> online.put(profile.id(),
         new PlatformPorts.PlayerSnapshot(profile.id(), profile.name(), true, serverId, Locale.ROOT)));
+    return nativeProfile.map(profile -> online.get(profile.id()));
   }
 
-  void disconnected(Object eventOrHandler) {
-    profile(eventOrHandler).ifPresent(profile -> online.remove(profile.id()));
+  Optional<PlatformPorts.PlayerSnapshot> disconnected(Object eventOrHandler) {
+    Optional<Profile> nativeProfile = profile(eventOrHandler);
+    return nativeProfile.map(profile -> {
+      PlatformPorts.PlayerSnapshot removed = online.remove(profile.id());
+      return removed == null
+          ? new PlatformPorts.PlayerSnapshot(profile.id(), profile.name(), false, serverId, Locale.ROOT)
+          : new PlatformPorts.PlayerSnapshot(
+              removed.id(), removed.name(), false, removed.serverId(), removed.locale());
+    });
   }
 
   void clear() {

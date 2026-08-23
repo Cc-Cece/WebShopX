@@ -147,6 +147,7 @@ sourceSets {
         java {
             exclude 'com/webshopx/AdminPermission.java'
             exclude 'com/webshopx/AdminRole.java'
+            exclude 'com/webshopx/AuthService.java'
             exclude 'com/webshopx/ClaimTokenGenerator.java'
             exclude 'com/webshopx/ClaimTokenRepository.java'
             exclude 'com/webshopx/CurrencyType.java'
@@ -166,8 +167,10 @@ sourceSets {
             exclude 'com/webshopx/MysqlSqlProvider.java'
             exclude 'com/webshopx/MysqlSchemaProvider.java'
             exclude 'com/webshopx/PasswordHasher.java'
+            exclude 'com/webshopx/PlayerPresenceService.java'
             exclude 'com/webshopx/NotificationService.java'
             exclude 'com/webshopx/RechargeOrderStatus.java'
+            exclude 'com/webshopx/RedeemCodeService.java'
             exclude 'com/webshopx/RefundPolicyService.java'
             exclude 'com/webshopx/RelayRpcRequest.java'
             exclude 'com/webshopx/RelayRpcResponse.java'
@@ -180,6 +183,7 @@ sourceSets {
             exclude 'com/webshopx/SqlProvider.java'
             exclude 'com/webshopx/TimeSupport.java'
             exclude 'com/webshopx/VisualCustomizationService.java'
+            exclude 'com/webshopx/WalletService.java'
             exclude 'com/webshopx/payment/api/**'
         }
         resources {

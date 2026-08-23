@@ -3,15 +3,15 @@ package com.webshopx;
 /**
  * Runtime exception used for predictable business-rule violations.
  */
-class ServiceException extends RuntimeException {
+public class ServiceException extends RuntimeException {
   private final String code;
 
-  ServiceException(String code, String message) {
+  public ServiceException(String code, String message) {
     super(message);
     this.code = code;
   }
 
-  String code() {
+  public String code() {
     return code;
   }
 }

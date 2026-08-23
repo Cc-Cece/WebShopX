@@ -8,67 +8,39 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
-import net.milkbowl.vault.economy.Economy;
-import net.milkbowl.vault.economy.EconomyResponse;
-import org.bukkit.plugin.Plugin;
-import org.bukkit.plugin.RegisteredServiceProvider;
-import org.bukkit.plugin.java.JavaPlugin;
 
-class WalletService {
-  private final JavaPlugin plugin;
+public class WalletService {
   private final DatabaseManager databaseManager;
   private final SqlProvider sqlProvider;
-  private final Supplier<PluginSettings> settingsSupplier;
-  private final BusinessLedgerLogService businessLedgerLogService;
+  private final Supplier<ExchangePolicy> settingsSupplier;
+  private final GameCoinProvider gameCoinProvider;
+  private final BusinessLedgerSink businessLedgerSink;
 
-  private volatile Economy vaultEconomy;
-  private volatile String vaultProviderName;
-
-  WalletService(
-      JavaPlugin plugin,
+  public WalletService(
       DatabaseManager databaseManager,
-      Supplier<PluginSettings> settingsSupplier,
-      BusinessLedgerLogService businessLedgerLogService) {
-    this.plugin = plugin;
+      Supplier<ExchangePolicy> settingsSupplier,
+      GameCoinProvider gameCoinProvider,
+      BusinessLedgerSink businessLedgerSink) {
     this.databaseManager = databaseManager;
     this.sqlProvider = databaseManager.sqlProvider();
     this.settingsSupplier = settingsSupplier;
-    this.businessLedgerLogService = businessLedgerLogService;
+    this.gameCoinProvider = gameCoinProvider == null ? GameCoinProvider.unavailable() : gameCoinProvider;
+    this.businessLedgerSink = businessLedgerSink;
     refreshVaultHook();
   }
 
-  void refreshVaultHook() {
-    Plugin vaultPlugin = plugin.getServer().getPluginManager().getPlugin("Vault");
-    if (vaultPlugin == null || !vaultPlugin.isEnabled()) {
-      this.vaultEconomy = null;
-      this.vaultProviderName = null;
-      return;
-    }
-
-    RegisteredServiceProvider<Economy> provider = plugin.getServer()
-        .getServicesManager()
-        .getRegistration(Economy.class);
-    if (provider == null || provider.getProvider() == null) {
-      this.vaultEconomy = null;
-      this.vaultProviderName = null;
-      return;
-    }
-    this.vaultEconomy = provider.getProvider();
-    this.vaultProviderName = provider.getProvider().getName();
+  public void refreshVaultHook() {
+    gameCoinProvider.refresh();
   }
 
-  GameCoinIntegrationStatus getGameCoinIntegrationStatus() {
+  public GameCoinIntegrationStatus getGameCoinIntegrationStatus() {
     refreshVaultHook();
-    boolean vaultPluginPresent = plugin.getServer().getPluginManager().getPlugin("Vault") != null;
-    Economy economy = this.vaultEconomy;
+    GameCoinProvider.IntegrationStatus status = gameCoinProvider.status();
     return new GameCoinIntegrationStatus(
-        vaultPluginPresent,
-        economy != null,
-        economy == null ? null : (vaultProviderName == null ? economy.getName() : vaultProviderName),
-        economy != null);
+        status.pluginPresent(), status.available(), status.provider(), status.available());
   }
 
-  WalletBalance getBalance(long userId) {
+  public WalletBalance getBalance(long userId) {
     return databaseManager.withConnection(connection -> {
       ensureWallet(connection, userId);
       RawWalletBalance raw = readRawBalance(connection, userId, false);
@@ -84,7 +56,7 @@ class WalletService {
     });
   }
 
-  List<LedgerEntry> listRecentLedger(long userId, int limit) {
+  public List<LedgerEntry> listRecentLedger(long userId, int limit) {
     int normalizedLimit = Math.max(1, Math.min(limit, 50));
     return databaseManager.withConnection(connection -> {
       ensureWallet(connection, userId);
@@ -115,7 +87,7 @@ class WalletService {
     });
   }
 
-  WalletBalance exchange(
+  public WalletBalance exchange(
       long userId,
       CurrencyType fromCurrency,
       CurrencyType toCurrency,
@@ -128,8 +100,7 @@ class WalletService {
       throw new ServiceException("invalid_amount", "Exchange amount must be positive");
     }
 
-    PluginSettings.ExchangeDirection direction =
-        settingsSupplier.get().exchangeSettings().direction(fromCurrency, toCurrency);
+    ExchangeDirection direction = settingsSupplier.get().direction(fromCurrency, toCurrency);
     if (!direction.enabled()) {
       throw new ServiceException("exchange_disabled", "Exchange direction is disabled");
     }
@@ -159,7 +130,7 @@ class WalletService {
     });
   }
 
-  WalletBalance adjustBalance(long userId, CurrencyType currency, long delta, String reason, String bizId) {
+  public WalletBalance adjustBalance(long userId, CurrencyType currency, long delta, String reason, String bizId) {
     if (currency == null) {
       throw new ServiceException("invalid_currency", "Currency is required");
     }
@@ -187,7 +158,7 @@ class WalletService {
   @SuppressFBWarnings(
       value = "SQL_INJECTION_JDBC",
       justification = "Column name comes from enum and cannot be user controlled")
-  boolean applyDelta(
+  public boolean applyDelta(
       Connection connection,
       long userId,
       CurrencyType currency,
@@ -245,10 +216,10 @@ class WalletService {
       String bizId,
       LedgerBusinessContext context,
       boolean enforceBalance) {
-    if (businessLedgerLogService == null) {
+    if (businessLedgerSink == null) {
       return;
     }
-    businessLedgerLogService.logWalletLedger(
+    businessLedgerSink.logWalletLedger(
         userId,
         username,
         walletId,
@@ -474,53 +445,15 @@ class WalletService {
   }
 
   private long applyVaultDelta(GameCoinAccount account, long delta, boolean enforceBalance) {
-    Economy economy = this.vaultEconomy;
-    if (economy == null) {
-      throw new ServiceException("vault_unavailable", "Vault economy provider is unavailable");
-    }
-
-    String accountName = account.accountName();
-    double currentBalance = economy.getBalance(accountName);
-    if (enforceBalance && currentBalance + delta < 0.0D) {
-      throw new ServiceException("insufficient_funds", "Wallet balance is insufficient");
-    }
-
-    EconomyResponse response;
-    if (delta >= 0L) {
-      response = economy.depositPlayer(accountName, delta);
-    } else {
-      response = economy.withdrawPlayer(accountName, -delta);
-    }
-    if (!response.transactionSuccess()) {
-      String message = response.errorMessage == null || response.errorMessage.isBlank()
-          ? "Vault transaction failed"
-          : response.errorMessage;
-      throw new ServiceException("vault_error", message);
-    }
-    return toCoins(economy.getBalance(accountName));
+    return gameCoinProvider.apply(account.accountName(), delta, enforceBalance);
   }
 
   private long readVaultBalance(GameCoinAccount account) {
-    Economy economy = this.vaultEconomy;
-    if (economy == null) {
-      throw new ServiceException("vault_unavailable", "Vault economy provider is unavailable");
-    }
-    return toCoins(economy.getBalance(account.accountName()));
-  }
-
-  private long toCoins(double value) {
-    if (!Double.isFinite(value) || value <= 0.0D) {
-      return 0L;
-    }
-    double floor = Math.floor(value);
-    if (floor >= Long.MAX_VALUE) {
-      return Long.MAX_VALUE;
-    }
-    return (long) floor;
+    return gameCoinProvider.balance(account.accountName());
   }
 
   private boolean isGameCoinBackedByVault() {
-    return this.vaultEconomy != null;
+    return gameCoinProvider.status().available();
   }
 
   @SuppressFBWarnings(
@@ -641,10 +574,10 @@ class WalletService {
     }
   }
 
-  record WalletBalance(long shopCoin, long gameCoin) {
+  public record WalletBalance(long shopCoin, long gameCoin) {
   }
 
-  record GameCoinIntegrationStatus(
+  public record GameCoinIntegrationStatus(
       boolean vaultPluginPresent,
       boolean hooked,
       String provider,
@@ -657,7 +590,7 @@ class WalletService {
   private record RawWalletBalance(long walletId, long shopCoin, long gameCoin) {
   }
 
-  record LedgerEntry(
+  public record LedgerEntry(
       CurrencyType currency,
       long delta,
       String bizType,
@@ -666,5 +599,54 @@ class WalletService {
   }
 
   private record LedgerBusinessContext(String tradeType, String itemDetail) {
+  }
+
+  public record ExchangeDirection(boolean enabled, double ratio) { }
+
+  public record ExchangePolicy(ExchangeDirection shopToGame, ExchangeDirection gameToShop) {
+    public ExchangePolicy {
+      shopToGame = shopToGame == null ? new ExchangeDirection(false, 0.0D) : shopToGame;
+      gameToShop = gameToShop == null ? new ExchangeDirection(false, 0.0D) : gameToShop;
+    }
+
+    public ExchangeDirection direction(CurrencyType from, CurrencyType to) {
+      if (from == CurrencyType.SHOP_COIN && to == CurrencyType.GAME_COIN) return shopToGame;
+      if (from == CurrencyType.GAME_COIN && to == CurrencyType.SHOP_COIN) return gameToShop;
+      return new ExchangeDirection(false, 0.0D);
+    }
+
+    public static ExchangePolicy disabled() {
+      return new ExchangePolicy(null, null);
+    }
+  }
+
+  public interface GameCoinProvider {
+    void refresh();
+    IntegrationStatus status();
+    long balance(String accountName);
+    long apply(String accountName, long delta, boolean enforceBalance);
+
+    record IntegrationStatus(boolean pluginPresent, boolean available, String provider) { }
+
+    static GameCoinProvider unavailable() {
+      return new GameCoinProvider() {
+        public void refresh() { }
+        public IntegrationStatus status() { return new IntegrationStatus(false, false, null); }
+        public long balance(String accountName) {
+          throw new ServiceException("economy_unavailable", "External game-coin provider is unavailable");
+        }
+        public long apply(String accountName, long delta, boolean enforceBalance) {
+          throw new ServiceException("economy_unavailable", "External game-coin provider is unavailable");
+        }
+      };
+    }
+  }
+
+  @FunctionalInterface
+  public interface BusinessLedgerSink {
+    void logWalletLedger(
+        long userId, String username, long walletId, CurrencyType currency, long delta,
+        String bizType, String bizId, String tradeType, String itemDetail,
+        boolean enforceBalance, boolean gameCoinBackedByExternalProvider);
   }
 }
