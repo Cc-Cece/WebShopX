@@ -16,9 +16,9 @@
 
 ## M4–M6
 
-Fabric、Forge、NeoForge 的精确入口、元数据、Java 下限、Fabric API、完整 schema、健康命令和进程停止已在七个真实服务端通过。新增原生生命周期/调度桥已在 Fabric 1.20.1 与 Forge 1.20.1 真实服务端复验；支持矩阵仍只标 `startup_verified`。
+Fabric、Forge、NeoForge 的精确入口、元数据、Java 下限、Fabric API、完整 schema、健康命令、原生生命周期/调度桥和进程停止已在七个真实服务端复验；支持矩阵仍只标 `startup_verified`。
 
-尚未完成：新增事件桥的其余五个冻结单元复验，以及各 Loader 的库存/消息/权限/GUI/原生 item adapter 和插件版完整业务矩阵。不得将当前产物宣传为 full。
+尚未完成：各 Loader 的真实玩家登录 fixture、库存/消息/权限/GUI/原生 item adapter 和插件版完整业务矩阵。不得将当前产物宣传为 full。
 
 ## M7
 

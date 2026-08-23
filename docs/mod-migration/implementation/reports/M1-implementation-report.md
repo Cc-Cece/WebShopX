@@ -6,20 +6,20 @@
 
 - 根 Paper 工程保持默认任务、full/slim/Folia/OS-native 变体；新增 `platform-api`、`core`、`testkit`、`loader-runtime` 与七个精确 Loader 发行单元。
 - Loader 元数据相互隔离；构建校验入口、元数据、Paper/Bukkit 泄漏、产物名和精确版本。
-- 七个发行单元均在真实 dedicated server 完成启动、`webshopx-health` 命令、版本身份、完整 SQLite schema 初始化、`READY → STOPPED` 健康快照和干净停止。
+- 七个发行单元均在真实 dedicated server 完成启动、`webshopx-health` 命令、版本身份、完整 SQLite schema 初始化、原生 ServerStarted/ServerStopping 事件桥、`READY → STOPPED` 健康快照和干净停止；每端日志均确认 `native lifecycle ... installed=true` 与 `native server lifecycle ready`。
 - Fabric API 精确冻结为 0.77.0+1.18.2、0.92.6+1.20.1、0.158.0+26.2。
 
 ## 最终真实启动证据（2026-08-23，Asia/Shanghai）
 
 | 单元 | SHA-256 | 结果 |
 |---|---|---|
-| Fabric 1.18.2 | `eb4f566a85698ef082102801b6ed316b12a96e870f8d40332f04e898be93b044` | pass |
-| Fabric 1.20.1 | `2202af12eb0d53f69ed4f6eb8a3578f1a6fc80f4ba74dabcdf93da906fcaa555` | pass |
-| Fabric 26.2 | `37d99da890c7fdc962b5f6b61c05fe4963a8d7225cacca12752bcb4904b888ba` | pass |
-| Forge 1.18.2 | `0447a386100355e1285a72c6ccb123ff86131940545d683878613caa96686d0d` | pass |
-| Forge 1.20.1 | `5aebfbd87476082f24ba329c9ea3edb56feae4edb8d1fe1eac30362cdd34a7d7` | pass |
-| NeoForge 1.20.1 | `a6ae5495c9558a47ee8e7bc415db7b6e9e37086d5d88ce51fcd0a10f84588954` | pass |
-| NeoForge 26.2 | `342e762cb9ae3a50a0ba14675e6e939d07c6a24e20a215e735bdd49e7c67f95d` | pass |
+| Fabric 1.18.2 | `694ddf37d057ebc3555901174ded05cc13f1d4eba97fedd7945ba866f77e1993` | pass |
+| Fabric 1.20.1 | `ddfaf9a1fe3edbfbed6aa2d53709d5a65d6edf5745b85327c2402ee40b8a7883` | pass |
+| Fabric 26.2 | `6f5da90a37f3a27d8373dffc7eea5fc3b28033cf6547e30d2301cc133b12d72e` | pass |
+| Forge 1.18.2 | `96cfab2b6876287795fe69085ff80332b5ce8cbd71eb2a6438ca619fae9cbbd3` | pass |
+| Forge 1.20.1 | `a3b2da5028db866475a22c112572131a92147ab1116debc39d282815df468b6c` | pass |
+| NeoForge 1.20.1 | `01e0c13fb2c8447511cb9894b2cfd63d9b34feef35b1ea3e9a84da32c7c0ee20` | pass |
+| NeoForge 26.2 | `e53213b30d95022a38f9aa4157d6e30469b5fdad5d42b6d5ec60f7c0aaa9e46a` | pass |
 
 复现入口：`docs/mod-migration/tools/dedicated-server-smoke.ps1`。临时服务器和日志不进入 Git。
 
