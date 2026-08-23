@@ -11,9 +11,11 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /** HTTP facade for cart, checkout, coupons, memberships and promotion management. */
 final class CommerceHttpApi {
+  private static final int MAX_BODY_BYTES = 64 * 1024;
   private final AuthService authService;
   private final AdminService adminService;
   private final CartService cartService;
@@ -27,11 +29,13 @@ final class CommerceHttpApi {
   private final MembershipCatalogService membershipCatalogService;
   private final CouponCatalogService couponCatalogService;
   private final MembershipCodeService membershipCodeService;
+  private final Supplier<PluginSettings> settingsSupplier;
   private final Gson gson = CommerceJson.create();
 
   CommerceHttpApi(DatabaseManager databaseManager, AuthService authService,
       AdminService adminService, ProductService productService, MarketService marketService,
-      WalletService walletService, OrderService orderService) {
+      WalletService walletService, OrderService orderService,
+      Supplier<PluginSettings> settingsSupplier) {
     this.authService = authService;
     this.adminService = adminService;
     this.cartService = new CartService(databaseManager);
@@ -47,6 +51,7 @@ final class CommerceHttpApi {
     this.membershipCatalogService = new MembershipCatalogService(databaseManager);
     this.couponCatalogService = new CouponCatalogService(databaseManager);
     this.membershipCodeService = new MembershipCodeService(databaseManager, membershipService);
+    this.settingsSupplier = java.util.Objects.requireNonNull(settingsSupplier, "settingsSupplier");
   }
 
   void register(HttpServer server) {
@@ -297,7 +302,7 @@ final class CommerceHttpApi {
   }
 
   private void handle(HttpExchange exchange, Endpoint endpoint) throws IOException {
-    addCors(exchange);
+    addSecurityHeaders(exchange);
     if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
       exchange.sendResponseHeaders(204, -1);
       exchange.close();
@@ -306,11 +311,14 @@ final class CommerceHttpApi {
     try {
       JsonObject body = readBody(exchange);
       send(exchange, 200, endpoint.execute(exchange, body));
+    } catch (BodyTooLargeException exception) {
+      send(exchange, 413, new ErrorResponse("body_too_large", exception.getMessage()));
     } catch (ServiceException exception) {
       int status = switch (exception.code()) {
         case "auth_required", "auth_invalid" -> 401;
         case "admin_forbidden", "promotion_forbidden" -> 403;
         case "quote_missing", "membership_missing" -> 404;
+        case "method_not_allowed" -> 405;
         case "CART_VERSION_CONFLICT", "PRICE_CHANGED", "QUOTE_EXPIRED",
             "QUOTE_INPUT_CHANGED", "IDEMPOTENCY_CONFLICT", "PINNED_RULE_UNAVAILABLE",
             "PINNED_RULE_NOT_APPLICABLE", "PINNED_RULE_CONFLICT" -> 409;
@@ -337,7 +345,20 @@ final class CommerceHttpApi {
   }
 
   private JsonObject readBody(HttpExchange exchange) throws IOException {
-    byte[] bytes = exchange.getRequestBody().readAllBytes();
+    String contentLength = exchange.getRequestHeaders().getFirst("Content-Length");
+    if (contentLength != null) {
+      try {
+        if (Long.parseLong(contentLength) > MAX_BODY_BYTES) {
+          throw new BodyTooLargeException("Request body exceeds 64 KiB");
+        }
+      } catch (NumberFormatException exception) {
+        throw new ServiceException("bad_request", "Invalid Content-Length");
+      }
+    }
+    byte[] bytes = exchange.getRequestBody().readNBytes(MAX_BODY_BYTES + 1);
+    if (bytes.length > MAX_BODY_BYTES) {
+      throw new BodyTooLargeException("Request body exceeds 64 KiB");
+    }
     if (bytes.length == 0) {
       return new JsonObject();
     }
@@ -352,8 +373,25 @@ final class CommerceHttpApi {
     exchange.close();
   }
 
-  private void addCors(HttpExchange exchange) {
-    exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+  private void addSecurityHeaders(HttpExchange exchange) {
+    exchange.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
+    exchange.getResponseHeaders().set("Cache-Control", "no-store");
+    exchange.getResponseHeaders().set("Content-Security-Policy",
+        "default-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; "
+            + "style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; "
+            + "object-src 'none'; base-uri 'self'");
+    PluginSettings.EmbeddedWebSettings web = settingsSupplier.get().embeddedWebSettings();
+    if (!web.corsEnabled()) {
+      return;
+    }
+    String origin = exchange.getRequestHeaders().getFirst("Origin");
+    if (web.corsAllowedOrigins().contains("*")) {
+      exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+    } else if (origin != null && web.corsAllowedOrigins().contains(origin)) {
+      exchange.getResponseHeaders().set("Access-Control-Allow-Origin", origin);
+      exchange.getResponseHeaders().set("Access-Control-Allow-Credentials", "true");
+      exchange.getResponseHeaders().add("Vary", "Origin");
+    }
     exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Authorization, Content-Type");
     exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   }
@@ -406,5 +444,11 @@ final class CommerceHttpApi {
   }
 
   private record EmergencyStopResult(int pausedCampaigns, Instant stoppedAt) {
+  }
+
+  private static final class BodyTooLargeException extends RuntimeException {
+    private BodyTooLargeException(String message) {
+      super(message);
+    }
   }
 }

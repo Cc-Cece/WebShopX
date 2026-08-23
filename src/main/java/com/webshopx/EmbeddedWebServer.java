@@ -181,7 +181,7 @@ class EmbeddedWebServer {
         .build();
     this.localeCenterService = new LocaleCenterService(plugin, () -> this.webUserRoot);
     this.commerceHttpApi = new CommerceHttpApi(databaseManager, authService, adminService,
-        productService, marketService, walletService, orderService);
+        productService, marketService, walletService, orderService, settingsSupplier);
   }
 
   void start(Path staticRoot, Path webUserRoot) throws IOException {
