@@ -7,6 +7,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -17,7 +18,7 @@ final class SqliteSchemaProvider implements SchemaProvider {
   private static final Pattern SAFE_IDENTIFIER = Pattern.compile("[A-Za-z0-9_]+");
 
   @Override
-  public void ensureSchema(DatabaseManager databaseManager, PluginSettings settings) {
+  public void ensureSchema(DatabaseManager databaseManager, ZoneId timeZone) {
     databaseManager.inTransaction(connection -> {
       executeSchemaScript(connection);
       migrateSchema(connection);

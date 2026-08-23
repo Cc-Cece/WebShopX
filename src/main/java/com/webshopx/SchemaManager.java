@@ -6,17 +6,18 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 class SchemaManager {
   private static final String PRODUCT_SCHEDULE_UTC_MIGRATION_KEY = "product_schedule_utc_v1";
   private static final String MARKET_TAG_SCHEMA_V2_KEY = "market_tag_schema_v2";
   private static final SqlProvider MYSQL_SQL_PROVIDER = SqlProvider.forType(DbType.MYSQL);
 
-  void ensureSchema(DatabaseManager databaseManager, PluginSettings settings) {
-    databaseManager.withConnection(connection -> createTables(connection, settings));
+  void ensureSchema(DatabaseManager databaseManager, ZoneId timeZone) {
+    databaseManager.withConnection(connection -> createTables(connection, timeZone));
   }
 
-  private Void createTables(Connection connection, PluginSettings settings) throws SQLException {
+  private Void createTables(Connection connection, ZoneId timeZone) throws SQLException {
     createWebUsers(connection);
     migrateWebUsers(connection);
     createWebAdmins(connection);
@@ -46,7 +47,7 @@ class SchemaManager {
     createProductItemSnapshots(connection);
     createProductUserUsage(connection);
     migrateProductUserUsage(connection);
-    migrateLegacyProductScheduleToUtc(connection, settings.timeZone());
+    migrateLegacyProductScheduleToUtc(connection, timeZone);
     createOrders(connection);
     migrateOrders(connection);
     createRefundRequests(connection);

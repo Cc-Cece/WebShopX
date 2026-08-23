@@ -1,7 +1,9 @@
 package com.webshopx;
 
-interface SchemaProvider {
-  void ensureSchema(DatabaseManager databaseManager, PluginSettings settings);
+import java.time.ZoneId;
+
+public interface SchemaProvider {
+  void ensureSchema(DatabaseManager databaseManager, ZoneId timeZone);
 
   static SchemaProvider forType(DbType dbType) {
     if (dbType == DbType.SQLITE) {
