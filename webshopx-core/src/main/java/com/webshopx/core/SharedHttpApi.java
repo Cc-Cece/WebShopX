@@ -15,6 +15,7 @@ import com.webshopx.NotificationService;
 import com.webshopx.RedeemCodeService;
 import com.webshopx.ServiceException;
 import com.webshopx.SharedCommerceService;
+import com.webshopx.SharedPromotionService;
 import com.webshopx.SharedCommerceService.ProductInput;
 import com.webshopx.SharedCommerceService.ProductKind;
 import com.webshopx.SharedCommerceService.PurchaseRequest;
@@ -39,6 +40,7 @@ public final class SharedHttpApi implements AutoCloseable {
   private final AuthService auth;
   private final WalletService wallets;
   private final SharedCommerceService commerce;
+  private final SharedPromotionService promotions;
   private final RedeemCodeService redeemCodes;
   private final NotificationService notifications;
   private final AdminService administration;
@@ -51,12 +53,14 @@ public final class SharedHttpApi implements AutoCloseable {
   private final HttpServer server;
 
   public SharedHttpApi(String host, int port, String allowedOrigin, AuthService auth,
-      WalletService wallets, SharedCommerceService commerce, RedeemCodeService redeemCodes,
+      WalletService wallets, SharedCommerceService commerce, SharedPromotionService promotions,
+      RedeemCodeService redeemCodes,
       NotificationService notifications, AdminService administration, AdminAuditService audit,
       PlatformIdentity identity, CapabilitySnapshot capabilities) {
     this.auth = Objects.requireNonNull(auth, "auth");
     this.wallets = Objects.requireNonNull(wallets, "wallets");
     this.commerce = Objects.requireNonNull(commerce, "commerce");
+    this.promotions = Objects.requireNonNull(promotions, "promotions");
     this.redeemCodes = Objects.requireNonNull(redeemCodes, "redeemCodes");
     this.notifications = Objects.requireNonNull(notifications, "notifications");
     this.administration = Objects.requireNonNull(administration, "administration");
@@ -199,6 +203,50 @@ public final class SharedHttpApi implements AutoCloseable {
             ? notifications.markAllRead(current.id())
             : notifications.markRead(current.id(), requiredLong(input, "notificationId"));
         respond(exchange, 200, Map.of("updated", changed));
+      } else if (path.equals("/api/cart") && method(exchange, "GET")) {
+        respond(exchange, 200, promotions.cart(user(exchange).id()));
+      } else if (path.equals("/api/cart/lines/add") && method(exchange, "POST")) {
+        var current = user(exchange);
+        respond(exchange, 200, promotions.addCartLine(current.id(),
+            gson.fromJson(body(exchange), SharedPromotionService.CartAdd.class)));
+      } else if (path.equals("/api/cart/lines/update") && method(exchange, "POST")) {
+        var current = user(exchange);
+        respond(exchange, 200, promotions.updateCartLine(current.id(),
+            gson.fromJson(body(exchange), SharedPromotionService.CartUpdate.class)));
+      } else if (path.equals("/api/cart/lines/remove") && method(exchange, "POST")) {
+        var current = user(exchange);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, promotions.removeCartLine(current.id(),
+            requiredLong(input, "lineId"), requiredLong(input, "expectedVersion")));
+      } else if (path.equals("/api/cart/clear") && method(exchange, "POST")) {
+        var current = user(exchange);
+        respond(exchange, 200, promotions.clearCart(current.id(),
+            requiredLong(body(exchange), "expectedVersion")));
+      } else if (path.equals("/api/coupons/mine") && method(exchange, "GET")) {
+        respond(exchange, 200, promotions.coupons(user(exchange).id(), query(exchange, "status")));
+      } else if (path.equals("/api/coupons/claim") && method(exchange, "POST")) {
+        var current = user(exchange);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, promotions.claimCoupon(current.id(),
+            requiredLong(input, "templateId"), requiredString(input, "requestId")));
+      } else if (path.equals("/api/membership/me") && method(exchange, "GET")) {
+        respond(exchange, 200, promotions.memberships(user(exchange).id()));
+      } else if (path.equals("/api/membership/redeem") && method(exchange, "POST")) {
+        var current = user(exchange);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, promotions.redeemMembership(current.id(),
+            requiredString(input, "code"), requiredString(input, "requestId")));
+      } else if (path.equals("/api/seller/promotions/list") && method(exchange, "GET")) {
+        respond(exchange, 200, promotions.sellerCampaigns(user(exchange).id()));
+      } else if (path.equals("/api/seller/promotions/create") && method(exchange, "POST")) {
+        var current = user(exchange);
+        respond(exchange, 200, promotions.createSellerCampaign(current.id(), gson.fromJson(
+            body(exchange), SharedPromotionService.SellerCampaignInput.class)));
+      } else if (path.equals("/api/seller/promotions/action") && method(exchange, "POST")) {
+        var current = user(exchange);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, promotions.transitionSellerCampaign(current.id(),
+            requiredLong(input, "campaignId"), requiredString(input, "action")));
       } else if (path.equals("/api/meta/version") && method(exchange, "GET")) {
         respond(exchange, 200, Map.of("platform", identity.platform(),
             "minecraft", identity.minecraftVersion(), "loader", identity.loaderVersion(),
@@ -247,6 +295,80 @@ public final class SharedHttpApi implements AutoCloseable {
         JsonObject input = body(exchange);
         respond(exchange, 200, Map.of("created", notifications.createSystemAnnouncement(
             requiredString(input, "title"), requiredString(input, "content"))));
+      } else if (path.equals("/api/admin/promotions/list") && method(exchange, "GET")) {
+        var actor = user(exchange);
+        administration.requireAdmin(actor, AdminPermission.PROMOTION_VIEW);
+        respond(exchange, 200, promotions.campaigns(query(exchange, "ownerType")));
+      } else if (path.equals("/api/admin/promotions/create") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.PROMOTION_MANAGE);
+        respond(exchange, 200, promotions.createCampaign(actor.userId(), gson.fromJson(
+            body(exchange), SharedPromotionService.CampaignInput.class)));
+      } else if (path.equals("/api/admin/promotions/publish") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.PROMOTION_MANAGE);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, promotions.publishCampaign(actor.userId(),
+            requiredLong(input, "campaignId"), requiredLong(input, "expectedVersion"),
+            gson.fromJson(requiredObject(input, "rule"),
+                SharedPromotionService.PromotionRuleInput.class)));
+      } else if (path.equals("/api/admin/promotions/action") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.PROMOTION_MANAGE);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, promotions.transitionCampaign(actor.userId(),
+            requiredLong(input, "campaignId"), requiredString(input, "action")));
+      } else if (path.equals("/api/admin/promotions/emergency-stop") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(
+            user(exchange), AdminPermission.PROMOTION_EMERGENCY_STOP);
+        respond(exchange, 200, promotions.emergencyStop(actor.userId()));
+      } else if (path.equals("/api/admin/coupons/grant") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.COUPON_GRANT);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, promotions.grantCoupon(actor.userId(),
+            requiredLong(input, "userId"), requiredLong(input, "templateId"),
+            requiredString(input, "idempotencyKey")));
+      } else if (path.equals("/api/admin/coupons/templates") && method(exchange, "GET")) {
+        administration.requireAdmin(user(exchange), AdminPermission.COUPON_MANAGE);
+        respond(exchange, 200, promotions.couponTemplates());
+      } else if (path.equals("/api/admin/coupons/templates/create") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.COUPON_MANAGE);
+        respond(exchange, 200, promotions.createCouponTemplate(actor.userId(), gson.fromJson(
+            body(exchange), SharedPromotionService.CouponTemplateInput.class)));
+      } else if (path.equals("/api/admin/membership/grant") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.MEMBERSHIP_GRANT);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, promotions.grantMembership(actor.userId(),
+            requiredLong(input, "userId"), requiredLong(input, "planVersionId"),
+            requiredString(input, "idempotencyKey")));
+      } else if (path.equals("/api/admin/membership/revoke") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.MEMBERSHIP_MANAGE);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, promotions.revokeMembership(actor.userId(),
+            requiredLong(input, "membershipId"), requiredString(input, "reason")));
+      } else if (path.equals("/api/admin/membership/plans") && method(exchange, "GET")) {
+        administration.requireAdmin(user(exchange), AdminPermission.MEMBERSHIP_VIEW);
+        respond(exchange, 200, promotions.membershipPlans());
+      } else if (path.equals("/api/admin/membership/plans/create") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.MEMBERSHIP_MANAGE);
+        respond(exchange, 200, promotions.createMembershipPlan(actor.userId(), gson.fromJson(
+            body(exchange), SharedPromotionService.MembershipPlanInput.class)));
+      } else if (path.equals("/api/admin/membership/plans/publish") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.MEMBERSHIP_MANAGE);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, promotions.publishMembershipPlan(actor.userId(),
+            requiredLong(input, "planId"), gson.fromJson(requiredObject(input, "version"),
+                SharedPromotionService.MembershipVersionInput.class)));
+      } else if (path.equals("/api/admin/membership/products/bind") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.MEMBERSHIP_MANAGE);
+        JsonObject input = body(exchange);
+        promotions.bindMembershipProduct(actor.userId(), requiredLong(input, "productId"),
+            requiredLong(input, "planVersionId"));
+        respond(exchange, 200, Map.of("status", "ok"));
+      } else if (path.equals("/api/admin/membership/codes/create") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.MEMBERSHIP_MANAGE);
+        JsonObject input = body(exchange);
+        respond(exchange, 200, promotions.createMembershipCode(actor.userId(),
+            requiredLong(input, "planVersionId"), Math.toIntExact(requiredLong(input, "maxUses")),
+            input.has("validUntil") && !input.get("validUntil").isJsonNull()
+                ? java.time.Instant.parse(input.get("validUntil").getAsString()) : null));
       } else if (path.equals("/api/admin/products") && method(exchange, "POST")) {
         var user = user(exchange);
         administration.requireAdmin(user, AdminPermission.PRODUCT_MANAGE);
@@ -322,6 +444,13 @@ public final class SharedHttpApi implements AutoCloseable {
     var value = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8));
     if (!value.isJsonObject()) throw new IllegalArgumentException("JSON object required");
     return value.getAsJsonObject();
+  }
+
+  private static JsonObject requiredObject(JsonObject input, String name) {
+    if (!input.has(name) || !input.get(name).isJsonObject()) {
+      throw new IllegalArgumentException(name + " is required");
+    }
+    return input.getAsJsonObject(name);
   }
 
   private void applySecurityHeaders(HttpExchange exchange) {

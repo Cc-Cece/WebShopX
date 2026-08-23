@@ -20,14 +20,16 @@ public final class AllocationEngine {
     long remaining = amount;
     List<String> active = new ArrayList<>(ids);
     while (remaining > 0 && !active.isEmpty()) {
-      long totalWeight = active.stream().mapToLong(id -> Math.max(0, weights.getOrDefault(id, 0L))).sum();
+      long totalWeight =
+          active.stream().mapToLong(id -> Math.max(0, weights.getOrDefault(id, 0L))).sum();
       if (totalWeight <= 0) totalWeight = active.size();
       long roundAmount = remaining;
       List<Remainder> remainders = new ArrayList<>();
       long distributed = 0;
       for (String id : active) {
         long weight = Math.max(0, weights.getOrDefault(id, 0L));
-        if (weight == 0 && active.stream().allMatch(key -> weights.getOrDefault(key, 0L) == 0)) weight = 1;
+        if (weight == 0 && active.stream().allMatch(key -> weights.getOrDefault(key, 0L) == 0))
+          weight = 1;
         BigInteger numerator = BigInteger.valueOf(roundAmount).multiply(BigInteger.valueOf(weight));
         BigInteger[] division = numerator.divideAndRemainder(BigInteger.valueOf(totalWeight));
         long capacityLeft = capacities.getOrDefault(id, Long.MAX_VALUE) - result.get(id);
@@ -37,7 +39,8 @@ public final class AllocationEngine {
         remainders.add(new Remainder(id, division[1], capacityLeft - share));
       }
       remaining -= distributed;
-      remainders.sort(Comparator.comparing(Remainder::remainder).reversed().thenComparing(Remainder::id));
+      remainders.sort(
+          Comparator.comparing(Remainder::remainder).reversed().thenComparing(Remainder::id));
       boolean progressed = distributed > 0;
       for (Remainder remainder : remainders) {
         if (remaining == 0) break;

@@ -10,8 +10,7 @@ import java.time.Instant;
 
 /** Shared JSON codec for promotion and checkout snapshots. */
 final class CommerceJson {
-  private CommerceJson() {
-  }
+  private CommerceJson() {}
 
   static Gson create() {
     return new GsonBuilder()

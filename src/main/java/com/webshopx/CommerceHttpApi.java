@@ -2,15 +2,12 @@ package com.webshopx;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.webshopx.core.SharedRouteContract;
 import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import com.webshopx.core.SharedRouteContract;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.List;
-import java.util.Set;
 import java.util.function.Supplier;
 
 /** HTTP facade for cart, checkout, coupons, memberships and promotion management. */
@@ -24,33 +21,46 @@ final class CommerceHttpApi {
   private final MembershipService membershipService;
   private final CheckoutQuoteService quoteService;
   private final CheckoutService checkoutService;
-  private final SellerPromotionService sellerPromotionService;
   private final CommerceRefundService refundService;
-  private final MembershipCatalogService membershipCatalogService;
-  private final CouponCatalogService couponCatalogService;
-  private final MembershipCodeService membershipCodeService;
+  private final SharedPromotionService sharedPromotions;
   private final Supplier<PluginSettings> settingsSupplier;
   private final Gson gson = CommerceJson.create();
 
-  CommerceHttpApi(DatabaseManager databaseManager, AuthService authService,
-      AdminService adminService, ProductService productService, MarketService marketService,
-      WalletService walletService, OrderService orderService,
+  CommerceHttpApi(
+      DatabaseManager databaseManager,
+      AuthService authService,
+      AdminService adminService,
+      ProductService productService,
+      MarketService marketService,
+      WalletService walletService,
+      OrderService orderService,
       Supplier<PluginSettings> settingsSupplier) {
     this.authService = authService;
     this.adminService = adminService;
-    this.cartService = new CartService(databaseManager);
-    this.promotionService = new PromotionService(databaseManager);
-    this.couponService = new CouponService(databaseManager);
-    this.membershipService = new MembershipService(databaseManager);
-    this.quoteService = new CheckoutQuoteService(databaseManager, cartService, productService,
-        marketService, promotionService, membershipService);
-    this.checkoutService = new CheckoutService(databaseManager, cartService, quoteService,
-        couponService, walletService, orderService, marketService, membershipService);
-    this.sellerPromotionService = new SellerPromotionService(databaseManager, promotionService);
+    this.sharedPromotions = new SharedPromotionService(databaseManager);
+    this.cartService = sharedPromotions.cartService();
+    this.promotionService = sharedPromotions.promotionService();
+    this.couponService = sharedPromotions.couponService();
+    this.membershipService = sharedPromotions.membershipService();
+    this.quoteService =
+        new CheckoutQuoteService(
+            databaseManager,
+            cartService,
+            productService,
+            marketService,
+            promotionService,
+            membershipService);
+    this.checkoutService =
+        new CheckoutService(
+            databaseManager,
+            cartService,
+            quoteService,
+            couponService,
+            walletService,
+            orderService,
+            marketService,
+            membershipService);
     this.refundService = new CommerceRefundService(databaseManager, walletService, couponService);
-    this.membershipCatalogService = new MembershipCatalogService(databaseManager);
-    this.couponCatalogService = new CouponCatalogService(databaseManager);
-    this.membershipCodeService = new MembershipCodeService(databaseManager, membershipService);
     this.settingsSupplier = java.util.Objects.requireNonNull(settingsSupplier, "settingsSupplier");
   }
 
@@ -94,211 +104,217 @@ final class CommerceHttpApi {
 
   private Object cart(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "GET");
-    return cartService.get(user(exchange).id());
+    return sharedPromotions.cart(user(exchange).id());
   }
 
   private Object cartAdd(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
-    return cartService.add(user(exchange).id(), gson.fromJson(body, CartService.AddLine.class));
+    return sharedPromotions.addCartLine(
+        user(exchange).id(), gson.fromJson(body, SharedPromotionService.CartAdd.class));
   }
 
   private Object cartUpdate(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
-    return cartService.update(user(exchange).id(), gson.fromJson(body, CartService.UpdateLine.class));
+    return sharedPromotions.updateCartLine(
+        user(exchange).id(), gson.fromJson(body, SharedPromotionService.CartUpdate.class));
   }
 
   private Object cartRemove(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
-    return cartService.remove(user(exchange).id(), requiredLong(body, "lineId"),
-        requiredLong(body, "expectedVersion"));
+    return sharedPromotions.removeCartLine(
+        user(exchange).id(), requiredLong(body, "lineId"), requiredLong(body, "expectedVersion"));
   }
 
   private Object cartClear(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
-    return cartService.clear(user(exchange).id(), requiredLong(body, "expectedVersion"));
+    return sharedPromotions.clearCart(user(exchange).id(), requiredLong(body, "expectedVersion"));
   }
 
   private Object quote(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
-    return quoteService.quote(user(exchange).id(),
-        gson.fromJson(body, CheckoutQuoteService.QuoteCommand.class));
+    return quoteService.quote(
+        user(exchange).id(), gson.fromJson(body, CheckoutQuoteService.QuoteCommand.class));
   }
 
   private Object checkout(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
-    return checkoutService.submit(user(exchange).id(),
-        gson.fromJson(body, CheckoutService.SubmitCommand.class));
+    return checkoutService.submit(
+        user(exchange).id(), gson.fromJson(body, CheckoutService.SubmitCommand.class));
   }
 
   private Object refund(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
-    return refundService.refund(user(exchange).id(), requiredString(body, "checkoutNo"),
-        requiredLong(body, "lineId"), requiredInt(body, "quantity"),
+    return refundService.refund(
+        user(exchange).id(),
+        requiredString(body, "checkoutNo"),
+        requiredLong(body, "lineId"),
+        requiredInt(body, "quantity"),
         requiredString(body, "idempotencyKey"));
   }
 
   private Object couponsMine(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "GET");
     String status = query(exchange, "status");
-    return couponService.mine(user(exchange).id(), status);
+    return sharedPromotions.coupons(user(exchange).id(), status);
   }
 
   private Object couponClaim(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
-    return couponService.claim(user(exchange).id(), requiredLong(body, "templateId"),
-        requiredString(body, "requestId"));
+    return sharedPromotions.claimCoupon(
+        user(exchange).id(), requiredLong(body, "templateId"), requiredString(body, "requestId"));
   }
 
   private Object membershipMine(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "GET");
-    return membershipService.list(user(exchange).id());
+    return sharedPromotions.memberships(user(exchange).id());
   }
 
   private Object membershipRedeem(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
-    return membershipCodeService.redeem(user(exchange).id(), requiredString(body, "code"),
-        requiredString(body, "requestId"));
+    return sharedPromotions.redeemMembership(
+        user(exchange).id(), requiredString(body, "code"), requiredString(body, "requestId"));
   }
 
   private Object sellerPromotions(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "GET");
     long sellerId = user(exchange).id();
-    return promotionService.list("SELLER", sellerId);
+    return sharedPromotions.sellerCampaigns(sellerId);
   }
 
   private Object sellerPromotionCreate(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
-    return sellerPromotionService.create(user(exchange).id(),
-        gson.fromJson(body, SellerPromotionService.SellerPromotionInput.class));
+    return sharedPromotions.createSellerCampaign(
+        user(exchange).id(), gson.fromJson(body, SharedPromotionService.SellerCampaignInput.class));
   }
 
   private Object sellerPromotionAction(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
     AuthService.AuthUser seller = user(exchange);
-    long campaignId = requiredLong(body, "campaignId");
-    boolean owned = promotionService.list("SELLER", seller.id()).stream()
-        .anyMatch(campaign -> campaign.id() == campaignId);
-    if (!owned) {
-      throw new ServiceException("promotion_forbidden", "Campaign is not owned by seller");
-    }
-    return promotionService.transition(campaignId, requiredString(body, "action"), seller.id());
+    return sharedPromotions.transitionSellerCampaign(
+        seller.id(), requiredLong(body, "campaignId"), requiredString(body, "action"));
   }
 
   private Object adminPromotions(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "GET");
     admin(exchange, AdminPermission.PROMOTION_VIEW);
     String ownerType = query(exchange, "ownerType");
-    return promotionService.list(ownerType, null);
+    return sharedPromotions.campaigns(ownerType);
   }
 
   private Object adminPromotionCreate(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
     AdminService.AdminUser admin = admin(exchange, AdminPermission.PROMOTION_MANAGE);
-    return promotionService.createDraft(admin.userId(),
-        gson.fromJson(body, PromotionService.CampaignDraft.class));
+    return sharedPromotions.createCampaign(
+        admin.userId(), gson.fromJson(body, SharedPromotionService.CampaignInput.class));
   }
 
   private Object adminPromotionPublish(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
     AdminService.AdminUser admin = admin(exchange, AdminPermission.PROMOTION_MANAGE);
-    return promotionService.publish(admin.userId(), requiredLong(body, "campaignId"),
+    return sharedPromotions.publishCampaign(
+        admin.userId(),
+        requiredLong(body, "campaignId"),
         requiredLong(body, "expectedVersion"),
-        gson.fromJson(body.getAsJsonObject("rule"), PromotionService.RuleDraft.class));
+        gson.fromJson(
+            body.getAsJsonObject("rule"), SharedPromotionService.PromotionRuleInput.class));
   }
 
   private Object adminPromotionAction(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
     AdminService.AdminUser admin = admin(exchange, AdminPermission.PROMOTION_MANAGE);
-    return promotionService.transition(requiredLong(body, "campaignId"),
-        requiredString(body, "action"), admin.userId());
+    return sharedPromotions.transitionCampaign(
+        admin.userId(), requiredLong(body, "campaignId"), requiredString(body, "action"));
   }
 
   private Object emergencyStop(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
     AdminService.AdminUser admin = admin(exchange, AdminPermission.PROMOTION_EMERGENCY_STOP);
-    List<PromotionService.Campaign> campaigns = promotionService.list(null, null);
-    int paused = 0;
-    for (PromotionService.Campaign campaign : campaigns) {
-      if ("ACTIVE".equals(campaign.status())) {
-        promotionService.transition(campaign.id(), "PAUSE", admin.userId());
-        paused++;
-      }
-    }
-    return new EmergencyStopResult(paused, Instant.now());
+    return sharedPromotions.emergencyStop(admin.userId());
   }
 
   private Object adminCouponGrant(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
     AdminService.AdminUser admin = admin(exchange, AdminPermission.COUPON_GRANT);
-    return couponService.grant(requiredLong(body, "userId"), requiredLong(body, "templateId"),
-        "ADMIN", String.valueOf(admin.userId()), requiredString(body, "idempotencyKey"),
-        admin.userId());
+    return sharedPromotions.grantCoupon(
+        admin.userId(),
+        requiredLong(body, "userId"),
+        requiredLong(body, "templateId"),
+        requiredString(body, "idempotencyKey"));
   }
 
   private Object adminCouponTemplates(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "GET");
     admin(exchange, AdminPermission.COUPON_MANAGE);
-    return couponCatalogService.list();
+    return sharedPromotions.couponTemplates();
   }
 
   private Object adminCouponTemplateCreate(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
     AdminService.AdminUser admin = admin(exchange, AdminPermission.COUPON_MANAGE);
-    return couponCatalogService.create(admin.userId(),
-        gson.fromJson(body, CouponCatalogService.TemplateDraft.class));
+    return sharedPromotions.createCouponTemplate(
+        admin.userId(), gson.fromJson(body, SharedPromotionService.CouponTemplateInput.class));
   }
 
   private Object adminMembershipGrant(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
     AdminService.AdminUser admin = admin(exchange, AdminPermission.MEMBERSHIP_GRANT);
-    return membershipService.grant(requiredLong(body, "userId"),
-        requiredLong(body, "planVersionId"), "ADMIN", String.valueOf(admin.userId()),
-        requiredString(body, "idempotencyKey"), admin.userId());
+    return sharedPromotions.grantMembership(
+        admin.userId(),
+        requiredLong(body, "userId"),
+        requiredLong(body, "planVersionId"),
+        requiredString(body, "idempotencyKey"));
   }
 
   private Object adminMembershipRevoke(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
     AdminService.AdminUser admin = admin(exchange, AdminPermission.MEMBERSHIP_MANAGE);
-    return membershipService.revoke(requiredLong(body, "membershipId"), admin.userId(),
-        requiredString(body, "reason"));
+    return sharedPromotions.revokeMembership(
+        admin.userId(), requiredLong(body, "membershipId"), requiredString(body, "reason"));
   }
 
   private Object adminMembershipPlans(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "GET");
     admin(exchange, AdminPermission.MEMBERSHIP_VIEW);
-    return membershipCatalogService.listPlans();
+    return sharedPromotions.membershipPlans();
   }
 
   private Object adminMembershipPlanCreate(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
     AdminService.AdminUser admin = admin(exchange, AdminPermission.MEMBERSHIP_MANAGE);
-    return membershipCatalogService.createPlan(admin.userId(),
-        gson.fromJson(body, MembershipCatalogService.PlanDraft.class));
+    return sharedPromotions.createMembershipPlan(
+        admin.userId(), gson.fromJson(body, SharedPromotionService.MembershipPlanInput.class));
   }
 
   private Object adminMembershipPlanPublish(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
     AdminService.AdminUser admin = admin(exchange, AdminPermission.MEMBERSHIP_MANAGE);
-    return membershipCatalogService.publishVersion(admin.userId(),
-        requiredLong(body, "planId"), gson.fromJson(body.getAsJsonObject("version"),
-            MembershipCatalogService.VersionDraft.class));
+    return sharedPromotions.publishMembershipPlan(
+        admin.userId(),
+        requiredLong(body, "planId"),
+        gson.fromJson(
+            body.getAsJsonObject("version"), SharedPromotionService.MembershipVersionInput.class));
   }
 
   private Object adminMembershipProductBind(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
     AdminService.AdminUser admin = admin(exchange, AdminPermission.MEMBERSHIP_MANAGE);
-    membershipCatalogService.bindProduct(admin.userId(), requiredLong(body, "productId"),
-        requiredLong(body, "planVersionId"));
+    sharedPromotions.bindMembershipProduct(
+        admin.userId(), requiredLong(body, "productId"), requiredLong(body, "planVersionId"));
     return java.util.Map.of("status", "ok");
   }
 
   private Object adminMembershipCodeCreate(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
     AdminService.AdminUser admin = admin(exchange, AdminPermission.MEMBERSHIP_MANAGE);
-    Instant validUntil = body.has("validUntil") && !body.get("validUntil").isJsonNull()
-        ? Instant.parse(body.get("validUntil").getAsString()) : null;
-    return membershipCodeService.create(admin.userId(),
-        requiredLong(body, "planVersionId"), requiredInt(body, "maxUses"), validUntil);
+    Instant validUntil =
+        body.has("validUntil") && !body.get("validUntil").isJsonNull()
+            ? Instant.parse(body.get("validUntil").getAsString())
+            : null;
+    return sharedPromotions.createMembershipCode(
+        admin.userId(),
+        requiredLong(body, "planVersionId"),
+        requiredInt(body, "maxUses"),
+        validUntil);
   }
 
   private void handle(HttpExchange exchange, Endpoint endpoint) throws IOException {
@@ -314,16 +330,23 @@ final class CommerceHttpApi {
     } catch (BodyTooLargeException exception) {
       send(exchange, 413, new ErrorResponse("body_too_large", exception.getMessage()));
     } catch (ServiceException exception) {
-      int status = switch (exception.code()) {
-        case "auth_required", "auth_invalid" -> 401;
-        case "admin_forbidden", "promotion_forbidden" -> 403;
-        case "quote_missing", "membership_missing" -> 404;
-        case "method_not_allowed" -> 405;
-        case "CART_VERSION_CONFLICT", "PRICE_CHANGED", "QUOTE_EXPIRED",
-            "QUOTE_INPUT_CHANGED", "IDEMPOTENCY_CONFLICT", "PINNED_RULE_UNAVAILABLE",
-            "PINNED_RULE_NOT_APPLICABLE", "PINNED_RULE_CONFLICT" -> 409;
-        default -> 400;
-      };
+      int status =
+          switch (exception.code()) {
+            case "auth_required", "auth_invalid" -> 401;
+            case "admin_forbidden", "promotion_forbidden" -> 403;
+            case "quote_missing", "membership_missing" -> 404;
+            case "method_not_allowed" -> 405;
+            case "CART_VERSION_CONFLICT",
+                    "PRICE_CHANGED",
+                    "QUOTE_EXPIRED",
+                    "QUOTE_INPUT_CHANGED",
+                    "IDEMPOTENCY_CONFLICT",
+                    "PINNED_RULE_UNAVAILABLE",
+                    "PINNED_RULE_NOT_APPLICABLE",
+                    "PINNED_RULE_CONFLICT" ->
+                409;
+            default -> 400;
+          };
       send(exchange, status, new ErrorResponse(exception.code(), exception.getMessage()));
     } catch (RuntimeException exception) {
       send(exchange, 500, new ErrorResponse("internal_error", "Internal server error"));
@@ -336,8 +359,10 @@ final class CommerceHttpApi {
       throw new ServiceException("auth_required", "Missing session token");
     }
     String token = authorization.substring(7).trim();
-    return authService.findUserBySession(token)
-        .orElseThrow(() -> new ServiceException("auth_invalid", "Session token is invalid or expired"));
+    return authService
+        .findUserBySession(token)
+        .orElseThrow(
+            () -> new ServiceException("auth_invalid", "Session token is invalid or expired"));
   }
 
   private AdminService.AdminUser admin(HttpExchange exchange, AdminPermission permission) {
@@ -376,10 +401,13 @@ final class CommerceHttpApi {
   private void addSecurityHeaders(HttpExchange exchange) {
     exchange.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
     exchange.getResponseHeaders().set("Cache-Control", "no-store");
-    exchange.getResponseHeaders().set("Content-Security-Policy",
-        "default-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; "
-            + "style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; "
-            + "object-src 'none'; base-uri 'self'");
+    exchange
+        .getResponseHeaders()
+        .set(
+            "Content-Security-Policy",
+            "default-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; "
+                + "style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; "
+                + "object-src 'none'; base-uri 'self'");
     PluginSettings.EmbeddedWebSettings web = settingsSupplier.get().embeddedWebSettings();
     if (!web.corsEnabled()) {
       return;
@@ -392,7 +420,9 @@ final class CommerceHttpApi {
       exchange.getResponseHeaders().set("Access-Control-Allow-Credentials", "true");
       exchange.getResponseHeaders().add("Vary", "Origin");
     }
-    exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+    exchange
+        .getResponseHeaders()
+        .set("Access-Control-Allow-Headers", "Authorization, Content-Type");
     exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   }
 
@@ -428,8 +458,9 @@ final class CommerceHttpApi {
     for (String pair : raw.split("&")) {
       String[] parts = pair.split("=", 2);
       if (parts[0].equals(name)) {
-        return parts.length == 1 ? "" : java.net.URLDecoder.decode(
-            parts[1], StandardCharsets.UTF_8);
+        return parts.length == 1
+            ? ""
+            : java.net.URLDecoder.decode(parts[1], StandardCharsets.UTF_8);
       }
     }
     return null;
@@ -440,11 +471,7 @@ final class CommerceHttpApi {
     Object execute(HttpExchange exchange, JsonObject body);
   }
 
-  private record ErrorResponse(String code, String message) {
-  }
-
-  private record EmergencyStopResult(int pausedCampaigns, Instant stoppedAt) {
-  }
+  private record ErrorResponse(String code, String message) {}
 
   private static final class BodyTooLargeException extends RuntimeException {
     private BodyTooLargeException(String message) {

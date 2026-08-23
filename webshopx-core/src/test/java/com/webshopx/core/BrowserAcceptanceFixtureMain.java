@@ -8,6 +8,7 @@ import com.webshopx.DatabaseSettings;
 import com.webshopx.DbType;
 import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceService;
+import com.webshopx.SharedPromotionService;
 import com.webshopx.NotificationService;
 import com.webshopx.RedeemCodeService;
 import com.webshopx.WalletService;
@@ -48,6 +49,7 @@ public final class BrowserAcceptanceFixtureMain {
       states.put(CapabilitySnapshot.Capability.HTTP_API,
           CapabilitySnapshot.CapabilityState.available("browser acceptance fixture"));
       api = new SharedHttpApi("127.0.0.1", port, "", auth, wallets, commerce,
+          new SharedPromotionService(database),
           new RedeemCodeService(database, wallets), new NotificationService(database), admin,
           new AdminAuditService(database),
           new PlatformIdentity("fixture", "fixture", "ci", "ci", "browser-node",

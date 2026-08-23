@@ -64,7 +64,7 @@ public final class LoaderRuntime {
               Integer.getInteger("webshopx.http.port", 8123),
               System.getProperty("webshopx.http.allowed-origin", ""),
               databaseRuntime.authentication(), databaseRuntime.wallet(),
-              databaseRuntime.commerce(), databaseRuntime.redeemCodes(),
+              databaseRuntime.commerce(), databaseRuntime.promotions(), databaseRuntime.redeemCodes(),
               databaseRuntime.notifications(), databaseRuntime.administration(),
               databaseRuntime.audit(),
               bundle.identity(), bundle.capabilities());

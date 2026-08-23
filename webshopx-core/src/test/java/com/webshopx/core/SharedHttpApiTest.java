@@ -15,6 +15,7 @@ import com.webshopx.DatabaseSettings;
 import com.webshopx.DbType;
 import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceService;
+import com.webshopx.SharedPromotionService;
 import com.webshopx.NotificationService;
 import com.webshopx.RedeemCodeService;
 import com.webshopx.WalletService;
@@ -65,7 +66,8 @@ class SharedHttpApiTest {
     states.put(CapabilitySnapshot.Capability.HTTP_API,
         CapabilitySnapshot.CapabilityState.available("test"));
     api = new SharedHttpApi("127.0.0.1", 0, "https://shop.example", auth, wallets,
-        commerce, new RedeemCodeService(database, wallets), new NotificationService(database),
+        commerce, new SharedPromotionService(database), new RedeemCodeService(database, wallets),
+        new NotificationService(database),
         admin, new AdminAuditService(database),
         new PlatformIdentity("fabric", "fabric", "1.20.1", "test",
         "node-a", "sha256:test"), new CapabilitySnapshot(Instant.now(), states));
@@ -90,6 +92,20 @@ class SharedHttpApiTest {
         .getAsJsonObject().get("shopCoin").getAsInt());
     JsonObject product = JsonParser.parseString(get("/api/products", null).body())
         .getAsJsonArray().get(0).getAsJsonObject();
+    HttpResponse<String> emptyCart = get("/api/cart", token);
+    assertEquals(200, emptyCart.statusCode());
+    long cartVersion = JsonParser.parseString(emptyCart.body()).getAsJsonObject()
+        .get("version").getAsLong();
+    String cartAdd = "{\"sourceType\":\"OFFICIAL_PRODUCT\",\"sourceId\":"
+        + product.get("id").getAsLong()
+        + ",\"quantity\":1,\"deliveryMode\":\"MAILBOX\",\"expectedVersion\":"
+        + cartVersion + ",\"sourceVersion\":\"fixture-v1\",\"metadataJson\":\"{}\"}";
+    HttpResponse<String> addedCart = post("/api/cart/lines/add", cartAdd, token, null);
+    assertEquals(200, addedCart.statusCode());
+    assertEquals(1, JsonParser.parseString(addedCart.body()).getAsJsonObject()
+        .getAsJsonArray("lines").size());
+    assertEquals(200, get("/api/coupons/mine", token).statusCode());
+    assertEquals(200, get("/api/membership/me", token).statusCode());
     String order = "{\"productId\":" + product.get("id").getAsLong()
         + ",\"quantity\":2,\"idempotencyKey\":\"api-order-1\"}";
     String first = post("/api/orders", order, token, null).body();

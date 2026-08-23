@@ -12,6 +12,7 @@ import com.webshopx.RedeemCodeService;
 import com.webshopx.SchemaProvider;
 import com.webshopx.WalletService;
 import com.webshopx.SharedCommerceService;
+import com.webshopx.SharedPromotionService;
 import java.nio.file.Path;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -28,12 +29,13 @@ final class SharedDatabaseRuntime implements AutoCloseable {
   private final AdminAuditService audit;
   private final SharedCommerceService commerce;
   private final NotificationService notifications;
+  private final SharedPromotionService promotions;
 
   private SharedDatabaseRuntime(
       DatabaseManager database, AuthService authentication, PlayerPresenceService presence,
       WalletService wallet, RedeemCodeService redeemCodes, AdminService administration,
       AdminAuditService audit, SharedCommerceService commerce,
-      NotificationService notifications) {
+      NotificationService notifications, SharedPromotionService promotions) {
     this.database = database;
     this.authentication = authentication;
     this.presence = presence;
@@ -43,6 +45,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
     this.audit = audit;
     this.commerce = commerce;
     this.notifications = notifications;
+    this.promotions = promotions;
   }
 
   static SharedDatabaseRuntime start(Path dataDirectory) {
@@ -84,9 +87,10 @@ final class SharedDatabaseRuntime implements AutoCloseable {
     AdminAuditService audit = new AdminAuditService(database);
     SharedCommerceService commerce = new SharedCommerceService(database, wallet);
     NotificationService notifications = new NotificationService(database);
+    SharedPromotionService promotions = new SharedPromotionService(database);
     return new SharedDatabaseRuntime(
         database, authentication, presence, wallet, redeemCodes, administration, audit, commerce,
-        notifications);
+        notifications, promotions);
   }
 
   AuthService authentication() { return authentication; }
@@ -97,6 +101,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
   AdminAuditService audit() { return audit; }
   SharedCommerceService commerce() { return commerce; }
   NotificationService notifications() { return notifications; }
+  SharedPromotionService promotions() { return promotions; }
 
   @Override public void close() {
     presence.markServerOffline(presence.currentServerId());
