@@ -163,6 +163,7 @@ class SharedHttpApiTest {
             admin,
             new AdminAuditService(database),
             new RefundPolicyService(database),
+            new com.webshopx.SharedRuntimeConfigService(database),
             new PlatformIdentity("fabric", "fabric", "1.20.1", "test", "node-a", "sha256:test"),
             new CapabilitySnapshot(Instant.now(), states));
     api.start();
@@ -1225,6 +1226,46 @@ class SharedHttpApiTest {
   private long wallet(String token) throws Exception {
     return JsonParser.parseString(get("/api/wallet", token).body()).getAsJsonObject()
         .get("gameCoin").getAsLong();
+  }
+
+  @Test
+  void adminRuntimeConfigurationIsAuthorizedDurableAndPaperCompatible() throws Exception {
+    String adminToken = login("ApiPlayer", "api-secret");
+    assertEquals(401, get("/api/admin/economy/settings", null).statusCode());
+
+    HttpResponse<String> exchange = post(
+        "/api/admin/economy/exchange",
+        "{\"shopToGameEnabled\":true,\"shopToGameRatio\":2.5,"
+            + "\"gameToShopEnabled\":false,\"gameToShopRatio\":0.4}",
+        adminToken, null);
+    assertEquals(200, exchange.statusCode(), exchange.body());
+    JsonObject settings = JsonParser.parseString(
+        get("/api/admin/economy/settings", adminToken).body()).getAsJsonObject();
+    assertTrue(settings.getAsJsonObject("exchange").getAsJsonObject("shopToGame")
+        .get("enabled").getAsBoolean());
+    assertEquals(2.5, settings.getAsJsonObject("exchange").getAsJsonObject("shopToGame")
+        .get("ratio").getAsDouble());
+
+    HttpResponse<String> tags = post(
+        "/api/admin/market/tags-config",
+        "{\"config\":{\"tags\":[{\"id\":\"rare\",\"label\":\"Rare\"}]}}",
+        adminToken, null);
+    assertEquals(200, tags.statusCode(), tags.body());
+    JsonObject storedTags = JsonParser.parseString(
+        get("/api/admin/market/tags-config", adminToken).body()).getAsJsonObject();
+    assertEquals(1, storedTags.getAsJsonObject("config").getAsJsonArray("tags").size());
+    assertTrue(storedTags.get("version").getAsLong() >= 1);
+
+    HttpResponse<String> notification = post(
+        "/api/admin/system/notification",
+        "{\"marketEventsEnabled\":true,\"deliveryMailboxEventsEnabled\":false,"
+            + "\"templates\":{\"auction-win\":\"Won {listingId}\"}}",
+        adminToken, null);
+    assertEquals(200, notification.statusCode(), notification.body());
+    JsonObject refreshed = JsonParser.parseString(
+        get("/api/admin/economy/settings", adminToken).body()).getAsJsonObject();
+    assertTrue(refreshed.getAsJsonObject("notification")
+        .get("marketEventsEnabled").getAsBoolean());
   }
 
   @Test

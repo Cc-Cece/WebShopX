@@ -87,6 +87,7 @@ public final class BrowserAcceptanceFixtureMain {
               admin,
               new AdminAuditService(database),
               new RefundPolicyService(database),
+              new com.webshopx.SharedRuntimeConfigService(database),
               new PlatformIdentity(
                   "fixture", "fixture", "ci", "ci", "browser-node", "sha256:browser-fixture"),
               new CapabilitySnapshot(Instant.now(), states));

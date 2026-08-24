@@ -1,5 +1,6 @@
 package com.webshopx.loader;
 
+import com.google.gson.JsonObject;
 import com.webshopx.AdminAuditService;
 import com.webshopx.AdminService;
 import com.webshopx.AuthService;
@@ -16,6 +17,7 @@ import com.webshopx.SharedCommerceService;
 import com.webshopx.SharedContentService;
 import com.webshopx.SharedMarketEscrowService;
 import com.webshopx.SharedPromotionService;
+import com.webshopx.SharedRuntimeConfigService;
 import com.webshopx.WalletService;
 import java.nio.file.Path;
 import java.time.ZoneOffset;
@@ -36,6 +38,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
   private final NotificationService notifications;
   private final SharedPromotionService promotions;
   private final RefundPolicyService refundPolicies;
+  private final SharedRuntimeConfigService runtimeConfig;
 
   private SharedDatabaseRuntime(
       DatabaseManager database,
@@ -49,7 +52,8 @@ final class SharedDatabaseRuntime implements AutoCloseable {
       SharedContentService content,
       NotificationService notifications,
       SharedPromotionService promotions,
-      RefundPolicyService refundPolicies) {
+      RefundPolicyService refundPolicies,
+      SharedRuntimeConfigService runtimeConfig) {
     this.database = database;
     this.authentication = authentication;
     this.presence = presence;
@@ -62,6 +66,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
     this.notifications = notifications;
     this.promotions = promotions;
     this.refundPolicies = refundPolicies;
+    this.runtimeConfig = runtimeConfig;
   }
 
   static SharedDatabaseRuntime start(Path dataDirectory) {
@@ -88,17 +93,33 @@ final class SharedDatabaseRuntime implements AutoCloseable {
         new DatabaseManager(Logger.getLogger("com.webshopx.loader.database"), settings);
     database.start();
     SchemaProvider.forType(type).ensureSchema(database, ZoneOffset.UTC);
-    int tokenLength = Integer.getInteger("webshopx.auth.token-length", 48);
-    int sessionHours = Integer.getInteger("webshopx.auth.session-hours", 24);
+    SharedRuntimeConfigService runtimeConfig = new SharedRuntimeConfigService(database);
     AuthService authentication =
-        new AuthService(database, () -> new AuthService.SessionSettings(tokenLength, sessionHours));
+        new AuthService(
+            database,
+            () -> {
+              JsonObject config = runtimeConfig.read("webshop_runtime").config();
+              return new AuthService.SessionSettings(
+                  configInt(
+                      config,
+                      "accessTokenLength",
+                      Integer.getInteger("webshopx.auth.token-length", 48),
+                      16,
+                      256),
+                  configInt(
+                      config,
+                      "sessionExpireHours",
+                      Integer.getInteger("webshopx.auth.session-hours", 24),
+                      1,
+                      24 * 365));
+            });
     String serverId = System.getProperty("webshopx.server-id", "standalone");
     int presenceTtl = Integer.getInteger("webshopx.presence.ttl-seconds", 120);
     PlayerPresenceService presence =
         new PlayerPresenceService(
             database, () -> new PlayerPresenceService.PresenceSettings(serverId, presenceTtl));
     WalletService wallet =
-        new WalletService(database, WalletService.ExchangePolicy::disabled, null, null);
+        new WalletService(database, () -> exchangePolicy(runtimeConfig), null, null);
     RedeemCodeService redeemCodes = new RedeemCodeService(database, wallet);
     AdminService administration = new AdminService(database, authentication, wallet);
     administration.ensureBootstrapAdmin(
@@ -127,7 +148,8 @@ final class SharedDatabaseRuntime implements AutoCloseable {
         content,
         notifications,
         promotions,
-        refundPolicies);
+        refundPolicies,
+        runtimeConfig);
   }
 
   AuthService authentication() {
@@ -177,6 +199,39 @@ final class SharedDatabaseRuntime implements AutoCloseable {
 
   RefundPolicyService refundPolicies() {
     return refundPolicies;
+  }
+
+  SharedRuntimeConfigService runtimeConfig() {
+    return runtimeConfig;
+  }
+
+  private static WalletService.ExchangePolicy exchangePolicy(
+      SharedRuntimeConfigService runtimeConfig) {
+    JsonObject root = runtimeConfig.read("exchange").config();
+    return new WalletService.ExchangePolicy(
+        exchangeDirection(root, "shopToGame"), exchangeDirection(root, "gameToShop"));
+  }
+
+  private static WalletService.ExchangeDirection exchangeDirection(JsonObject root, String key) {
+    if (!root.has(key) || !root.get(key).isJsonObject()) {
+      return new WalletService.ExchangeDirection(false, 0D);
+    }
+    JsonObject direction = root.getAsJsonObject(key);
+    boolean enabled = direction.has("enabled") && direction.get("enabled").getAsBoolean();
+    double ratio = direction.has("ratio") ? direction.get("ratio").getAsDouble() : 0D;
+    return new WalletService.ExchangeDirection(
+        enabled && Double.isFinite(ratio) && ratio > 0D,
+        Double.isFinite(ratio) && ratio > 0D ? ratio : 0D);
+  }
+
+  private static int configInt(
+      JsonObject config, String key, int fallback, int minimum, int maximum) {
+    if (!config.has(key) || config.get(key).isJsonNull()) return fallback;
+    try {
+      return Math.max(minimum, Math.min(maximum, config.get(key).getAsInt()));
+    } catch (RuntimeException ignored) {
+      return fallback;
+    }
   }
 
   @Override

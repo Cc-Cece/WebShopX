@@ -133,6 +133,7 @@ class ReleasePerformanceBudgetTest {
               new AdminService(database, auth, wallets),
               new AdminAuditService(database),
               new RefundPolicyService(database),
+              new com.webshopx.SharedRuntimeConfigService(database),
               new PlatformIdentity(
                   "fabric", "fabric", "1.20.1", "test", "performance-node", "sha256:performance"),
               new CapabilitySnapshot(Instant.now(), states));

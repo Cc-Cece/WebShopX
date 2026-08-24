@@ -25,6 +25,7 @@ import com.webshopx.SharedCommerceService.PurchaseRequest;
 import com.webshopx.SharedContentService;
 import com.webshopx.SharedMarketEscrowService;
 import com.webshopx.SharedPromotionService;
+import com.webshopx.SharedRuntimeConfigService;
 import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.ItemEnvelope;
@@ -60,6 +61,7 @@ public final class SharedHttpApi implements AutoCloseable {
   private final AdminService administration;
   private final AdminAuditService audit;
   private final RefundPolicyService refundPolicies;
+  private final SharedRuntimeConfigService runtimeConfig;
   private final PlatformIdentity identity;
   private final CapabilitySnapshot capabilities;
   private final String allowedOrigin;
@@ -82,6 +84,7 @@ public final class SharedHttpApi implements AutoCloseable {
       AdminService administration,
       AdminAuditService audit,
       RefundPolicyService refundPolicies,
+      SharedRuntimeConfigService runtimeConfig,
       PlatformIdentity identity,
       CapabilitySnapshot capabilities) {
     this.auth = Objects.requireNonNull(auth, "auth");
@@ -95,6 +98,7 @@ public final class SharedHttpApi implements AutoCloseable {
     this.administration = Objects.requireNonNull(administration, "administration");
     this.audit = Objects.requireNonNull(audit, "audit");
     this.refundPolicies = Objects.requireNonNull(refundPolicies, "refundPolicies");
+    this.runtimeConfig = Objects.requireNonNull(runtimeConfig, "runtimeConfig");
     this.identity = Objects.requireNonNull(identity, "identity");
     this.capabilities = Objects.requireNonNull(capabilities, "capabilities");
     this.allowedOrigin = allowedOrigin == null ? "" : allowedOrigin.trim();
@@ -791,17 +795,12 @@ public final class SharedHttpApi implements AutoCloseable {
                 "platform",
                 identity.platform()));
       } else if (path.equals("/api/leaderboard/config") && method(exchange, "GET")) {
-        respond(
-            exchange,
-            200,
-            Map.of(
-                "leaderboard",
-                Map.of(
-                    "enabled", true,
-                    "showOnlineStatus", false,
-                    "defaultMetric", "SHOP_COIN",
-                    "defaultOrder", "DESC")));
+        respond(exchange, 200, Map.of("leaderboard", leaderboardConfig()));
       } else if (path.equals("/api/leaderboard/list") && method(exchange, "GET")) {
+        JsonObject leaderboard = leaderboardConfig();
+        if (!leaderboard.get("enabled").getAsBoolean()) {
+          throw new ServiceException("feature_disabled", "Leaderboard page is disabled");
+        }
         Long viewer =
             auth.findUserBySession(token(exchange)).map(AuthService.AuthUser::id).orElse(null);
         var result =
@@ -812,14 +811,7 @@ public final class SharedHttpApi implements AutoCloseable {
                 queryInt(exchange, "limit", 100),
                 viewer);
         JsonObject response = new JsonObject();
-        response.add(
-            "leaderboard",
-            gson.toJsonTree(
-                Map.of(
-                    "enabled", true,
-                    "showOnlineStatus", false,
-                    "defaultMetric", "SHOP_COIN",
-                    "defaultOrder", "DESC")));
+        response.add("leaderboard", leaderboard);
         response.addProperty("metric", result.metric());
         response.addProperty("order", result.order());
         response.addProperty("requestedRange", result.requestedRange());
@@ -944,23 +936,40 @@ public final class SharedHttpApi implements AutoCloseable {
                 "serverId",
                 identity.serverId()));
       } else if (path.equals("/api/meta/locales") && method(exchange, "GET")) {
-        respond(exchange, 200, Map.of("defaultLocale", "zh-CN", "locales", List.of()));
+        JsonObject webshop = runtimeConfig.read("webshop_runtime").config();
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "defaultLocale", configString(webshop, "defaultLocale", "zh-CN"),
+                "locales", List.of()));
       } else if (path.equals("/api/meta/material-overrides") && method(exchange, "GET")) {
         respond(exchange, 200, content.materialOverrides());
       } else if (path.equals("/api/meta/materials") && method(exchange, "GET")) {
         respond(exchange, 200, List.of());
       } else if (path.equals("/api/meta/market-tags") && method(exchange, "GET")) {
-        respond(exchange, 200, List.of());
-      } else if (path.equals("/api/meta/currency") && method(exchange, "GET")) {
+        JsonObject tags = runtimeConfig.read("market_tags").config();
         JsonObject response = new JsonObject();
-        response.add("shopCoin", currencyDisplay("ShopCoin", "SC"));
-        response.add("gameCoin", currencyDisplay("GameCoin", "GC"));
+        response.add("tags", tags.has("tags") ? tags.get("tags") : new JsonArray());
+        response.addProperty("maxTagsPerItem", configInt(tags, "maxTagsPerItem", 0));
+        response.addProperty(
+            "playersCanSelectTags", configBoolean(tags, "playersCanSelectTags", false));
+        respond(exchange, 200, response);
+      } else if (path.equals("/api/meta/currency") && method(exchange, "GET")) {
+        JsonObject currency = runtimeConfig.read("currency_display").config();
+        JsonObject exchangeConfig = exchangeConfig();
+        JsonObject response = new JsonObject();
         response.add(
-            "exchange",
-            gson.toJsonTree(
-                Map.of(
-                    "shopToGame", Map.of("enabled", false, "ratio", 0),
-                    "gameToShop", Map.of("enabled", false, "ratio", 0))));
+            "shopCoin",
+            currencyDisplay(
+                configString(currency, "shopCoinName", "ShopCoin"),
+                configString(currency, "shopCoinShort", "SC")));
+        response.add(
+            "gameCoin",
+            currencyDisplay(
+                configString(currency, "gameCoinName", "GameCoin"),
+                configString(currency, "gameCoinShort", "GC")));
+        response.add("exchange", exchangeConfig);
         response.add(
             "payment",
             gson.toJsonTree(
@@ -1454,6 +1463,99 @@ public final class SharedHttpApi implements AutoCloseable {
         else response.addProperty("refundWindowMinutes", policy.windowMinutes());
         response.addProperty("partialRefundPolicy", policy.partialPolicy());
         respond(exchange, 200, response);
+      } else if (path.equals("/api/admin/economy/settings") && method(exchange, "GET")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        JsonObject response = new JsonObject();
+        response.add("exchange", runtimeConfig.read("exchange").config());
+        JsonObject market = runtimeConfig.read("market_economy").config();
+        response.add("market", market.deepCopy());
+        JsonObject inflation = new JsonObject();
+        copyIfPresent(market, inflation, "inflationMode", "mode");
+        copyIfPresent(market, inflation, "treasuryUserId", "treasuryUserId");
+        response.add("inflation", inflation);
+        response.add("leaderboard", runtimeConfig.read("leaderboard").config());
+        response.add("currency", runtimeConfig.read("currency_display").config());
+        response.add("rechargePayment", runtimeConfig.read("payment_recharge").config());
+        response.add("marketRuntime", runtimeConfig.read("market_runtime").config());
+        response.add("marketTagsConfig", runtimeConfig.read("market_tags").config());
+        response.add("marketLimitationConfig", runtimeConfig.read("market_limitation").config());
+        response.add("auctionDisplay", runtimeConfig.read("auction_display").config());
+        response.add("webshopRuntime", runtimeConfig.read("webshop_runtime").config());
+        response.add("maintenance", runtimeConfig.read("maintenance").config());
+        response.add("logging", runtimeConfig.read("logging").config());
+        response.add("broadcast", runtimeConfig.read("broadcast").config());
+        response.add("notification", runtimeConfig.read("notification").config());
+        response.add("offlineInventory", runtimeConfig.read("offline_inventory").config());
+        response.add("visual", runtimeConfig.read("visual_settings").config());
+        JsonObject vault = new JsonObject();
+        vault.addProperty("vaultPluginPresent", false);
+        vault.addProperty("hooked", false);
+        vault.add("provider", JsonNull.INSTANCE);
+        vault.addProperty("gameCoinBackedByVault", false);
+        response.add("vault", vault);
+        JsonObject deployment = new JsonObject();
+        deployment.addProperty("platform", identity.platform());
+        deployment.addProperty("loader", identity.loader());
+        deployment.addProperty("serverId", identity.serverId());
+        response.add("deployment", deployment);
+        audit.log(actor, "ECONOMY_READ", "economy", null, null, clientIp(exchange));
+        respond(exchange, 200, response);
+      } else if (path.equals("/api/admin/economy/exchange") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        JsonObject config = new JsonObject();
+        JsonObject shopToGame = new JsonObject();
+        shopToGame.addProperty("enabled", optionalBoolean(input, "shopToGameEnabled", false));
+        shopToGame.addProperty("ratio", nonNegativeDouble(input, "shopToGameRatio"));
+        JsonObject gameToShop = new JsonObject();
+        gameToShop.addProperty("enabled", optionalBoolean(input, "gameToShopEnabled", false));
+        gameToShop.addProperty("ratio", nonNegativeDouble(input, "gameToShopRatio"));
+        config.add("shopToGame", shopToGame);
+        config.add("gameToShop", gameToShop);
+        respondRuntimeConfigUpdate(exchange, actor, "exchange", config, "EXCHANGE_UPDATE");
+      } else if (path.equals("/api/admin/economy/market") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        JsonObject config = input.deepCopy();
+        if (config.has("inflationTreasuryUserId")) {
+          config.add("treasuryUserId", config.remove("inflationTreasuryUserId"));
+        }
+        respondRuntimeConfigUpdate(exchange, actor, "market_economy", config, "MARKET_ECONOMY_UPDATE");
+      } else if (path.equals("/api/admin/economy/leaderboard") && method(exchange, "POST")) {
+        respondRuntimeConfigBodyUpdate(exchange, "leaderboard", "LEADERBOARD_UPDATE");
+      } else if (path.equals("/api/admin/economy/currency") && method(exchange, "POST")) {
+        respondRuntimeConfigBodyUpdate(exchange, "currency_display", "CURRENCY_DISPLAY_UPDATE");
+      } else if (path.equals("/api/admin/economy/recharge-payment")
+          && method(exchange, "POST")) {
+        respondRuntimeConfigBodyUpdate(exchange, "payment_recharge", "RECHARGE_PAYMENT_UPDATE");
+      } else if ((path.equals("/api/admin/market/tags-config")
+              || path.equals("/api/admin/market/limitation-config"))
+          && (method(exchange, "GET") || method(exchange, "POST"))) {
+        String key = path.endsWith("tags-config") ? "market_tags" : "market_limitation";
+        runtimeConfigDocumentEndpoint(exchange, key);
+      } else if (path.equals("/api/admin/system/auction-display")
+          && (method(exchange, "GET") || method(exchange, "POST"))) {
+        runtimeConfigDocumentEndpoint(exchange, "auction_display");
+      } else if (path.equals("/api/admin/system/offline-inventory")
+          && (method(exchange, "GET") || method(exchange, "POST"))) {
+        runtimeConfigDocumentEndpoint(exchange, "offline_inventory");
+      } else if (path.equals("/api/admin/visual/settings")
+          && (method(exchange, "GET") || method(exchange, "POST"))) {
+        runtimeConfigDocumentEndpoint(exchange, "visual_settings");
+      } else if (path.equals("/api/admin/system/webshop") && method(exchange, "POST")) {
+        respondRuntimeConfigBodyUpdate(exchange, "webshop_runtime", "WEBSHOP_RUNTIME_UPDATE");
+      } else if (path.equals("/api/admin/system/home-link") && method(exchange, "POST")) {
+        respondRuntimeConfigBodyUpdate(exchange, "home_link", "HOME_LINK_UPDATE");
+      } else if (path.equals("/api/admin/system/market") && method(exchange, "POST")) {
+        respondRuntimeConfigBodyUpdate(exchange, "market_runtime", "MARKET_RUNTIME_UPDATE");
+      } else if (path.equals("/api/admin/system/maintenance") && method(exchange, "POST")) {
+        respondRuntimeConfigBodyUpdate(exchange, "maintenance", "MAINTENANCE_UPDATE");
+      } else if (path.equals("/api/admin/system/logging") && method(exchange, "POST")) {
+        respondRuntimeConfigBodyUpdate(exchange, "logging", "LOGGING_UPDATE");
+      } else if (path.equals("/api/admin/system/broadcast") && method(exchange, "POST")) {
+        respondRuntimeConfigBodyUpdate(exchange, "broadcast", "BROADCAST_UPDATE");
+      } else if (path.equals("/api/admin/system/notification") && method(exchange, "POST")) {
+        respondRuntimeConfigBodyUpdate(exchange, "notification", "NOTIFICATION_SETTINGS_UPDATE");
       } else if (path.equals("/api/admin/overview/stats") && method(exchange, "GET")) {
         administration.requireAdmin(user(exchange), null);
         respond(exchange, 200, content.overviewStats());
@@ -1682,6 +1784,73 @@ public final class SharedHttpApi implements AutoCloseable {
     result.addProperty("name", name);
     result.addProperty("short", shortName);
     return result;
+  }
+
+  private JsonObject leaderboardConfig() {
+    JsonObject stored = runtimeConfig.read("leaderboard").config();
+    JsonObject result = new JsonObject();
+    result.addProperty("enabled", configBoolean(stored, "enabled", true));
+    result.addProperty("showOnlineStatus", configBoolean(stored, "showOnlineStatus", false));
+    result.addProperty("defaultMetric", configString(stored, "defaultMetric", "SHOP_COIN"));
+    result.addProperty("defaultOrder", configString(stored, "defaultOrder", "DESC"));
+    return result;
+  }
+
+  private JsonObject exchangeConfig() {
+    JsonObject stored = runtimeConfig.read("exchange").config();
+    JsonObject result = new JsonObject();
+    result.add("shopToGame", exchangeDirectionConfig(stored, "shopToGame"));
+    result.add("gameToShop", exchangeDirectionConfig(stored, "gameToShop"));
+    return result;
+  }
+
+  private static JsonObject exchangeDirectionConfig(JsonObject root, String key) {
+    JsonObject stored =
+        root.has(key) && root.get(key).isJsonObject()
+            ? root.getAsJsonObject(key)
+            : new JsonObject();
+    JsonObject result = new JsonObject();
+    result.addProperty("enabled", configBoolean(stored, "enabled", false));
+    double ratio = 0D;
+    try {
+      if (stored.has("ratio")) ratio = stored.get("ratio").getAsDouble();
+    } catch (RuntimeException ignored) {
+      ratio = 0D;
+    }
+    result.addProperty("ratio", Double.isFinite(ratio) && ratio > 0D ? ratio : 0D);
+    return result;
+  }
+
+  private static boolean configBoolean(JsonObject config, String key, boolean fallback) {
+    try {
+      return config.has(key) && !config.get(key).isJsonNull()
+          ? config.get(key).getAsBoolean()
+          : fallback;
+    } catch (RuntimeException ignored) {
+      return fallback;
+    }
+  }
+
+  private static int configInt(JsonObject config, String key, int fallback) {
+    try {
+      return config.has(key) && !config.get(key).isJsonNull()
+          ? config.get(key).getAsInt()
+          : fallback;
+    } catch (RuntimeException ignored) {
+      return fallback;
+    }
+  }
+
+  private static String configString(JsonObject config, String key, String fallback) {
+    try {
+      String value =
+          config.has(key) && !config.get(key).isJsonNull()
+              ? config.get(key).getAsString()
+              : fallback;
+      return value == null || value.isBlank() ? fallback : value;
+    } catch (RuntimeException ignored) {
+      return fallback;
+    }
   }
 
   private JsonObject marketListingJson(SharedCommerceService.Listing listing) {
@@ -2040,6 +2209,74 @@ public final class SharedHttpApi implements AutoCloseable {
 
   private static boolean method(HttpExchange exchange, String expected) {
     return expected.equals(exchange.getRequestMethod());
+  }
+
+  private void runtimeConfigDocumentEndpoint(HttpExchange exchange, String key) throws IOException {
+    var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+    if (method(exchange, "GET")) {
+      SharedRuntimeConfigService.ConfigDocument document = runtimeConfig.read(key);
+      JsonObject response = new JsonObject();
+      response.add("config", document.config());
+      response.addProperty("version", document.version());
+      if ("visual_settings".equals(key)) response.add("visual", document.config().deepCopy());
+      respond(exchange, 200, response);
+      return;
+    }
+    JsonObject input = body(exchange);
+    JsonObject config =
+        input.has("config") && input.get("config").isJsonObject()
+            ? input.getAsJsonObject("config")
+            : input;
+    respondRuntimeConfigUpdate(
+        exchange, actor, key, config, key.toUpperCase(Locale.ROOT) + "_UPDATE");
+  }
+
+  private void respondRuntimeConfigBodyUpdate(
+      HttpExchange exchange, String key, String auditAction) throws IOException {
+    JsonObject input = body(exchange);
+    var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+    respondRuntimeConfigUpdate(exchange, actor, key, input, auditAction);
+  }
+
+  private void respondRuntimeConfigUpdate(
+      HttpExchange exchange,
+      AdminService.AdminUser actor,
+      String key,
+      JsonObject config,
+      String auditAction)
+      throws IOException {
+    SharedRuntimeConfigService.ConfigDocument saved = runtimeConfig.update(key, config);
+    JsonObject detail = new JsonObject();
+    detail.addProperty("version", saved.version());
+    detail.addProperty("fieldCount", saved.config().size());
+    audit.log(actor, auditAction, "runtime_config", key, detail, clientIp(exchange));
+    JsonObject response = new JsonObject();
+    response.addProperty("status", "ok");
+    response.addProperty("version", saved.version());
+    if ("payment_recharge".equals(key)) {
+      response.add("rechargePayment", saved.config());
+    } else if ("notification".equals(key)) {
+      response.add("notification", saved.config());
+    } else if ("visual_settings".equals(key)) {
+      response.add("visual", saved.config());
+    } else {
+      response.add("config", saved.config());
+    }
+    respond(exchange, 200, response);
+  }
+
+  private static double nonNegativeDouble(JsonObject input, String key) {
+    if (!input.has(key) || input.get(key).isJsonNull()) return 0D;
+    double value = input.get(key).getAsDouble();
+    if (!Double.isFinite(value) || value < 0D) {
+      throw new ServiceException("invalid_config", key + " must be a non-negative number");
+    }
+    return value;
+  }
+
+  private static void copyIfPresent(
+      JsonObject source, JsonObject target, String sourceKey, String targetKey) {
+    if (source.has(sourceKey)) target.add(targetKey, source.get(sourceKey).deepCopy());
   }
 
   private static int parseLength(String value) {

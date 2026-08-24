@@ -5,6 +5,7 @@ import com.webshopx.AdminService;
 import com.webshopx.AuthService;
 import com.webshopx.RedeemCodeService;
 import com.webshopx.SharedCommerceService;
+import com.webshopx.SharedRuntimeConfigService;
 import com.webshopx.WalletService;
 import com.webshopx.core.RedisEventBridge;
 import com.webshopx.core.SharedHttpApi;
@@ -85,6 +86,7 @@ public final class LoaderRuntime {
                   databaseRuntime.administration(),
                   databaseRuntime.audit(),
                   databaseRuntime.refundPolicies(),
+                  databaseRuntime.runtimeConfig(),
                   bundle.identity(),
                   bundle.capabilities());
           httpApi.start();
@@ -196,6 +198,11 @@ public final class LoaderRuntime {
   public static Optional<SharedCommerceService> commerce() {
     SharedDatabaseRuntime current = databaseRuntime;
     return current == null ? Optional.empty() : Optional.of(current.commerce());
+  }
+
+  public static Optional<SharedRuntimeConfigService> runtimeConfig() {
+    SharedDatabaseRuntime current = databaseRuntime;
+    return current == null ? Optional.empty() : Optional.of(current.runtimeConfig());
   }
 
   public static String healthLine() {

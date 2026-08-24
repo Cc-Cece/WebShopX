@@ -3,9 +3,10 @@ java { toolchain.languageVersion = JavaLanguageVersion.of(17) }
 dependencies {
     api project(':webshopx-core')
     api project(':webshopx-platform-api')
+    compileOnly 'com.google.code.gson:gson:2.11.0'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'
+    testImplementation 'com.google.code.gson:gson:2.11.0'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.13.4'
     testRuntimeOnly 'org.slf4j:slf4j-simple:1.7.36'
-    testRuntimeOnly 'com.google.code.gson:gson:2.11.0'
 }
 test { useJUnitPlatform() }

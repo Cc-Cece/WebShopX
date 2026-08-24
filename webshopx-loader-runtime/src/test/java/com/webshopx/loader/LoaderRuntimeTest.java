@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.webshopx.core.WebShopXCoreRuntime;
+import com.google.gson.JsonParser;
 import com.webshopx.CurrencyType;
 import com.webshopx.AdminService;
 import com.webshopx.platform.CapabilitySnapshot.Capability;
@@ -40,11 +41,21 @@ class LoaderRuntimeTest {
     var wallet = LoaderRuntime.wallet().orElseThrow();
     assertEquals(25L, wallet.adjustBalance(
         created.userId(), CurrencyType.SHOP_COIN, 25L, "TEST", "test-credit").shopCoin());
+    LoaderRuntime.runtimeConfig().orElseThrow().update(
+        "exchange",
+        JsonParser.parseString(
+            "{\"shopToGame\":{\"enabled\":true,\"ratio\":2},"
+                + "\"gameToShop\":{\"enabled\":false,\"ratio\":0}}")
+            .getAsJsonObject());
+    var exchanged = wallet.exchange(
+        created.userId(), CurrencyType.SHOP_COIN, CurrencyType.GAME_COIN, 5L, "test-exchange");
+    assertEquals(20L, exchanged.shopCoin());
+    assertEquals(10L, exchanged.gameCoin());
     var administration = LoaderRuntime.administration().orElseThrow();
     administration.ensureBootstrapAdmin(new AdminService.AdminBootstrapSettings(
         true, "Loader_Admin", "loader-admin-secret", "SUPER_ADMIN"));
     assertTrue(administration.login("Loader_Admin", "loader-admin-secret").admin().isSuperAdmin());
-    assertEquals(25L, wallet.adjustBalance(
+    assertEquals(20L, wallet.adjustBalance(
         created.userId(), CurrencyType.SHOP_COIN, 25L, "TEST", "test-credit").shopCoin());
     LoaderRuntime.stop();
     assertTrue(Files.readString(temporaryDirectory.resolve("health.json")).contains("\"state\": \"STOPPED\""));
