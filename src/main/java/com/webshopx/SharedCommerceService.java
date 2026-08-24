@@ -551,6 +551,69 @@ public final class SharedCommerceService {
         });
   }
 
+  public List<MailboxEntry> mailboxItems(long userId, int requestedLimit, Long cursor) {
+    int limit = Math.max(1, Math.min(requestedLimit, 100));
+    return database.withConnection(
+        connection -> {
+          String sql =
+              "SELECT id,source_type,source_ref,item_blob,quantity,delivered_quantity,reason,"
+                  + "status,last_error,claimed_at,created_at FROM mailbox_items WHERE user_id=?"
+                  + " AND status IN ('PENDING','PARTIAL','PROCESSING')"
+                  + (cursor == null ? "" : " AND id<?")
+                  + " ORDER BY id DESC LIMIT ?";
+          try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            int parameter = 1;
+            statement.setLong(parameter++, userId);
+            if (cursor != null) statement.setLong(parameter++, cursor);
+            statement.setInt(parameter, limit);
+            try (ResultSet result = statement.executeQuery()) {
+              List<MailboxEntry> values = new ArrayList<>();
+              while (result.next()) {
+                ItemEnvelope item = envelopes.decode(result.getBytes(4));
+                int quantity = result.getInt(5);
+                int delivered = result.getInt(6);
+                values.add(
+                    new MailboxEntry(
+                        "MAILBOX:" + result.getLong(1),
+                        "ITEM",
+                        result.getString(2),
+                        result.getString(3),
+                        item.registryId(),
+                        item.registryId(),
+                        quantity,
+                        delivered,
+                        0,
+                        result.getString(8),
+                        instant(result, 11),
+                        true,
+                        false,
+                        "PRODUCT_NOT_REFUNDABLE",
+                        result.getString(7),
+                        result.getString(9),
+                        instant(result, 10),
+                        item.payloadHash()));
+              }
+              return List.copyOf(values);
+            }
+          }
+        });
+  }
+
+  public int mailboxCount(long userId) {
+    return database.withConnection(
+        connection -> {
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT COUNT(*) FROM mailbox_items WHERE user_id=?"
+                      + " AND status IN ('PENDING','PARTIAL','PROCESSING')")) {
+            statement.setLong(1, userId);
+            try (ResultSet result = statement.executeQuery()) {
+              return result.next() ? result.getInt(1) : 0;
+            }
+          }
+        });
+  }
+
   public RefundResult refundOrder(long userId, String orderNo) {
     String idempotencyKey = "order-refund:" + orderNo;
     RefundResult refund;
@@ -2197,6 +2260,26 @@ public final class SharedCommerceService {
       String targetServerId) {}
 
   public record DeliveryStatus(String orderNo, String status, List<DeliveryTask> deliveryTasks) {}
+
+  public record MailboxEntry(
+      String id,
+      String type,
+      String sourceType,
+      String sourceRef,
+      String title,
+      String material,
+      int quantity,
+      int deliveredQuantity,
+      int refundableQuantity,
+      String status,
+      Instant createdAt,
+      boolean collectible,
+      boolean refundable,
+      String refundReason,
+      String reason,
+      String lastDeliveryError,
+      Instant claimedAt,
+      String itemFingerprint) {}
 
   public record RefundResult(
       String orderNo, long refundAmount, int refundQuantity, WalletService.WalletBalance balance) {}

@@ -1,6 +1,7 @@
 package com.webshopx;
 
 import com.google.gson.Gson;
+import com.webshopx.core.ItemEnvelopeBinaryCodec;
 import com.webshopx.platform.InventoryTypes.InventoryMutation;
 import com.webshopx.platform.InventoryTypes.InventoryMutationResult;
 import com.webshopx.platform.InventoryTypes.InventoryRemoval;
@@ -24,6 +25,7 @@ public final class SharedMarketEscrowService {
   private final SharedCommerceService commerce;
   private final InventoryGateway inventories;
   private final Gson gson = CommerceJson.create();
+  private final ItemEnvelopeBinaryCodec envelopes = new ItemEnvelopeBinaryCodec();
 
   public SharedMarketEscrowService(
       DatabaseManager database, SharedCommerceService commerce, InventoryGateway inventories) {
@@ -222,6 +224,161 @@ public final class SharedMarketEscrowService {
       compensate(request.userId(), request.playerId(), request.idempotencyKey(), removed);
       throw failure;
     }
+  }
+
+  public MailboxClaimResult claimMailbox(MailboxClaimRequest request) {
+    long mailboxId = mailboxId(request.entryId());
+    MailboxItem item = beginMailboxClaim(request.userId(), mailboxId);
+    if (item.alreadyClaimed()) return new MailboxClaimResult(request.entryId(), 1, 0);
+    ItemEnvelope delivery = withCount(item.item(), item.remaining());
+    InventorySnapshot snapshot = snapshot(request.playerId(), true);
+    PlatformResult<InventoryMutationResult> result;
+    try {
+      result =
+          inventories
+              .compareAndApply(
+                  new InventoryMutation(
+                      "mailbox-claim:" + mailboxId + ":" + item.deliveredQuantity(),
+                      request.playerId(),
+                      snapshot.version(),
+                      List.of(delivery),
+                      List.of()))
+              .toCompletableFuture()
+              .get(INVENTORY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    } catch (Exception failure) {
+      throw new ServiceException(
+          "inventory_outcome_unknown", "Mailbox claim requires reconciliation");
+    }
+    if (!(result instanceof PlatformResult.Success<InventoryMutationResult> success)) {
+      restoreMailboxPending(mailboxId, resultCode(result));
+      throw platformFailure(result);
+    }
+    int remainder = success.value().remainder().stream().mapToInt(ItemEnvelope::count).sum();
+    int deliveredNow = item.remaining() - remainder;
+    if (deliveredNow < 1) {
+      restoreMailboxPending(mailboxId, "inventory_full");
+      return new MailboxClaimResult(request.entryId(), 0, 1);
+    }
+    database.inTransaction(
+        connection -> {
+          int deliveredTotal = item.deliveredQuantity() + deliveredNow;
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE mailbox_items SET delivered_quantity=?,status=?,last_error=?,"
+                      + "claimed_at=CASE WHEN ?>=quantity THEN CURRENT_TIMESTAMP ELSE claimed_at END"
+                      + " WHERE id=? AND user_id=? AND status='PROCESSING'")) {
+            statement.setInt(1, deliveredTotal);
+            statement.setString(2, remainder == 0 ? "CLAIMED" : "PARTIAL");
+            statement.setString(3, remainder == 0 ? null : "inventory_partial");
+            statement.setInt(4, deliveredTotal);
+            statement.setLong(5, mailboxId);
+            statement.setLong(6, request.userId());
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException(
+                  "inventory_outcome_unknown", "Mailbox claim requires reconciliation");
+            }
+          }
+          return null;
+        });
+    return new MailboxClaimResult(request.entryId(), 1, remainder == 0 ? 0 : 1);
+  }
+
+  private MailboxItem beginMailboxClaim(long userId, long mailboxId) {
+    return database.inTransaction(
+        connection -> {
+          MailboxItem item;
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT item_blob,quantity,delivered_quantity,status FROM mailbox_items"
+                      + " WHERE id=? AND user_id=?")) {
+            statement.setLong(1, mailboxId);
+            statement.setLong(2, userId);
+            try (ResultSet result = statement.executeQuery()) {
+              if (!result.next()) {
+                throw new ServiceException("mailbox_entry_missing", "Mailbox entry was not found");
+              }
+              int quantity = result.getInt(2);
+              int delivered = result.getInt(3);
+              String status = result.getString(4);
+              if ("CLAIMED".equals(status)) {
+                return new MailboxItem(null, quantity, delivered, 0, true);
+              }
+              if ("PROCESSING".equals(status)) {
+                throw new ServiceException(
+                    "inventory_outcome_unknown", "Mailbox claim requires reconciliation");
+              }
+              if (!"PENDING".equals(status) && !"PARTIAL".equals(status)) {
+                throw new ServiceException("mailbox_entry_unavailable", "Mailbox item is unavailable");
+              }
+              item =
+                  new MailboxItem(
+                      envelopes.decode(result.getBytes(1)),
+                      quantity,
+                      delivered,
+                      Math.max(0, quantity - delivered),
+                      false);
+            }
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE mailbox_items SET status='PROCESSING',last_error=NULL"
+                      + " WHERE id=? AND user_id=? AND status IN ('PENDING','PARTIAL')")) {
+            statement.setLong(1, mailboxId);
+            statement.setLong(2, userId);
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException("mailbox_conflict", "Mailbox item changed concurrently");
+            }
+          }
+          return item;
+        });
+  }
+
+  private void restoreMailboxPending(long mailboxId, String error) {
+    database.inTransaction(
+        connection -> {
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE mailbox_items SET status=CASE WHEN delivered_quantity=0 THEN 'PENDING'"
+                      + " ELSE 'PARTIAL' END,last_error=? WHERE id=? AND status='PROCESSING'")) {
+            statement.setString(1, error);
+            statement.setLong(2, mailboxId);
+            statement.executeUpdate();
+          }
+          return null;
+        });
+  }
+
+  private static long mailboxId(String entryId) {
+    if (entryId == null || !entryId.startsWith("MAILBOX:")) {
+      throw new ServiceException("mailbox_entry_missing", "Mailbox entry was not found");
+    }
+    try {
+      return Long.parseLong(entryId.substring("MAILBOX:".length()));
+    } catch (NumberFormatException failure) {
+      throw new ServiceException("mailbox_entry_missing", "Mailbox entry was not found");
+    }
+  }
+
+  private static ItemEnvelope withCount(ItemEnvelope item, int count) {
+    return new ItemEnvelope(
+        item.schemaVersion(),
+        item.codec(),
+        item.codecVersion(),
+        item.compatibilityDomain(),
+        item.registryId(),
+        count,
+        item.payloadEncoding(),
+        item.payload(),
+        item.payloadHash(),
+        item.summary(),
+        item.createdAt());
+  }
+
+  private static String resultCode(PlatformResult<?> result) {
+    if (result instanceof PlatformResult.Rejected<?> rejected) return rejected.errorCode();
+    if (result instanceof PlatformResult.Conflict<?>) return "inventory_conflict";
+    if (result instanceof PlatformResult.UnknownOutcome<?>) return "inventory_outcome_unknown";
+    return "inventory_unavailable";
   }
 
   private InventorySnapshot snapshot(UUID playerId, boolean allowOffline) {
@@ -610,6 +767,17 @@ public final class SharedMarketEscrowService {
       boolean allowOffline,
       Long expectedUnitPrice,
       Long expectedBuyerTotal) {}
+
+  public record MailboxClaimRequest(long userId, UUID playerId, String entryId) {}
+
+  public record MailboxClaimResult(String entryId, int success, int failed) {}
+
+  private record MailboxItem(
+      ItemEnvelope item,
+      int quantity,
+      int deliveredQuantity,
+      int remaining,
+      boolean alreadyClaimed) {}
 
   private record Existing(
       String action,

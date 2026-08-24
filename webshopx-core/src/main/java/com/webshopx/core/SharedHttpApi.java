@@ -318,17 +318,31 @@ public final class SharedHttpApi implements AutoCloseable {
         if (user.boundUuid() == null) throw new ServiceException("not_bound", "User is not bound");
         respond(exchange, 200, commerce.pendingDeliveries(user.boundUuid(), identity.serverId()));
       } else if (path.equals("/api/mailbox/list") && method(exchange, "GET")) {
-        var current = boundUser(exchange);
-        respond(
-            exchange, 200, commerce.pendingDeliveries(current.boundUuid(), identity.serverId()));
+        var current = user(exchange);
+        var items =
+            commerce.mailboxItems(
+                current.id(), queryInt(exchange, "limit", 50), queryLong(exchange, "cursor"));
+        respond(exchange, 200, Map.of("items", items, "count", items.size()));
       } else if (path.equals("/api/mailbox/count") && method(exchange, "GET")) {
+        var current = user(exchange);
+        respond(exchange, 200, Map.of("count", commerce.mailboxCount(current.id())));
+      } else if (path.startsWith("/api/mailbox/")
+          && path.endsWith("/claim")
+          && method(exchange, "POST")) {
         var current = boundUser(exchange);
+        String entryId =
+            path.substring("/api/mailbox/".length(), path.length() - "/claim".length());
         respond(
             exchange,
             200,
-            Map.of(
-                "count",
-                commerce.pendingDeliveries(current.boundUuid(), identity.serverId()).size()));
+            marketEscrow.claimMailbox(
+                new SharedMarketEscrowService.MailboxClaimRequest(
+                    current.id(), current.boundUuid(), entryId)));
+      } else if (path.startsWith("/api/mailbox/")
+          && path.endsWith("/refund")
+          && method(exchange, "POST")) {
+        throw new ServiceException(
+            "capability_unavailable", "Standalone mailbox items are not refundable");
       } else if (path.equals("/api/inventory/snapshot") && method(exchange, "GET")) {
         var current = boundUser(exchange);
         String inventory = query(exchange, "inventory");
@@ -1409,6 +1423,7 @@ public final class SharedHttpApi implements AutoCloseable {
                     "delivery_outcome_unknown",
                     "refund_outcome_unknown" ->
                 503;
+            case "capability_unavailable" -> 501;
             default -> 400;
           };
       respond(exchange, status, error(failure.code(), failure.getMessage()));

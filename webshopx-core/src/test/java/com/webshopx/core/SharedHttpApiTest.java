@@ -379,6 +379,83 @@ class SharedHttpApiTest {
   }
 
   @Test
+  void standaloneMailboxClaimUsesNativeInventoryAndIsIdempotent() throws Exception {
+    var mailboxItem =
+        new ItemEnvelopeService(Clock.systemUTC(), Set.of("fixture"))
+            .create(
+                "fixture",
+                1,
+                new CompatibilityDomain("fabric", "fabric", "1.20.1", 1, "sha256:test"),
+                "minecraft:diamond",
+                2,
+                new byte[] {4, 5, 6},
+                Map.of());
+    long mailboxId =
+        database.inTransaction(
+            connection -> {
+              long userId;
+              try (var user =
+                      connection.prepareStatement(
+                          "SELECT id FROM web_users WHERE username='ApiPlayer'");
+                  var result = user.executeQuery()) {
+                result.next();
+                userId = result.getLong(1);
+              }
+              try (var statement =
+                  connection.prepareStatement(
+                      "INSERT INTO mailbox_items"
+                          + " (user_id,target_uuid,source_type,source_ref,item_blob,quantity,reason)"
+                          + " VALUES (?,?,?,?,?,?,?)",
+                      java.sql.Statement.RETURN_GENERATED_KEYS)) {
+                statement.setLong(1, userId);
+                statement.setString(2, player.toString());
+                statement.setString(3, "DELIVERY");
+                statement.setString(4, "fixture-mailbox");
+                statement.setBytes(5, new ItemEnvelopeBinaryCodec().encode(mailboxItem));
+                statement.setInt(6, 2);
+                statement.setString(7, "offline delivery");
+                statement.executeUpdate();
+                try (var keys = statement.getGeneratedKeys()) {
+                  keys.next();
+                  return keys.getLong(1);
+                }
+              }
+            });
+    String token =
+        JsonParser.parseString(
+                post(
+                        "/api/auth/login",
+                        "{\"identifier\":\"ApiPlayer\",\"password\":\"api-secret\"}",
+                        null,
+                        null)
+                    .body())
+            .getAsJsonObject()
+            .get("token")
+            .getAsString();
+    JsonObject mailbox =
+        JsonParser.parseString(get("/api/mailbox/list", token).body()).getAsJsonObject();
+    assertEquals(1, mailbox.get("count").getAsInt());
+    String entryId =
+        mailbox.getAsJsonArray("items").get(0).getAsJsonObject().get("id").getAsString();
+    assertEquals("MAILBOX:" + mailboxId, entryId);
+    String claimPath = "/api/mailbox/" + entryId + "/claim";
+    assertEquals(200, post(claimPath, "{}", token, null).statusCode());
+    assertEquals(200, post(claimPath, "{}", token, null).statusCode());
+    assertEquals(0, JsonParser.parseString(get("/api/mailbox/count", token).body())
+        .getAsJsonObject().get("count").getAsInt());
+    int inventoryTotal =
+        ((com.webshopx.platform.PlatformResult.Success<
+                    com.webshopx.platform.InventoryTypes.InventorySnapshot>)
+                inventories.snapshot(player, false).toCompletableFuture().join())
+            .value()
+            .items()
+            .stream()
+            .mapToInt(com.webshopx.platform.ItemEnvelope::count)
+            .sum();
+    assertEquals(7, inventoryTotal);
+  }
+
+  @Test
   void marketListingEscrowsServerInventoryAndReplaysIdempotently() throws Exception {
     HttpResponse<String> login =
         post(
