@@ -187,6 +187,7 @@ sourceSets {
             exclude 'com/webshopx/SellerPromotionService.java'
             exclude 'com/webshopx/SharedPromotionService.java'
             exclude 'com/webshopx/SharedRuntimeConfigService.java'
+            exclude 'com/webshopx/SharedLocaleCenterService.java'
             exclude 'com/webshopx/SharedCommerceCheckoutAdapter.java'
             exclude 'com/webshopx/promotion/**'
             exclude 'com/webshopx/NotificationService.java'

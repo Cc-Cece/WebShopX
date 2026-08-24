@@ -71,6 +71,7 @@ def extractedCoreSources = [
         'com/webshopx/SellerPromotionService.java',
         'com/webshopx/SharedPromotionService.java',
         'com/webshopx/SharedRuntimeConfigService.java',
+        'com/webshopx/SharedLocaleCenterService.java',
         'com/webshopx/SharedCommerceCheckoutAdapter.java',
         'com/webshopx/promotion/**',
         'com/webshopx/NotificationService.java',

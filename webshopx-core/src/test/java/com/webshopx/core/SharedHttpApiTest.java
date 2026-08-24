@@ -32,6 +32,7 @@ import com.webshopx.platform.CompatibilityDomain;
 import com.webshopx.platform.InventoryTypes.InventoryMutation;
 import com.webshopx.platform.PlatformIdentity;
 import com.webshopx.testkit.InMemoryInventoryGateway;
+import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -45,6 +46,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -213,7 +218,7 @@ class SharedHttpApiTest {
     JsonObject localeMeta =
         JsonParser.parseString(get("/api/meta/locales", null).body()).getAsJsonObject();
     assertEquals("zh-CN", localeMeta.get("defaultLocale").getAsString());
-    assertTrue(localeMeta.getAsJsonArray("locales").isEmpty());
+    assertEquals(2, localeMeta.getAsJsonArray("locales").size());
     assertEquals(401, get("/api/wallet", null).statusCode());
     HttpResponse<String> login =
         post(
@@ -1256,6 +1261,18 @@ class SharedHttpApiTest {
         .get("gameCoin").getAsLong();
   }
 
+  private static byte[] localeZip(Map<String, String> entries) throws Exception {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
+      for (Map.Entry<String, String> entry : entries.entrySet()) {
+        zip.putNextEntry(new ZipEntry(entry.getKey()));
+        zip.write(entry.getValue().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        zip.closeEntry();
+      }
+    }
+    return bytes.toByteArray();
+  }
+
   @Test
   void adminRuntimeConfigurationIsAuthorizedDurableAndPaperCompatible() throws Exception {
     String adminToken = login("ApiPlayer", "api-secret");
@@ -1417,6 +1434,71 @@ class SharedHttpApiTest {
         post(
                 "/api/admin/group-buy/consume",
                 "{\"code\":\"" + refundableCode + "\"}",
+                token,
+                null)
+            .statusCode());
+  }
+
+  @Test
+  void localePackagesAreValidatedPersistedPublishedAndNeverExposeStoredPayloads() throws Exception {
+    String token = login("ApiPlayer", "api-secret");
+    LinkedHashMap<String, String> entries = new LinkedHashMap<>();
+    entries.put("web/i18n/app/fr-FR.json", "{\"welcome\":\"Bonjour\"}");
+    entries.put("web/i18n/admin/fr-FR.json", "{\"title\":\"Administration\"}");
+    entries.put("messages/messages.fr-FR.yml", "welcome: Bonjour\n");
+    String encoded = Base64.getEncoder().encodeToString(localeZip(entries));
+    HttpResponse<String> upload = post(
+        "/api/admin/locales/upload",
+        "{\"fileName\":\"fr.zip\",\"contentBase64\":\"" + encoded + "\","
+            + "\"name\":\"French\",\"nativeName\":\"Français\",\"version\":\"1.0.0\"}",
+        token,
+        null);
+    assertEquals(200, upload.statusCode(), upload.body());
+    assertEquals(3, JsonParser.parseString(upload.body()).getAsJsonObject()
+        .get("fileCount").getAsInt());
+    assertFalse(upload.body().contains("gameYamlBase64"));
+    assertFalse(upload.body().contains("Bonjour"));
+
+    HttpResponse<String> state = get("/api/admin/locales", token);
+    assertEquals(200, state.statusCode(), state.body());
+    assertFalse(state.body().contains("bundles"));
+    assertEquals(3, JsonParser.parseString(state.body()).getAsJsonObject()
+        .getAsJsonArray("locales").size());
+    assertEquals(
+        404,
+        get("/api/locales/fr-FR/messages", null).statusCode());
+    assertEquals(
+        200,
+        post(
+                "/api/admin/locales/action",
+                "{\"locale\":\"fr-FR\",\"action\":\"toggleWeb\"}",
+                token,
+                null)
+            .statusCode());
+    HttpResponse<String> messages = get("/api/locales/fr-FR/messages", null);
+    assertEquals(200, messages.statusCode(), messages.body());
+    assertEquals(
+        "Bonjour",
+        JsonParser.parseString(messages.body()).getAsJsonObject()
+            .getAsJsonObject("app").get("welcome").getAsString());
+    assertEquals(
+        200,
+        post(
+                "/api/admin/locales/default",
+                "{\"defaultLocale\":\"fr_FR\"}",
+                token,
+                null)
+            .statusCode());
+    JsonObject meta = JsonParser.parseString(get("/api/meta/locales", null).body()).getAsJsonObject();
+    assertEquals("fr-FR", meta.get("defaultLocale").getAsString());
+
+    String unsafe = Base64.getEncoder().encodeToString(
+        localeZip(Map.of("../web/i18n/app/evil.json", "{}")));
+    assertEquals(
+        400,
+        post(
+                "/api/admin/locales/upload",
+                "{\"fileName\":\"unsafe.zip\",\"contentBase64\":\"" + unsafe + "\"}",
                 token,
                 null)
             .statusCode());

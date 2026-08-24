@@ -24,6 +24,7 @@ import com.webshopx.SharedCommerceService.ProductKind;
 import com.webshopx.SharedCommerceService.PurchaseRequest;
 import com.webshopx.SharedContentService;
 import com.webshopx.SharedMarketEscrowService;
+import com.webshopx.SharedLocaleCenterService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.SharedRuntimeConfigService;
 import com.webshopx.WalletService;
@@ -66,6 +67,7 @@ public final class SharedHttpApi implements AutoCloseable {
   private final AdminAuditService audit;
   private final RefundPolicyService refundPolicies;
   private final SharedRuntimeConfigService runtimeConfig;
+  private final SharedLocaleCenterService localeCenter;
   private final PlatformIdentity identity;
   private final CapabilitySnapshot capabilities;
   private final String allowedOrigin;
@@ -104,6 +106,7 @@ public final class SharedHttpApi implements AutoCloseable {
     this.audit = Objects.requireNonNull(audit, "audit");
     this.refundPolicies = Objects.requireNonNull(refundPolicies, "refundPolicies");
     this.runtimeConfig = Objects.requireNonNull(runtimeConfig, "runtimeConfig");
+    this.localeCenter = new SharedLocaleCenterService(runtimeConfig);
     this.identity = Objects.requireNonNull(identity, "identity");
     this.capabilities = Objects.requireNonNull(capabilities, "capabilities");
     this.allowedOrigin = allowedOrigin == null ? "" : allowedOrigin.trim();
@@ -973,13 +976,17 @@ public final class SharedHttpApi implements AutoCloseable {
                 "serverId",
                 identity.serverId()));
       } else if (path.equals("/api/meta/locales") && method(exchange, "GET")) {
-        JsonObject webshop = runtimeConfig.read("webshop_runtime").config();
-        respond(
-            exchange,
-            200,
-            Map.of(
-                "defaultLocale", configString(webshop, "defaultLocale", "zh-CN"),
-                "locales", List.of()));
+        JsonObject localeState = localeCenter.listState();
+        JsonObject response = new JsonObject();
+        response.addProperty("defaultLocale", localeState.get("defaultLocale").getAsString());
+        response.add("locales", localeCenter.listPublicLocales());
+        respond(exchange, 200, response);
+      } else if (path.startsWith("/api/locales/")
+          && path.endsWith("/messages")
+          && method(exchange, "GET")) {
+        String locale = path.substring(
+            "/api/locales/".length(), path.length() - "/messages".length());
+        respond(exchange, 200, localeCenter.readPublicMessages(locale));
       } else if (path.equals("/api/meta/material-overrides") && method(exchange, "GET")) {
         respond(exchange, 200, content.materialOverrides());
       } else if (path.equals("/api/meta/materials") && method(exchange, "GET")) {
@@ -1631,6 +1638,50 @@ public final class SharedHttpApi implements AutoCloseable {
             exchange,
             result.status() == PaymentConfigUpdateStatus.REJECTED ? 422 : 200,
             response);
+      } else if (path.equals("/api/admin/locales") && method(exchange, "GET")) {
+        administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        respond(exchange, 200, localeCenter.listState());
+      } else if (path.equals("/api/admin/locales/default") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        JsonObject state = localeCenter.updateDefaultLocale(requiredString(input, "defaultLocale"));
+        audit.log(actor, "LOCALE_DEFAULT_UPDATE", "locale", null, null, clientIp(exchange));
+        JsonObject response = new JsonObject();
+        response.add("state", state);
+        respond(exchange, 200, response);
+      } else if (path.equals("/api/admin/locales/action") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        String locale = requiredString(input, "locale");
+        String action = requiredString(input, "action");
+        JsonObject state = localeCenter.applyAction(locale, action);
+        JsonObject detail = new JsonObject();
+        detail.addProperty("locale", locale);
+        detail.addProperty("action", action);
+        audit.log(actor, "LOCALE_ACTION", "locale", locale, detail, clientIp(exchange));
+        JsonObject response = new JsonObject();
+        response.add("state", state);
+        respond(exchange, 200, response);
+      } else if (path.equals("/api/admin/locales/upload") && method(exchange, "POST")) {
+        JsonObject input = body(exchange, SharedLocaleCenterService.ENCODED_PACKAGE_MAX_BYTES + 4096);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        var outcome = localeCenter.installBase64(
+            optionalString(input, "fileName", "locale-pack.zip"),
+            requiredString(input, "contentBase64"),
+            new SharedLocaleCenterService.InstallOptions(
+                optionalString(input, "name", null),
+                optionalString(input, "nativeName", null),
+                optionalString(input, "version", null),
+                optionalString(input, "source", "upload")));
+        JsonObject detail = new JsonObject();
+        detail.addProperty("fileCount", outcome.fileCount());
+        detail.addProperty("localeCount", outcome.changed().size());
+        audit.log(actor, "LOCALE_PACKAGE_UPLOAD", "locale", null, detail, clientIp(exchange));
+        JsonObject response = new JsonObject();
+        response.add("state", outcome.state());
+        response.add("changed", outcome.changed());
+        response.addProperty("fileCount", outcome.fileCount());
+        respond(exchange, 200, response);
       } else if ((path.equals("/api/admin/market/tags-config")
               || path.equals("/api/admin/market/limitation-config"))
           && (method(exchange, "GET") || method(exchange, "POST"))) {
@@ -2162,10 +2213,14 @@ public final class SharedHttpApi implements AutoCloseable {
   }
 
   private JsonObject body(HttpExchange exchange) throws IOException {
+    return body(exchange, MAX_BODY);
+  }
+
+  private JsonObject body(HttpExchange exchange, int maxBytes) throws IOException {
     int declared = parseLength(exchange.getRequestHeaders().getFirst("Content-Length"));
-    if (declared > MAX_BODY) throw new BodyTooLarge("Request body exceeds 64 KiB");
-    byte[] bytes = exchange.getRequestBody().readNBytes(MAX_BODY + 1);
-    if (bytes.length > MAX_BODY) throw new BodyTooLarge("Request body exceeds 64 KiB");
+    if (declared > maxBytes) throw new BodyTooLarge("Request body exceeds endpoint limit");
+    byte[] bytes = exchange.getRequestBody().readNBytes(maxBytes + 1);
+    if (bytes.length > maxBytes) throw new BodyTooLarge("Request body exceeds endpoint limit");
     if (bytes.length == 0) return new JsonObject();
     var value = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8));
     if (!value.isJsonObject()) throw new IllegalArgumentException("JSON object required");
