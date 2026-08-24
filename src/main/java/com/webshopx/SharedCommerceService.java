@@ -1349,6 +1349,41 @@ public final class SharedCommerceService {
     return database.withConnection(connection -> rechargeByOrder(connection, orderId));
   }
 
+  public Recharge rechargeForUser(long userId, String orderId) {
+    Recharge recharge = rechargeByOrder(orderId);
+    if (recharge.userId() != userId) {
+      throw new ServiceException("recharge_forbidden", "Recharge belongs to another user");
+    }
+    return recharge;
+  }
+
+  public Recharge cancelRecharge(long userId, String orderId) {
+    return database.inTransaction(
+        connection -> {
+          Recharge recharge = rechargeByOrder(connection, orderId);
+          if (recharge.userId() != userId) {
+            throw new ServiceException("recharge_forbidden", "Recharge belongs to another user");
+          }
+          if (recharge.status().equals("CANCELLED")) return recharge;
+          if (!recharge.status().equals("CREATED") && !recharge.status().equals("PAYING")) {
+            throw new ServiceException(
+                "recharge_not_cancellable", "Recharge can no longer be cancelled");
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE webshopx_recharge_order SET status='CANCELLED',"
+                      + "updated_at=CURRENT_TIMESTAMP WHERE order_id=? AND user_id=?"
+                      + " AND status IN ('CREATED','PAYING')")) {
+            statement.setString(1, orderId);
+            statement.setLong(2, userId);
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException("recharge_conflict", "Recharge changed concurrently");
+            }
+          }
+          return rechargeByOrder(connection, orderId);
+        });
+  }
+
   private static Recharge rechargeByOrder(Connection connection, String orderId)
       throws SQLException {
     try (PreparedStatement statement =

@@ -91,6 +91,23 @@ class SharedHttpApiTest {
     wallets.adjustBalance(
         supportTarget, CurrencyType.GAME_COIN, 100, "TEST", "api-market-buyer-seed");
     SharedCommerceService commerce = new SharedCommerceService(database, wallets);
+    commerce.registerPaymentProvider(
+        new SharedCommerceService.PaymentProvider() {
+          @Override
+          public String id() {
+            return "fixture-pay";
+          }
+
+          @Override
+          public SharedCommerceService.PaymentSession create(
+              String orderId, long amountMinor, String currency, String description) {
+            return new SharedCommerceService.PaymentSession(
+                "provider-" + orderId,
+                "https://pay.example/" + orderId,
+                null,
+                Instant.now().plusSeconds(600));
+          }
+        });
     inventories = new InMemoryInventoryGateway(36);
     var item =
         new ItemEnvelopeService(Clock.systemUTC(), Set.of("fixture"))
@@ -311,6 +328,54 @@ class SharedHttpApiTest {
             "https://evil.example");
     assertFalse(rejected.headers().firstValue("Access-Control-Allow-Origin").isPresent());
     assertTrue(rejected.headers().firstValue("Content-Security-Policy").isPresent());
+  }
+
+  @Test
+  void rechargeStatusAndCancellationEnforceOwnershipAndAreIdempotent() throws Exception {
+    String ownerToken =
+        JsonParser.parseString(
+                post(
+                        "/api/auth/login",
+                        "{\"identifier\":\"ApiPlayer\",\"password\":\"api-secret\"}",
+                        null,
+                        null)
+                    .body())
+            .getAsJsonObject()
+            .get("token")
+            .getAsString();
+    String otherToken =
+        JsonParser.parseString(
+                post(
+                        "/api/auth/login",
+                        "{\"identifier\":\"SupportTarget\",\"password\":\"target-secret\"}",
+                        null,
+                        null)
+                    .body())
+            .getAsJsonObject()
+            .get("token")
+            .getAsString();
+    HttpResponse<String> created =
+        post(
+            "/api/recharge/create",
+            "{\"amountMinor\":100,\"currency\":\"CNY\",\"coinAmount\":10,"
+                + "\"provider\":\"fixture-pay\",\"idempotencyKey\":\"recharge-api-1\"}",
+            ownerToken,
+            null);
+    assertEquals(200, created.statusCode(), created.body());
+    String orderId =
+        JsonParser.parseString(created.body()).getAsJsonObject().get("orderId").getAsString();
+    assertEquals(
+        403,
+        get("/api/recharge/status?orderId=" + orderId, otherToken).statusCode());
+    String cancelBody = "{\"orderId\":\"" + orderId + "\"}";
+    assertEquals(403, post("/api/recharge/cancel", cancelBody, otherToken, null).statusCode());
+    assertEquals(200, post("/api/recharge/cancel", cancelBody, ownerToken, null).statusCode());
+    assertEquals(200, post("/api/recharge/cancel", cancelBody, ownerToken, null).statusCode());
+    JsonObject status =
+        JsonParser.parseString(
+                get("/api/recharge/status?orderId=" + orderId, ownerToken).body())
+            .getAsJsonObject();
+    assertEquals("CANCELLED", status.get("status").getAsString());
   }
 
   @Test

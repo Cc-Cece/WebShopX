@@ -540,8 +540,22 @@ public final class SharedHttpApi implements AutoCloseable {
                     requiredString(input, "idempotencyKey"),
                     optionalString(input, "description", "WebShopX recharge"))));
       } else if (path.equals("/api/recharge/status") && method(exchange, "GET")) {
-        user(exchange);
-        respond(exchange, 200, commerce.rechargeByOrder(requiredQuery(exchange, "orderId")));
+        var current = user(exchange);
+        respond(
+            exchange,
+            200,
+            commerce.rechargeForUser(current.id(), requiredQuery(exchange, "orderId")));
+      } else if (path.equals("/api/recharge/cancel") && method(exchange, "POST")) {
+        var current = user(exchange);
+        var cancelled =
+            commerce.cancelRecharge(current.id(), requiredString(body(exchange), "orderId"));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "success", true,
+                "orderId", cancelled.orderId(),
+                "status", cancelled.status()));
       } else if (path.equals("/api/notifications/list") && method(exchange, "GET")) {
         var current = user(exchange);
         respond(
@@ -1224,7 +1238,7 @@ public final class SharedHttpApi implements AutoCloseable {
       int status =
           switch (failure.code()) {
             case "invalid_session", "unauthorized" -> 401;
-            case "forbidden", "not_admin", "listing_forbidden" -> 403;
+            case "forbidden", "not_admin", "listing_forbidden", "recharge_forbidden" -> 403;
             case "not_found", "product_not_found", "order_not_found", "listing_not_found" -> 404;
             case "insufficient_funds",
                     "insufficient_stock",
