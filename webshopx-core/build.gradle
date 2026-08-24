@@ -87,6 +87,7 @@ def extractedCoreSources = [
         'com/webshopx/SharedMarketEscrowService.java',
         'com/webshopx/SharedContentService.java',
         'com/webshopx/SharedVisualPackService.java',
+        'com/webshopx/SharedUpdateService.java',
         'com/webshopx/SqliteDialect.java',
         'com/webshopx/SqliteSqlProvider.java',
         'com/webshopx/SqliteSchemaProvider.java',

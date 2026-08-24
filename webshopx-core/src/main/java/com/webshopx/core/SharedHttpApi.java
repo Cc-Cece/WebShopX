@@ -28,6 +28,7 @@ import com.webshopx.SharedLocaleCenterService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.SharedRuntimeConfigService;
 import com.webshopx.SharedVisualPackService;
+import com.webshopx.SharedUpdateService;
 import com.webshopx.WalletService;
 import com.webshopx.payment.api.PaymentConfigUpdateRequest;
 import com.webshopx.payment.api.PaymentConfigUpdateStatus;
@@ -70,6 +71,7 @@ public final class SharedHttpApi implements AutoCloseable {
   private final RefundPolicyService refundPolicies;
   private final SharedRuntimeConfigService runtimeConfig;
   private final SharedLocaleCenterService localeCenter;
+  private final SharedUpdateService updates;
   private final PlatformIdentity identity;
   private final CapabilitySnapshot capabilities;
   private final String allowedOrigin;
@@ -110,6 +112,7 @@ public final class SharedHttpApi implements AutoCloseable {
     this.runtimeConfig = Objects.requireNonNull(runtimeConfig, "runtimeConfig");
     this.localeCenter = new SharedLocaleCenterService(runtimeConfig);
     this.identity = Objects.requireNonNull(identity, "identity");
+    this.updates = new SharedUpdateService(identity);
     this.capabilities = Objects.requireNonNull(capabilities, "capabilities");
     this.allowedOrigin = allowedOrigin == null ? "" : allowedOrigin.trim();
     try {
@@ -994,18 +997,7 @@ public final class SharedHttpApi implements AutoCloseable {
             promotions.transitionSellerCampaign(
                 current.id(), requiredLong(input, "campaignId"), requiredString(input, "action")));
       } else if (path.equals("/api/meta/version") && method(exchange, "GET")) {
-        respond(
-            exchange,
-            200,
-            Map.of(
-                "platform",
-                identity.platform(),
-                "minecraft",
-                identity.minecraftVersion(),
-                "loader",
-                identity.loaderVersion(),
-                "serverId",
-                identity.serverId()));
+        respond(exchange, 200, updates.publicState());
       } else if (path.equals("/api/meta/locales") && method(exchange, "GET")) {
         JsonObject localeState = localeCenter.listState();
         JsonObject response = new JsonObject();
@@ -1644,6 +1636,10 @@ public final class SharedHttpApi implements AutoCloseable {
         response.add("packs", packs);
         response.addProperty("priorityRule", "FIRST_ENABLED_MATCH");
         respond(exchange, 200, response);
+      } else if (path.equals("/api/admin/system/update")
+          && (method(exchange, "GET") || method(exchange, "POST"))) {
+        administration.requireAdmin(user(exchange), null);
+        respond(exchange, 200, updates.state(method(exchange, "POST")));
       } else if (path.equals("/api/admin/visual-packs/upload") && method(exchange, "POST")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
         byte[] bytes = bodyWithLimit(
