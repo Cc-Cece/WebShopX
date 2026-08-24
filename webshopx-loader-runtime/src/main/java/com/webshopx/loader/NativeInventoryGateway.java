@@ -177,6 +177,7 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
         if (!(decodedItem instanceof PlatformResult.Success<Object> success)) {
           return PlatformResult.rejected("INVENTORY_ITEM_INVALID", "error.inventory.item_invalid");
         }
+        setCount(success.value(), insertion.count());
         decoded.add(success.value());
       }
 

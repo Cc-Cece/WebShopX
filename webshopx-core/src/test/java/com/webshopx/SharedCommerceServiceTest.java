@@ -14,6 +14,8 @@ import com.webshopx.SharedCommerceService.ProductKind;
 import com.webshopx.SharedCommerceService.PurchaseRequest;
 import com.webshopx.SharedCommerceService.RechargeRequest;
 import com.webshopx.core.ItemEnvelopeService;
+import com.webshopx.core.ItemEnvelopeBinaryCodec;
+import com.google.gson.JsonParser;
 import com.webshopx.platform.CompatibilityDomain;
 import com.webshopx.platform.ItemEnvelope;
 import java.nio.file.Path;
@@ -24,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Base64;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -115,6 +118,63 @@ class SharedCommerceServiceTest {
     assertEquals("insufficient_funds", failure.code());
     assertEquals(0, wallets.getBalance(buyer).shopCoin());
     assertEquals(1, commerce.products(false).get(0).stockRemaining());
+  }
+
+  @Test void snapshotProductsPreserveNativePayloadAcrossVersionRollbackAndDelivery() {
+    UUID buyerId = UUID.randomUUID();
+    long buyer = auth.setPasswordFromGame(buyerId, "SnapshotBuyer", "buyer-secret").userId();
+    wallets.adjustBalance(buyer, CurrencyType.SHOP_COIN, 1_000, "TEST", "snapshot-seed");
+    ItemEnvelope first = envelope("fixture:nested_box", 8, "nested-nbt-components-v1");
+    var product = commerce.createSnapshotProduct(
+        new ProductInput(
+            "NATIVE_BOX",
+            "Native Box",
+            null,
+            CurrencyType.SHOP_COIN,
+            25,
+            ProductKind.SNAPSHOT_ITEM,
+            "",
+            first.registryId(),
+            10,
+            true),
+        first,
+        buyer);
+    assertEquals(1, commerce.snapshotVersions(product.id()).get(0).version());
+
+    var purchase = commerce.purchase(new PurchaseRequest(
+        buyer, buyerId, product.id(), 3, "snapshot-purchase-1", "fabric-a"));
+    var delivery = commerce.pendingDeliveries(buyerId, "fabric-a").get(0);
+    ItemEnvelope deliveredTemplate = decodeDeliveryEnvelope(delivery.payloadJson());
+    assertEquals(1, deliveredTemplate.count());
+    assertEquals(first.payloadHash(), deliveredTemplate.payloadHash());
+    assertEquals("nested-nbt-components-v1", new String(
+        deliveredTemplate.payload(), java.nio.charset.StandardCharsets.UTF_8));
+    assertEquals(75, purchase.total());
+
+    ItemEnvelope second = envelope("fixture:nested_box", 1, "nested-nbt-components-v2");
+    commerce.replaceSnapshot(product.id(), second, buyer);
+    var versions = commerce.snapshotVersions(product.id());
+    assertEquals(2, versions.size());
+    assertTrue(versions.get(0).active());
+    assertEquals(2, versions.get(0).version());
+    commerce.rollbackSnapshot(product.id(), 1, buyer);
+    var rolledBack = commerce.snapshotVersions(product.id());
+    assertEquals(3, rolledBack.size());
+    assertEquals(3, rolledBack.get(0).version());
+    assertTrue(rolledBack.get(0).active());
+    assertEquals(rolledBack.get(2).snapshotId(), rolledBack.get(0).snapshotId());
+
+    commerce.purchase(new PurchaseRequest(
+        buyer, buyerId, product.id(), 1, "snapshot-purchase-2", "fabric-b"));
+    ItemEnvelope afterRollback = decodeDeliveryEnvelope(
+        commerce.pendingDeliveries(buyerId, "fabric-b").get(0).payloadJson());
+    assertEquals(first.payloadHash(), afterRollback.payloadHash());
+  }
+
+  private static ItemEnvelope decodeDeliveryEnvelope(String payloadJson) {
+    String encoded = JsonParser.parseString(payloadJson).getAsJsonObject()
+        .get("envelopeBase64").getAsString();
+    return new ItemEnvelopeBinaryCodec().decode(Base64.getDecoder().decode(encoded));
   }
 
   private static ItemEnvelope envelope(String registryId, int count, String value) {

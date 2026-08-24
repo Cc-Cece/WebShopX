@@ -52,17 +52,30 @@ class NativeInventoryGatewayTest {
         "mod-data", new String(sword.payload()).contains("mod-data") ? "mod-data" : "missing");
     ItemEnvelope stone =
         success(codec.encode(new ItemStack("minecraft:stone", 32, "nested"), identity));
+    ItemEnvelope resizedStone =
+        new ItemEnvelope(
+            stone.schemaVersion(),
+            stone.codec(),
+            stone.codecVersion(),
+            stone.compatibilityDomain(),
+            stone.registryId(),
+            7,
+            stone.payloadEncoding(),
+            stone.payload(),
+            stone.payloadHash(),
+            stone.summary(),
+            stone.createdAt());
 
     InventoryMutation mutation =
         new InventoryMutation(
             "native-op",
             id,
             before.version(),
-            List.of(stone, stone),
+            List.of(resizedStone),
             List.of(new InventoryRemoval(sword, 2)));
     InventoryMutationResult applied =
         success(gateway.compareAndApply(mutation).toCompletableFuture().get());
-    assertEquals(List.of(stone, stone), applied.inserted());
+    assertEquals(List.of(resizedStone), applied.inserted());
     assertEquals(2, applied.removed().get(0).count());
     assertEquals(List.of(), applied.remainder());
     assertEquals(applied, success(gateway.compareAndApply(mutation).toCompletableFuture().get()));
@@ -70,6 +83,13 @@ class NativeInventoryGatewayTest {
         1,
         success(gateway.snapshot(id, false).toCompletableFuture().get()).items().stream()
             .filter(item -> item.registryId().equals("minecraft:diamond_sword"))
+            .findFirst()
+            .orElseThrow()
+            .count());
+    assertEquals(
+        7,
+        success(gateway.snapshot(id, false).toCompletableFuture().get()).items().stream()
+            .filter(item -> item.registryId().equals("minecraft:stone"))
             .findFirst()
             .orElseThrow()
             .count());

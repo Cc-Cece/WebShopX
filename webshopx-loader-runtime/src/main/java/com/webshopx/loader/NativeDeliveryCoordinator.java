@@ -1,11 +1,13 @@
 package com.webshopx.loader;
 
 import com.webshopx.SharedCommerceService;
+import com.webshopx.core.ItemEnvelopeBinaryCodec;
 import com.webshopx.platform.InventoryTypes.InventoryMutation;
 import com.webshopx.platform.ItemEnvelope;
 import com.webshopx.platform.PlatformPorts;
 import com.webshopx.platform.PlatformResult;
 import java.lang.reflect.Method;
+import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -51,8 +53,10 @@ final class NativeDeliveryCoordinator {
         commerce.markDelivered(delivery.id(), delivery.quantity());
         return;
       }
-      String registryId = registryId(delivery.payloadJson());
-      PlatformResult<ItemEnvelope> created = items.createEnvelope(registryId, delivery.quantity());
+      ItemEnvelope snapshotTemplate = snapshotEnvelope(delivery.payloadJson(), delivery.quantity());
+      PlatformResult<ItemEnvelope> created = snapshotTemplate == null
+          ? items.createEnvelope(registryId(delivery.payloadJson()), delivery.quantity())
+          : PlatformResult.success(snapshotTemplate);
       if (!(created instanceof PlatformResult.Success<ItemEnvelope> success)) {
         commerce.markDeliveryRetry(delivery.id(), resultCode(created));
         return;
@@ -112,6 +116,27 @@ final class NativeDeliveryCoordinator {
         .compile("\\\"registryId\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"").matcher(payload);
     if (!matcher.find()) throw new IllegalArgumentException("missing registryId");
     return matcher.group(1);
+  }
+
+  private static ItemEnvelope snapshotEnvelope(String payload, int quantity) {
+    if (payload == null) return null;
+    java.util.regex.Matcher matcher = java.util.regex.Pattern
+        .compile("\\\"envelopeBase64\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"").matcher(payload);
+    if (!matcher.find()) return null;
+    ItemEnvelope template = new ItemEnvelopeBinaryCodec().decode(
+        Base64.getDecoder().decode(matcher.group(1)));
+    return new ItemEnvelope(
+        template.schemaVersion(),
+        template.codec(),
+        template.codecVersion(),
+        template.compatibilityDomain(),
+        template.registryId(),
+        quantity,
+        template.payloadEncoding(),
+        template.payload(),
+        template.payloadHash(),
+        template.summary(),
+        template.createdAt());
   }
 
   private static String resultCode(PlatformResult<?> result) {

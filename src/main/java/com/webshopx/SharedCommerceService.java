@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -143,6 +144,147 @@ public final class SharedCommerceService {
               throw new ServiceException("product_not_found", "Product was not found");
             }
           }
+          return readProduct(connection, productId);
+        });
+  }
+
+  public Product createSnapshotProduct(
+      ProductInput input, ItemEnvelope template, long createdBy) {
+    if (input == null || input.kind() != ProductKind.SNAPSHOT_ITEM) {
+      throw new ServiceException("invalid_product", "Snapshot product type is required");
+    }
+    validateProduct(input);
+    ItemEnvelope normalized = normalizedTemplate(template);
+    return database.inTransaction(
+        connection -> {
+          long snapshotId = findOrCreateOfficialSnapshot(connection, normalized);
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "INSERT INTO products (sku,title,remark,currency,price,product_type,"
+                      + "command_template,item_material,item_amount,stock_remaining,snapshot_id,"
+                      + "inventory_mode,active) VALUES (?,?,?,?,?,?,?,?,?,?,?,'TEMPLATE',?)",
+                  Statement.RETURN_GENERATED_KEYS)) {
+            statement.setString(1, input.sku().trim().toUpperCase(Locale.ROOT));
+            statement.setString(2, input.title().trim());
+            statement.setString(3, input.remark());
+            statement.setString(4, input.currency().name());
+            statement.setLong(5, input.price());
+            statement.setString(6, ProductKind.SNAPSHOT_ITEM.name());
+            statement.setString(7, "");
+            statement.setString(8, normalized.registryId());
+            if (input.stock() == null) {
+              statement.setObject(9, null);
+              statement.setObject(10, null);
+            } else {
+              statement.setInt(9, input.stock());
+              statement.setInt(10, input.stock());
+            }
+            statement.setLong(11, snapshotId);
+            statement.setBoolean(12, input.active());
+            statement.executeUpdate();
+            long productId = generatedId(statement);
+            insertSnapshotVersion(
+                connection, productId, snapshotId, snapshotStorageHash(normalized), createdBy);
+            return readProduct(connection, productId);
+          }
+        });
+  }
+
+  public Product replaceSnapshot(long productId, ItemEnvelope template, long createdBy) {
+    ItemEnvelope normalized = normalizedTemplate(template);
+    return database.inTransaction(
+        connection -> {
+          lockProductForSnapshot(connection, productId);
+          Product product = readProduct(connection, productId);
+          if (product.kind() != ProductKind.SNAPSHOT_ITEM) {
+            throw new ServiceException(
+                "invalid_product_type", "Product does not use item snapshots");
+          }
+          long snapshotId = findOrCreateOfficialSnapshot(connection, normalized);
+          try (PreparedStatement statement = connection.prepareStatement(
+              "UPDATE products SET snapshot_id=?,item_material=?,updated_at=CURRENT_TIMESTAMP"
+                  + " WHERE id=?")) {
+            statement.setLong(1, snapshotId);
+            statement.setString(2, normalized.registryId());
+            statement.setLong(3, productId);
+            statement.executeUpdate();
+          }
+          insertSnapshotVersion(
+              connection, productId, snapshotId, snapshotStorageHash(normalized), createdBy);
+          return readProduct(connection, productId);
+        });
+  }
+
+  public List<SnapshotVersion> snapshotVersions(long productId) {
+    return database.withConnection(
+        connection -> {
+          Product product = readProduct(connection, productId);
+          try (PreparedStatement statement = connection.prepareStatement(
+              "SELECT v.id,v.snapshot_id,v.version,v.item_hash,v.created_by,v.active_from,"
+                  + "s.item_material,s.item_meta_json,p.snapshot_id FROM product_item_snapshots v"
+                  + " JOIN official_item_snapshots s ON s.id=v.snapshot_id"
+                  + " JOIN products p ON p.id=v.product_id WHERE v.product_id=?"
+                  + " ORDER BY v.version DESC")) {
+            statement.setLong(1, product.id());
+            try (ResultSet result = statement.executeQuery()) {
+              List<SnapshotVersion> versions = new ArrayList<>();
+              while (result.next()) {
+                Object creator = result.getObject(5);
+                versions.add(new SnapshotVersion(
+                    result.getLong(1),
+                    result.getLong(2),
+                    result.getInt(3),
+                    result.getString(4),
+                    creator == null ? null : ((Number) creator).longValue(),
+                    instant(result, 6),
+                    result.getString(7),
+                    result.getString(8),
+                    result.getLong(2) == result.getLong(9)));
+              }
+              return List.copyOf(versions);
+            }
+          }
+        });
+  }
+
+  public Product rollbackSnapshot(long productId, int version, long createdBy) {
+    if (version < 1) throw new ServiceException("invalid_snapshot", "Snapshot version is invalid");
+    return database.inTransaction(
+        connection -> {
+          lockProductForSnapshot(connection, productId);
+          Product product = readProduct(connection, productId);
+          if (product.kind() != ProductKind.SNAPSHOT_ITEM) {
+            throw new ServiceException(
+                "invalid_product_type", "Product does not use item snapshots");
+          }
+          long snapshotId;
+          String itemHash;
+          String material;
+          try (PreparedStatement statement = connection.prepareStatement(
+              "SELECT v.snapshot_id,v.item_hash,s.item_material FROM product_item_snapshots v"
+                  + " JOIN official_item_snapshots s ON s.id=v.snapshot_id"
+                  + " WHERE v.product_id=? AND v.version=?")) {
+            statement.setLong(1, productId);
+            statement.setInt(2, version);
+            try (ResultSet result = statement.executeQuery()) {
+              if (!result.next()) {
+                throw new ServiceException(
+                    "snapshot_version_missing", "Snapshot version was not found");
+              }
+              snapshotId = result.getLong(1);
+              itemHash = result.getString(2);
+              material = result.getString(3);
+            }
+          }
+          try (PreparedStatement statement = connection.prepareStatement(
+              "UPDATE products SET snapshot_id=?,item_material=?,updated_at=CURRENT_TIMESTAMP"
+                  + " WHERE id=?")) {
+            statement.setLong(1, snapshotId);
+            statement.setString(2, material);
+            statement.setLong(3, productId);
+            statement.executeUpdate();
+          }
+          insertSnapshotVersion(connection, productId, snapshotId, itemHash, createdBy);
           return readProduct(connection, productId);
         });
   }
@@ -2337,6 +2479,19 @@ public final class SharedCommerceService {
     }
   }
 
+  private void lockProductForSnapshot(Connection connection, long productId) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT id FROM products WHERE id=?" + database.sqlProvider().forUpdateClause())) {
+      statement.setLong(1, productId);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) {
+          throw new ServiceException("product_not_found", "Product was not found");
+        }
+      }
+    }
+  }
+
   private Product readProductBySku(Connection connection, String sku) throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
@@ -2416,14 +2571,149 @@ public final class SharedCommerceService {
       statement.setString(4, request.targetServerId());
       statement.setString(5, product.commandTemplate());
       statement.setString(6, product.kind().name());
-      statement.setString(
-          7,
-          product.registryId() == null
-              ? null
-              : "{\"registryId\":\"" + json(product.registryId()) + "\"}");
+      statement.setString(7, productDeliveryPayload(connection, product));
       statement.setInt(8, request.quantity());
       statement.executeUpdate();
     }
+  }
+
+  private String productDeliveryPayload(Connection connection, Product product) throws SQLException {
+    if (product.kind() == ProductKind.SNAPSHOT_ITEM) {
+      ItemEnvelope template = officialSnapshotEnvelope(connection, product.id());
+      return "{\"registryId\":\""
+          + json(template.registryId())
+          + "\",\"envelopeBase64\":\""
+          + Base64.getEncoder().encodeToString(envelopes.encode(template))
+          + "\"}";
+    }
+    return product.registryId() == null
+        ? null
+        : "{\"registryId\":\"" + json(product.registryId()) + "\"}";
+  }
+
+  private ItemEnvelope officialSnapshotEnvelope(Connection connection, long productId)
+      throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(
+        "SELECT s.item_blob FROM products p JOIN official_item_snapshots s"
+            + " ON s.id=p.snapshot_id WHERE p.id=? AND p.snapshot_id IS NOT NULL")) {
+      statement.setLong(1, productId);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) {
+          throw new ServiceException("invalid_snapshot", "Product snapshot is missing");
+        }
+        try {
+          return envelopes.decode(result.getBytes(1));
+        } catch (IllegalArgumentException failure) {
+          throw new ServiceException("invalid_snapshot", "Product snapshot is corrupt");
+        }
+      }
+    }
+  }
+
+  private long findOrCreateOfficialSnapshot(Connection connection, ItemEnvelope template)
+      throws SQLException {
+    byte[] encoded = envelopes.encode(template);
+    String snapshotHash = snapshotStorageHash(template);
+    Long existing = findOfficialSnapshot(connection, snapshotHash);
+    if (existing != null) return existing;
+    try (PreparedStatement statement = connection.prepareStatement(
+        "INSERT INTO official_item_snapshots"
+            + " (item_hash,item_blob,item_meta_json,item_material) VALUES (?,?,?,?)",
+        Statement.RETURN_GENERATED_KEYS)) {
+      statement.setString(1, snapshotHash);
+      statement.setBytes(2, encoded);
+      statement.setString(3, CommerceJson.create().toJson(template.summary()));
+      statement.setString(4, template.registryId());
+      statement.executeUpdate();
+      return generatedId(statement);
+    } catch (SQLException failure) {
+      Long concurrent = findOfficialSnapshot(connection, snapshotHash);
+      if (concurrent != null) return concurrent;
+      throw failure;
+    }
+  }
+
+  private Long findOfficialSnapshot(Connection connection, String hash)
+      throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(
+        "SELECT id,item_blob FROM official_item_snapshots WHERE item_hash=?")) {
+      statement.setString(1, hash);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) return null;
+        ItemEnvelope stored;
+        try {
+          stored = envelopes.decode(result.getBytes(2));
+        } catch (IllegalArgumentException failure) {
+          throw new ServiceException("invalid_snapshot", "Stored snapshot is corrupt");
+        }
+        if (!hash.equals(snapshotStorageHash(stored))
+            || !stored.payloadHash().equals(
+                com.webshopx.core.ItemEnvelopeService.sha256(stored.payload()))) {
+          throw new ServiceException(
+              "snapshot_hash_collision", "Snapshot hash resolves to different item data");
+        }
+        return result.getLong(1);
+      }
+    }
+  }
+
+  private void insertSnapshotVersion(
+      Connection connection, long productId, long snapshotId, String hash, long createdBy)
+      throws SQLException {
+    int version;
+    try (PreparedStatement statement = connection.prepareStatement(
+        "SELECT COALESCE(MAX(version),0)+1 FROM product_item_snapshots WHERE product_id=?")) {
+      statement.setLong(1, productId);
+      try (ResultSet result = statement.executeQuery()) {
+        result.next();
+        version = result.getInt(1);
+      }
+    }
+    try (PreparedStatement statement = connection.prepareStatement(
+        "INSERT INTO product_item_snapshots"
+            + " (product_id,snapshot_id,version,item_hash,created_by) VALUES (?,?,?,?,?)")) {
+      statement.setLong(1, productId);
+      statement.setLong(2, snapshotId);
+      statement.setInt(3, version);
+      statement.setString(4, hash);
+      statement.setLong(5, createdBy);
+      statement.executeUpdate();
+    }
+  }
+
+  private static ItemEnvelope normalizedTemplate(ItemEnvelope template) {
+    Objects.requireNonNull(template, "template");
+    return template.count() == 1
+        ? template
+        : new ItemEnvelope(
+            template.schemaVersion(),
+            template.codec(),
+            template.codecVersion(),
+            template.compatibilityDomain(),
+            template.registryId(),
+            1,
+            template.payloadEncoding(),
+            template.payload(),
+            template.payloadHash(),
+            template.summary(),
+            template.createdAt());
+  }
+
+  private String snapshotStorageHash(ItemEnvelope template) {
+    var domain = template.compatibilityDomain();
+    String identity = String.join(
+        "\n",
+        template.payloadHash(),
+        template.codec(),
+        Integer.toString(template.codecVersion()),
+        domain.platform(),
+        domain.loader(),
+        domain.minecraftVersion(),
+        Integer.toString(domain.itemCodecVersion()),
+        domain.modpackFingerprint(),
+        template.registryId());
+    return com.webshopx.core.ItemEnvelopeService.sha256(
+        identity.getBytes(StandardCharsets.UTF_8));
   }
 
   private void insertGroupBuyVoucher(
@@ -3094,7 +3384,7 @@ public final class SharedCommerceService {
         || input.kind() == null) {
       throw new ServiceException("invalid_product", "Product fields are invalid");
     }
-    if (input.kind() == ProductKind.GIVE_ITEM
+    if ((input.kind() == ProductKind.GIVE_ITEM || input.kind() == ProductKind.SNAPSHOT_ITEM)
         && (input.registryId() == null
             || !input.registryId().matches("[a-z0-9_.-]+:[a-z0-9_./-]+"))) {
       throw new ServiceException("invalid_product", "Registry id is invalid");
@@ -3117,7 +3407,8 @@ public final class SharedCommerceService {
   public enum ProductKind {
     COMMAND,
     GIVE_ITEM,
-    GROUP_BUY_VOUCHER
+    GROUP_BUY_VOUCHER,
+    SNAPSHOT_ITEM
   }
 
   public record ProductInput(
@@ -3187,6 +3478,17 @@ public final class SharedCommerceService {
       String productSku,
       String productTitle,
       Instant consumedAt) {}
+
+  public record SnapshotVersion(
+      long id,
+      long snapshotId,
+      int version,
+      String itemHash,
+      Long createdBy,
+      Instant activeFrom,
+      String itemMaterial,
+      String itemMetaJson,
+      boolean active) {}
 
   public record Delivery(
       long id,

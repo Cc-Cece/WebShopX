@@ -549,7 +549,7 @@ class SchemaManager {
     execute(connection, """
         CREATE TABLE IF NOT EXISTS official_item_snapshots (
           id BIGINT NOT NULL AUTO_INCREMENT,
-          item_hash VARCHAR(64) NOT NULL,
+          item_hash VARCHAR(96) NOT NULL,
           item_blob LONGBLOB NOT NULL,
           item_meta_json LONGTEXT NOT NULL,
           item_material VARCHAR(64) NOT NULL,
@@ -558,6 +558,7 @@ class SchemaManager {
           UNIQUE KEY uniq_official_item_snapshot_hash (item_hash)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """);
+    widenHashColumn(connection, "official_item_snapshots");
     String sql = """
         CREATE TABLE IF NOT EXISTS products (
           id BIGINT NOT NULL AUTO_INCREMENT,
@@ -612,7 +613,7 @@ class SchemaManager {
     execute(connection, """
         CREATE TABLE IF NOT EXISTS official_item_snapshots (
           id BIGINT NOT NULL AUTO_INCREMENT,
-          item_hash VARCHAR(64) NOT NULL,
+          item_hash VARCHAR(96) NOT NULL,
           item_blob LONGBLOB NOT NULL,
           item_meta_json LONGTEXT NOT NULL,
           item_material VARCHAR(64) NOT NULL,
@@ -847,7 +848,7 @@ class SchemaManager {
           product_id BIGINT NOT NULL,
           snapshot_id BIGINT NOT NULL,
           version INT NOT NULL,
-          item_hash VARCHAR(64) NOT NULL,
+          item_hash VARCHAR(96) NOT NULL,
           created_by BIGINT NULL,
           active_from TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -860,6 +861,7 @@ class SchemaManager {
             REFERENCES official_item_snapshots(id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """);
+    widenHashColumn(connection, "product_item_snapshots");
     execute(connection, """
         INSERT INTO product_item_snapshots (
           product_id, snapshot_id, version, item_hash, created_by
@@ -1116,7 +1118,7 @@ class SchemaManager {
           raw_item_blob LONGBLOB NOT NULL,
           item_meta_json JSON NOT NULL,
           remark TEXT NULL,
-          item_hash VARCHAR(64) NOT NULL,
+          item_hash VARCHAR(96) NOT NULL,
           tag_code VARCHAR(64) NOT NULL DEFAULT 'default',
           tag_version INT NOT NULL DEFAULT 1,
           escrow_total BIGINT NOT NULL DEFAULT 0,
@@ -1165,6 +1167,7 @@ class SchemaManager {
   }
 
   private void migrateMarketListings(Connection connection) throws SQLException {
+    widenHashColumn(connection, "market_listings");
     if (!columnExists(connection, "market_listings", "remark")) {
       execute(
           connection,
@@ -2343,6 +2346,21 @@ class SchemaManager {
         return resultSet.getInt(1) > 0;
       }
     }
+  }
+
+  private void widenHashColumn(Connection connection, String tableName) throws SQLException {
+    String sql = "SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS "
+        + "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = 'item_hash'";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, tableName);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next() || result.getLong(1) >= 96L) {
+          return;
+        }
+      }
+    }
+    execute(connection, "ALTER TABLE " + tableName
+        + " MODIFY COLUMN item_hash VARCHAR(96) NOT NULL");
   }
 
   private boolean indexExists(Connection connection, String tableName, String indexName)

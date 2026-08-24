@@ -29,6 +29,7 @@ import com.webshopx.payment.api.PaymentConfigUpdateRequest;
 import com.webshopx.payment.api.PaymentConfigUpdateResult;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.CompatibilityDomain;
+import com.webshopx.platform.ItemEnvelope;
 import com.webshopx.platform.InventoryTypes.InventoryMutation;
 import com.webshopx.platform.PlatformIdentity;
 import com.webshopx.testkit.InMemoryInventoryGateway;
@@ -65,6 +66,7 @@ class SharedHttpApiTest {
   private UUID player;
   private long playerUserId;
   private InMemoryInventoryGateway inventories;
+  private ItemEnvelope inventoryFixture;
   private SharedCommerceService commerce;
   private AuthService auth;
   private WalletService wallets;
@@ -138,7 +140,7 @@ class SharedHttpApiTest {
           }
         });
     inventories = new InMemoryInventoryGateway(36);
-    var item =
+    inventoryFixture =
         new ItemEnvelopeService(Clock.systemUTC(), Set.of("fixture"))
             .create(
                 "fixture",
@@ -149,7 +151,8 @@ class SharedHttpApiTest {
                 new byte[] {1, 2, 3},
                 Map.of());
     inventories
-        .compareAndApply(new InventoryMutation("seed", player, 0, List.of(item), List.of()))
+            .compareAndApply(
+                new InventoryMutation("seed", player, 0, List.of(inventoryFixture), List.of()))
         .toCompletableFuture()
         .join();
     commerce.createProduct(
@@ -1502,6 +1505,64 @@ class SharedHttpApiTest {
                 token,
                 null)
             .statusCode());
+  }
+
+  @Test
+  void adminCanCaptureACompleteNativeInventorySnapshotProduct() throws Exception {
+    String token = login("ApiPlayer", "api-secret");
+    JsonObject inventory = JsonParser.parseString(
+        get("/api/inventory/snapshot?inventory=PLAYER", token).body()).getAsJsonObject();
+    String revision = inventory.get("revision").getAsString();
+    JsonObject occupied = null;
+    for (var element : inventory.getAsJsonArray("slots")) {
+      JsonObject slot = element.getAsJsonObject();
+      if (!slot.get("item").isJsonNull()) {
+        occupied = slot;
+        break;
+      }
+    }
+    assertTrue(occupied != null);
+    int slot = occupied.get("index").getAsInt();
+    String fingerprint = occupied.getAsJsonObject("item").get("fingerprint").getAsString();
+    HttpResponse<String> created = post(
+        "/api/admin/products/from-inventory",
+        "{\"revision\":\"" + revision + "\",\"slot\":" + slot
+            + ",\"fingerprint\":\"" + fingerprint + "\","
+            + "\"sku\":\"CAPTURED_NATIVE\",\"title\":\"Captured Native\","
+            + "\"currency\":\"SHOP_COIN\",\"price\":30,"
+            + "\"stockMode\":\"LIMITED\",\"stock\":5}",
+        token,
+        null);
+    assertEquals(201, created.statusCode(), created.body());
+    JsonObject product = JsonParser.parseString(created.body()).getAsJsonObject();
+    assertEquals("SNAPSHOT_ITEM", product.get("productType").getAsString());
+    assertEquals("minecraft:diamond", product.get("itemMaterial").getAsString());
+    assertTrue(product.get("itemHash").getAsString().startsWith("sha256:"));
+    long productId = product.get("id").getAsLong();
+
+    HttpResponse<String> history = get(
+        "/api/admin/products/snapshot-history?productId=" + productId, token);
+    assertEquals(200, history.statusCode(), history.body());
+    assertEquals(1, JsonParser.parseString(history.body()).getAsJsonObject()
+        .getAsJsonArray("versions").size());
+    HttpResponse<String> purchased = post(
+        "/api/orders",
+        "{\"productId\":" + productId
+            + ",\"quantity\":2,\"idempotencyKey\":\"captured-native-buy\"}",
+        token,
+        null);
+    assertEquals(200, purchased.statusCode(), purchased.body());
+    SharedCommerceService.Delivery delivery = commerce.pendingDeliveries(player, "node-a").stream()
+        .filter(value -> value.payloadJson() != null && value.payloadJson().contains("envelopeBase64"))
+        .findFirst().orElseThrow();
+    String encodedEnvelope = JsonParser.parseString(delivery.payloadJson()).getAsJsonObject()
+        .get("envelopeBase64").getAsString();
+    ItemEnvelope restored = new ItemEnvelopeBinaryCodec().decode(
+        Base64.getDecoder().decode(encodedEnvelope));
+    assertEquals(inventoryFixture.payloadHash(), restored.payloadHash());
+    assertEquals(
+        java.util.Arrays.toString(inventoryFixture.payload()),
+        java.util.Arrays.toString(restored.payload()));
   }
 
   @Test

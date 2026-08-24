@@ -1777,6 +1777,93 @@ public final class SharedHttpApi implements AutoCloseable {
             null,
             clientIp(exchange));
         respond(exchange, 200, productJson(product));
+      } else if (path.equals("/api/admin/products/from-inventory")
+          && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var current = boundUser(exchange);
+        var actor = administration.requireAdmin(current, AdminPermission.PRODUCT_MANAGE);
+        requireTopLevelPlayerInventory(input);
+        if (input.has("containerSlot") && !input.get("containerSlot").isJsonNull()) {
+          throw new ServiceException(
+              "invalid_inventory_request", "Nested inventory capture is not exposed by this adapter");
+        }
+        ItemEnvelope template = marketEscrow.captureTemplate(
+            current.boundUuid(),
+            requiredString(input, "revision"),
+            optionalInt(input, "slot", -1),
+            requiredString(input, "fingerprint"),
+            actor.allows(AdminPermission.PRODUCT_OFFLINE_INVENTORY_IMPORT));
+        long replaceProductId = input.has("productId") && !input.get("productId").isJsonNull()
+            ? input.get("productId").getAsLong() : -1L;
+        SharedCommerceService.Product product;
+        if (replaceProductId > 0) {
+          product = commerce.replaceSnapshot(replaceProductId, template, actor.userId());
+        } else {
+          String stockMode = optionalString(input, "stockMode", "UNLIMITED");
+          Integer stock = "LIMITED".equalsIgnoreCase(stockMode)
+              ? optionalInt(input, "stock", 1) : null;
+          String defaultSku = "inv-" + template.payloadHash().replace("sha256:", "").substring(0, 12);
+          product = commerce.createSnapshotProduct(
+              new ProductInput(
+                  optionalString(input, "sku", defaultSku),
+                  optionalString(input, "title", template.registryId()),
+                  optionalString(input, "remark", null),
+                  currency(input, "currency"),
+                  requiredLong(input, "price"),
+                  ProductKind.SNAPSHOT_ITEM,
+                  "",
+                  template.registryId(),
+                  stock,
+                  !input.has("active") || input.get("active").getAsBoolean()),
+              template,
+              actor.userId());
+        }
+        var latest = commerce.snapshotVersions(product.id()).get(0);
+        JsonObject response = productJson(product);
+        response.addProperty("itemHash", latest.itemHash());
+        response.addProperty("itemMaterial", latest.itemMaterial());
+        response.addProperty("itemMetaJson", latest.itemMetaJson());
+        JsonObject detail = new JsonObject();
+        detail.addProperty("itemHash", latest.itemHash());
+        detail.addProperty("fingerprint", template.payloadHash());
+        detail.addProperty("slot", optionalInt(input, "slot", -1));
+        audit.log(
+            actor,
+            replaceProductId > 0 ? "PRODUCT_SNAPSHOT_REPLACE" : "PRODUCT_CREATE_FROM_INVENTORY",
+            "product",
+            String.valueOf(product.id()),
+            detail,
+            clientIp(exchange));
+        respond(exchange, replaceProductId > 0 ? 200 : 201, response);
+      } else if (path.equals("/api/admin/products/snapshot-history")
+          && method(exchange, "GET")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.PRODUCT_MANAGE);
+        long productId = Long.parseLong(requiredQuery(exchange, "productId"));
+        audit.log(
+            actor,
+            "PRODUCT_SNAPSHOT_HISTORY",
+            "product",
+            String.valueOf(productId),
+            null,
+            clientIp(exchange));
+        respond(exchange, 200, Map.of("versions", commerce.snapshotVersions(productId)));
+      } else if (path.equals("/api/admin/products/snapshot-rollback")
+          && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.PRODUCT_MANAGE);
+        long productId = requiredLong(input, "productId");
+        int version = optionalInt(input, "version", -1);
+        var product = commerce.rollbackSnapshot(productId, version, actor.userId());
+        JsonObject detail = new JsonObject();
+        detail.addProperty("sourceVersion", version);
+        audit.log(
+            actor,
+            "PRODUCT_SNAPSHOT_ROLLBACK",
+            "product",
+            String.valueOf(productId),
+            detail,
+            clientIp(exchange));
+        respond(exchange, 200, productJson(product));
       } else if (path.equals("/api/admin/products/active") && method(exchange, "POST")) {
         JsonObject input = body(exchange);
         var actor = administration.requireAdmin(user(exchange), AdminPermission.PRODUCT_MANAGE);

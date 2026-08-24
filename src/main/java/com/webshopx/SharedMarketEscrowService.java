@@ -105,6 +105,36 @@ public final class SharedMarketEscrowService {
     }
   }
 
+  public ItemEnvelope captureTemplate(
+      UUID playerId, String revision, int slot, String fingerprint, boolean allowOffline) {
+    if (slot < 0 || fingerprint == null || fingerprint.isBlank()) {
+      throw new ServiceException("invalid_inventory_request", "Inventory slot is invalid");
+    }
+    InventorySnapshot snapshot = snapshot(playerId, allowOffline);
+    if (revision == null
+        || !Long.toUnsignedString(snapshot.version()).equals(revision.trim())) {
+      throw new ServiceException("inventory_conflict", "Inventory revision changed");
+    }
+    ItemEnvelope selected = snapshot.items().stream()
+        .filter(item -> item.payloadHash().equals(fingerprint))
+        .filter(item -> Integer.toString(slot).equals(item.summary().get("webshopx.slot")))
+        .findFirst()
+        .orElseThrow(() -> new ServiceException(
+            "inventory_conflict", "Inventory item changed or is no longer present"));
+    return new ItemEnvelope(
+        selected.schemaVersion(),
+        selected.codec(),
+        selected.codecVersion(),
+        selected.compatibilityDomain(),
+        selected.registryId(),
+        1,
+        selected.payloadEncoding(),
+        selected.payload(),
+        selected.payloadHash(),
+        selected.summary(),
+        selected.createdAt());
+  }
+
   public DiscardResult discard(DiscardRequest request) {
     validateKeyAndQuantity(request.idempotencyKey(), request.quantity());
     Existing existing = find(request.userId(), request.idempotencyKey());
