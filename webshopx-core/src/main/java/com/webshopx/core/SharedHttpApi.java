@@ -32,6 +32,9 @@ import com.webshopx.platform.PlatformIdentity;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -363,9 +366,10 @@ public final class SharedHttpApi implements AutoCloseable {
           throw new ServiceException(
               "inventory_source_unavailable", "This platform does not expose that inventory");
         }
-        if (!"LIST".equalsIgnoreCase(optionalString(input, "action", "LIST"))) {
+        String action = optionalString(input, "action", "LIST").toUpperCase(Locale.ROOT);
+        if (!Set.of("LIST", "AUCTION").contains(action)) {
           throw new ServiceException(
-              "unsupported_trade_mode", "Loader inventory listing currently supports DIRECT");
+              "unsupported_trade_mode", "Inventory listing action is unavailable");
         }
         SharedCommerceService.Listing listing =
             marketEscrow.createSellListing(
@@ -379,6 +383,25 @@ public final class SharedHttpApi implements AutoCloseable {
                     requiredString(input, "fingerprint"),
                     true,
                     optionalString(input, "remark", null)));
+        if ("AUCTION".equals(action)) {
+          try {
+            commerce.configureAuctionListing(
+                current.id(),
+                listing.id(),
+                optionalString(input, "auctionAlgorithm", "ENGLISH_AUCTION_V1"),
+                input.has("auctionStartPrice")
+                    ? input.get("auctionStartPrice").getAsLong()
+                    : requiredLong(input, "price"),
+                optionalLong(input, "auctionMinIncrement", 1),
+                requiredInstant(input, "auctionEndAt"),
+                input.has("auctionParams") && !input.get("auctionParams").isJsonNull()
+                    ? gson.toJson(input.get("auctionParams"))
+                    : null);
+          } catch (RuntimeException failure) {
+            commerce.unlist(current.id(), listing.id());
+            throw failure;
+          }
+        }
         respond(
             exchange,
             200,
@@ -678,6 +701,28 @@ public final class SharedHttpApi implements AutoCloseable {
                         ? input.get("expectedBuyerTotal").getAsLong()
                         : null));
         respond(exchange, 200, marketTradeJson(trade));
+      } else if (path.equals("/api/market/bid") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        respond(
+            exchange,
+            200,
+            commerce.placeAuctionBid(
+                current.id(),
+                current.boundUuid(),
+                requiredLong(input, "listingId"),
+                requiredLong(input, "bidAmount"),
+                requiredString(input, "idempotencyKey")));
+      } else if (path.equals("/api/market/auction-display-settings")
+          && method(exchange, "GET")) {
+        respond(exchange, 200, Map.of("chartPoints", 10, "timelineEntries", 5));
+      } else if (path.equals("/api/market/auction-insights") && method(exchange, "GET")) {
+        var current = user(exchange);
+        respond(
+            exchange,
+            200,
+            commerce.auctionInsights(
+                requiredQueryLong(exchange, "listingId"), current.id(), 10));
       } else if (path.equals("/api/recharge/create") && method(exchange, "POST")) {
         var current = user(exchange);
         JsonObject input = body(exchange);
@@ -1550,7 +1595,12 @@ public final class SharedHttpApi implements AutoCloseable {
                     "listing_unavailable",
                     "price_changed",
                     "inventory_conflict",
-                    "order_conflict" ->
+                    "order_conflict",
+                    "auction_requires_bid",
+                    "auction_locked",
+                    "auction_conflict",
+                    "auction_unavailable",
+                    "bid_too_low" ->
                 409;
             case "inventory_unavailable",
                     "inventory_outcome_unknown",
@@ -1652,14 +1702,34 @@ public final class SharedHttpApi implements AutoCloseable {
     else result.addProperty("remark", listing.remark());
     result.addProperty("status", listing.status());
     result.addProperty("sourceMode", "PLAYER");
-    result.addProperty("tradeMode", "DIRECT");
+    SharedCommerceService.AuctionDetails auction = commerce.auctionDetails(listing.id());
+    result.addProperty("tradeMode", auction.tradeMode());
     result.addProperty("dynamicPricingEnabled", false);
     result.addProperty("dynamicPricingMode", "ORDER_FIXED");
     result.add("tags", new JsonArray());
     result.add("displayNameOverride", JsonNull.INSTANCE);
     result.add("displayMaterial", JsonNull.INSTANCE);
     result.add("displayIconPath", JsonNull.INSTANCE);
+    result.addProperty("auctionAlgorithm", auction.algorithm());
+    addNullable(result, "auctionStartPrice", auction.startPrice());
+    addNullable(result, "auctionMinIncrement", auction.minIncrement());
+    addNullable(result, "auctionStartedAt", auction.startedAt());
+    addNullable(result, "auctionPublicEndAt", auction.publicEndAt());
+    addNullable(result, "auctionEndAt", auction.endAt());
+    if (auction.paramsJson() == null) result.add("auctionParamsJson", JsonNull.INSTANCE);
+    else result.addProperty("auctionParamsJson", auction.paramsJson());
+    addNullable(result, "auctionHighestBid", auction.highestBid());
+    addNullable(result, "auctionHighestBidderUserId", auction.highestBidderUserId());
+    addNullable(result, "auctionHighestBidderUuid", auction.highestBidderUuid());
+    addNullable(result, "auctionHighestBidId", auction.highestBidId());
+    addNullable(result, "auctionLastBidAt", auction.lastBidAt());
     return result;
+  }
+
+  private static void addNullable(JsonObject target, String key, Object value) {
+    if (value == null) target.add(key, JsonNull.INSTANCE);
+    else if (value instanceof Number number) target.addProperty(key, number);
+    else target.addProperty(key, value.toString());
   }
 
   private static JsonObject marketTradeJson(SharedCommerceService.MarketTrade trade) {
@@ -1992,6 +2062,15 @@ public final class SharedHttpApi implements AutoCloseable {
     return input.get(key).getAsLong();
   }
 
+  private static Instant requiredInstant(JsonObject input, String key) {
+    String value = requiredString(input, key);
+    try {
+      return Instant.parse(value);
+    } catch (java.time.format.DateTimeParseException ignored) {
+      return LocalDateTime.parse(value).toInstant(ZoneOffset.UTC);
+    }
+  }
+
   private static void requireTopLevelPlayerInventory(JsonObject input) {
     String inventory = optionalString(input, "inventory", "PLAYER");
     if (!"PLAYER".equalsIgnoreCase(inventory)
@@ -2084,6 +2163,12 @@ public final class SharedHttpApi implements AutoCloseable {
     } catch (NumberFormatException ignored) {
       return null;
     }
+  }
+
+  private static long requiredQueryLong(HttpExchange exchange, String key) {
+    Long value = queryLong(exchange, key);
+    if (value == null) throw new IllegalArgumentException(key + " is required");
+    return value;
   }
 
   private static boolean queryBoolean(HttpExchange exchange, String key, boolean fallback) {

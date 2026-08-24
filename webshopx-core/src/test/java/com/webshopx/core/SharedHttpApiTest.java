@@ -55,6 +55,9 @@ class SharedHttpApiTest {
   private UUID supportTargetUuid;
   private UUID player;
   private InMemoryInventoryGateway inventories;
+  private SharedCommerceService commerce;
+  private AuthService auth;
+  private WalletService wallets;
 
   @BeforeEach
   void start() {
@@ -80,9 +83,8 @@ class SharedHttpApiTest {
                 List.of(10, 25, 50)));
     database.start();
     SchemaProvider.forType(DbType.SQLITE).ensureSchema(database, ZoneOffset.UTC);
-    AuthService auth = new AuthService(database, () -> new AuthService.SessionSettings(40, 2));
-    WalletService wallets =
-        new WalletService(database, WalletService.ExchangePolicy::disabled, null, null);
+    auth = new AuthService(database, () -> new AuthService.SessionSettings(40, 2));
+    wallets = new WalletService(database, WalletService.ExchangePolicy::disabled, null, null);
     player = UUID.randomUUID();
     long user = auth.setPasswordFromGame(player, "ApiPlayer", "api-secret").userId();
     supportTargetUuid = UUID.randomUUID();
@@ -91,7 +93,7 @@ class SharedHttpApiTest {
     wallets.adjustBalance(user, CurrencyType.SHOP_COIN, 500, "TEST", "api-seed");
     wallets.adjustBalance(
         supportTarget, CurrencyType.GAME_COIN, 100, "TEST", "api-market-buyer-seed");
-    SharedCommerceService commerce = new SharedCommerceService(database, wallets);
+    commerce = new SharedCommerceService(database, wallets);
     commerce.registerPaymentProvider(
         new SharedCommerceService.PaymentProvider() {
           @Override
@@ -877,6 +879,204 @@ class SharedHttpApiTest {
             .getAsJsonObject("item")
             .get("amount")
             .getAsInt());
+  }
+
+  @Test
+  void englishAuctionFreezesBidsSettlesAndDeliversThroughMailbox() throws Exception {
+    String sellerToken =
+        JsonParser.parseString(
+                post(
+                        "/api/auth/login",
+                        "{\"identifier\":\"ApiPlayer\",\"password\":\"api-secret\"}",
+                        null,
+                        null)
+                    .body())
+            .getAsJsonObject()
+            .get("token")
+            .getAsString();
+    String bidderToken =
+        JsonParser.parseString(
+                post(
+                        "/api/auth/login",
+                        "{\"identifier\":\"SupportTarget\",\"password\":\"target-secret\"}",
+                        null,
+                        null)
+                    .body())
+            .getAsJsonObject()
+            .get("token")
+            .getAsString();
+    UUID alternateBidderUuid = UUID.randomUUID();
+    long alternateBidder =
+        auth.setPasswordFromGame(alternateBidderUuid, "AlternateBidder", "alternate-secret")
+            .userId();
+    wallets.adjustBalance(
+        alternateBidder, CurrencyType.GAME_COIN, 100, "TEST", "alternate-auction-seed");
+    String alternateToken =
+        JsonParser.parseString(
+                post(
+                        "/api/auth/login",
+                        "{\"identifier\":\"AlternateBidder\",\"password\":\"alternate-secret\"}",
+                        null,
+                        null)
+                    .body())
+            .getAsJsonObject()
+            .get("token")
+            .getAsString();
+    String fingerprint =
+        JsonParser.parseString(get("/api/inventory/snapshot", sellerToken).body())
+            .getAsJsonObject()
+            .getAsJsonArray("slots")
+            .get(0)
+            .getAsJsonObject()
+            .getAsJsonObject("item")
+            .get("fingerprint")
+            .getAsString();
+    String create =
+        "{\"inventory\":\"PLAYER\",\"action\":\"AUCTION\","
+            + "\"currency\":\"GAME_COIN\",\"price\":50,\"quantity\":1,"
+            + "\"fingerprint\":\""
+            + fingerprint
+            + "\",\"auctionAlgorithm\":\"ENGLISH_AUCTION_V1\","
+            + "\"auctionStartPrice\":50,\"auctionMinIncrement\":5,\"auctionEndAt\":\""
+            + Instant.now().plusSeconds(90)
+            + "\",\"idempotencyKey\":\"auction-create-1\"}";
+    JsonObject created =
+        JsonParser.parseString(post("/api/inventory/list", create, sellerToken, null).body())
+            .getAsJsonObject();
+    long listingId = created.get("listingId").getAsLong();
+    JsonObject auctionListing =
+        JsonParser.parseString(get("/api/market/listings?mine=true", sellerToken).body())
+            .getAsJsonObject()
+            .getAsJsonArray("listings")
+            .get(0)
+            .getAsJsonObject();
+    assertEquals("AUCTION", auctionListing.get("tradeMode").getAsString());
+    assertEquals("ENGLISH_AUCTION_V1", auctionListing.get("auctionAlgorithm").getAsString());
+
+    String firstBid =
+        "{\"listingId\":"
+            + listingId
+            + ",\"bidAmount\":60,\"idempotencyKey\":\"auction-bid-1\"}";
+    JsonObject bid =
+        JsonParser.parseString(post("/api/market/bid", firstBid, bidderToken, null).body())
+            .getAsJsonObject();
+    JsonObject replay =
+        JsonParser.parseString(post("/api/market/bid", firstBid, bidderToken, null).body())
+            .getAsJsonObject();
+    assertEquals(bid.get("bidId").getAsLong(), replay.get("bidId").getAsLong());
+    assertEquals(
+        40,
+        JsonParser.parseString(get("/api/wallet", bidderToken).body())
+            .getAsJsonObject()
+            .get("gameCoin")
+            .getAsInt());
+    assertEquals(
+        409,
+        post(
+                "/api/market/buy",
+                "{\"listingId\":"
+                    + listingId
+                    + ",\"quantity\":1,\"idempotencyKey\":\"auction-direct-buy\"}",
+                bidderToken,
+                null)
+            .statusCode());
+    assertEquals(
+        409,
+        post(
+                "/api/market/unlist",
+                "{\"listingId\":" + listingId + "}",
+                sellerToken,
+                null)
+            .statusCode());
+    assertEquals(
+        200,
+        post(
+                "/api/market/bid",
+                "{\"listingId\":"
+                    + listingId
+                    + ",\"bidAmount\":70,\"idempotencyKey\":\"auction-bid-2\"}",
+                alternateToken,
+                null)
+            .statusCode());
+    assertEquals(
+        100,
+        JsonParser.parseString(get("/api/wallet", bidderToken).body())
+            .getAsJsonObject()
+            .get("gameCoin")
+            .getAsInt());
+    assertEquals(
+        30,
+        JsonParser.parseString(get("/api/wallet", alternateToken).body())
+            .getAsJsonObject()
+            .get("gameCoin")
+            .getAsInt());
+    assertEquals(
+        200,
+        post(
+                "/api/market/bid",
+                "{\"listingId\":"
+                    + listingId
+                    + ",\"bidAmount\":80,\"idempotencyKey\":\"auction-bid-3\"}",
+                bidderToken,
+                null)
+            .statusCode());
+    assertEquals(
+        20,
+        JsonParser.parseString(get("/api/wallet", bidderToken).body())
+            .getAsJsonObject()
+            .get("gameCoin")
+            .getAsInt());
+    assertEquals(
+        100,
+        JsonParser.parseString(get("/api/wallet", alternateToken).body())
+            .getAsJsonObject()
+            .get("gameCoin")
+            .getAsInt());
+    JsonObject insights =
+        JsonParser.parseString(
+                get("/api/market/auction-insights?listingId=" + listingId, bidderToken).body())
+            .getAsJsonObject();
+    assertEquals(3, insights.get("bidCount").getAsInt());
+    assertEquals(2, insights.get("participantCount").getAsInt());
+    assertEquals(80, insights.get("myBid").getAsLong());
+
+    database.withConnection(
+        connection -> {
+          try (var statement =
+              connection.prepareStatement(
+                  "UPDATE market_listings SET auction_end_at=CURRENT_TIMESTAMP"
+                      + " WHERE id=?")) {
+            statement.setLong(1, listingId);
+            statement.executeUpdate();
+          }
+          return null;
+        });
+    assertEquals(1, commerce.settleExpiredAuctions(20));
+    assertEquals(0, commerce.settleExpiredAuctions(20));
+    assertEquals(
+        80,
+        JsonParser.parseString(get("/api/wallet", sellerToken).body())
+            .getAsJsonObject()
+            .get("gameCoin")
+            .getAsInt());
+    JsonObject mailbox =
+        JsonParser.parseString(get("/api/mailbox/list", bidderToken).body()).getAsJsonObject();
+    assertEquals(1, mailbox.get("count").getAsInt());
+    String entryId =
+        mailbox.getAsJsonArray("items").get(0).getAsJsonObject().get("id").getAsString();
+    assertEquals(
+        200,
+        post("/api/mailbox/" + entryId + "/claim", "{}", bidderToken, null).statusCode());
+    assertEquals(
+        1,
+        ((com.webshopx.platform.PlatformResult.Success<
+                        com.webshopx.platform.InventoryTypes.InventorySnapshot>)
+                    inventories.snapshot(supportTargetUuid, false).toCompletableFuture().join())
+                .value()
+                .items()
+                .stream()
+                .mapToInt(com.webshopx.platform.ItemEnvelope::count)
+                .sum());
   }
 
   @Test

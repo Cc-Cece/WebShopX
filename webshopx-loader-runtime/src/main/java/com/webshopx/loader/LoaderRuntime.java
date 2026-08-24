@@ -56,6 +56,11 @@ public final class LoaderRuntime {
     try {
       if (!"paper".equals(loader)) {
         databaseRuntime = SharedDatabaseRuntime.start(bundle.paths().data());
+        SharedDatabaseRuntime auctionDatabase = databaseRuntime;
+        scheduler.schedule(
+            Duration.ofSeconds(5),
+            Duration.ofSeconds(5),
+            () -> auctionDatabase.commerce().settleExpiredAuctions(20));
         deliveries =
             new NativeDeliveryCoordinator(
                 databaseRuntime.commerce(),
@@ -140,10 +145,10 @@ public final class LoaderRuntime {
     active = null;
     if (httpApi != null) httpApi.close();
     httpApi = null;
-    if (databaseRuntime != null) databaseRuntime.close();
-    databaseRuntime = null;
     if (scheduler != null) scheduler.close();
     scheduler = null;
+    if (databaseRuntime != null) databaseRuntime.close();
+    databaseRuntime = null;
     lifecycle = null;
     if (playerDirectory != null) playerDirectory.clear();
     playerDirectory = null;

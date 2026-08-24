@@ -1062,6 +1062,9 @@ public final class SharedCommerceService {
     return database.withConnection(
         connection -> {
           Listing listing = readListing(connection, listingId);
+          if ("AUCTION".equals(readAuctionDetails(connection, listingId).tradeMode())) {
+            throw new ServiceException("auction_requires_bid", "Auction must be completed by bidding");
+          }
           if (!listing.status().equals("ACTIVE") || listing.quantity() < quantity) {
             throw new ServiceException("listing_unavailable", "Listing is unavailable");
           }
@@ -1121,6 +1124,9 @@ public final class SharedCommerceService {
     return database.inTransaction(
         connection -> {
           Listing listing = readOwnedListing(connection, sellerUserId, listingId);
+          if ("AUCTION".equals(readAuctionDetails(connection, listingId).tradeMode())) {
+            throw new ServiceException("auction_locked", "Auction state cannot be paused or resumed");
+          }
           if (listing.status().equals(nextStatus)) return listing;
           if (!listing.status().equals(expectedStatus)) {
             throw new ServiceException("listing_state_invalid", "Listing state cannot be changed");
@@ -1171,6 +1177,9 @@ public final class SharedCommerceService {
         connection -> {
           Listing listing = readOwnedListing(connection, sellerUserId, listingId);
           requireMutableListing(listing);
+          if ("AUCTION".equals(readAuctionDetails(connection, listingId).tradeMode())) {
+            throw new ServiceException("auction_locked", "Auction pricing is locked");
+          }
           CurrencyType nextCurrency =
               requestedCurrency == null ? listing.currency() : requestedCurrency;
           if (listing.side().equals("BUY") && nextCurrency != listing.currency()) {
@@ -1245,6 +1254,10 @@ public final class SharedCommerceService {
           Listing listing = readOwnedListing(connection, sellerUserId, listingId);
           if (listing.status().equals("UNLISTED")) return listing;
           requireMutableListing(listing);
+          AuctionDetails auction = readAuctionDetails(connection, listingId);
+          if ("AUCTION".equals(auction.tradeMode()) && auction.highestBidId() != null) {
+            throw new ServiceException("auction_locked", "Auction cannot be unlisted after bidding");
+          }
           try (PreparedStatement statement =
               connection.prepareStatement(
                   "UPDATE market_listings SET status='UNLISTED',unlisted_at=CURRENT_TIMESTAMP,"
@@ -1313,6 +1326,9 @@ public final class SharedCommerceService {
               findMarketTrade(connection, request.buyerUserId(), request.idempotencyKey());
           if (prior != null) return prior;
           Listing listing = readListing(connection, request.listingId());
+          if ("AUCTION".equals(readAuctionDetails(connection, request.listingId()).tradeMode())) {
+            throw new ServiceException("auction_requires_bid", "Auction must be completed by bidding");
+          }
           if (!listing.side().equals("SELL")) {
             throw new ServiceException("listing_side_invalid", "Listing is not a sell listing");
           }
@@ -1590,6 +1606,264 @@ public final class SharedCommerceService {
 
   public Listing listing(long listingId) {
     return database.withConnection(connection -> readListing(connection, listingId));
+  }
+
+  public AuctionDetails configureAuctionListing(
+      long sellerUserId,
+      long listingId,
+      String algorithm,
+      long startPrice,
+      long minIncrement,
+      Instant endAt,
+      String paramsJson) {
+    String normalizedAlgorithm =
+        algorithm == null ? "ENGLISH_AUCTION_V1" : algorithm.trim().toUpperCase(Locale.ROOT);
+    if (!"ENGLISH_AUCTION_V1".equals(normalizedAlgorithm)) {
+      throw new ServiceException(
+          "capability_unavailable", "This auction algorithm is not available on Loader nodes");
+    }
+    if (startPrice < 1 || minIncrement < 1 || endAt == null || endAt.isBefore(Instant.now().plusSeconds(30))) {
+      throw new ServiceException("invalid_auction", "Auction parameters are invalid");
+    }
+    return database.inTransaction(
+        connection -> {
+          Listing listing = readOwnedListing(connection, sellerUserId, listingId);
+          requireMutableListing(listing);
+          AuctionDetails currentAuction = readAuctionDetails(connection, listingId);
+          try (PreparedStatement bids =
+              connection.prepareStatement("SELECT COUNT(*) FROM market_bids WHERE listing_id=?")) {
+            bids.setLong(1, listingId);
+            try (ResultSet result = bids.executeQuery()) {
+              if (result.next() && result.getLong(1) > 0) {
+                if ("AUCTION".equals(currentAuction.tradeMode())) return currentAuction;
+                throw new ServiceException("auction_locked", "Auction already has bids");
+              }
+            }
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE market_listings SET trade_mode='AUCTION',price=?,auction_algorithm=?,"
+                      + "auction_start_price=?,auction_min_increment=?,auction_started_at=CURRENT_TIMESTAMP,"
+                      + "auction_public_end_at=?,auction_end_at=?,auction_params_json=?"
+                      + " WHERE id=? AND seller_user_id=? AND status IN ('ACTIVE','PAUSED')")) {
+            statement.setLong(1, startPrice);
+            statement.setString(2, normalizedAlgorithm);
+            statement.setLong(3, startPrice);
+            statement.setLong(4, minIncrement);
+            statement.setTimestamp(5, Timestamp.from(endAt));
+            statement.setTimestamp(6, Timestamp.from(endAt));
+            statement.setString(7, paramsJson);
+            statement.setLong(8, listingId);
+            statement.setLong(9, sellerUserId);
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException("listing_conflict", "Listing changed concurrently");
+            }
+          }
+          return readAuctionDetails(connection, listingId);
+        });
+  }
+
+  public AuctionDetails auctionDetails(long listingId) {
+    return database.withConnection(connection -> readAuctionDetails(connection, listingId));
+  }
+
+  public AuctionInsights auctionInsights(long listingId, long viewerUserId, int requestedLimit) {
+    int limit = Math.max(1, Math.min(requestedLimit, 100));
+    return database.withConnection(
+        connection -> {
+          AuctionDetails details = readAuctionDetails(connection, listingId);
+          int bidCount;
+          int participantCount;
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT COUNT(*),COUNT(DISTINCT bidder_user_id) FROM market_bids"
+                      + " WHERE listing_id=?")) {
+            statement.setLong(1, listingId);
+            try (ResultSet result = statement.executeQuery()) {
+              result.next();
+              bidCount = result.getInt(1);
+              participantCount = result.getInt(2);
+            }
+          }
+          Long myBid = null;
+          String myStatus = "NONE";
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT bid_amount,status FROM market_bids WHERE listing_id=?"
+                      + " AND bidder_user_id=? ORDER BY id DESC LIMIT 1")) {
+            statement.setLong(1, listingId);
+            statement.setLong(2, viewerUserId);
+            try (ResultSet result = statement.executeQuery()) {
+              if (result.next()) {
+                myBid = result.getLong(1);
+                myStatus = result.getString(2);
+              }
+            }
+          }
+          List<AuctionBidPoint> points = new ArrayList<>();
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT b.bid_amount,u.username,b.created_at FROM market_bids b"
+                      + " JOIN web_users u ON u.id=b.bidder_user_id"
+                      + " WHERE b.listing_id=? ORDER BY b.id DESC LIMIT ?")) {
+            statement.setLong(1, listingId);
+            statement.setInt(2, limit);
+            try (ResultSet result = statement.executeQuery()) {
+              while (result.next()) {
+                points.add(
+                    new AuctionBidPoint(
+                        result.getLong(1), result.getString(2), instant(result, 3)));
+              }
+            }
+          }
+          return new AuctionInsights(
+              details.algorithm(),
+              bidCount,
+              participantCount,
+              false,
+              myBid,
+              myStatus,
+              List.copyOf(points));
+        });
+  }
+
+  public AuctionBidResult placeAuctionBid(
+      long bidderUserId,
+      UUID bidderUuid,
+      long listingId,
+      long amount,
+      String idempotencyKey) {
+    requireKey(idempotencyKey);
+    if (amount < 1) throw new ServiceException("invalid_bid", "Bid amount is invalid");
+    return database.inTransaction(
+        connection -> {
+          AuctionBidResult prior = priorAuctionBid(connection, bidderUserId, idempotencyKey);
+          if (prior != null) {
+            if (prior.listingId() != listingId) {
+              throw new ServiceException("idempotency_conflict", "Bid key belongs to another auction");
+            }
+            return prior;
+          }
+          Listing listing = readListing(connection, listingId);
+          AuctionDetails auction = readAuctionDetails(connection, listingId);
+          if (!"AUCTION".equals(auction.tradeMode())
+              || !"ACTIVE".equals(listing.status())
+              || auction.endAt() == null
+              || !auction.endAt().isAfter(Instant.now())) {
+            throw new ServiceException("auction_unavailable", "Auction is unavailable");
+          }
+          if (listing.sellerUserId() == bidderUserId) {
+            throw new ServiceException("self_trade", "Seller cannot bid on the same auction");
+          }
+          long minimum =
+              auction.highestBid() == null
+                  ? auction.startPrice()
+                  : Math.addExact(auction.highestBid(), auction.minIncrement());
+          if (amount < minimum) {
+            throw new ServiceException("bid_too_low", "Bid amount is below the current minimum");
+          }
+          long frozenDelta = amount;
+          if (auction.highestBidderUserId() != null
+              && auction.highestBidderUserId() == bidderUserId) {
+            frozenDelta = amount - auction.highestBid();
+          }
+          wallets.applyDelta(
+              connection,
+              bidderUserId,
+              listing.currency(),
+              -frozenDelta,
+              "AUCTION_BID_FREEZE",
+              "auction-bid:" + bidderUserId + ":" + idempotencyKey,
+              true);
+          if (auction.highestBidderUserId() != null
+              && auction.highestBidderUserId() != bidderUserId) {
+            wallets.applyDelta(
+                connection,
+                auction.highestBidderUserId(),
+                listing.currency(),
+                auction.highestBid(),
+                "AUCTION_OUTBID_REFUND",
+                "auction-outbid:" + auction.highestBidId(),
+                false);
+          }
+          long bidId;
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "INSERT INTO market_bids"
+                      + " (listing_id,bidder_user_id,bidder_uuid,bid_amount,status,idempotency_key)"
+                      + " VALUES (?,?,?,?,'LEADING',?)",
+                  Statement.RETURN_GENERATED_KEYS)) {
+            statement.setLong(1, listingId);
+            statement.setLong(2, bidderUserId);
+            statement.setString(3, bidderUuid.toString());
+            statement.setLong(4, amount);
+            statement.setString(5, idempotencyKey);
+            statement.executeUpdate();
+            bidId = generatedId(statement);
+          }
+          if (auction.highestBidId() != null) {
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "UPDATE market_bids SET status=?,outbid_at=CURRENT_TIMESTAMP,refunded_at=?"
+                        + " WHERE id=? AND status='LEADING'")) {
+              boolean sameBidder = auction.highestBidderUserId() == bidderUserId;
+              statement.setString(1, sameBidder ? "SUPERSEDED" : "OUTBID");
+              statement.setObject(2, sameBidder ? null : Timestamp.from(Instant.now()));
+              statement.setLong(3, auction.highestBidId());
+              if (statement.executeUpdate() != 1) {
+                throw new ServiceException("auction_conflict", "Auction changed concurrently");
+              }
+            }
+          }
+          String expectedClause =
+              auction.highestBidId() == null
+                  ? "auction_highest_bid_id IS NULL"
+                  : "auction_highest_bid_id=?";
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE market_listings SET auction_highest_bid=?,"
+                      + "auction_highest_bidder_user_id=?,auction_highest_bidder_uuid=?,"
+                      + "auction_highest_bid_id=?,auction_last_bid_at=CURRENT_TIMESTAMP"
+                      + " WHERE id=? AND status='ACTIVE' AND "
+                      + expectedClause)) {
+            statement.setLong(1, amount);
+            statement.setLong(2, bidderUserId);
+            statement.setString(3, bidderUuid.toString());
+            statement.setLong(4, bidId);
+            statement.setLong(5, listingId);
+            if (auction.highestBidId() != null) statement.setLong(6, auction.highestBidId());
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException("auction_conflict", "Auction changed concurrently");
+            }
+          }
+          return new AuctionBidResult(
+              bidId, listingId, amount, minimum, "LEADING", idempotencyKey);
+        });
+  }
+
+  public int settleExpiredAuctions(int requestedLimit) {
+    int limit = Math.max(1, Math.min(requestedLimit, 100));
+    List<Long> due =
+        database.withConnection(
+            connection -> {
+              try (PreparedStatement statement =
+                  connection.prepareStatement(
+                      "SELECT id FROM market_listings WHERE trade_mode='AUCTION'"
+                          + " AND status='ACTIVE' AND auction_end_at<=CURRENT_TIMESTAMP"
+                          + " ORDER BY auction_end_at,id LIMIT ?")) {
+                statement.setInt(1, limit);
+                try (ResultSet result = statement.executeQuery()) {
+                  List<Long> ids = new ArrayList<>();
+                  while (result.next()) ids.add(result.getLong(1));
+                  return ids;
+                }
+              }
+            });
+    int settled = 0;
+    for (long listingId : due) {
+      if (settleAuction(listingId)) settled++;
+    }
+    return settled;
   }
 
   public Purchase placeProductInCheckout(
@@ -1985,6 +2259,169 @@ public final class SharedCommerceService {
             result.getLong(12));
       }
     }
+  }
+
+  private AuctionDetails readAuctionDetails(Connection connection, long listingId)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT trade_mode,auction_algorithm,auction_start_price,auction_min_increment,"
+                + "auction_started_at,auction_public_end_at,auction_end_at,auction_params_json,"
+                + "auction_highest_bid,auction_highest_bidder_user_id,auction_highest_bidder_uuid,"
+                + "auction_highest_bid_id,auction_last_bid_at"
+                + " FROM market_listings WHERE id=?")) {
+      statement.setLong(1, listingId);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) {
+          throw new ServiceException("listing_not_found", "Listing was not found");
+        }
+        return new AuctionDetails(
+            listingId,
+            result.getString(1),
+            result.getString(2),
+            nullableLong(result, 3),
+            nullableLong(result, 4),
+            instant(result, 5),
+            instant(result, 6),
+            instant(result, 7),
+            result.getString(8),
+            nullableLong(result, 9),
+            nullableLong(result, 10),
+            result.getString(11) == null ? null : UUID.fromString(result.getString(11)),
+            nullableLong(result, 12),
+            instant(result, 13));
+      }
+    }
+  }
+
+  private AuctionBidResult priorAuctionBid(
+      Connection connection, long bidderUserId, String idempotencyKey) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT id,listing_id,bid_amount,status,idempotency_key FROM market_bids"
+                + " WHERE bidder_user_id=? AND idempotency_key=?")) {
+      statement.setLong(1, bidderUserId);
+      statement.setString(2, idempotencyKey);
+      try (ResultSet result = statement.executeQuery()) {
+        return result.next()
+            ? new AuctionBidResult(
+                result.getLong(1),
+                result.getLong(2),
+                result.getLong(3),
+                result.getLong(3),
+                result.getString(4),
+                result.getString(5))
+            : null;
+      }
+    }
+  }
+
+  private boolean settleAuction(long listingId) {
+    return database.inTransaction(
+        connection -> {
+          Listing listing = readListing(connection, listingId);
+          AuctionDetails auction = readAuctionDetails(connection, listingId);
+          if (!"ACTIVE".equals(listing.status())
+              || !"AUCTION".equals(auction.tradeMode())
+              || auction.endAt() == null
+              || auction.endAt().isAfter(Instant.now())) {
+            return false;
+          }
+          if (auction.highestBidId() == null) {
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "UPDATE market_listings SET status='UNLISTED',unlisted_at=CURRENT_TIMESTAMP"
+                        + " WHERE id=? AND status='ACTIVE' AND auction_highest_bid_id IS NULL")) {
+              statement.setLong(1, listingId);
+              if (statement.executeUpdate() != 1) return false;
+            }
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "INSERT INTO market_item_deliveries"
+                        + " (listing_id,trade_id,target_user_id,target_uuid,target_server_id,item_blob,quantity,delivery_type,next_retry_at)"
+                        + " VALUES (?,NULL,?,?,NULL,?,?,'AUCTION_EXPIRED',CURRENT_TIMESTAMP)")) {
+              statement.setLong(1, listingId);
+              statement.setLong(2, listing.sellerUserId());
+              statement.setString(3, listing.sellerId().toString());
+              statement.setBytes(4, envelopes.encode(listing.item()));
+              statement.setInt(5, listing.quantity());
+              statement.executeUpdate();
+            }
+            return true;
+          }
+          String settlementKey = "auction-settle:" + listingId;
+          wallets.applyDelta(
+              connection,
+              listing.sellerUserId(),
+              listing.currency(),
+              auction.highestBid(),
+              "AUCTION_SETTLEMENT",
+              settlementKey,
+              false);
+          long tradeId;
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "INSERT INTO market_trades"
+                      + " (listing_id,buyer_user_id,seller_user_id,currency,unit_price,quantity,"
+                      + "total_price,buyer_total,seller_receive,idempotency_key,claim_token,status,settled_at)"
+                      + " VALUES (?,?,?,?,?,?,?,?,?,?,?,'SETTLED',CURRENT_TIMESTAMP)",
+                  Statement.RETURN_GENERATED_KEYS)) {
+            statement.setLong(1, listingId);
+            statement.setLong(2, auction.highestBidderUserId());
+            statement.setLong(3, listing.sellerUserId());
+            statement.setString(4, listing.currency().name());
+            statement.setLong(5, auction.highestBid());
+            statement.setInt(6, listing.quantity());
+            statement.setLong(7, auction.highestBid());
+            statement.setLong(8, auction.highestBid());
+            statement.setLong(9, auction.highestBid());
+            statement.setString(10, settlementKey);
+            statement.setString(11, UUID.randomUUID().toString());
+            statement.executeUpdate();
+            tradeId = generatedId(statement);
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE market_listings SET status='SOLD',buyer_user_id=?,buyer_uuid=?,"
+                      + "quantity=0,escrow_remaining=0,sold_at=CURRENT_TIMESTAMP"
+                      + " WHERE id=? AND status='ACTIVE' AND auction_highest_bid_id=?")) {
+            statement.setLong(1, auction.highestBidderUserId());
+            statement.setString(2, auction.highestBidderUuid().toString());
+            statement.setLong(3, listingId);
+            statement.setLong(4, auction.highestBidId());
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException("auction_conflict", "Auction changed concurrently");
+            }
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE market_bids SET status='SETTLED',settled_at=CURRENT_TIMESTAMP"
+                      + " WHERE id=? AND status='LEADING'")) {
+            statement.setLong(1, auction.highestBidId());
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException("auction_conflict", "Auction bid changed concurrently");
+            }
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "INSERT INTO market_item_deliveries"
+                      + " (listing_id,trade_id,target_user_id,target_uuid,target_server_id,item_blob,quantity,delivery_type,next_retry_at)"
+                      + " VALUES (?,?,?,?,NULL,?,?,'AUCTION_WIN',CURRENT_TIMESTAMP)")) {
+            statement.setLong(1, listingId);
+            statement.setLong(2, tradeId);
+            statement.setLong(3, auction.highestBidderUserId());
+            statement.setString(4, auction.highestBidderUuid().toString());
+            statement.setBytes(5, envelopes.encode(listing.item()));
+            statement.setInt(6, listing.quantity());
+            statement.executeUpdate();
+          }
+          return true;
+        });
+  }
+
+  private static Long nullableLong(ResultSet result, int column) throws SQLException {
+    long value = result.getLong(column);
+    return result.wasNull() ? null : value;
   }
 
   private MarketTrade findMarketTrade(Connection connection, long buyer, String key)
@@ -2422,6 +2859,41 @@ public final class SharedCommerceService {
       String side,
       long escrowTotal,
       long escrowRemaining) {}
+
+  public record AuctionDetails(
+      long listingId,
+      String tradeMode,
+      String algorithm,
+      Long startPrice,
+      Long minIncrement,
+      Instant startedAt,
+      Instant publicEndAt,
+      Instant endAt,
+      String paramsJson,
+      Long highestBid,
+      Long highestBidderUserId,
+      UUID highestBidderUuid,
+      Long highestBidId,
+      Instant lastBidAt) {}
+
+  public record AuctionBidResult(
+      long bidId,
+      long listingId,
+      long bidAmount,
+      long minimumBid,
+      String status,
+      String idempotencyKey) {}
+
+  public record AuctionInsights(
+      String algorithm,
+      int bidCount,
+      int participantCount,
+      boolean sealed,
+      Long myBid,
+      String myStatus,
+      List<AuctionBidPoint> pricePoints) {}
+
+  public record AuctionBidPoint(long amount, String bidderName, Instant createdAt) {}
 
   public record MarketBuyRequest(
       long buyerUserId,
