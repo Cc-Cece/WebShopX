@@ -758,8 +758,9 @@ tasks.register('verifySupportMatrix') {
 
 tasks.register('generateModSbom') {
     group = 'distribution'
-    description = 'Writes an SPDX 2.3 inventory for every independently distributed Mod artifact.'
+    description = 'Writes an SPDX 2.3 inventory for every RC JAR and its runtime supply chain.'
     dependsOn tasks.named('modMatrixAssemble')
+    dependsOn tasks.named('packagePluginVariants')
     def outputFile = layout.buildDirectory.file('reports/mod-migration/mod-sbom.spdx.json')
     inputs.property('sourceCommit', providers.exec {
         commandLine 'git', 'rev-parse', 'HEAD'
@@ -768,28 +769,84 @@ tasks.register('generateModSbom') {
     doFirst { requireCleanSourceTree() }
     doLast {
         def packages = []
+        def files = []
         def relationships = []
-        modArtifactProjects.eachWithIndex { path, index ->
+        def verificationCode = { String fileSha1 ->
+            java.security.MessageDigest.getInstance('SHA-1')
+                    .digest(fileSha1.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                    .encodeHex().toString()
+        }
+        def releaseArtifacts = []
+        modArtifactProjects.each { path ->
             def child = project(path)
             def artifact = child.tasks.named('jar', Jar).get().archiveFile.get().asFile
+            releaseArtifacts << [
+                    file: artifact,
+                    platform: child.ext.platformFamily,
+                    variant: child.ext.minecraftVersion,
+                    bundlesRuntime: true
+            ]
+        }
+        def paperTasks = ['slimJar', 'shadowJar', 'fullLinuxJar', 'fullWinJar']
+        if (includeFoliaVariants) {
+            paperTasks.addAll(['foliaSlimJar', 'fullFoliaJar', 'fullFoliaLinuxJar', 'fullFoliaWinJar'])
+        }
+        paperTasks.each { taskName ->
+            releaseArtifacts << [
+                    file: tasks.named(taskName, Jar).get().archiveFile.get().asFile,
+                    platform: taskName.toLowerCase(Locale.ROOT).contains('folia') ? 'folia' : 'paper-compatible',
+                    variant: taskName,
+                    bundlesRuntime: !taskName.toLowerCase(Locale.ROOT).contains('slim')
+            ]
+        }
+        releaseArtifacts.eachWithIndex { releaseArtifact, index ->
+            File artifact = releaseArtifact.file
+            def packageId = "SPDXRef-Artifact-${index + 1}"
+            def fileId = "SPDXRef-ArtifactFile-${index + 1}"
+            def sha256 = java.security.MessageDigest.getInstance('SHA-256')
+                    .digest(artifact.bytes).encodeHex().toString()
+            def sha1 = java.security.MessageDigest.getInstance('SHA-1')
+                    .digest(artifact.bytes).encodeHex().toString()
             packages << [
-                    SPDXID: "SPDXRef-Package-${index + 1}",
+                    SPDXID: packageId,
                     name: artifact.name,
                     versionInfo: project.version.toString(),
                     downloadLocation: 'NOASSERTION',
-                    filesAnalyzed: false,
+                    filesAnalyzed: true,
+                    packageVerificationCode: [packageVerificationCodeValue: verificationCode(sha1)],
+                    primaryPackagePurpose: 'APPLICATION',
                     licenseConcluded: 'LicenseRef-WebShopX-Restricted',
                     licenseDeclared: 'LicenseRef-WebShopX-Restricted',
-                    checksums: [[
-                            algorithm: 'SHA256',
-                            checksumValue: java.security.MessageDigest.getInstance('SHA-256')
-                                    .digest(artifact.bytes).encodeHex().toString()
-                    ]],
+                    checksums: [
+                            [algorithm: 'SHA256', checksumValue: sha256],
+                            [algorithm: 'SHA1', checksumValue: sha1]
+                    ],
+                    sourceInfo: "Built from Git commit ${gitText('rev-parse', 'HEAD')}",
                     externalRefs: [[
                             referenceCategory: 'PACKAGE-MANAGER',
                             referenceType: 'purl',
-                            referenceLocator: "pkg:minecraft/${child.ext.platformFamily}@${child.ext.minecraftVersion}?loader=${child.ext.loaderVersion}"
+                            referenceLocator: "pkg:generic/webshopx/${releaseArtifact.platform}@${project.version}?variant=${releaseArtifact.variant}"
                     ]]
+            ]
+            files << [
+                    SPDXID: fileId,
+                    fileName: "artifacts/${artifact.name}",
+                    checksums: [
+                            [algorithm: 'SHA256', checksumValue: sha256],
+                            [algorithm: 'SHA1', checksumValue: sha1]
+                    ],
+                    licenseConcluded: 'LicenseRef-WebShopX-Restricted',
+                    copyrightText: 'NOASSERTION'
+            ]
+            relationships << [
+                    spdxElementId: 'SPDXRef-DOCUMENT',
+                    relationshipType: 'DESCRIBES',
+                    relatedSpdxElement: packageId
+            ]
+            relationships << [
+                    spdxElementId: packageId,
+                    relationshipType: 'CONTAINS',
+                    relatedSpdxElement: fileId
             ]
         }
         def licenses = [
@@ -798,72 +855,101 @@ tasks.register('generateModSbom') {
                 'org.apache.commons:commons-pool2': 'Apache-2.0',
                 'org.json:json': 'LicenseRef-JSON',
                 'org.xerial:sqlite-jdbc': 'Apache-2.0',
-                'org.mariadb.jdbc:mariadb-java-client': 'LGPL-2.1-or-later'
+                'org.mariadb.jdbc:mariadb-java-client': 'LGPL-2.1-or-later',
+                'org.slf4j:slf4j-api': 'MIT',
+                'org.bstats:bstats-bukkit': 'MIT',
+                'org.bstats:bstats-base': 'MIT',
+                'com.tchristofferson:ConfigUpdater': 'MIT',
+                'com.google.code.gson:gson': 'Apache-2.0',
+                'com.google.errorprone:error_prone_annotations': 'Apache-2.0',
+                'com.github.Querz:NBT': 'MIT'
         ]
-        def runtimeArtifacts = project(':webshopx-core').configurations.runtimeClasspath
+        def runtimeArtifacts = configurations.runtimeClasspath
                 .resolvedConfiguration.resolvedArtifacts
                 .findAll { it.moduleVersion.id.group != project.group.toString() }
                 .sort { left, right ->
                     "${left.moduleVersion.id.group}:${left.name}:${left.moduleVersion.id.version}" <=>
                             "${right.moduleVersion.id.group}:${right.name}:${right.moduleVersion.id.version}"
                 }
+        def dependencyIds = [:]
         runtimeArtifacts.eachWithIndex { dependency, dependencyIndex ->
             def id = dependency.moduleVersion.id
             String coordinate = "${id.group}:${dependency.name}".toString()
             def spdxId = "SPDXRef-Dependency-${dependencyIndex + 1}"
+            def fileId = "SPDXRef-DependencyFile-${dependencyIndex + 1}"
             def license = licenses.get(coordinate)
             if (license == null) {
                 throw new GradleException("No reviewed SPDX license mapping for runtime dependency ${coordinate}:${id.version}")
             }
+            dependencyIds["${id.group}:${dependency.name}:${id.version}".toString()] = spdxId
+            def dependencySha256 = java.security.MessageDigest.getInstance('SHA-256')
+                    .digest(dependency.file.bytes).encodeHex().toString()
+            def dependencySha1 = java.security.MessageDigest.getInstance('SHA-1')
+                    .digest(dependency.file.bytes).encodeHex().toString()
             packages << [
                     SPDXID: spdxId,
                     name: coordinate,
                     versionInfo: id.version,
                     downloadLocation: "https://repo1.maven.org/maven2/${id.group.replace('.', '/')}/${dependency.name}/${id.version}/",
-                    filesAnalyzed: false,
+                    filesAnalyzed: true,
+                    packageVerificationCode: [
+                            packageVerificationCodeValue: verificationCode(dependencySha1)
+                    ],
+                    primaryPackagePurpose: 'LIBRARY',
                     licenseConcluded: license,
                     licenseDeclared: license,
-                    checksums: [[
-                            algorithm: 'SHA256',
-                            checksumValue: java.security.MessageDigest.getInstance('SHA-256')
-                                    .digest(dependency.file.bytes).encodeHex().toString()
-                    ]],
+                    checksums: [
+                            [algorithm: 'SHA256', checksumValue: dependencySha256],
+                            [algorithm: 'SHA1', checksumValue: dependencySha1]
+                    ],
                     externalRefs: [[
                             referenceCategory: 'PACKAGE-MANAGER',
                             referenceType: 'purl',
                             referenceLocator: "pkg:maven/${id.group}/${dependency.name}@${id.version}"
                     ]]
             ]
-            modArtifactProjects.indices.each { artifactIndex ->
+            files << [
+                    SPDXID: fileId,
+                    fileName: "dependencies/${dependency.file.name}",
+                    checksums: [
+                            [algorithm: 'SHA256', checksumValue: dependencySha256],
+                            [algorithm: 'SHA1', checksumValue: dependencySha1]
+                    ],
+                    licenseConcluded: license,
+                    copyrightText: 'NOASSERTION'
+            ]
+            relationships << [
+                    spdxElementId: spdxId,
+                    relationshipType: 'CONTAINS',
+                    relatedSpdxElement: fileId
+            ]
+            releaseArtifacts.eachWithIndex { releaseArtifact, artifactIndex ->
                 relationships << [
-                        spdxElementId: "SPDXRef-Package-${artifactIndex + 1}",
-                        relationshipType: 'CONTAINS',
+                        spdxElementId: "SPDXRef-Artifact-${artifactIndex + 1}",
+                        relationshipType: releaseArtifact.bundlesRuntime ? 'CONTAINS' : 'DEPENDS_ON',
                         relatedSpdxElement: spdxId
                 ]
             }
         }
-        def gsonId = 'SPDXRef-Dependency-Gson'
-        packages << [
-                SPDXID: gsonId,
-                name: 'com.google.code.gson:gson',
-                versionInfo: '2.11.0',
-                downloadLocation: 'https://repo1.maven.org/maven2/com/google/code/gson/gson/2.11.0/',
-                filesAnalyzed: false,
-                licenseConcluded: 'Apache-2.0',
-                licenseDeclared: 'Apache-2.0',
-                externalRefs: [[
-                        referenceCategory: 'PACKAGE-MANAGER',
-                        referenceType: 'purl',
-                        referenceLocator: 'pkg:maven/com.google.code.gson/gson@2.11.0'
-                ]],
-                comment: 'Compile-time HTTP JSON API dependency; supplied by the supported Minecraft runtime.'
-        ]
-        modArtifactProjects.indices.each { artifactIndex ->
-            relationships << [
-                    spdxElementId: "SPDXRef-Package-${artifactIndex + 1}",
-                    relationshipType: 'DEPENDS_ON',
-                    relatedSpdxElement: gsonId
-            ]
+        def dependencyEdges = [] as Set
+        def visitDependency
+        visitDependency = { parent, resolved ->
+            def childCoordinate = "${resolved.moduleGroup}:${resolved.moduleName}:${resolved.moduleVersion}".toString()
+            def childId = dependencyIds[childCoordinate]
+            if (parent != null && childId != null) {
+                def edge = "${parent}|${childId}".toString()
+                if (dependencyEdges.add(edge)) {
+                    relationships << [
+                            spdxElementId: parent,
+                            relationshipType: 'DEPENDS_ON',
+                            relatedSpdxElement: childId
+                    ]
+                }
+            }
+            resolved.children.each { child -> visitDependency(childId ?: parent, child) }
+        }
+        configurations.runtimeClasspath.resolvedConfiguration.firstLevelModuleDependencies.each {
+            visitDependency(null, it)
         }
         def commit = providers.exec { commandLine 'git', 'rev-parse', 'HEAD' }
                 .standardOutput.asText.get().trim()
@@ -877,6 +963,7 @@ tasks.register('generateModSbom') {
                 documentNamespace: "https://webshopx.invalid/spdx/${commit}",
                 creationInfo: [created: commitTime, creators: ['Tool: Gradle-WebShopX']],
                 packages: packages,
+                files: files,
                 relationships: relationships,
                 hasExtractedLicensingInfos: [[
                         licenseId: 'LicenseRef-WebShopX-Restricted',
@@ -893,11 +980,69 @@ tasks.register('generateModSbom') {
     }
 }
 
+tasks.register('verifyModSbom') {
+    group = 'verification'
+    description = 'Validates complete RC artifact, file, license, checksum and dependency coverage.'
+    dependsOn tasks.named('generateModReleaseManifest')
+    dependsOn tasks.named('generateModSbom')
+    doLast {
+        def manifest = new groovy.json.JsonSlurper().parse(
+                layout.buildDirectory.file('reports/mod-migration/release-manifest.json').get().asFile)
+        def sbom = new groovy.json.JsonSlurper().parse(
+                layout.buildDirectory.file('reports/mod-migration/mod-sbom.spdx.json').get().asFile)
+        if (sbom.spdxVersion != 'SPDX-2.3' || sbom.dataLicense != 'CC0-1.0') {
+            throw new GradleException('SBOM is not an SPDX 2.3 JSON document.')
+        }
+        def packagesById = (sbom.packages ?: []).collectEntries { [(it.SPDXID): it] }
+        def filesById = (sbom.files ?: []).collectEntries { [(it.SPDXID): it] }
+        def relationships = sbom.relationships ?: []
+        def applications = packagesById.values().findAll { it.primaryPackagePurpose == 'APPLICATION' }
+        def libraries = packagesById.values().findAll { it.primaryPackagePurpose == 'LIBRARY' }
+        def expectedArtifacts = manifest.artifacts.collect { it.file } as Set
+        def actualArtifacts = applications.collect { it.name } as Set
+        if (actualArtifacts != expectedArtifacts) {
+            throw new GradleException("SBOM artifact coverage mismatch. expected=${expectedArtifacts}, actual=${actualArtifacts}")
+        }
+        (applications + libraries).each { component ->
+            if (component.filesAnalyzed != true || !component.packageVerificationCode?.packageVerificationCodeValue ||
+                    !(component.checksums?.any { it.algorithm == 'SHA256' && it.checksumValue ==~ /[0-9a-f]{64}/ }) ||
+                    !component.licenseDeclared || component.licenseDeclared in ['NOASSERTION', 'NONE'] ||
+                    !component.licenseConcluded || component.licenseConcluded in ['NOASSERTION', 'NONE']) {
+                throw new GradleException("Incomplete SBOM component: ${component.name}")
+            }
+            def containedFiles = relationships.findAll {
+                it.spdxElementId == component.SPDXID && it.relationshipType == 'CONTAINS' &&
+                        filesById.containsKey(it.relatedSpdxElement)
+            }
+            if (containedFiles.isEmpty()) {
+                throw new GradleException("SBOM component has no hashed file: ${component.name}")
+            }
+        }
+        applications.each { artifact ->
+            def runtimeLinks = relationships.findAll {
+                it.spdxElementId == artifact.SPDXID &&
+                        it.relationshipType in ['CONTAINS', 'DEPENDS_ON'] &&
+                        libraries.any { library -> library.SPDXID == it.relatedSpdxElement }
+            }
+            if (runtimeLinks.size() != libraries.size()) {
+                throw new GradleException("SBOM runtime dependency coverage is incomplete for ${artifact.name}")
+            }
+        }
+        filesById.values().each { entry ->
+            if (!(entry.checksums?.any { it.algorithm == 'SHA256' && it.checksumValue ==~ /[0-9a-f]{64}/ })) {
+                throw new GradleException("SBOM file lacks SHA-256: ${entry.fileName}")
+            }
+        }
+        println "Verified SBOM: ${applications.size()} RC artifacts, ${libraries.size()} runtime libraries, ${filesById.size()} hashed files"
+    }
+}
+
 tasks.register('generateModReadiness') {
     group = 'distribution'
     description = 'Writes the machine-readable M0-M9 implementation readiness packet.'
     dependsOn tasks.named('generateModReleaseManifest')
     dependsOn tasks.named('generateModSbom')
+    dependsOn tasks.named('verifyModSbom')
     dependsOn tasks.named('verifySupportMatrix')
     dependsOn ':webshopx-core:performanceBudget'
     def outputFile = layout.buildDirectory.file('reports/mod-migration/readiness.json')
@@ -967,6 +1112,7 @@ tasks.register('localReadiness') {
     dependsOn tasks.named('modEntrypointSmoke')
     dependsOn tasks.named('generateModReleaseManifest')
     dependsOn tasks.named('generateModSbom')
+    dependsOn tasks.named('verifyModSbom')
     dependsOn tasks.named('generateModReadiness')
     dependsOn tasks.named('verifySupportMatrix')
 }
