@@ -217,6 +217,232 @@ public final class SharedCommerceService {
         });
   }
 
+  public List<OrderView> orders(long userId, int limit, Long cursor) {
+    int normalizedLimit = Math.max(1, Math.min(limit, 100));
+    return database.withConnection(
+        connection -> {
+          String sql =
+              "SELECT o.id,o.order_no,o.status,o.currency,o.total_amount,o.mc_uuid,o.created_at,"
+                  + "o.delivered_at,o.refunded_at,o.refund_deadline,o.refunded_amount,"
+                  + "o.refunded_quantity,o.claim_token,oi.quantity,oi.unit_price,p.sku,p.title,"
+                  + "p.remark,p.product_type,p.item_material FROM orders o JOIN order_items oi"
+                  + " ON oi.order_id=o.id JOIN products p ON p.id=oi.product_id"
+                  + " WHERE o.user_id=?"
+                  + (cursor == null ? "" : " AND o.id<?")
+                  + " ORDER BY o.id DESC LIMIT ?";
+          try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            int parameter = 1;
+            statement.setLong(parameter++, userId);
+            if (cursor != null) statement.setLong(parameter++, cursor);
+            statement.setInt(parameter, normalizedLimit);
+            List<OrderView> values = new ArrayList<>();
+            try (ResultSet result = statement.executeQuery()) {
+              while (result.next()) {
+                long orderId = result.getLong(1);
+                int delivered = deliveredQuantity(connection, orderId);
+                int quantity = result.getInt(14);
+                String status = result.getString(3);
+                values.add(
+                    new OrderView(
+                        orderId,
+                        result.getString(2),
+                        status,
+                        result.getString(4),
+                        result.getLong(5),
+                        result.getString(6),
+                        instant(result, 7),
+                        instant(result, 8),
+                        instant(result, 9),
+                        instant(result, 10),
+                        result.getLong(11),
+                        result.getInt(12),
+                        result.getString(13),
+                        quantity,
+                        result.getLong(15),
+                        result.getString(16),
+                        result.getString(17),
+                        result.getString(18),
+                        result.getString(19),
+                        result.getString(20),
+                        delivered,
+                        "PAID".equals(status) && delivered == 0,
+                        Math.max(0, quantity - result.getInt(12))));
+              }
+            }
+            return List.copyOf(values);
+          }
+        });
+  }
+
+  public DeliveryStatus deliveryStatus(long userId, String orderNo) {
+    return database.withConnection(
+        connection -> {
+          long orderId;
+          String status;
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT id,status FROM orders WHERE user_id=? AND order_no=?")) {
+            statement.setLong(1, userId);
+            statement.setString(2, orderNo);
+            try (ResultSet result = statement.executeQuery()) {
+              if (!result.next()) throw new ServiceException("order_not_found", "Order not found");
+              orderId = result.getLong(1);
+              status = result.getString(2);
+            }
+          }
+          List<DeliveryTask> tasks = new ArrayList<>();
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT id,status,retry_count,last_error,next_retry_at,delivered_at,claimed_at,"
+                      + "created_at,quantity,delivered_quantity,delivery_kind,target_server_id"
+                      + " FROM delivery_queue WHERE order_id=? ORDER BY id")) {
+            statement.setLong(1, orderId);
+            try (ResultSet result = statement.executeQuery()) {
+              while (result.next()) {
+                tasks.add(
+                    new DeliveryTask(
+                        result.getLong(1),
+                        result.getString(2),
+                        result.getInt(3),
+                        result.getString(4),
+                        instant(result, 5),
+                        instant(result, 6),
+                        instant(result, 7),
+                        instant(result, 8),
+                        result.getInt(9),
+                        result.getInt(10),
+                        result.getString(11),
+                        result.getString(12)));
+              }
+            }
+          }
+          return new DeliveryStatus(orderNo, status, List.copyOf(tasks));
+        });
+  }
+
+  public RefundResult refundOrder(long userId, String orderNo) {
+    String idempotencyKey = "order-refund:" + orderNo;
+    RefundResult refund;
+    try {
+      refund =
+          database.inTransaction(
+              connection -> {
+                RefundResult prior = priorRefund(connection, userId, orderNo, idempotencyKey);
+                if (prior != null) return prior;
+                long orderId;
+                CurrencyType currency;
+                long total;
+                int quantity;
+                String status;
+                try (PreparedStatement statement =
+                    connection.prepareStatement(
+                        "SELECT o.id,o.currency,o.total_amount,o.status,SUM(oi.quantity) FROM"
+                            + " orders o JOIN order_items oi ON oi.order_id=o.id WHERE o.user_id=?"
+                            + " AND o.order_no=? GROUP BY"
+                            + " o.id,o.currency,o.total_amount,o.status")) {
+                  statement.setLong(1, userId);
+                  statement.setString(2, orderNo);
+                  try (ResultSet result = statement.executeQuery()) {
+                    if (!result.next())
+                      throw new ServiceException("order_not_found", "Order not found");
+                    orderId = result.getLong(1);
+                    currency = CurrencyType.valueOf(result.getString(2));
+                    total = result.getLong(3);
+                    status = result.getString(4);
+                    quantity = result.getInt(5);
+                  }
+                }
+                if (!"PAID".equals(status) || deliveredQuantity(connection, orderId) > 0) {
+                  throw new ServiceException("order_not_refundable", "Order is not refundable");
+                }
+                if (hasProcessingDelivery(connection, orderId)) {
+                  throw new ServiceException(
+                      "delivery_outcome_unknown",
+                      "Delivery is in progress; reconciliation is required");
+                }
+                insertRefundRequest(connection, userId, orderNo, idempotencyKey);
+                try (PreparedStatement statement =
+                    connection.prepareStatement(
+                        "UPDATE orders SET"
+                            + " status='REFUNDED',refunded_quantity=?,refunded_amount=?,refunded_at=CURRENT_TIMESTAMP"
+                            + " WHERE id=? AND user_id=? AND status='PAID'")) {
+                  statement.setInt(1, quantity);
+                  statement.setLong(2, total);
+                  statement.setLong(3, orderId);
+                  statement.setLong(4, userId);
+                  if (statement.executeUpdate() != 1) {
+                    throw new ServiceException("order_conflict", "Order state changed");
+                  }
+                }
+                cancelDeliveries(connection, orderId);
+                restoreProductStock(connection, orderId);
+                wallets.applyDelta(
+                    connection, userId, currency, total, "ORDER_REFUND", orderNo, false);
+                try (PreparedStatement statement =
+                    connection.prepareStatement(
+                        "UPDATE refund_requests SET"
+                            + " status='SUCCESS',refund_amount=?,refund_quantity=?,completed_at=CURRENT_TIMESTAMP"
+                            + " WHERE user_id=? AND idempotency_key=?")) {
+                  statement.setLong(1, total);
+                  statement.setInt(2, quantity);
+                  statement.setLong(3, userId);
+                  statement.setString(4, idempotencyKey);
+                  statement.executeUpdate();
+                }
+                return new RefundResult(orderNo, total, quantity, null);
+              });
+    } catch (RuntimeException failure) {
+      RefundResult recovered =
+          database.withConnection(
+              connection -> priorRefund(connection, userId, orderNo, idempotencyKey));
+      if (recovered == null) throw failure;
+      refund = recovered;
+    }
+    return new RefundResult(
+        refund.orderNo(),
+        refund.refundAmount(),
+        refund.refundQuantity(),
+        wallets.getBalance(userId));
+  }
+
+  public void discardOrder(long userId, String orderNo) {
+    database.inTransaction(
+        connection -> {
+          long orderId;
+          String orderStatus;
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT id,status FROM orders WHERE user_id=? AND order_no=?")) {
+            statement.setLong(1, userId);
+            statement.setString(2, orderNo);
+            try (ResultSet result = statement.executeQuery()) {
+              if (!result.next())
+                throw new ServiceException("order_not_discardable", "Order is not discardable");
+              orderId = result.getLong(1);
+              orderStatus = result.getString(2);
+            }
+          }
+          if ("CANCELLED".equals(orderStatus)) return null;
+          if (!"PAID".equals(orderStatus)) {
+            throw new ServiceException("order_not_discardable", "Order is not discardable");
+          }
+          if (deliveredQuantity(connection, orderId) > 0
+              || hasProcessingDelivery(connection, orderId)) {
+            throw new ServiceException("order_not_discardable", "Order is not discardable");
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE orders SET status='CANCELLED' WHERE id=? AND status='PAID'")) {
+            statement.setLong(1, orderId);
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException("order_conflict", "Order state changed");
+            }
+          }
+          cancelDeliveries(connection, orderId);
+          return null;
+        });
+  }
+
   public boolean claimDelivery(long deliveryId, String serverId) {
     if (serverId == null || serverId.isBlank()) {
       throw new IllegalArgumentException("serverId must not be blank");
@@ -942,6 +1168,105 @@ public final class SharedCommerceService {
     }
   }
 
+  private static Instant instant(ResultSet result, int column) throws SQLException {
+    Timestamp value = result.getTimestamp(column);
+    return value == null ? null : value.toInstant();
+  }
+
+  private static int deliveredQuantity(Connection connection, long orderId) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT COALESCE(SUM(delivered_quantity),0) FROM delivery_queue WHERE order_id=?")) {
+      statement.setLong(1, orderId);
+      try (ResultSet result = statement.executeQuery()) {
+        return result.next() ? result.getInt(1) : 0;
+      }
+    }
+  }
+
+  private static boolean hasProcessingDelivery(Connection connection, long orderId)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT 1 FROM delivery_queue WHERE order_id=? AND status IN"
+                + " ('PROCESSING','UNKNOWN')")) {
+      statement.setLong(1, orderId);
+      try (ResultSet result = statement.executeQuery()) {
+        return result.next();
+      }
+    }
+  }
+
+  private static void cancelDeliveries(Connection connection, long orderId) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE delivery_queue SET status='CANCELLED',last_error='order_cancelled'"
+                + " WHERE order_id=? AND status IN ('PENDING','RETRY')")) {
+      statement.setLong(1, orderId);
+      statement.executeUpdate();
+    }
+  }
+
+  private static void restoreProductStock(Connection connection, long orderId) throws SQLException {
+    try (PreparedStatement items =
+        connection.prepareStatement(
+            "SELECT product_id,quantity FROM order_items WHERE order_id=?")) {
+      items.setLong(1, orderId);
+      try (ResultSet rows = items.executeQuery()) {
+        while (rows.next()) {
+          try (PreparedStatement update =
+              connection.prepareStatement(
+                  "UPDATE products SET"
+                      + " stock_remaining=stock_remaining+?,updated_at=CURRENT_TIMESTAMP WHERE id=?"
+                      + " AND stock_remaining IS NOT NULL")) {
+            update.setInt(1, rows.getInt(2));
+            update.setLong(2, rows.getLong(1));
+            update.executeUpdate();
+          }
+        }
+      }
+    }
+  }
+
+  private static void insertRefundRequest(
+      Connection connection, long userId, String orderNo, String idempotencyKey)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO refund_requests"
+                + " (user_id,order_ref,idempotency_key,status) VALUES (?,?,?,'PROCESSING')")) {
+      statement.setLong(1, userId);
+      statement.setString(2, orderNo);
+      statement.setString(3, idempotencyKey);
+      statement.executeUpdate();
+    }
+  }
+
+  private RefundResult priorRefund(
+      Connection connection, long userId, String orderNo, String idempotencyKey)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT status,refund_amount,refund_quantity,error_code FROM refund_requests"
+                + " WHERE user_id=? AND idempotency_key=?")) {
+      statement.setLong(1, userId);
+      statement.setString(2, idempotencyKey);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) return null;
+        if ("SUCCESS".equals(result.getString(1))) {
+          return new RefundResult(orderNo, result.getLong(2), result.getInt(3), null);
+        }
+        if ("PROCESSING".equals(result.getString(1))) {
+          throw new ServiceException(
+              "refund_outcome_unknown", "Refund requires reconciliation before retry");
+        }
+        throw new ServiceException(
+            result.getString(4) == null ? "refund_rejected" : result.getString(4),
+            "Refund was rejected");
+      }
+    }
+  }
+
   private static void validateProduct(ProductInput input) {
     Objects.requireNonNull(input, "input");
     if (input.sku() == null || !input.sku().trim().matches("[A-Za-z0-9_.-]{1,64}")) {
@@ -1033,6 +1358,50 @@ public final class SharedCommerceService {
       int quantity,
       int deliveredQuantity,
       String status) {}
+
+  public record OrderView(
+      long id,
+      String orderNo,
+      String status,
+      String currency,
+      long totalAmount,
+      String playerUuid,
+      Instant createdAt,
+      Instant deliveredAt,
+      Instant refundedAt,
+      Instant refundDeadline,
+      long refundAmount,
+      int refundQuantity,
+      String claimToken,
+      int quantity,
+      long unitPrice,
+      String sku,
+      String productTitle,
+      String productRemark,
+      String productType,
+      String itemMaterial,
+      int deliveredQuantity,
+      boolean canRefund,
+      int refundableQuantity) {}
+
+  public record DeliveryTask(
+      long id,
+      String status,
+      int retryCount,
+      String lastError,
+      Instant nextRetryAt,
+      Instant deliveredAt,
+      Instant claimedAt,
+      Instant createdAt,
+      int quantity,
+      int deliveredQuantity,
+      String deliveryKind,
+      String targetServerId) {}
+
+  public record DeliveryStatus(String orderNo, String status, List<DeliveryTask> deliveryTasks) {}
+
+  public record RefundResult(
+      String orderNo, long refundAmount, int refundQuantity, WalletService.WalletBalance balance) {}
 
   public record ListingRequest(
       long sellerUserId,

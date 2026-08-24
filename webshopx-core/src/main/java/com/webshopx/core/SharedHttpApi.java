@@ -228,6 +228,59 @@ public final class SharedHttpApi implements AutoCloseable {
                     optionalInt(input, "quantity", 1),
                     requiredString(input, "idempotencyKey"),
                     identity.serverId())));
+      } else if (path.equals("/api/orders/list") && method(exchange, "GET")) {
+        var current = user(exchange);
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "orders",
+                commerce.orders(
+                    current.id(), queryInt(exchange, "limit", 30), queryLong(exchange, "cursor")),
+                "cooldownSeconds",
+                0,
+                "refundUndeliveredEnabled",
+                true,
+                "sharedClaimAllowed",
+                true));
+      } else if (path.equals("/api/orders/policy") && method(exchange, "GET")) {
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "cooldownSeconds", 0,
+                "refundEnabled", true,
+                "refundUndeliveredEnabled", true,
+                "marketFeePercent", 0,
+                "marketTaxPercent", 0,
+                "marketSupplyAutoRefreshThreshold", 0,
+                "sharedClaimAllowed", true));
+      } else if (path.equals("/api/orders/delivery-status") && method(exchange, "GET")) {
+        var current = user(exchange);
+        respond(
+            exchange,
+            200,
+            deliveryStatusJson(
+                commerce.deliveryStatus(current.id(), requiredQuery(exchange, "orderNo"))));
+      } else if (path.equals("/api/orders/refund") && method(exchange, "POST")) {
+        var current = user(exchange);
+        SharedCommerceService.RefundResult refund =
+            commerce.refundOrder(current.id(), requiredString(body(exchange), "orderNo"));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "orderNo", refund.orderNo(),
+                "refundAmount", refund.refundAmount(),
+                "refundQuantity", refund.refundQuantity(),
+                "earnedQuantity", refund.refundQuantity(),
+                "shopCoin", refund.balance().shopCoin(),
+                "gameCoin", refund.balance().gameCoin()));
+      } else if (path.equals("/api/orders/discard") && method(exchange, "POST")) {
+        var current = user(exchange);
+        String orderNo = requiredString(body(exchange), "orderNo");
+        commerce.discardOrder(current.id(), orderNo);
+        respond(exchange, 200, Map.of("orderNo", orderNo, "status", "CANCELLED"));
       } else if (path.equals("/api/deliveries") && method(exchange, "GET")) {
         var user = user(exchange);
         if (user.boundUuid() == null) throw new ServiceException("not_bound", "User is not bound");
@@ -1004,13 +1057,18 @@ public final class SharedHttpApi implements AutoCloseable {
           switch (failure.code()) {
             case "invalid_session", "unauthorized" -> 401;
             case "forbidden", "not_admin" -> 403;
-            case "not_found", "product_not_found" -> 404;
+            case "not_found", "product_not_found", "order_not_found" -> 404;
             case "insufficient_funds",
                     "insufficient_stock",
                     "stock_conflict",
-                    "inventory_conflict" ->
+                    "inventory_conflict",
+                    "order_conflict" ->
                 409;
-            case "inventory_unavailable", "inventory_outcome_unknown" -> 503;
+            case "inventory_unavailable",
+                    "inventory_outcome_unknown",
+                    "delivery_outcome_unknown",
+                    "refund_outcome_unknown" ->
+                503;
             default -> 400;
           };
       respond(exchange, status, error(failure.code(), failure.getMessage()));
@@ -1248,6 +1306,27 @@ public final class SharedHttpApi implements AutoCloseable {
     response.addProperty("refreshedAt", java.time.Instant.now().toString());
     response.addProperty("capturedAt", java.time.Instant.now().toString());
     response.add("slots", slots);
+    return response;
+  }
+
+  private JsonObject deliveryStatusJson(SharedCommerceService.DeliveryStatus status) {
+    JsonObject response = new JsonObject();
+    response.addProperty("orderNo", status.orderNo());
+    response.addProperty("status", status.status());
+    response.addProperty("deliverySource", "SHARED_QUEUE");
+    response.addProperty("playerOnline", false);
+    JsonArray tasks = new JsonArray();
+    for (SharedCommerceService.DeliveryTask task : status.deliveryTasks()) {
+      JsonObject row = gson.toJsonTree(task).getAsJsonObject();
+      row.addProperty("remainingQuantity", Math.max(0, task.quantity() - task.deliveredQuantity()));
+      row.add("mailboxStatus", JsonNull.INSTANCE);
+      row.addProperty("mailboxQuantity", 0);
+      row.add("mailboxCreatedAt", JsonNull.INSTANCE);
+      row.add("mailboxClaimedAt", JsonNull.INSTANCE);
+      row.add("mailboxReason", JsonNull.INSTANCE);
+      tasks.add(row);
+    }
+    response.add("deliveryTasks", tasks);
     return response;
   }
 

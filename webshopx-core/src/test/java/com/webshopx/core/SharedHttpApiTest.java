@@ -392,6 +392,93 @@ class SharedHttpApiTest {
   }
 
   @Test
+  void orderHistoryDeliveryAndRefundAreConsistentAndIdempotent() throws Exception {
+    HttpResponse<String> login =
+        post(
+            "/api/auth/login",
+            "{\"identifier\":\"ApiPlayer\",\"password\":\"api-secret\"}",
+            null,
+            null);
+    String token =
+        JsonParser.parseString(login.body()).getAsJsonObject().get("token").getAsString();
+    JsonObject order =
+        JsonParser.parseString(
+                post(
+                        "/api/orders",
+                        "{\"productId\":1,\"quantity\":2,\"idempotencyKey\":\"order-view-1\"}",
+                        token,
+                        null)
+                    .body())
+            .getAsJsonObject();
+    String orderNo = order.get("orderNo").getAsString();
+    HttpResponse<String> list = get("/api/orders/list?limit=10", token);
+    assertEquals(200, list.statusCode(), list.body());
+    JsonObject listed =
+        JsonParser.parseString(list.body())
+            .getAsJsonObject()
+            .getAsJsonArray("orders")
+            .get(0)
+            .getAsJsonObject();
+    assertEquals(orderNo, listed.get("orderNo").getAsString());
+    assertTrue(listed.get("canRefund").getAsBoolean());
+    HttpResponse<String> delivery = get("/api/orders/delivery-status?orderNo=" + orderNo, token);
+    assertEquals(200, delivery.statusCode(), delivery.body());
+    assertEquals(
+        "PENDING",
+        JsonParser.parseString(delivery.body())
+            .getAsJsonObject()
+            .getAsJsonArray("deliveryTasks")
+            .get(0)
+            .getAsJsonObject()
+            .get("status")
+            .getAsString());
+    String refundRequest = "{\"orderNo\":\"" + orderNo + "\"}";
+    HttpResponse<String> refunded = post("/api/orders/refund", refundRequest, token, null);
+    assertEquals(200, refunded.statusCode(), refunded.body());
+    assertEquals(
+        100,
+        JsonParser.parseString(refunded.body()).getAsJsonObject().get("refundAmount").getAsInt());
+    assertEquals(200, post("/api/orders/refund", refundRequest, token, null).statusCode());
+    assertEquals(
+        500,
+        JsonParser.parseString(get("/api/wallet", token).body())
+            .getAsJsonObject()
+            .get("shopCoin")
+            .getAsInt());
+    assertEquals(200, get("/api/orders/policy", token).statusCode());
+  }
+
+  @Test
+  void undeliveredOrderCanBeDiscardedWithoutARefund() throws Exception {
+    HttpResponse<String> login =
+        post(
+            "/api/auth/login",
+            "{\"identifier\":\"ApiPlayer\",\"password\":\"api-secret\"}",
+            null,
+            null);
+    String token =
+        JsonParser.parseString(login.body()).getAsJsonObject().get("token").getAsString();
+    JsonObject order =
+        JsonParser.parseString(
+                post(
+                        "/api/orders",
+                        "{\"productId\":1,\"quantity\":2,\"idempotencyKey\":\"order-discard-1\"}",
+                        token,
+                        null)
+                    .body())
+            .getAsJsonObject();
+    String request = "{\"orderNo\":\"" + order.get("orderNo").getAsString() + "\"}";
+    assertEquals(200, post("/api/orders/discard", request, token, null).statusCode());
+    assertEquals(200, post("/api/orders/discard", request, token, null).statusCode());
+    assertEquals(
+        400,
+        JsonParser.parseString(get("/api/wallet", token).body())
+            .getAsJsonObject()
+            .get("shopCoin")
+            .getAsInt());
+  }
+
+  @Test
   void oversizedAndMalformedRequestsFailClosed() throws Exception {
     assertEquals(413, post("/api/auth/login", "x".repeat(70_000), null, null).statusCode());
     assertEquals(400, post("/api/auth/login", "[]", null, null).statusCode());
