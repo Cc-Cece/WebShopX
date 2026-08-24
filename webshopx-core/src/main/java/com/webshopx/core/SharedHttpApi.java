@@ -2749,7 +2749,7 @@ public final class SharedHttpApi implements AutoCloseable {
         "Content-Security-Policy",
         "default-src 'self'; img-src 'self' data: blob:; "
             + "font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; "
-            + "frame-ancestors 'none'; object-src 'none'; base-uri 'self'");
+            + "frame-ancestors 'self'; object-src 'none'; base-uri 'self'");
     String origin = exchange.getRequestHeaders().getFirst("Origin");
     if (!allowedOrigin.isEmpty() && allowedOrigin.equals(origin)) {
       headers.set("Access-Control-Allow-Origin", origin);

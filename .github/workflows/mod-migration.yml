@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: 08a5fa3255292b949c155e0f07cba8a4e31fd52a
+          ref: 55b56c2044586e8277babe50cfd445be9f43079d
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:
@@ -230,7 +230,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: 08a5fa3255292b949c155e0f07cba8a4e31fd52a
+          ref: 55b56c2044586e8277babe50cfd445be9f43079d
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:
@@ -338,7 +338,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: 08a5fa3255292b949c155e0f07cba8a4e31fd52a
+          ref: 55b56c2044586e8277babe50cfd445be9f43079d
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:
@@ -408,6 +408,13 @@ jobs:
             -Environment 'ubuntu-latest/playwright-1.62.1/chromium' `
             -EvidencePath @('build/reports/mod-migration/browser/critical-journeys.json','build/reports/mod-migration/browser/critical-journeys.png','build/reports/mod-migration/browser/admin-permission-denied.json','build/reports/mod-migration/browser/admin-permission-denied.png') `
             -OutputFile 'build/required-checks/browser-critical-journeys.check.json'
+          $routeScreenshots = Get-ChildItem 'build/reports/mod-migration/browser/route-*.png' | ForEach-Object FullName
+          $routeEvidence = @('build/reports/mod-migration/browser/route-matrix.json') + $routeScreenshots
+          & docs/mod-migration/tools/write-check-evidence.ps1 `
+            -Id 'browser-route-matrix' -SourceCommit '${{ github.sha }}' `
+            -Environment 'ubuntu-latest/playwright-1.62.1/chromium' `
+            -EvidencePath $routeEvidence `
+            -OutputFile 'build/required-checks/browser-route-matrix.check.json'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -427,7 +434,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: 08a5fa3255292b949c155e0f07cba8a4e31fd52a
+          ref: 55b56c2044586e8277babe50cfd445be9f43079d
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:

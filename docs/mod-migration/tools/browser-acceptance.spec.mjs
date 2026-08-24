@@ -67,6 +67,35 @@ async function saveJourney(page, id, consoleErrors, checkpoints) {
   await writeFile(path.join(output, `${id}.json`), `${JSON.stringify(evidence, null, 2)}\n`);
 }
 
+async function captureRouteMatrix(page, routes, consoleErrors) {
+  const results = [];
+  for (const route of routes) {
+    await test.step(`route ${route}`, async () => {
+      const errorOffset = consoleErrors.length;
+      const response = await page.goto(`${base}${route}`, { waitUntil: 'domcontentloaded' });
+      expect(response?.status(), route).toBe(200);
+      await expect(page.locator('main'), route).toBeVisible();
+      await page.waitForTimeout(500);
+      const routeErrors = consoleErrors.slice(errorOffset);
+      expect(routeErrors, route).toEqual([]);
+      const screenshot = await page.screenshot({ fullPage: true });
+      const slug = route.replace(/^\//, '').replaceAll('/', '-') || 'landing';
+      const screenshotFile = `route-${slug}.png`;
+      await writeFile(path.join(output, screenshotFile), screenshot);
+      results.push({
+        route,
+        status: response?.status(),
+        title: await page.title(),
+        visibleText: (await page.locator('main').innerText()).slice(0, 2_000),
+        consoleErrors: routeErrors,
+        screenshot: screenshotFile,
+        screenshotSha256: createHash('sha256').update(screenshot).digest('hex')
+      });
+    });
+  }
+  return results;
+}
+
 async function playerLogin(page, username, password) {
   await page.goto(`${base}/account`, { waitUntil: 'networkidle' });
   await page.getByTestId('account-username').locator('input').fill(username);
@@ -142,4 +171,34 @@ test('non-admin receives a visible authorization rejection', async ({ page }) =>
     'admin-permission-denied',
     consoleErrors,
     ['player-login', 'admin-permission-denied']);
+});
+
+test('authenticated user and admin route matrix has no browser failures', async ({ page }) => {
+  test.setTimeout(120_000);
+  const consoleErrors = recordConsoleFailures(page);
+  await playerLogin(page, 'BrowserAdmin', 'browser-secret');
+  await expect(page.getByTestId('account-authenticated')).toContainText('BrowserAdmin');
+
+  const userRoutes = await captureRouteMatrix(page, [
+    '/account', '/shop', '/cart', '/benefits', '/market', '/auction', '/leaderboard',
+    '/inventory', '/listings', '/orders', '/mailbox', '/logs', '/notifications'
+  ], consoleErrors);
+
+  await page.goto(`${base}/admin/market`, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('main')).toBeVisible();
+  await page.waitForTimeout(500);
+  if (await page.getByTestId('admin-sign-in').isVisible()) {
+    await adminLogin(page, 'BrowserAdmin', 'browser-secret');
+  }
+  await expect(page.getByTestId('admin-unknown-supply')).toBeVisible();
+  expect(consoleErrors).toEqual([]);
+  const adminRoutes = await captureRouteMatrix(page, [
+    '/admin/overview', '/admin/commerce', '/admin/promotions', '/admin/market',
+    '/admin/users', '/admin/homepage', '/admin/system'
+  ], consoleErrors);
+  const routes = [...userRoutes, ...adminRoutes];
+  expect(routes).toHaveLength(20);
+  await writeFile(
+    path.join(output, 'route-matrix.json'),
+    `${JSON.stringify({ schemaVersion: 1, id: 'route-matrix', routes }, null, 2)}\n`);
 });

@@ -528,7 +528,10 @@ class SharedHttpApiTest {
             null,
             "https://evil.example");
     assertFalse(rejected.headers().firstValue("Access-Control-Allow-Origin").isPresent());
-    assertTrue(rejected.headers().firstValue("Content-Security-Policy").isPresent());
+    String contentSecurityPolicy =
+        rejected.headers().firstValue("Content-Security-Policy").orElseThrow();
+    assertTrue(contentSecurityPolicy.contains("frame-ancestors 'self'"));
+    assertTrue(contentSecurityPolicy.contains("object-src 'none'"));
   }
 
   @Test

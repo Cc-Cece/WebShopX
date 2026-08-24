@@ -11,7 +11,7 @@ plugins {
 version = 'dev-v3.0.0'
 
 group = "com.webshopx"
-ext.pinnedFrontendCommit = '08a5fa3255292b949c155e0f07cba8a4e31fd52a'
+ext.pinnedFrontendCommit = '55b56c2044586e8277babe50cfd445be9f43079d'
 String targetRuntime = hasProperty('targetRuntime')
         ? property('targetRuntime').toString().trim().toLowerCase(Locale.ROOT)
         : '1.20.6+'
@@ -1153,7 +1153,8 @@ tasks.register('verifyRcEvidence') {
                 'server-forge-1.20', 'server-forge-1.20.1',
                 'server-neoforge-1.20.1', 'server-neoforge-1.20.2', 'server-neoforge-26.2',
                 'dependency-scan', 'security-scan', 'codeql', 'license-scan', 'sbom-validate',
-                'browser-landing', 'browser-health', 'browser-critical-journeys'
+                'browser-landing', 'browser-health', 'browser-critical-journeys',
+                'browser-route-matrix'
         ] as Set
         def checks = (evidence.checks ?: []).collectEntries { check -> [(check.id): check] }
         def missing = required - checks.keySet()
