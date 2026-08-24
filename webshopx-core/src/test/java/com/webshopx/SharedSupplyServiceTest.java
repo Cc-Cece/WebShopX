@@ -87,10 +87,42 @@ class SharedSupplyServiceTest {
     assertEquals(10, full.currentStock());
   }
 
+  @Test
+  void createsSupplyListingFromAuthorizedInspectionAndReplaysCreation() {
+    FixtureGateway gateway = new FixtureGateway(template, 12);
+    SharedSupplyService supply = commerce.supplyService(gateway, "fabric-a");
+    UUID owner = database.withConnection(connection -> {
+      try (var statement = connection.prepareStatement(
+          "SELECT bound_uuid FROM web_users WHERE id=?")) {
+        statement.setLong(1, sellerId);
+        try (var result = statement.executeQuery()) {
+          result.next();
+          return UUID.fromString(result.getString(1));
+        }
+      }
+    });
+    var request = new SharedSupplyService.SupplyCreateRequest(
+        sellerId, owner, CurrencyType.SHOP_COIN, 25,
+        new SupplyInventoryGateway.SupplyLocation("minecraft:overworld", 3, 64, 7),
+        template.payloadHash(), 5, 10, true, "create-supply-one", "fixture");
+
+    var created = supply.create(request);
+    assertEquals("SUPPLY_EMPTY", commerce.listing(listingId).status());
+    assertEquals(5, created.listing().quantity());
+    assertEquals("ACTIVE", created.listing().status());
+    assertEquals(7, gateway.quantity);
+    gateway.inspectAvailable = false;
+    var replay = supply.create(request);
+    assertEquals(created.listing().id(), replay.listing().id());
+    assertEquals(created.refresh(), replay.refresh());
+    assertEquals(7, gateway.quantity);
+  }
+
   private static final class FixtureGateway implements SupplyInventoryGateway {
     private final ItemEnvelope template;
     private int quantity;
     private long version = 1;
+    private boolean inspectAvailable = true;
 
     private FixtureGateway(ItemEnvelope template, int quantity) {
       this.template = template;
@@ -102,6 +134,15 @@ class SharedSupplyServiceTest {
         SupplyLocation location) {
       return CompletableFuture.completedFuture(PlatformResult.success(
           new SupplySnapshot(version, quantity == 0 ? List.of() : List.of(withCount(quantity)))));
+    }
+
+    @Override
+    public synchronized CompletionStage<PlatformResult<SupplySnapshot>> inspect(
+        UUID playerId, SupplyLocation location) {
+      if (!inspectAvailable) {
+        return SupplyInventoryGateway.unavailable("player offline").snapshot(location);
+      }
+      return snapshot(location);
     }
 
     @Override

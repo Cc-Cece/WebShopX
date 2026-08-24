@@ -12,8 +12,11 @@ import com.webshopx.platform.SupplyInventoryGateway.SupplyWithdrawal;
 import com.webshopx.platform.SupplyInventoryGateway.SupplyWithdrawalRequest;
 import java.time.Clock;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Executor;
+import com.mojang.authlib.GameProfile;
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import org.junit.jupiter.api.Test;
 
@@ -25,14 +28,27 @@ class NativeSupplyInventoryGatewayTest {
         new ItemStack("minecraft:diamond", 5, "same-data"),
         new ItemStack("minecraft:diamond", 4, "different-data"));
     FixtureServer server = new FixtureServer(container);
+    UUID playerId = UUID.randomUUID();
+    ServerPlayer player = new ServerPlayer(new GameProfile(playerId, "SupplyUser"), 9);
+    player.bindLevel(server.levels.get(0), 4.5D, 65.5D, 8.5D);
+    NativePlayerDirectory players = new NativePlayerDirectory("node-a");
+    players.joined(player).orElseThrow();
     LoaderScheduler scheduler = new LoaderScheduler();
     scheduler.bind(server);
     PlatformIdentity identity = new PlatformIdentity(
         "fabric", "fabric", "1.20.1", "test", "node-a", "sha256:test");
     NativeItemCodec codec = new NativeItemCodec(identity, scheduler::nativeServer, Clock.systemUTC());
-    NativeSupplyInventoryGateway gateway = new NativeSupplyInventoryGateway(scheduler, codec, identity);
+    NativeSupplyInventoryGateway gateway =
+        new NativeSupplyInventoryGateway(scheduler, players, codec, identity);
     SupplyLocation location = new SupplyLocation("minecraft:overworld", 4, 65, 8);
 
+    assertEquals(3, success(gateway.inspect(playerId, location).toCompletableFuture().get())
+        .items().size());
+    player.bindLevel(server.levels.get(0), 100D, 65.5D, 100D);
+    assertInstanceOf(
+        PlatformResult.Rejected.class,
+        gateway.inspect(playerId, location).toCompletableFuture().get());
+    player.bindLevel(server.levels.get(0), 4.5D, 65.5D, 8.5D);
     SupplySnapshot before = success(gateway.snapshot(location).toCompletableFuture().get());
     assertEquals(3, before.items().size());
     ItemEnvelope template = before.items().get(0);

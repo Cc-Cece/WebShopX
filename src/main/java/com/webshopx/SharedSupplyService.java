@@ -14,6 +14,8 @@ import java.sql.ResultSet;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /** Cluster-serialized native supply-container replenishment. */
@@ -21,17 +23,69 @@ public final class SharedSupplyService {
   private static final long TIMEOUT_SECONDS = 15;
   private static final Duration LEASE_DURATION = Duration.ofSeconds(45);
   private final DatabaseManager database;
+  private final SharedCommerceService commerce;
   private final SupplyInventoryGateway gateway;
   private final String serverId;
   private final Gson gson = CommerceJson.create();
   private final ItemEnvelopeBinaryCodec envelopes = new ItemEnvelopeBinaryCodec();
 
   public SharedSupplyService(
-      DatabaseManager database, SupplyInventoryGateway gateway, String serverId) {
+      DatabaseManager database,
+      SharedCommerceService commerce,
+      SupplyInventoryGateway gateway,
+      String serverId) {
     this.database = Objects.requireNonNull(database, "database");
+    this.commerce = Objects.requireNonNull(commerce, "commerce");
     this.gateway = Objects.requireNonNull(gateway, "gateway");
     this.serverId = Objects.requireNonNull(serverId, "serverId");
     ensureSchema();
+  }
+
+  public SupplyInspection inspect(UUID playerId, SupplyLocation location) {
+    PlatformResult<SupplySnapshot> result;
+    try {
+      result = gateway.inspect(playerId, location).toCompletableFuture()
+          .get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    } catch (Exception failure) {
+      throw new ServiceException("supply_unavailable", "Supply container is unavailable");
+    }
+    if (result instanceof PlatformResult.Success<SupplySnapshot> success) {
+      return new SupplyInspection(success.value().version(), success.value().items());
+    }
+    if (result instanceof PlatformResult.Rejected<SupplySnapshot>) {
+      throw new ServiceException(
+          "supply_inspection_denied", "Stand near a supply container you can access");
+    }
+    throw new ServiceException("supply_unavailable", "Supply container is unavailable");
+  }
+
+  public SupplyCreateResult create(SupplyCreateRequest request) {
+    SharedCommerceService.Listing replay = commerce.replaySupplyListing(
+        new SharedCommerceService.SupplyListingReplayRequest(
+            request.ownerUserId(), request.currency(), request.price(),
+            request.expectedPayloadHash(), request.location().world(), request.location().x(),
+            request.location().y(), request.location().z(), request.batchSize(), request.maxStock(),
+            request.accessProtected(), request.idempotencyKey(), request.remark()));
+    if (replay != null) {
+      SupplyRefreshResult refreshed = refresh(
+          replay.id(), request.ownerUserId(), "supply-create:" + replay.id());
+      return new SupplyCreateResult(commerce.listing(replay.id()), refreshed);
+    }
+    SupplyInspection inspection = inspect(request.ownerId(), request.location());
+    ItemEnvelope template = inspection.items().stream()
+        .filter(item -> item.payloadHash().equals(request.expectedPayloadHash()))
+        .findFirst()
+        .orElseThrow(() -> new ServiceException(
+            "supply_item_changed", "Supply item changed; inspect the container again"));
+    SharedCommerceService.Listing listing = commerce.createSupplyListing(
+        new SharedCommerceService.SupplyListingRequest(
+            request.ownerUserId(), request.ownerId(), request.currency(), request.price(),
+            template, request.location().world(), request.location().x(), request.location().y(),
+            request.location().z(), request.batchSize(), request.maxStock(),
+            request.accessProtected(), request.idempotencyKey(), request.remark()));
+    SupplyRefreshResult refreshed = refresh(
+        listing.id(), request.ownerUserId(), "supply-create:" + listing.id());
+    return new SupplyCreateResult(commerce.listing(listing.id()), refreshed);
   }
 
   public SupplyRefreshResult refresh(long listingId, long requestedBy, String requestedOperationId) {
@@ -366,6 +420,40 @@ public final class SharedSupplyService {
   public record SupplyInfo(
       String sourceMode, String world, int x, int y, int z, int batchSize,
       int maxStock, boolean accessProtected, long loadedTotal, long soldTotal) {}
+
+  public record SupplyInspection(long version, List<ItemEnvelope> items) {
+    public SupplyInspection {
+      items = List.copyOf(items);
+    }
+  }
+
+  public record SupplyCreateRequest(
+      long ownerUserId,
+      UUID ownerId,
+      CurrencyType currency,
+      long price,
+      SupplyLocation location,
+      String expectedPayloadHash,
+      int batchSize,
+      int maxStock,
+      boolean accessProtected,
+      String idempotencyKey,
+      String remark) {
+    public SupplyCreateRequest {
+      Objects.requireNonNull(ownerId, "ownerId");
+      Objects.requireNonNull(currency, "currency");
+      Objects.requireNonNull(location, "location");
+      if (expectedPayloadHash == null || expectedPayloadHash.isBlank()) {
+        throw new IllegalArgumentException("expectedPayloadHash is required");
+      }
+      if (idempotencyKey == null || idempotencyKey.isBlank()) {
+        throw new IllegalArgumentException("idempotencyKey is required");
+      }
+    }
+  }
+
+  public record SupplyCreateResult(
+      SharedCommerceService.Listing listing, SupplyRefreshResult refresh) {}
 
   private record SupplyListing(
       long id, long sellerUserId, String sourceMode, SupplyLocation location,

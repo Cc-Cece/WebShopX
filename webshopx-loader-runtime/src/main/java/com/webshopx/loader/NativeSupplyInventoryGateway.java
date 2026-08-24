@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
@@ -23,15 +24,39 @@ import java.util.concurrent.CompletionStage;
 final class NativeSupplyInventoryGateway implements SupplyInventoryGateway {
   private static final int COMPLETED_LIMIT = 10_000;
   private final LoaderScheduler scheduler;
+  private final NativePlayerDirectory players;
   private final NativeItemCodec items;
   private final PlatformIdentity identity;
   private final Map<String, SupplyWithdrawal> completed = new LinkedHashMap<>();
 
   NativeSupplyInventoryGateway(
-      LoaderScheduler scheduler, NativeItemCodec items, PlatformIdentity identity) {
+      LoaderScheduler scheduler,
+      NativePlayerDirectory players,
+      NativeItemCodec items,
+      PlatformIdentity identity) {
     this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
+    this.players = Objects.requireNonNull(players, "players");
     this.items = Objects.requireNonNull(items, "items");
     this.identity = Objects.requireNonNull(identity, "identity");
+  }
+
+  @Override
+  public CompletionStage<PlatformResult<SupplySnapshot>> inspect(
+      UUID playerId, SupplyLocation location) {
+    CompletableFuture<PlatformResult<SupplySnapshot>> result = new CompletableFuture<>();
+    scheduler.runGlobal(() -> {
+      try {
+        authorize(playerId, location);
+        result.complete(PlatformResult.success(read(location)));
+      } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+        result.complete(PlatformResult.rejected(
+            "SUPPLY_INSPECTION_DENIED", "error.market.supply_inspection_denied"));
+      }
+    }).whenComplete((ignored, failure) -> {
+      if (failure != null) result.complete(new PlatformResult.Unavailable<>(
+          "supply_inventory", "native scheduler is unavailable", Duration.ZERO));
+    });
+    return result;
   }
 
   @Override
@@ -155,6 +180,44 @@ final class NativeSupplyInventoryGateway implements SupplyInventoryGateway {
     if (container == null) throw new IllegalStateException("supply block entity is unavailable");
     NativeInventoryGateway.size(container);
     return container;
+  }
+
+  private void authorize(UUID playerId, SupplyLocation location)
+      throws ReflectiveOperationException {
+    Object player = players.nativePlayer(playerId)
+        .orElseThrow(() -> new IllegalStateException("player must be online"));
+    Method levelMethod = NativeItemCodec.method(
+        player.getClass(), new String[] {"serverLevel", "getLevel", "level", "method_37908"}, 0);
+    Object level = levelMethod.invoke(player);
+    if (!worldName(level).equals(location.world())) {
+      throw new IllegalStateException("player is in another world");
+    }
+    double x = coordinate(player, new String[] {"getX", "method_23317", "m_20185_"});
+    double y = coordinate(player, new String[] {"getY", "method_23318", "m_20186_"});
+    double z = coordinate(player, new String[] {"getZ", "method_23321", "m_20189_"});
+    double dx = x - (location.x() + 0.5D);
+    double dy = y - (location.y() + 0.5D);
+    double dz = z - (location.z() + 0.5D);
+    if (dx * dx + dy * dy + dz * dz > 64D) {
+      throw new IllegalStateException("player is too far from the supply container");
+    }
+    Object position = blockPosition(level.getClass().getClassLoader(), location);
+    Method interaction = Arrays.stream(player.getClass().getMethods())
+        .filter(method -> method.getName().equals("mayInteract")
+            || method.getName().equals("method_5680") || method.getName().equals("m_36204_"))
+        .filter(method -> method.getParameterCount() == 2)
+        .filter(method -> method.getParameterTypes()[0].isInstance(level))
+        .filter(method -> method.getParameterTypes()[1].isInstance(position))
+        .findFirst().orElse(null);
+    if (interaction != null && !((Boolean) interaction.invoke(player, level, position))) {
+      throw new IllegalStateException("native interaction policy denied supply access");
+    }
+  }
+
+  private static double coordinate(Object player, String[] names)
+      throws ReflectiveOperationException {
+    return ((Number) NativeItemCodec.method(player.getClass(), names, 0).invoke(player))
+        .doubleValue();
   }
 
   private String normalizedIdentity(ItemEnvelope template) throws ReflectiveOperationException {

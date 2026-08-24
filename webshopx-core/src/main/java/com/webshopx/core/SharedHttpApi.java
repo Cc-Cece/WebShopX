@@ -575,7 +575,12 @@ public final class SharedHttpApi implements AutoCloseable {
         var current = boundUser(exchange);
         JsonObject input = body(exchange);
         String side = optionalString(input, "side", "SELL").toUpperCase(Locale.ROOT);
+        String sourceMode = optionalString(input, "sourceMode", "MANUAL").toUpperCase(Locale.ROOT);
         if ("BUY".equals(side)) {
+          if (!"MANUAL".equals(sourceMode)) {
+            throw new ServiceException(
+                "buy_requires_manual_source", "Buy listings require manual source mode");
+          }
           var listing =
               commerce.createBuyListing(
                   new SharedCommerceService.BuyListingRequest(
@@ -591,7 +596,20 @@ public final class SharedHttpApi implements AutoCloseable {
               exchange,
               200,
               marketListingJson(listing));
-        } else if ("SELL".equals(side)) {
+        } else if ("SELL".equals(side) && "SUPPLY".equals(sourceMode)) {
+          var created = supply.create(new SharedSupplyService.SupplyCreateRequest(
+              current.id(), current.boundUuid(), currency(input, "currency"),
+              requiredLong(input, "price"),
+              new SupplyInventoryGateway.SupplyLocation(
+                  requiredString(input, "supplyWorld"), requiredInt(input, "supplyX"),
+                  requiredInt(input, "supplyY"), requiredInt(input, "supplyZ")),
+              requiredString(input, "expectedPayloadHash"),
+              optionalInt(input, "supplyBatchSize", 16),
+              optionalInt(input, "supplyMaxStock", 64),
+              optionalBoolean(input, "supplyAccessProtected", true),
+              requiredString(input, "idempotencyKey"), optionalString(input, "remark", null)));
+          respond(exchange, 200, marketListingJson(created.listing()));
+        } else if ("SELL".equals(side) && "MANUAL".equals(sourceMode)) {
           var listing =
               marketEscrow.createSellListing(
                   new SharedMarketEscrowService.Request(
@@ -609,8 +627,21 @@ public final class SharedHttpApi implements AutoCloseable {
               200,
               marketListingJson(listing));
         } else {
-          throw new ServiceException("invalid_market_side", "Market side is invalid");
+          throw new ServiceException(
+              "invalid_market_source", "Market side or source mode is invalid");
         }
+      } else if (path.equals("/api/market/supply/inspect") && method(exchange, "GET")) {
+        var current = boundUser(exchange);
+        SupplyInventoryGateway.SupplyLocation location =
+            new SupplyInventoryGateway.SupplyLocation(
+                requiredQuery(exchange, "world"), queryInt(exchange, "x", Integer.MIN_VALUE),
+                queryInt(exchange, "y", Integer.MIN_VALUE),
+                queryInt(exchange, "z", Integer.MIN_VALUE));
+        if (location.x() == Integer.MIN_VALUE || location.y() == Integer.MIN_VALUE
+            || location.z() == Integer.MIN_VALUE) {
+          throw new ServiceException("bad_request", "Supply coordinates are required");
+        }
+        respond(exchange, 200, supply.inspect(current.boundUuid(), location));
       } else if (path.equals("/api/market/quote") && method(exchange, "POST")) {
         var current = boundUser(exchange);
         JsonObject input = body(exchange);
@@ -2990,6 +3021,13 @@ public final class SharedHttpApi implements AutoCloseable {
   private static long requiredLong(JsonObject input, String key) {
     if (!input.has(key)) throw new IllegalArgumentException(key + " is required");
     return input.get(key).getAsLong();
+  }
+
+  private static int requiredInt(JsonObject input, String key) {
+    if (!input.has(key) || input.get(key).isJsonNull()) {
+      throw new IllegalArgumentException(key + " is required");
+    }
+    return input.get(key).getAsInt();
   }
 
   private static Instant requiredInstant(JsonObject input, String key) {

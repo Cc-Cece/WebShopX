@@ -323,7 +323,8 @@ public final class LoaderRuntime {
     NativeInventoryGateway inventories =
         new NativeInventoryGateway(playerDirectory, scheduler, items, identity);
     inventoryGateway = inventories;
-    supplyInventoryGateway = new NativeSupplyInventoryGateway(scheduler, items, identity);
+    supplyInventoryGateway =
+        new NativeSupplyInventoryGateway(scheduler, playerDirectory, items, identity);
     return new PlatformPorts.Bundle(
         lifecycle,
         scheduler,

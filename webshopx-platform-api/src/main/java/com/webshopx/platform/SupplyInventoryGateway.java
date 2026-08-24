@@ -1,6 +1,7 @@
 package com.webshopx.platform;
 
 import java.util.List;
+import java.util.UUID;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -25,6 +26,12 @@ public interface SupplyInventoryGateway {
   }
 
   CompletionStage<PlatformResult<SupplySnapshot>> snapshot(SupplyLocation location);
+
+  default CompletionStage<PlatformResult<SupplySnapshot>> inspect(
+      UUID playerId, SupplyLocation location) {
+    return CompletableFuture.completedFuture(new PlatformResult.Unavailable<>(
+        "supply_inventory", "authorized supply inspection is unavailable", Duration.ZERO));
+  }
 
   CompletionStage<PlatformResult<SupplyWithdrawal>> compareAndWithdraw(
       SupplyWithdrawalRequest request);

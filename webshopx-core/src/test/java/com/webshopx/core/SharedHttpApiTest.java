@@ -268,6 +268,34 @@ class SharedHttpApiTest {
     assertEquals("MANUAL", manual.get("sourceMode").getAsString());
   }
 
+  @Test
+  void inspectsNearbyContainerAndCreatesSupplyListingWithoutClientMod() throws Exception {
+    String token = JsonParser.parseString(post(
+        "/api/auth/login", "{\"identifier\":\"ApiPlayer\",\"password\":\"api-secret\"}",
+        null, null).body()).getAsJsonObject().get("token").getAsString();
+    HttpResponse<String> inspection = get(
+        "/api/market/supply/inspect?world=minecraft:overworld&x=4&y=65&z=8", token);
+    assertEquals(200, inspection.statusCode(), inspection.body());
+    assertEquals(inventoryFixture.payloadHash(),
+        JsonParser.parseString(inspection.body()).getAsJsonObject().getAsJsonArray("items")
+            .get(0).getAsJsonObject().get("payloadHash").getAsString());
+    String request = "{\"side\":\"SELL\",\"sourceMode\":\"SUPPLY\","
+        + "\"currency\":\"SHOP_COIN\",\"price\":30,"
+        + "\"supplyWorld\":\"minecraft:overworld\",\"supplyX\":4,\"supplyY\":65,"
+        + "\"supplyZ\":8,\"supplyBatchSize\":5,\"supplyMaxStock\":10,"
+        + "\"supplyAccessProtected\":true,\"expectedPayloadHash\":\""
+        + inventoryFixture.payloadHash() + "\",\"idempotencyKey\":\"http-supply-create\"}";
+
+    HttpResponse<String> created = post("/api/market/listings/create", request, token, null);
+    HttpResponse<String> replay = post("/api/market/listings/create", request, token, null);
+    assertEquals(200, created.statusCode(), created.body());
+    assertEquals(created.body(), replay.body());
+    JsonObject listing = JsonParser.parseString(created.body()).getAsJsonObject();
+    assertEquals("SUPPLY", listing.get("sourceMode").getAsString());
+    assertEquals(5, listing.get("quantity").getAsInt());
+    assertEquals(7, supplyGateway.quantity);
+  }
+
   @AfterEach
   void stop() {
     if (api != null) api.close();
@@ -2268,6 +2296,12 @@ class SharedHttpApiTest {
         SupplyLocation location) {
       return CompletableFuture.completedFuture(PlatformResult.success(
           new SupplySnapshot(version, quantity == 0 ? List.of() : List.of(withCount(quantity)))));
+    }
+
+    @Override
+    public synchronized java.util.concurrent.CompletionStage<PlatformResult<SupplySnapshot>> inspect(
+        UUID playerId, SupplyLocation location) {
+      return snapshot(location);
     }
 
     @Override

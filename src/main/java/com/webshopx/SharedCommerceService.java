@@ -37,7 +37,7 @@ public final class SharedCommerceService {
 
   public SharedSupplyService supplyService(
       com.webshopx.platform.SupplyInventoryGateway gateway, String serverId) {
-    return new SharedSupplyService(database, gateway, serverId);
+    return new SharedSupplyService(database, this, gateway, serverId);
   }
   private final Map<String, PaymentProvider> paymentProviders = new ConcurrentHashMap<>();
 
@@ -1162,6 +1162,125 @@ public final class SharedCommerceService {
     }
   }
 
+  public Listing createSupplyListing(SupplyListingRequest request) {
+    Objects.requireNonNull(request, "request");
+    Objects.requireNonNull(request.ownerId(), "ownerId");
+    Objects.requireNonNull(request.currency(), "currency");
+    Objects.requireNonNull(request.itemTemplate(), "itemTemplate");
+    if (request.world() == null || request.world().isBlank()) {
+      throw new ServiceException("invalid_supply_location", "Supply world is required");
+    }
+    requireKey(request.idempotencyKey());
+    if (request.price() < 1 || request.batchSize() < 1 || request.maxStock() < 1
+        || request.batchSize() > request.maxStock()
+        || request.maxStock() > ItemEnvelope.MAX_COUNT) {
+      throw new ServiceException("invalid_supply_settings", "Supply listing settings are invalid");
+    }
+    ItemEnvelope template = withCount(request.itemTemplate(), 1);
+    try {
+      return database.inTransaction(connection -> {
+        try (PreparedStatement operation = connection.prepareStatement(
+            "INSERT INTO inventory_operations"
+                + " (user_id,idempotency_key,action,state,slot_index,item_fingerprint,quantity,result_json)"
+                + " VALUES (?,?,'MARKET_SUPPLY_LIST','PENDING',-1,?,?,?)")) {
+          operation.setLong(1, request.ownerUserId());
+          operation.setString(2, request.idempotencyKey());
+          operation.setString(3, template.payloadHash());
+          operation.setInt(4, request.maxStock());
+          operation.setString(5, "{}");
+          operation.executeUpdate();
+        }
+        long listingId;
+        try (PreparedStatement statement = connection.prepareStatement(
+            "INSERT INTO market_listings"
+                + " (seller_user_id,seller_uuid,currency,price,quantity,quantity_total,"
+                + "item_material,raw_item_blob,item_meta_json,remark,item_hash,escrow_total,"
+                + "escrow_remaining,status,market_side,trade_mode,source_mode,supply_world,"
+                + "supply_x,supply_y,supply_z,supply_batch_size,supply_max_stock,"
+                + "supply_access_protected)"
+                + " VALUES (?,?,?,?,0,?,?,?,?,?,?,0,0,'SUPPLY_EMPTY','SELL','DIRECT','SUPPLY',"
+                + "?,?,?,?,?,?,?)",
+            Statement.RETURN_GENERATED_KEYS)) {
+          statement.setLong(1, request.ownerUserId());
+          statement.setString(2, request.ownerId().toString());
+          statement.setString(3, request.currency().name());
+          statement.setLong(4, request.price());
+          statement.setInt(5, request.maxStock());
+          statement.setString(6, template.registryId());
+          statement.setBytes(7, envelopes.encode(template));
+          statement.setString(8, "{\"payloadHash\":\"" + json(template.payloadHash()) + "\"}");
+          statement.setString(9, request.remark());
+          statement.setString(10, template.payloadHash());
+          statement.setString(11, request.world());
+          statement.setInt(12, request.x());
+          statement.setInt(13, request.y());
+          statement.setInt(14, request.z());
+          statement.setInt(15, request.batchSize());
+          statement.setInt(16, request.maxStock());
+          statement.setBoolean(17, request.accessProtected());
+          statement.executeUpdate();
+          listingId = generatedId(statement);
+        }
+        try (PreparedStatement operation = connection.prepareStatement(
+            "UPDATE inventory_operations SET state='SUCCESS',reference_id=?,"
+                + "updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND idempotency_key=?"
+                + " AND action='MARKET_SUPPLY_LIST' AND state='PENDING'")) {
+          operation.setLong(1, listingId);
+          operation.setLong(2, request.ownerUserId());
+          operation.setString(3, request.idempotencyKey());
+          if (operation.executeUpdate() != 1) {
+            throw new ServiceException("idempotency_conflict", "Supply listing operation changed");
+          }
+        }
+        return readListing(connection, listingId);
+      });
+    } catch (RuntimeException failure) {
+      Listing replay = replaySupplyListing(request, template);
+      if (replay != null) return replay;
+      throw failure;
+    }
+  }
+
+  private Listing replaySupplyListing(SupplyListingRequest request, ItemEnvelope template) {
+    return replaySupplyListing(new SupplyListingReplayRequest(
+        request.ownerUserId(), request.currency(), request.price(), template.payloadHash(),
+        request.world(), request.x(), request.y(), request.z(), request.batchSize(),
+        request.maxStock(), request.accessProtected(), request.idempotencyKey(), request.remark()));
+  }
+
+  public Listing replaySupplyListing(SupplyListingReplayRequest request) {
+    return database.withConnection(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "SELECT o.action,o.state,o.reference_id,l.currency,l.price,l.item_hash,"
+              + "l.supply_world,l.supply_x,l.supply_y,l.supply_z,l.supply_batch_size,"
+              + "l.supply_max_stock,l.supply_access_protected,l.remark FROM inventory_operations o "
+              + "LEFT JOIN market_listings l ON l.id=o.reference_id "
+              + "WHERE o.user_id=? AND o.idempotency_key=?")) {
+        statement.setLong(1, request.ownerUserId());
+        statement.setString(2, request.idempotencyKey());
+        try (ResultSet result = statement.executeQuery()) {
+          if (!result.next()) return null;
+          if (!"MARKET_SUPPLY_LIST".equals(result.getString(1))
+              || !"SUCCESS".equals(result.getString(2))
+              || result.getObject(3) == null
+              || !request.currency().name().equals(result.getString(4))
+              || request.price() != result.getLong(5)
+              || !request.expectedPayloadHash().equals(result.getString(6))
+              || !request.world().equals(result.getString(7))
+              || request.x() != result.getInt(8) || request.y() != result.getInt(9)
+              || request.z() != result.getInt(10) || request.batchSize() != result.getInt(11)
+              || request.maxStock() != result.getInt(12)
+              || request.accessProtected() != result.getBoolean(13)
+              || !Objects.equals(request.remark(), result.getString(14))) {
+            throw new ServiceException(
+                "idempotency_conflict", "Idempotency request does not match");
+          }
+          return readListing(connection, result.getLong(3));
+        }
+      }
+    });
+  }
+
   public Listing createBuyListing(BuyListingRequest request) {
     requireKey(request.idempotencyKey());
     if (request.price() < 1 || request.quantity() < 1 || request.quantity() > 64) {
@@ -1282,6 +1401,14 @@ public final class SharedCommerceService {
       throw new ServiceException("invalid_item", "Item material is invalid");
     }
     return value;
+  }
+
+  private static ItemEnvelope withCount(ItemEnvelope source, int count) {
+    return new ItemEnvelope(
+        source.schemaVersion(), source.codec(), source.codecVersion(),
+        source.compatibilityDomain(), source.registryId(), count,
+        source.payloadEncoding(), source.payload(), source.payloadHash(),
+        source.summary(), source.createdAt());
   }
 
   public List<Listing> listings(boolean includeInactive) {
@@ -3791,6 +3918,37 @@ public final class SharedCommerceService {
       long price,
       int quantity,
       ItemEnvelope item,
+      String remark) {}
+
+  public record SupplyListingRequest(
+      long ownerUserId,
+      UUID ownerId,
+      CurrencyType currency,
+      long price,
+      ItemEnvelope itemTemplate,
+      String world,
+      int x,
+      int y,
+      int z,
+      int batchSize,
+      int maxStock,
+      boolean accessProtected,
+      String idempotencyKey,
+      String remark) {}
+
+  public record SupplyListingReplayRequest(
+      long ownerUserId,
+      CurrencyType currency,
+      long price,
+      String expectedPayloadHash,
+      String world,
+      int x,
+      int y,
+      int z,
+      int batchSize,
+      int maxStock,
+      boolean accessProtected,
+      String idempotencyKey,
       String remark) {}
 
   public record BuyListingRequest(
