@@ -1,5 +1,5 @@
 modLoader="javafml"
-loaderVersion="[47,)"
+loaderVersion="[46,)"
 license="GPL-3.0-or-later"
 [[mods]]
 modId="webshopx"
