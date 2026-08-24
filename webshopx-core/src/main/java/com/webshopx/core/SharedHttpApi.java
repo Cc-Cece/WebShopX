@@ -1597,6 +1597,7 @@ public final class SharedHttpApi implements AutoCloseable {
                     "inventory_conflict",
                     "order_conflict",
                     "auction_requires_bid",
+                    "auction_only_buy",
                     "auction_locked",
                     "auction_conflict",
                     "auction_unavailable",
@@ -1689,7 +1690,7 @@ public final class SharedHttpApi implements AutoCloseable {
     result.addProperty("sellerUserId", listing.sellerUserId());
     result.addProperty("sellerUuid", listing.sellerId().toString());
     result.addProperty("currency", listing.currency().name());
-    result.addProperty("price", listing.price());
+    result.addProperty("price", commerce.currentListingPrice(listing.id()));
     result.addProperty("quantity", listing.quantity());
     result.addProperty("quantityTotal", listing.quantity());
     result.addProperty("side", listing.side());
@@ -1715,7 +1716,10 @@ public final class SharedHttpApi implements AutoCloseable {
     addNullable(result, "auctionMinIncrement", auction.minIncrement());
     addNullable(result, "auctionStartedAt", auction.startedAt());
     addNullable(result, "auctionPublicEndAt", auction.publicEndAt());
-    addNullable(result, "auctionEndAt", auction.endAt());
+    addNullable(
+        result,
+        "auctionEndAt",
+        "CANDLE_AUCTION_V1".equals(auction.algorithm()) ? null : auction.endAt());
     if (auction.paramsJson() == null) result.add("auctionParamsJson", JsonNull.INSTANCE);
     else result.addProperty("auctionParamsJson", auction.paramsJson());
     addNullable(result, "auctionHighestBid", auction.highestBid());

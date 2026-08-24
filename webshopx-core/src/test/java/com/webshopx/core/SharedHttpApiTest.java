@@ -1080,6 +1080,154 @@ class SharedHttpApiTest {
   }
 
   @Test
+  void vickreyDutchAndCandleAuctionsPreserveTheirAlgorithmContracts() throws Exception {
+    String sellerToken = login("ApiPlayer", "api-secret");
+    String bidderToken = login("SupportTarget", "target-secret");
+    UUID winnerUuid = UUID.randomUUID();
+    long winnerUser = auth.setPasswordFromGame(winnerUuid, "SealedWinner", "winner-secret").userId();
+    wallets.adjustBalance(winnerUser, CurrencyType.GAME_COIN, 200, "TEST", "sealed-seed");
+    String winnerToken = login("SealedWinner", "winner-secret");
+    String fingerprint = inventoryFingerprint(sellerToken);
+
+    long vickreyId = createAuction(
+        sellerToken, fingerprint, "VICKREY_AUCTION_V1", 50, 5,
+        "{\"reservePrice\":60}", "vickrey-create");
+    assertEquals(200, post(
+        "/api/market/bid",
+        "{\"listingId\":" + vickreyId
+            + ",\"bidAmount\":70,\"idempotencyKey\":\"sealed-loser\"}",
+        bidderToken, null).statusCode());
+    JsonObject winningBid = JsonParser.parseString(post(
+        "/api/market/bid",
+        "{\"listingId\":" + vickreyId
+            + ",\"bidAmount\":90,\"idempotencyKey\":\"sealed-winner\"}",
+        winnerToken, null).body()).getAsJsonObject();
+    assertEquals("SEALED", winningBid.get("status").getAsString());
+    JsonObject sealedInsights = JsonParser.parseString(get(
+        "/api/market/auction-insights?listingId=" + vickreyId, bidderToken).body())
+        .getAsJsonObject();
+    assertTrue(sealedInsights.get("sealed").getAsBoolean());
+    assertEquals(0, sealedInsights.getAsJsonArray("pricePoints").size());
+    JsonObject publicListing = JsonParser.parseString(get(
+        "/api/market/listings", bidderToken).body()).getAsJsonObject()
+        .getAsJsonArray("listings").get(0).getAsJsonObject();
+    assertTrue(!publicListing.has("auctionHighestBid")
+        || publicListing.get("auctionHighestBid").isJsonNull());
+    assertEquals(409, post(
+        "/api/market/unlist", "{\"listingId\":" + vickreyId + "}", sellerToken, null)
+        .statusCode());
+
+    expireAuction(vickreyId);
+    assertEquals(1, commerce.settleExpiredAuctions(20));
+    assertEquals(70, wallet(sellerToken));
+    assertEquals(100, wallet(bidderToken));
+    assertEquals(130, wallet(winnerToken));
+    assertEquals(1, JsonParser.parseString(get("/api/mailbox/list", winnerToken).body())
+        .getAsJsonObject().get("count").getAsInt());
+
+    fingerprint = inventoryFingerprint(sellerToken);
+    long dutchId = createAuction(
+        sellerToken, fingerprint, "DUTCH_AUCTION_V1", 25, 1,
+        "{\"floorPrice\":10}", "dutch-create");
+    assertEquals(409, post(
+        "/api/market/bid",
+        "{\"listingId\":" + dutchId
+            + ",\"bidAmount\":25,\"idempotencyKey\":\"dutch-bid\"}",
+        bidderToken, null).statusCode());
+    JsonObject dutchQuote = JsonParser.parseString(post(
+        "/api/market/quote", "{\"listingId\":" + dutchId + ",\"quantity\":1}",
+        bidderToken, null).body()).getAsJsonObject();
+    long dutchPrice = dutchQuote.get("unitPrice").getAsLong();
+    assertTrue(dutchPrice >= 10 && dutchPrice <= 25);
+    assertEquals(200, post(
+        "/api/market/buy",
+        "{\"listingId\":" + dutchId
+            + ",\"quantity\":1,\"expectedUnitPrice\":" + dutchPrice
+            + ",\"idempotencyKey\":\"dutch-buy\"}", bidderToken, null).statusCode());
+    assertEquals(100 - dutchPrice, wallet(bidderToken));
+    assertEquals(70 + dutchPrice, wallet(sellerToken));
+
+    fingerprint = inventoryFingerprint(sellerToken);
+    long candleId = createAuction(
+        sellerToken, fingerprint, "CANDLE_AUCTION_V1", 20, 2,
+        "{\"maxExtensionSeconds\":120}", "candle-create");
+    SharedCommerceService.AuctionDetails candle = commerce.auctionDetails(candleId);
+    assertTrue(!candle.endAt().isBefore(candle.publicEndAt()));
+    assertTrue(!candle.endAt().isAfter(candle.publicEndAt().plusSeconds(120)));
+
+    fingerprint = inventoryFingerprint(sellerToken);
+    long antiSnipingId = createAuction(
+        sellerToken, fingerprint, "ENGLISH_AUCTION_V1", 20, 2,
+        "{\"antiSnipingWindowSeconds\":120,\"antiSnipingExtendSeconds\":60}",
+        "anti-sniping-create");
+    Instant beforeExtension = commerce.auctionDetails(antiSnipingId).endAt();
+    assertEquals(200, post(
+        "/api/market/bid",
+        "{\"listingId\":" + antiSnipingId
+            + ",\"bidAmount\":20,\"idempotencyKey\":\"anti-sniping-bid\"}",
+        bidderToken, null).statusCode());
+    assertEquals(beforeExtension.plusSeconds(60), commerce.auctionDetails(antiSnipingId).endAt());
+
+    fingerprint = inventoryFingerprint(sellerToken);
+    long reserveId = createAuction(
+        sellerToken, fingerprint, "ENGLISH_AUCTION_V1", 20, 2,
+        "{\"reservePrice\":40}", "reserve-create");
+    long balanceBeforeReserveBid = wallet(bidderToken);
+    assertEquals(200, post(
+        "/api/market/bid",
+        "{\"listingId\":" + reserveId
+            + ",\"bidAmount\":25,\"idempotencyKey\":\"reserve-bid\"}",
+        bidderToken, null).statusCode());
+    expireAuction(reserveId);
+    assertEquals(1, commerce.settleExpiredAuctions(20));
+    assertEquals(balanceBeforeReserveBid, wallet(bidderToken));
+    assertEquals("UNLISTED", commerce.listing(reserveId).status());
+  }
+
+  private String login(String username, String password) throws Exception {
+    return JsonParser.parseString(post(
+        "/api/auth/login",
+        "{\"identifier\":\"" + username + "\",\"password\":\"" + password + "\"}",
+        null, null).body()).getAsJsonObject().get("token").getAsString();
+  }
+
+  private String inventoryFingerprint(String token) throws Exception {
+    return JsonParser.parseString(get("/api/inventory/snapshot", token).body()).getAsJsonObject()
+        .getAsJsonArray("slots").get(0).getAsJsonObject().getAsJsonObject("item")
+        .get("fingerprint").getAsString();
+  }
+
+  private long createAuction(
+      String token, String fingerprint, String algorithm, long start, long increment,
+      String params, String key) throws Exception {
+    String request = "{\"inventory\":\"PLAYER\",\"action\":\"AUCTION\","
+        + "\"currency\":\"GAME_COIN\",\"price\":" + start + ",\"quantity\":1,"
+        + "\"fingerprint\":\"" + fingerprint + "\",\"auctionAlgorithm\":\""
+        + algorithm + "\",\"auctionStartPrice\":" + start + ",\"auctionMinIncrement\":"
+        + increment + ",\"auctionEndAt\":\"" + Instant.now().plusSeconds(90)
+        + "\",\"auctionParams\":" + params + ",\"idempotencyKey\":\"" + key + "\"}";
+    HttpResponse<String> response = post("/api/inventory/list", request, token, null);
+    assertEquals(200, response.statusCode(), response.body());
+    return JsonParser.parseString(response.body()).getAsJsonObject().get("listingId").getAsLong();
+  }
+
+  private void expireAuction(long listingId) {
+    database.withConnection(connection -> {
+      try (var statement = connection.prepareStatement(
+          "UPDATE market_listings SET auction_end_at=CURRENT_TIMESTAMP WHERE id=?")) {
+        statement.setLong(1, listingId);
+        statement.executeUpdate();
+      }
+      return null;
+    });
+  }
+
+  private long wallet(String token) throws Exception {
+    return JsonParser.parseString(get("/api/wallet", token).body()).getAsJsonObject()
+        .get("gameCoin").getAsLong();
+  }
+
+  @Test
   void inventoryDiscardIsServerValidatedAndIdempotent() throws Exception {
     HttpResponse<String> login =
         post(
