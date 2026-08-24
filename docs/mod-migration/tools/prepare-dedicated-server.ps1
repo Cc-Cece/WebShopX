@@ -109,7 +109,8 @@ $installer = Join-Path $work $installerName
 $repository = if ($Platform -eq 'forge') { 'https://maven.minecraftforge.net' } else { 'https://maven.neoforged.net/releases' }
 Download "$repository/$($coordinate.groupPath)/$($coordinate.version)/$installerName" $installer
 $argumentName = if ($IsWindows -or $env:OS -eq 'Windows_NT') { 'win_args.txt' } else { 'unix_args.txt' }
-$argumentFile = Get-ChildItem -LiteralPath (Join-Path $work 'libraries') -Recurse -File -Filter $argumentName |
+$argumentFile = Get-ChildItem -LiteralPath (Join-Path $work 'libraries') -Recurse -File -Filter $argumentName `
+    -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -match [regex]::Escape($coordinate.artifact) } |
     Select-Object -First 1
 if (-not $argumentFile) {
@@ -125,7 +126,8 @@ if (-not $argumentFile) {
     if ($install.ExitCode -ne 0) {
         throw "$Platform installer exited with $($install.ExitCode); see installer logs in $work"
     }
-    $argumentFile = Get-ChildItem -LiteralPath (Join-Path $work 'libraries') -Recurse -File -Filter $argumentName |
+    $argumentFile = Get-ChildItem -LiteralPath (Join-Path $work 'libraries') -Recurse -File -Filter $argumentName `
+        -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -match [regex]::Escape($coordinate.artifact) } |
         Select-Object -First 1
 }
