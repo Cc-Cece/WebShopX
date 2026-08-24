@@ -598,6 +598,28 @@ public final class SharedHttpApi implements AutoCloseable {
         if (listing.remark() == null) response.add("remark", JsonNull.INSTANCE);
         else response.addProperty("remark", listing.remark());
         respond(exchange, 200, response);
+      } else if (path.equals("/api/market/settings") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        requireDirectListingSettings(input);
+        long listingId = requiredLong(input, "listingId");
+        var listing =
+            commerce.updateListingSettings(
+                current.id(),
+                listingId,
+                requiredLong(input, "price"),
+                currency(input, "currency"),
+                optionalString(input, "remark", null));
+        if (input.has("refundPolicyPreset")
+            && !input.get("refundPolicyPreset").isJsonNull()
+            && !input.get("refundPolicyPreset").getAsString().isBlank()) {
+          refundPolicies.updateListingPolicy(
+              current.id(),
+              listingId,
+              input.get("refundPolicyPreset").getAsString(),
+              nullableInt(input, "refundWindowMinutes"));
+        }
+        respond(exchange, 200, marketListingJson(listing));
       } else if (path.equals("/api/market/unlist") && method(exchange, "POST")) {
         var current = boundUser(exchange);
         JsonObject input = body(exchange);
@@ -1976,6 +1998,49 @@ public final class SharedHttpApi implements AutoCloseable {
         || (input.has("containerSlot") && !input.get("containerSlot").isJsonNull())) {
       throw new ServiceException(
           "invalid_inventory_request", "Only top-level player inventory is supported");
+    }
+  }
+
+  private static void requireDirectListingSettings(JsonObject input) {
+    if (input.has("tags")
+        && input.get("tags").isJsonArray()
+        && !input.getAsJsonArray("tags").isEmpty()) {
+      throw new ServiceException("capability_unavailable", "Listing tags are not configured");
+    }
+    String tradeMode = optionalString(input, "tradeMode", "DIRECT");
+    if (!"DIRECT".equalsIgnoreCase(tradeMode)) {
+      throw new ServiceException("capability_unavailable", "Auction settings are unavailable");
+    }
+    if (optionalBoolean(input, "dynamicPricingEnabled", false)) {
+      throw new ServiceException("capability_unavailable", "Dynamic pricing is unavailable");
+    }
+    for (String key :
+        List.of(
+            "displayNameOverride",
+            "displayMaterial",
+            "displayIconPath",
+            "dynamicAlgorithm",
+            "dynamicPricingMode",
+            "dynamicParamsJson",
+            "dynamicBasePrice",
+            "dynamicFloorPrice",
+            "dynamicCapPrice",
+            "dynamicPriceStep",
+            "auctionAlgorithm",
+            "auctionParamsJson",
+            "auctionStartPrice",
+            "auctionMinIncrement",
+            "auctionEndAt",
+            "supplyBatchSize",
+            "supplyMaxStock",
+            "supplyAccessProtected")) {
+      if (input.has(key) && !input.get(key).isJsonNull()) {
+        if (input.get(key).isJsonPrimitive()
+            && input.get(key).getAsJsonPrimitive().isString()
+            && input.get(key).getAsString().isBlank()) continue;
+        throw new ServiceException(
+            "capability_unavailable", "Advanced listing settings are unavailable");
+      }
     }
   }
 

@@ -1089,18 +1089,70 @@ public final class SharedCommerceService {
   }
 
   public Listing updateListingPrice(long sellerUserId, long listingId, long price) {
+    return updateListingSettings(sellerUserId, listingId, price, null, null, false);
+  }
+
+  public Listing updateListingSettings(
+      long sellerUserId,
+      long listingId,
+      long price,
+      CurrencyType currency,
+      String remark) {
+    return updateListingSettings(sellerUserId, listingId, price, currency, remark, true);
+  }
+
+  private Listing updateListingSettings(
+      long sellerUserId,
+      long listingId,
+      long price,
+      CurrencyType requestedCurrency,
+      String remark,
+      boolean updateRemark) {
     if (price < 1) throw new ServiceException("invalid_price", "Listing price is invalid");
+    String normalizedRemark = remark == null || remark.isBlank() ? null : remark.trim();
+    if (normalizedRemark != null && normalizedRemark.length() > 500) {
+      throw new ServiceException("invalid_remark", "Listing remark is too long");
+    }
     return database.inTransaction(
         connection -> {
           Listing listing = readOwnedListing(connection, sellerUserId, listingId);
           requireMutableListing(listing);
+          CurrencyType nextCurrency =
+              requestedCurrency == null ? listing.currency() : requestedCurrency;
+          if (listing.side().equals("BUY") && nextCurrency != listing.currency()) {
+            throw new ServiceException(
+                "listing_currency_locked", "Buy listing currency cannot be changed");
+          }
+          long nextEscrow = listing.escrowRemaining();
+          long escrowDelta = 0L;
+          if (listing.side().equals("BUY")) {
+            nextEscrow = Math.multiplyExact(price, listing.quantity());
+            escrowDelta = nextEscrow - listing.escrowRemaining();
+            if (escrowDelta != 0) {
+              wallets.applyDelta(
+                  connection,
+                  listing.sellerUserId(),
+                  listing.currency(),
+                  -escrowDelta,
+                  "MARKET_BUY_REPRICE",
+                  "market-buy-reprice:" + listing.id() + ":" + UUID.randomUUID(),
+                  escrowDelta > 0);
+            }
+          }
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "UPDATE market_listings SET price=? WHERE id=? AND seller_user_id=?"
+                  "UPDATE market_listings SET price=?,currency=?,remark=CASE WHEN ? THEN ? ELSE remark END,"
+                      + "escrow_total=escrow_total+?,escrow_remaining=?"
+                      + " WHERE id=? AND seller_user_id=?"
                       + " AND status IN ('ACTIVE','PAUSED')")) {
             statement.setLong(1, price);
-            statement.setLong(2, listingId);
-            statement.setLong(3, sellerUserId);
+            statement.setString(2, nextCurrency.name());
+            statement.setBoolean(3, updateRemark);
+            statement.setString(4, normalizedRemark);
+            statement.setLong(5, escrowDelta);
+            statement.setLong(6, nextEscrow);
+            statement.setLong(7, listingId);
+            statement.setLong(8, sellerUserId);
             if (statement.executeUpdate() != 1) {
               throw new ServiceException("listing_conflict", "Listing changed concurrently");
             }

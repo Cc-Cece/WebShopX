@@ -625,6 +625,32 @@ class SharedHttpApiTest {
                     .body())
             .getAsJsonObject();
     assertEquals("ACTIVE", resumed.get("status").getAsString());
+    JsonObject settingsUpdated =
+        JsonParser.parseString(
+                post(
+                        "/api/market/settings",
+                        "{\"listingId\":"
+                            + listingId
+                            + ",\"price\":25,\"currency\":\"GAME_COIN\","
+                            + "\"remark\":\"combined settings\",\"tags\":[],"
+                            + "\"tradeMode\":\"DIRECT\",\"dynamicPricingEnabled\":false}",
+                        token,
+                        null)
+                    .body())
+            .getAsJsonObject();
+    assertEquals(25, settingsUpdated.get("price").getAsLong());
+    assertEquals("combined settings", settingsUpdated.get("remark").getAsString());
+    assertEquals(
+        501,
+        post(
+                "/api/market/settings",
+                "{\"listingId\":"
+                    + listingId
+                    + ",\"price\":25,\"currency\":\"GAME_COIN\","
+                    + "\"tradeMode\":\"DIRECT\",\"dynamicPricingEnabled\":true}",
+                token,
+                null)
+            .statusCode());
 
     String unlistRequest = "{\"listingId\":" + listingId + "}";
     assertEquals(200, post("/api/market/unlist", unlistRequest, token, null).statusCode());
@@ -675,6 +701,22 @@ class SharedHttpApiTest {
             .getAsJsonObject()
             .get("gameCoin")
             .getAsInt());
+    JsonObject repricedBuy =
+        JsonParser.parseString(
+                post(
+                        "/api/market/price",
+                        "{\"listingId\":" + buyListing.get("id").getAsLong() + ",\"price\":12}",
+                        buyerToken,
+                        null)
+                    .body())
+            .getAsJsonObject();
+    assertEquals(12, repricedBuy.get("price").getAsLong());
+    assertEquals(
+        59,
+        JsonParser.parseString(get("/api/wallet", buyerToken).body())
+            .getAsJsonObject()
+            .get("gameCoin")
+            .getAsInt());
     JsonObject sellerInventory =
         JsonParser.parseString(get("/api/inventory/snapshot?inventory=PLAYER", token).body())
             .getAsJsonObject();
@@ -699,7 +741,7 @@ class SharedHttpApiTest {
             + buyListing.get("id").getAsLong()
             + "\",\"quantity\":1,\"fingerprint\":\""
             + sellerFingerprint
-            + "\",\"expectedUnitPrice\":10,\"expectedBuyerTotal\":10,"
+            + "\",\"expectedUnitPrice\":12,\"expectedBuyerTotal\":12,"
             + "\"idempotencyKey\":\"inventory-fulfill-1\"}";
     JsonObject fulfilled =
         JsonParser.parseString(
@@ -712,7 +754,7 @@ class SharedHttpApiTest {
     assertEquals(
         fulfilled.get("tradeId").getAsLong(), fulfilledReplay.get("tradeId").getAsLong());
     assertEquals(
-        27,
+        29,
         JsonParser.parseString(get("/api/wallet", token).body())
             .getAsJsonObject()
             .get("gameCoin")
@@ -720,8 +762,8 @@ class SharedHttpApiTest {
     String sellToBuyRequest =
         "{\"listingId\":"
             + buyListing.get("id").getAsLong()
-            + ",\"sellQuantity\":1,\"expectedUnitPrice\":10,"
-            + "\"expectedBuyerTotal\":10,\"idempotencyKey\":\"market-sell-to-buy-1\"}";
+            + ",\"sellQuantity\":1,\"expectedUnitPrice\":12,"
+            + "\"expectedBuyerTotal\":12,\"idempotencyKey\":\"market-sell-to-buy-1\"}";
     JsonObject soldToBuy =
         JsonParser.parseString(
                 post("/api/market/sell-to-buy", sellToBuyRequest, token, null).body())
@@ -732,7 +774,7 @@ class SharedHttpApiTest {
             .getAsJsonObject();
     assertEquals(soldToBuy.get("tradeId").getAsLong(), soldToBuyReplay.get("tradeId").getAsLong());
     assertEquals(
-        37,
+        41,
         JsonParser.parseString(get("/api/wallet", token).body())
             .getAsJsonObject()
             .get("gameCoin")
@@ -747,7 +789,7 @@ class SharedHttpApiTest {
                 .count()
             : -1);
     assertEquals(
-        63,
+        59,
         JsonParser.parseString(get("/api/wallet", buyerToken).body())
             .getAsJsonObject()
             .get("gameCoin")

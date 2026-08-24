@@ -88,11 +88,11 @@ public final class RefundPolicyService {
     });
   }
 
-  ListingPolicy getListingPolicy(long listingId) {
+  public ListingPolicy getListingPolicy(long listingId) {
     return databaseManager.withConnection(connection -> readListingPolicy(connection, listingId));
   }
 
-  ListingPolicy updateListingPolicy(
+  public ListingPolicy updateListingPolicy(
       long ownerUserId, long listingId, String preset, Integer windowMinutes) {
     String normalizedPreset = normalizedEnum(preset, "UNCLAIMED");
     if (!java.util.Set.of("DISABLED", "UNCLAIMED", "TIMED", "UNLIMITED")
