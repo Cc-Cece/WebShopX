@@ -39,6 +39,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
   private final SharedPromotionService promotions;
   private final RefundPolicyService refundPolicies;
   private final SharedRuntimeConfigService runtimeConfig;
+  private final LoaderPaymentProviderRegistry paymentProviders;
 
   private SharedDatabaseRuntime(
       DatabaseManager database,
@@ -53,7 +54,8 @@ final class SharedDatabaseRuntime implements AutoCloseable {
       NotificationService notifications,
       SharedPromotionService promotions,
       RefundPolicyService refundPolicies,
-      SharedRuntimeConfigService runtimeConfig) {
+      SharedRuntimeConfigService runtimeConfig,
+      LoaderPaymentProviderRegistry paymentProviders) {
     this.database = database;
     this.authentication = authentication;
     this.presence = presence;
@@ -67,6 +69,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
     this.promotions = promotions;
     this.refundPolicies = refundPolicies;
     this.runtimeConfig = runtimeConfig;
+    this.paymentProviders = paymentProviders;
   }
 
   static SharedDatabaseRuntime start(Path dataDirectory) {
@@ -130,6 +133,12 @@ final class SharedDatabaseRuntime implements AutoCloseable {
             System.getProperty("webshopx.admin.bootstrap.role", "SUPER_ADMIN")));
     AdminAuditService audit = new AdminAuditService(database);
     SharedCommerceService commerce = new SharedCommerceService(database, wallet);
+    LoaderPaymentProviderRegistry paymentProviders =
+        LoaderPaymentProviderRegistry.discover(
+            commerce,
+            serverId,
+            Thread.currentThread().getContextClassLoader(),
+            Logger.getLogger("com.webshopx.loader.payment"));
     SharedContentService content = new SharedContentService(database);
     NotificationService notifications = new NotificationService(database);
     SharedPromotionService promotions =
@@ -149,7 +158,8 @@ final class SharedDatabaseRuntime implements AutoCloseable {
         notifications,
         promotions,
         refundPolicies,
-        runtimeConfig);
+        runtimeConfig,
+        paymentProviders);
   }
 
   AuthService authentication() {
@@ -236,6 +246,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
 
   @Override
   public void close() {
+    paymentProviders.close();
     presence.markServerOffline(presence.currentServerId());
     database.close();
   }

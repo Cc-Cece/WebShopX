@@ -2686,6 +2686,20 @@ public final class SharedCommerceService {
     return recharge;
   }
 
+  public Recharge reconcileRecharge(long userId, String orderId) {
+    Recharge current = rechargeForUser(userId, orderId);
+    if ("CREDITED".equals(current.status()) || "CANCELLED".equals(current.status())) {
+      return current;
+    }
+    PaymentProvider provider = paymentProviders.get(current.providerId().toLowerCase(Locale.ROOT));
+    if (provider == null) {
+      throw new ServiceException("payment_unavailable", "Payment provider is unavailable");
+    }
+    PaymentNotification notification = provider.query(current);
+    if (notification == null || !notification.paid()) return current;
+    return applyPayment(notification);
+  }
+
   public Recharge cancelRecharge(long userId, String orderId) {
     return database.inTransaction(
         connection -> {
@@ -3216,5 +3230,9 @@ public final class SharedCommerceService {
     String id();
 
     PaymentSession create(String orderId, long amountMinor, String currency, String description);
+
+    default PaymentNotification query(Recharge recharge) {
+      return null;
+    }
   }
 }

@@ -745,10 +745,13 @@ public final class SharedHttpApi implements AutoCloseable {
                     optionalString(input, "description", "WebShopX recharge"))));
       } else if (path.equals("/api/recharge/status") && method(exchange, "GET")) {
         var current = user(exchange);
+        String orderId = requiredQuery(exchange, "orderId");
         respond(
             exchange,
             200,
-            commerce.rechargeForUser(current.id(), requiredQuery(exchange, "orderId")));
+            queryBoolean(exchange, "reconcile", false)
+                ? commerce.reconcileRecharge(current.id(), orderId)
+                : commerce.rechargeForUser(current.id(), orderId));
       } else if (path.equals("/api/recharge/cancel") && method(exchange, "POST")) {
         var current = user(exchange);
         var cancelled =
