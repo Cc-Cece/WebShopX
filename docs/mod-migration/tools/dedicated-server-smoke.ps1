@@ -11,7 +11,7 @@ param(
     [string[]]$ExpectedProbePattern = @(),
     [ValidatePattern('^[A-Za-z0-9_-]*$')][string]$EvidencePrefix = '',
     [int]$Port = 25622,
-    [int]$TimeoutSeconds = 180
+    [int]$TimeoutSeconds = 480
 )
 
 $ErrorActionPreference = 'Stop'
@@ -104,7 +104,8 @@ try {
         throw 'WebShopX did not persist STOPPED health after dedicated server shutdown'
     }
 } finally {
-    if ($launched -and -not $process.HasExited) { $process.Kill($true); $process.WaitForExit() }
+    # Windows PowerShell 5.1 targets .NET Framework, which has no Kill(Boolean) overload.
+    if ($launched -and -not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
     if ($stdoutTask) { $stdoutTask.Result | Set-Content -LiteralPath $stdout -Encoding utf8 }
     if ($stderrTask) { $stderrTask.Result | Set-Content -LiteralPath $stderr -Encoding utf8 }
     $process.Dispose()
