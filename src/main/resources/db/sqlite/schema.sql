@@ -414,6 +414,32 @@ CREATE INDEX IF NOT EXISTS idx_market_listing_side_tag_status ON market_listings
 CREATE INDEX IF NOT EXISTS idx_market_listing_auction_due ON market_listings (trade_mode, status, auction_end_at);
 CREATE INDEX IF NOT EXISTS idx_market_supply_location ON market_listings (source_mode, status, supply_world, supply_x, supply_y, supply_z);
 
+CREATE TABLE IF NOT EXISTS market_supply_operations (
+  operation_id TEXT PRIMARY KEY,
+  listing_id INTEGER NOT NULL,
+  requested_by INTEGER NOT NULL,
+  state TEXT NOT NULL,
+  expected_version TEXT NOT NULL,
+  expected_hash TEXT NOT NULL,
+  requested_quantity INTEGER NOT NULL,
+  removed_quantity INTEGER NULL,
+  result_json TEXT NULL,
+  error_message TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_market_supply_operation_listing
+  ON market_supply_operations (listing_id, state);
+
+CREATE TABLE IF NOT EXISTS market_supply_leases (
+  listing_id INTEGER PRIMARY KEY,
+  operation_id TEXT NOT NULL,
+  owner_server TEXT NOT NULL,
+  lease_until TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_market_supply_lease_expiry
+  ON market_supply_leases (lease_until);
+
 CREATE TABLE IF NOT EXISTS market_tags (
   code TEXT NOT NULL,
   display_name TEXT NOT NULL,

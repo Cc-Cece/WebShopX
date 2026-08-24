@@ -425,7 +425,7 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
         new String[]{"isEmpty", "method_7960", "m_41619_"}, 0).invoke(item);
   }
 
-  private static int count(Object item) throws ReflectiveOperationException {
+  static int count(Object item) throws ReflectiveOperationException {
     return (Integer) method(item.getClass(),
         new String[]{"getCount", "method_7947", "m_41613_"}, 0).invoke(item);
   }

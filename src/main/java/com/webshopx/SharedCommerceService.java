@@ -34,6 +34,11 @@ public final class SharedCommerceService {
   private final DatabaseManager database;
   private final WalletService wallets;
   private final ItemEnvelopeBinaryCodec envelopes = new ItemEnvelopeBinaryCodec();
+
+  public SharedSupplyService supplyService(
+      com.webshopx.platform.SupplyInventoryGateway gateway, String serverId) {
+    return new SharedSupplyService(database, gateway, serverId);
+  }
   private final Map<String, PaymentProvider> paymentProviders = new ConcurrentHashMap<>();
 
   public SharedCommerceService(DatabaseManager database, WalletService wallets) {
@@ -2338,16 +2343,22 @@ public final class SharedCommerceService {
     try (PreparedStatement statement =
         connection.prepareStatement(
             "UPDATE market_listings SET quantity=?,escrow_remaining=?,buyer_user_id=?,buyer_uuid=?,"
-                + "status=?,sold_at=CASE WHEN ?=0 THEN CURRENT_TIMESTAMP ELSE sold_at END "
+                + "status=CASE WHEN source_mode='SUPPLY' AND ?=0 THEN 'SUPPLY_EMPTY' "
+                + "WHEN ?=0 THEN 'SOLD' ELSE 'ACTIVE' END,"
+                + "sold_at=CASE WHEN ?=0 AND source_mode<>'SUPPLY' "
+                + "THEN CURRENT_TIMESTAMP ELSE sold_at END,"
+                + "supply_sold_total=supply_sold_total+CASE WHEN source_mode='SUPPLY' THEN ? ELSE 0 END "
                 + "WHERE id=? AND status='ACTIVE' AND quantity=?")) {
       statement.setInt(1, remaining);
       statement.setInt(2, remaining);
       statement.setLong(3, request.buyerUserId());
       statement.setString(4, request.buyerId().toString());
-      statement.setString(5, remaining == 0 ? "SOLD" : "ACTIVE");
+      statement.setInt(5, remaining);
       statement.setInt(6, remaining);
-      statement.setLong(7, listing.id());
-      statement.setInt(8, listing.quantity());
+      statement.setInt(7, remaining);
+      statement.setInt(8, request.quantity());
+      statement.setLong(9, listing.id());
+      statement.setInt(10, listing.quantity());
       if (statement.executeUpdate() != 1) {
         throw new ServiceException("listing_conflict", "Listing changed concurrently");
       }

@@ -57,6 +57,7 @@ class SchemaManager {
     migrateDeliveryQueue(connection);
     createMarketListings(connection);
     migrateMarketListings(connection);
+    createMarketSupplyJournal(connection);
     createMarketTags(connection);
     migrateMarketTags(connection);
     createMarketListingTags(connection);
@@ -2371,6 +2372,35 @@ class SchemaManager {
             "ALTER TABLE shared_binary_assets MODIFY COLUMN asset_path VARCHAR(512) NOT NULL");
       }
     }
+  }
+
+  private void createMarketSupplyJournal(Connection connection) throws SQLException {
+    execute(connection, """
+        CREATE TABLE IF NOT EXISTS market_supply_operations (
+          operation_id VARCHAR(128) PRIMARY KEY,
+          listing_id BIGINT NOT NULL,
+          requested_by BIGINT NOT NULL,
+          state VARCHAR(16) NOT NULL,
+          expected_version VARCHAR(32) NOT NULL,
+          expected_hash VARCHAR(96) NOT NULL,
+          requested_quantity INT NOT NULL,
+          removed_quantity INT NULL,
+          result_json LONGTEXT NULL,
+          error_message VARCHAR(500) NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          KEY idx_market_supply_operation_listing (listing_id, state)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """);
+    execute(connection, """
+        CREATE TABLE IF NOT EXISTS market_supply_leases (
+          listing_id BIGINT PRIMARY KEY,
+          operation_id VARCHAR(128) NOT NULL,
+          owner_server VARCHAR(128) NOT NULL,
+          lease_until TIMESTAMP NOT NULL,
+          KEY idx_market_supply_lease_expiry (lease_until)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """);
   }
 
   private void widenHashColumn(Connection connection, String tableName) throws SQLException {

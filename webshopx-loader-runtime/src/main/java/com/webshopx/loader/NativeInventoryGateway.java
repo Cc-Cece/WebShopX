@@ -260,7 +260,7 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
         .invoke(player);
   }
 
-  private static int size(Object inventory) throws ReflectiveOperationException {
+  static int size(Object inventory) throws ReflectiveOperationException {
     return (Integer)
         NativeItemCodec.method(
                 inventory.getClass(),
@@ -269,32 +269,32 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
             .invoke(inventory);
   }
 
-  private static Object get(Object inventory, int slot) throws ReflectiveOperationException {
+  static Object get(Object inventory, int slot) throws ReflectiveOperationException {
     return NativeItemCodec.method(
             inventory.getClass(), new String[] {"getItem", "method_5438", "m_8020_"}, 1)
         .invoke(inventory, slot);
   }
 
-  private static Object copyStack(Object stack) throws ReflectiveOperationException {
+  static Object copyStack(Object stack) throws ReflectiveOperationException {
     return NativeItemCodec.method(
             stack.getClass(), new String[] {"copy", "method_7972", "m_41777_"}, 0)
         .invoke(stack);
   }
 
-  private static void setCount(Object stack, int count) throws ReflectiveOperationException {
+  static void setCount(Object stack, int count) throws ReflectiveOperationException {
     NativeItemCodec.method(
             stack.getClass(), new String[] {"setCount", "method_7939", "m_41764_"}, 1)
         .invoke(stack, count);
   }
 
-  private static void set(Object inventory, int slot, Object stack)
+  static void set(Object inventory, int slot, Object stack)
       throws ReflectiveOperationException {
     NativeItemCodec.method(
             inventory.getClass(), new String[] {"setItem", "method_5447", "m_6836_"}, 2)
         .invoke(inventory, slot, stack);
   }
 
-  private static boolean isEmpty(Object stack) throws ReflectiveOperationException {
+  static boolean isEmpty(Object stack) throws ReflectiveOperationException {
     return (Boolean)
         NativeItemCodec.method(
                 stack.getClass(), new String[] {"isEmpty", "method_7960", "m_41619_"}, 0)
@@ -340,7 +340,7 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
     throw new NoSuchFieldException("ItemStack.EMPTY");
   }
 
-  private static void markChanged(Object inventory) {
+  static void markChanged(Object inventory) {
     try {
       NativeItemCodec.method(
               inventory.getClass(), new String[] {"setChanged", "method_6596", "m_6596_"}, 0)

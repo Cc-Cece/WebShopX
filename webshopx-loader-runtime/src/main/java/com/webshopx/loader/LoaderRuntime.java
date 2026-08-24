@@ -38,6 +38,7 @@ public final class LoaderRuntime {
   private static NativePlayerDirectory playerDirectory;
   private static NativeItemCodec itemCodec;
   private static NativeInventoryGateway inventoryGateway;
+  private static NativeSupplyInventoryGateway supplyInventoryGateway;
   private static NativeDeliveryCoordinator deliveries;
   private static RedisEventBridge redisEvents;
   private static SharedHttpApi httpApi;
@@ -88,7 +89,8 @@ public final class LoaderRuntime {
                   databaseRuntime.refundPolicies(),
                   databaseRuntime.runtimeConfig(),
                   bundle.identity(),
-                  bundle.capabilities());
+                  bundle.capabilities(),
+                  supplyInventoryGateway);
           httpApi.start();
           System.out.printf(
               "[WebShopX] HTTP API listening on %s:%d%n",
@@ -156,6 +158,7 @@ public final class LoaderRuntime {
     playerDirectory = null;
     itemCodec = null;
     inventoryGateway = null;
+    supplyInventoryGateway = null;
     deliveries = null;
     if (redisEvents != null) redisEvents.close();
     redisEvents = null;
@@ -320,6 +323,7 @@ public final class LoaderRuntime {
     NativeInventoryGateway inventories =
         new NativeInventoryGateway(playerDirectory, scheduler, items, identity);
     inventoryGateway = inventories;
+    supplyInventoryGateway = new NativeSupplyInventoryGateway(scheduler, items, identity);
     return new PlatformPorts.Bundle(
         lifecycle,
         scheduler,

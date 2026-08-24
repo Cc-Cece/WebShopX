@@ -32,6 +32,8 @@ class SqliteSchemaScriptTest {
       assertTrue(tableExists(connection, "web_users"));
       assertTrue(tableExists(connection, "runtime_config"));
       assertTrue(tableExists(connection, "market_listings"));
+      assertTrue(tableExists(connection, "market_supply_operations"));
+      assertTrue(tableExists(connection, "market_supply_leases"));
       assertTrue(tableExists(connection, "market_tags"));
       assertTrue(tableExists(connection, "market_listing_tags"));
       assertTrue(tableExists(connection, "visual_packs"));
@@ -56,6 +58,10 @@ class SqliteSchemaScriptTest {
       assertTrue(indexExists(connection, "orders", "idx_orders_target_server"));
       assertTrue(indexExists(connection, "market_listings", "idx_market_listing_auction_due"));
       assertTrue(indexExists(connection, "market_listings", "idx_market_supply_location"));
+      assertTrue(indexExists(
+          connection, "market_supply_operations", "idx_market_supply_operation_listing"));
+      assertTrue(indexExists(
+          connection, "market_supply_leases", "idx_market_supply_lease_expiry"));
       assertTrue(indexExists(connection, "market_listing_tags", "idx_market_listing_tags_tag"));
       assertTrue(indexExists(connection, "visual_packs", "idx_visual_packs_order"));
       assertTrue(indexExists(connection, "shared_binary_assets", "idx_shared_binary_asset_hash"));

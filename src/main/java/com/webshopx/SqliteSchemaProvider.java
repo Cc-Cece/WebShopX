@@ -93,6 +93,8 @@ final class SqliteSchemaProvider implements SchemaProvider {
     assertTableExists(connection, "runtime_config");
     assertTableExists(connection, "orders");
     assertTableExists(connection, "market_listings");
+    assertTableExists(connection, "market_supply_operations");
+    assertTableExists(connection, "market_supply_leases");
     assertTableExists(connection, "market_tags");
     assertTableExists(connection, "market_listing_tags");
     assertTableExists(connection, "webshopx_recharge_order");
@@ -133,6 +135,8 @@ final class SqliteSchemaProvider implements SchemaProvider {
     assertIndexExists(connection, "orders", "idx_orders_target_server");
     assertIndexExists(connection, "market_listings", "idx_market_listing_auction_due");
     assertIndexExists(connection, "market_listings", "idx_market_supply_location");
+    assertIndexExists(connection, "market_supply_operations", "idx_market_supply_operation_listing");
+    assertIndexExists(connection, "market_supply_leases", "idx_market_supply_lease_expiry");
     assertIndexExists(connection, "market_listing_tags", "idx_market_listing_tags_tag");
     assertIndexExists(connection, "webshopx_recharge_order", "uniq_recharge_order_id");
     assertIndexExists(connection, "visual_packs", "idx_visual_packs_order");

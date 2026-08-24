@@ -32,6 +32,8 @@ import com.webshopx.platform.CompatibilityDomain;
 import com.webshopx.platform.ItemEnvelope;
 import com.webshopx.platform.InventoryTypes.InventoryMutation;
 import com.webshopx.platform.PlatformIdentity;
+import com.webshopx.platform.PlatformResult;
+import com.webshopx.platform.SupplyInventoryGateway;
 import com.webshopx.testkit.InMemoryInventoryGateway;
 import java.io.ByteArrayOutputStream;
 import java.net.URI;
@@ -49,6 +51,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.AfterEach;
@@ -70,6 +73,7 @@ class SharedHttpApiTest {
   private SharedCommerceService commerce;
   private AuthService auth;
   private WalletService wallets;
+  private FixtureSupplyGateway supplyGateway;
 
   @BeforeEach
   void start() {
@@ -150,6 +154,7 @@ class SharedHttpApiTest {
                 5,
                 new byte[] {1, 2, 3},
                 Map.of());
+    supplyGateway = new FixtureSupplyGateway(inventoryFixture, 12);
     inventories
             .compareAndApply(
                 new InventoryMutation("seed", player, 0, List.of(inventoryFixture), List.of()))
@@ -194,10 +199,53 @@ class SharedHttpApiTest {
             new RefundPolicyService(database),
             new com.webshopx.SharedRuntimeConfigService(database),
             new PlatformIdentity("fabric", "fabric", "1.20.1", "test", "node-a", "sha256:test"),
-            new CapabilitySnapshot(Instant.now(), states));
+            new CapabilitySnapshot(Instant.now(), states),
+            supplyGateway);
     api.start();
     base = "http://127.0.0.1:" + api.port();
     client = HttpClient.newHttpClient();
+  }
+
+  @Test
+  void supplyRefreshUsesAuthenticatedSharedContractAndReplaysIdempotently() throws Exception {
+    long listingId = commerce.createListing(new SharedCommerceService.ListingRequest(
+        playerUserId, player, CurrencyType.SHOP_COIN, 10, 1, inventoryFixture, null)).id();
+    database.withConnection(connection -> {
+      try (var statement = connection.prepareStatement(
+          "UPDATE market_listings SET source_mode='SUPPLY',supply_world='minecraft:overworld',"
+              + "supply_x=4,supply_y=65,supply_z=8,supply_batch_size=5,supply_max_stock=10,"
+              + "quantity=0,status='SUPPLY_EMPTY' WHERE id=?")) {
+        statement.setLong(1, listingId);
+        statement.executeUpdate();
+      }
+      return null;
+    });
+    String token = JsonParser.parseString(post(
+        "/api/auth/login", "{\"identifier\":\"ApiPlayer\",\"password\":\"api-secret\"}",
+        null, null).body()).getAsJsonObject().get("token").getAsString();
+    String body = "{\"listingId\":" + listingId + ",\"idempotencyKey\":\"http-supply-1\"}";
+    String otherToken = JsonParser.parseString(post(
+        "/api/auth/login", "{\"identifier\":\"SupportTarget\",\"password\":\"target-secret\"}",
+        null, null).body()).getAsJsonObject().get("token").getAsString();
+    assertEquals(403, post("/api/market/supply/refresh", body, otherToken, null).statusCode());
+
+    HttpResponse<String> first = post("/api/market/supply/refresh", body, token, null);
+    HttpResponse<String> replay = post("/api/market/supply/refresh", body, token, null);
+    assertEquals(200, first.statusCode());
+    assertEquals(first.body(), replay.body());
+    JsonObject result = JsonParser.parseString(first.body()).getAsJsonObject();
+    assertEquals(5, result.get("loadedAmount").getAsInt());
+    assertEquals(5, result.get("currentStock").getAsInt());
+    assertEquals(7, supplyGateway.quantity);
+
+    JsonObject listing = JsonParser.parseString(get("/api/market/listings", token).body())
+        .getAsJsonObject().getAsJsonArray("listings").asList().stream()
+        .map(element -> element.getAsJsonObject())
+        .filter(candidate -> candidate.get("id").getAsLong() == listingId)
+        .findFirst().orElseThrow();
+    assertEquals("SUPPLY", listing.get("sourceMode").getAsString());
+    assertEquals(5, listing.get("supplyLoadedTotal").getAsInt());
+    assertEquals(5, listing.get("quantity").getAsInt());
   }
 
   @AfterEach
@@ -2183,6 +2231,46 @@ class SharedHttpApiTest {
     assertTrue(landing.body().contains("WebShopX"));
     assertEquals(501, get("/api/orders/refund", null).statusCode());
     assertEquals(404, get("/not-a-webshopx-route.json", null).statusCode());
+  }
+
+  private static final class FixtureSupplyGateway implements SupplyInventoryGateway {
+    private final ItemEnvelope template;
+    private int quantity;
+    private long version = 1;
+
+    private FixtureSupplyGateway(ItemEnvelope template, int quantity) {
+      this.template = template;
+      this.quantity = quantity;
+    }
+
+    @Override
+    public synchronized java.util.concurrent.CompletionStage<PlatformResult<SupplySnapshot>> snapshot(
+        SupplyLocation location) {
+      return CompletableFuture.completedFuture(PlatformResult.success(
+          new SupplySnapshot(version, quantity == 0 ? List.of() : List.of(withCount(quantity)))));
+    }
+
+    @Override
+    public synchronized java.util.concurrent.CompletionStage<PlatformResult<SupplyWithdrawal>>
+        compareAndWithdraw(SupplyWithdrawalRequest request) {
+      if (request.expectedVersion() != version) {
+        return CompletableFuture.completedFuture(
+            new PlatformResult.Conflict<>(request.operationId(), Long.toString(version)));
+      }
+      int removed = Math.min(quantity, request.maximumQuantity());
+      quantity -= removed;
+      version++;
+      return CompletableFuture.completedFuture(PlatformResult.success(
+          new SupplyWithdrawal(version, removed == 0 ? null : withCount(removed), removed)));
+    }
+
+    private ItemEnvelope withCount(int count) {
+      return new ItemEnvelope(
+          template.schemaVersion(), template.codec(), template.codecVersion(),
+          template.compatibilityDomain(), template.registryId(), count,
+          template.payloadEncoding(), template.payload(), template.payloadHash(),
+          template.summary(), template.createdAt());
+    }
   }
 
   private HttpResponse<String> get(String path, String token) throws Exception {

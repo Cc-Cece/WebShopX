@@ -29,12 +29,14 @@ import com.webshopx.SharedPromotionService;
 import com.webshopx.SharedRuntimeConfigService;
 import com.webshopx.SharedVisualPackService;
 import com.webshopx.SharedUpdateService;
+import com.webshopx.SharedSupplyService;
 import com.webshopx.WalletService;
 import com.webshopx.payment.api.PaymentConfigUpdateRequest;
 import com.webshopx.payment.api.PaymentConfigUpdateStatus;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.ItemEnvelope;
 import com.webshopx.platform.PlatformIdentity;
+import com.webshopx.platform.SupplyInventoryGateway;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -72,6 +74,7 @@ public final class SharedHttpApi implements AutoCloseable {
   private final SharedRuntimeConfigService runtimeConfig;
   private final SharedLocaleCenterService localeCenter;
   private final SharedUpdateService updates;
+  private final SharedSupplyService supply;
   private final PlatformIdentity identity;
   private final CapabilitySnapshot capabilities;
   private final String allowedOrigin;
@@ -98,6 +101,32 @@ public final class SharedHttpApi implements AutoCloseable {
       SharedRuntimeConfigService runtimeConfig,
       PlatformIdentity identity,
       CapabilitySnapshot capabilities) {
+    this(
+        host, port, allowedOrigin, auth, wallets, commerce, marketEscrow, content,
+        promotions, redeemCodes, notifications, administration, audit, refundPolicies,
+        runtimeConfig, identity, capabilities,
+        SupplyInventoryGateway.unavailable("native supply adapter is unavailable"));
+  }
+
+  public SharedHttpApi(
+      String host,
+      int port,
+      String allowedOrigin,
+      AuthService auth,
+      WalletService wallets,
+      SharedCommerceService commerce,
+      SharedMarketEscrowService marketEscrow,
+      SharedContentService content,
+      SharedPromotionService promotions,
+      RedeemCodeService redeemCodes,
+      NotificationService notifications,
+      AdminService administration,
+      AdminAuditService audit,
+      RefundPolicyService refundPolicies,
+      SharedRuntimeConfigService runtimeConfig,
+      PlatformIdentity identity,
+      CapabilitySnapshot capabilities,
+      SupplyInventoryGateway supplyGateway) {
     this.auth = Objects.requireNonNull(auth, "auth");
     this.wallets = Objects.requireNonNull(wallets, "wallets");
     this.commerce = Objects.requireNonNull(commerce, "commerce");
@@ -113,6 +142,7 @@ public final class SharedHttpApi implements AutoCloseable {
     this.localeCenter = new SharedLocaleCenterService(runtimeConfig);
     this.identity = Objects.requireNonNull(identity, "identity");
     this.updates = new SharedUpdateService(identity);
+    this.supply = commerce.supplyService(supplyGateway, identity.serverId());
     this.capabilities = Objects.requireNonNull(capabilities, "capabilities");
     this.allowedOrigin = allowedOrigin == null ? "" : allowedOrigin.trim();
     try {
@@ -737,6 +767,16 @@ public final class SharedHttpApi implements AutoCloseable {
                     input.has("expectedBuyerTotal")
                         ? input.get("expectedBuyerTotal").getAsLong()
                         : null)));
+      } else if (path.equals("/api/market/supply/refresh") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        String operationId = input.has("idempotencyKey")
+            ? optionalString(input, "idempotencyKey", null)
+            : exchange.getRequestHeaders().getFirst("Idempotency-Key");
+        respond(
+            exchange,
+            200,
+            supply.refresh(requiredLong(input, "listingId"), current.id(), operationId));
       } else if (path.equals("/api/market/sell-to-buy") && method(exchange, "POST")) {
         var current = boundUser(exchange);
         JsonObject input = body(exchange);
@@ -2387,6 +2427,21 @@ public final class SharedHttpApi implements AutoCloseable {
     else result.addProperty("remark", listing.remark());
     result.addProperty("status", listing.status());
     result.addProperty("sourceMode", "PLAYER");
+    try {
+      SharedSupplyService.SupplyInfo supplyInfo = supply.info(listing.id());
+      result.addProperty("sourceMode", supplyInfo.sourceMode());
+      result.addProperty("supplyWorld", supplyInfo.world());
+      result.addProperty("supplyX", supplyInfo.x());
+      result.addProperty("supplyY", supplyInfo.y());
+      result.addProperty("supplyZ", supplyInfo.z());
+      result.addProperty("supplyBatchSize", supplyInfo.batchSize());
+      result.addProperty("supplyMaxStock", supplyInfo.maxStock());
+      result.addProperty("supplyAccessProtected", supplyInfo.accessProtected());
+      result.addProperty("supplyLoadedTotal", supplyInfo.loadedTotal());
+      result.addProperty("supplySoldTotal", supplyInfo.soldTotal());
+    } catch (ServiceException notSupply) {
+      if (!"supply_not_configured".equals(notSupply.code())) throw notSupply;
+    }
     SharedCommerceService.AuctionDetails auction = commerce.auctionDetails(listing.id());
     result.addProperty("tradeMode", auction.tradeMode());
     result.addProperty("dynamicPricingEnabled", false);
