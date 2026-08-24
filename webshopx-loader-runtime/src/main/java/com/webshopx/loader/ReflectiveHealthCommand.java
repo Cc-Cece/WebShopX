@@ -63,6 +63,9 @@ public final class ReflectiveHealthCommand {
         Object event = eventField.get(null);
         Object callback = Proxy.newProxyInstance(callbackType.getClassLoader(), new Class<?>[]{callbackType},
             (proxy, method, arguments) -> {
+              if (method.getDeclaringClass() == Object.class) {
+                return proxyObjectMethod(proxy, method, arguments);
+              }
               if (method.getName().equals("register") && arguments != null && arguments.length > 0) {
                 registerDispatcher(arguments[0]);
               }
@@ -100,6 +103,9 @@ public final class ReflectiveHealthCommand {
       Class<?> commandType = Class.forName("com.mojang.brigadier.Command");
       Object command = Proxy.newProxyInstance(commandType.getClassLoader(), new Class<?>[]{commandType},
           (proxy, method, arguments) -> {
+            if (method.getDeclaringClass() == Object.class) {
+              return proxyObjectMethod(proxy, method, arguments);
+            }
             if (method.getName().equals("run")) {
               Object context = arguments[0];
               Object source = context.getClass().getMethod("getSource").invoke(context);
@@ -201,6 +207,9 @@ public final class ReflectiveHealthCommand {
     String capturedArgument = argumentName;
     Object handler = Proxy.newProxyInstance(commandType.getClassLoader(), new Class<?>[]{commandType},
         (proxy, method, arguments) -> {
+          if (method.getDeclaringClass() == Object.class) {
+            return proxyObjectMethod(proxy, method, arguments);
+          }
           if (!method.getName().equals("run")) return null;
           Object context = arguments[0];
           Object source = context.getClass().getMethod("getSource").invoke(context);
@@ -225,6 +234,15 @@ public final class ReflectiveHealthCommand {
       literal.getClass().getMethod("then", argumentBuilder).invoke(literal, target);
     }
     return literal;
+  }
+
+  static Object proxyObjectMethod(Object proxy, Method method, Object[] arguments) {
+    return switch (method.getName()) {
+      case "hashCode" -> System.identityHashCode(proxy);
+      case "equals" -> arguments != null && arguments.length == 1 && proxy == arguments[0];
+      case "toString" -> "WebShopXProxy[" + proxy.getClass().getInterfaces()[0].getName() + "]";
+      default -> throw new UnsupportedOperationException(method.getName());
+    };
   }
 
   private static com.webshopx.platform.PlatformPorts.PlayerSnapshot requirePlayer(Object source) {

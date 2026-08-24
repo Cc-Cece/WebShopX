@@ -9,6 +9,9 @@ param(
     [string]$HealthCommand,
     [string[]]$ProbeCommand = @(),
     [string[]]$ExpectedProbePattern = @(),
+    [string]$Node,
+    [string]$PlayerClientScript,
+    [ValidatePattern('^[A-Za-z0-9_]{3,16}$')][string]$PlayerUsername = 'WebShopXProbe',
     [ValidatePattern('^[A-Za-z0-9_-]*$')][string]$EvidencePrefix = '',
     [int]$Port = 25622,
     [int]$TimeoutSeconds = 480
@@ -22,6 +25,16 @@ if (-not (Test-Path -LiteralPath $Java -PathType Leaf)) { throw "Java not found:
 if (-not $server -and -not $LaunchArguments) { throw 'ServerJar or LaunchArguments is required' }
 if ($server -and -not (Test-Path -LiteralPath $server -PathType Leaf)) { throw "Server JAR not found: $server" }
 if (-not (Test-Path -LiteralPath $mod -PathType Leaf)) { throw "Mod JAR not found: $mod" }
+if ($PlayerClientScript) {
+    if (-not $Node -or -not (Test-Path -LiteralPath $Node -PathType Leaf)) {
+        throw "Node executable is required for player verification: $Node"
+    }
+    $PlayerClientScript = [IO.Path]::GetFullPath($PlayerClientScript)
+    if (-not (Test-Path -LiteralPath $PlayerClientScript -PathType Leaf)) {
+        throw "Player client script not found: $PlayerClientScript"
+    }
+    if (-not $ExpectedMinecraft) { throw 'ExpectedMinecraft is required for player verification' }
+}
 
 New-Item -ItemType Directory -Force -Path $work, (Join-Path $work 'mods') | Out-Null
 Copy-Item -LiteralPath $mod -Destination (Join-Path $work 'mods/webshopx.jar') -Force
@@ -61,6 +74,8 @@ $started = $false
 $launched = $false
 $stdoutTask = $null
 $stderrTask = $null
+$playerProcess = $null
+$playerEvidence = $null
 try {
     if (-not $process.Start()) { throw 'Failed to start dedicated server' }
     $launched = $true
@@ -84,6 +99,55 @@ try {
         }
         throw "Server did not report both WebShopX readiness and Minecraft readiness within $TimeoutSeconds seconds"
     }
+    if ($PlayerClientScript) {
+        $playerStem = if ([string]::IsNullOrWhiteSpace($EvidencePrefix)) { 'player' } else { "player-$EvidencePrefix" }
+        $readyFile = Join-Path $work "$playerStem-ready.json"
+        $disconnectFile = Join-Path $work "$playerStem-disconnect.signal"
+        $playerEvidenceFile = Join-Path $work "$playerStem-evidence.json"
+        foreach ($file in @($readyFile, $disconnectFile, $playerEvidenceFile)) {
+            if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force }
+        }
+        $quote = { param([string]$value) '"' + $value.Replace('"', '\"') + '"' }
+        $playerStart = [Diagnostics.ProcessStartInfo]::new()
+        $playerStart.FileName = $Node
+        $playerStart.Arguments = @(
+            (& $quote $PlayerClientScript), '--host=127.0.0.1', "--port=$Port",
+            "--version=$ExpectedMinecraft", "--username=$PlayerUsername",
+            ('--ready-file=' + (& $quote $readyFile)),
+            ('--disconnect-file=' + (& $quote $disconnectFile)),
+            ('--evidence-file=' + (& $quote $playerEvidenceFile)), '--timeout-ms=60000'
+        ) -join ' '
+        $playerStart.WorkingDirectory = Split-Path $PlayerClientScript -Parent
+        $playerStart.UseShellExecute = $false
+        $playerProcess = [Diagnostics.Process]::new()
+        $playerProcess.StartInfo = $playerStart
+        if (-not $playerProcess.Start()) { throw 'Failed to start automated Minecraft client' }
+        $playerDeadline = [DateTime]::UtcNow.AddSeconds(60)
+        while ([DateTime]::UtcNow -lt $playerDeadline -and
+            -not (Test-Path -LiteralPath $readyFile -PathType Leaf) -and -not $playerProcess.HasExited) {
+            Start-Sleep -Milliseconds 100
+        }
+        if (-not (Test-Path -LiteralPath $readyFile -PathType Leaf)) {
+            throw 'Automated Minecraft client did not complete login'
+        }
+        $ready = Get-Content -LiteralPath $readyFile -Raw | ConvertFrom-Json
+        if ($ready.status -ne 'joined' -or $ready.username -ne $PlayerUsername -or
+            $ready.version -ne $ExpectedMinecraft -or -not $ready.uuid) {
+            throw 'Automated Minecraft client returned invalid login evidence'
+        }
+        Set-Content -LiteralPath $disconnectFile -Encoding ascii -Value 'disconnect'
+        if (-not $playerProcess.WaitForExit(30000)) { throw 'Automated Minecraft client did not disconnect' }
+        if ($playerProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $playerEvidenceFile)) {
+            throw "Automated Minecraft client failed with exit code $($playerProcess.ExitCode)"
+        }
+        $playerEvidence = Get-Content -LiteralPath $playerEvidenceFile -Raw | ConvertFrom-Json
+        if ($playerEvidence.status -ne 'passed') { throw 'Automated Minecraft client evidence did not pass' }
+        $playerLog = Get-Content -LiteralPath (Join-Path $work 'logs/latest.log') -Raw
+        if ($playerLog -notmatch ([regex]::Escape($PlayerUsername) + ' joined the game') -or
+            $playerLog -notmatch ([regex]::Escape($PlayerUsername) + ' left the game')) {
+            throw 'Dedicated server did not record the complete player join/leave lifecycle'
+        }
+    }
     if ($HealthCommand) {
         $process.StandardInput.WriteLine($HealthCommand)
         $process.StandardInput.Flush()
@@ -104,6 +168,8 @@ try {
         throw 'WebShopX did not persist STOPPED health after dedicated server shutdown'
     }
 } finally {
+    if ($playerProcess -and -not $playerProcess.HasExited) { $playerProcess.Kill(); $playerProcess.WaitForExit() }
+    if ($playerProcess) { $playerProcess.Dispose() }
     # Windows PowerShell 5.1 targets .NET Framework, which has no Kill(Boolean) overload.
     if ($launched -and -not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
     if ($stdoutTask) { $stdoutTask.Result | Set-Content -LiteralPath $stdout -Encoding utf8 }
@@ -141,5 +207,6 @@ $hash = (Get-FileHash -LiteralPath $mod -Algorithm SHA256).Hash.ToLowerInvariant
     cleanStop = $true
     cycle = if ([string]::IsNullOrWhiteSpace($EvidencePrefix)) { 'single' } else { $EvidencePrefix }
     probes = @($ExpectedProbePattern)
+    player = $playerEvidence
     evidence = $stdout
 } | ConvertTo-Json

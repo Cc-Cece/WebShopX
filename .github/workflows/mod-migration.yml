@@ -43,6 +43,9 @@ jobs:
       - name: Install pinned frontend dependencies
         working-directory: .frontend/webshopx-web
         run: pnpm install --frozen-lockfile
+      - name: Install pinned automated player dependencies
+        working-directory: docs/mod-migration/tools/minecraft-client
+        run: npm ci --ignore-scripts --no-fund && npm audit --omit=dev --audit-level=moderate
       - name: Install Java 17 toolchain
         uses: actions/setup-java@v5
         with:
@@ -243,6 +246,9 @@ jobs:
       - name: Install pinned frontend dependencies
         working-directory: .frontend/webshopx-web
         run: pnpm install --frozen-lockfile
+      - name: Install pinned automated player dependencies
+        working-directory: docs/mod-migration/tools/minecraft-client
+        run: npm ci --ignore-scripts --no-fund && npm audit --omit=dev --audit-level=moderate
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -266,6 +272,7 @@ jobs:
         shell: pwsh
         run: |
           $jar = Get-ChildItem '${{ matrix.project }}/build/libs/*.jar' | Select-Object -First 1
+          $playerClient = (Resolve-Path 'docs/mod-migration/tools/minecraft-client/player-probe.mjs').Path
           $firstStart = & docs/mod-migration/tools/dedicated-server-smoke.ps1 `
             -Java (Get-Command java).Source -ServerJar $env:WEBSHOPX_SERVER_JAR `
             -LaunchArguments $env:WEBSHOPX_LAUNCH_ARGS -ModJar $jar.FullName `
@@ -273,6 +280,7 @@ jobs:
             -ExpectedMinecraft '${{ matrix.minecraft }}' -ExpectedLoader '${{ matrix.loader }}' `
             -HealthCommand 'webshopx-health' -ProbeCommand 'webshopx-item-probe' `
             -ExpectedProbePattern 'item-roundtrip=PASS','fixtures=PASS\(8,domain,hash,codec\)' `
+            -Node (Get-Command node).Source -PlayerClientScript $playerClient `
             -EvidencePrefix 'first-start' | ConvertFrom-Json
           $restart = & docs/mod-migration/tools/dedicated-server-smoke.ps1 `
             -Java (Get-Command java).Source -ServerJar $env:WEBSHOPX_SERVER_JAR `
@@ -281,6 +289,7 @@ jobs:
             -ExpectedMinecraft '${{ matrix.minecraft }}' -ExpectedLoader '${{ matrix.loader }}' `
             -HealthCommand 'webshopx-health' -ProbeCommand 'webshopx-item-probe' `
             -ExpectedProbePattern 'item-roundtrip=PASS','fixtures=PASS\(8,domain,hash,codec\)' `
+            -Node (Get-Command node).Source -PlayerClientScript $playerClient `
             -EvidencePrefix 'restart' | ConvertFrom-Json
           [ordered]@{ status = 'passed'; firstStart = $firstStart; restart = $restart } |
             ConvertTo-Json -Depth 10 |
@@ -307,6 +316,7 @@ jobs:
           path: |
             ${{ env.WEBSHOPX_SERVER_WORK }}/smoke-evidence.json
             ${{ env.WEBSHOPX_SERVER_WORK }}/console-*.log
+            ${{ env.WEBSHOPX_SERVER_WORK }}/player-*.json
             ${{ env.WEBSHOPX_SERVER_WORK }}/logs/latest.log
             ${{ env.WEBSHOPX_SERVER_WORK }}/config/webshopx/health.json
 
