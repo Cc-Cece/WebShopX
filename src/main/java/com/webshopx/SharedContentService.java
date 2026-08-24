@@ -120,6 +120,69 @@ public final class SharedContentService {
         metric, order, range, range, ranked.size(), myRank, List.copyOf(entries));
   }
 
+  public Map<String, Long> overviewStats() {
+    return database.withConnection(
+        connection -> {
+          Map<String, Long> values = new java.util.LinkedHashMap<>();
+          values.put("onlinePlayers", 0L);
+          values.put("maxPlayers", 0L);
+          values.put("totalUsers", count(connection, "SELECT COUNT(*) FROM web_users"));
+          values.put(
+              "boundUsers",
+              count(connection, "SELECT COUNT(*) FROM web_users WHERE bound_uuid IS NOT NULL"));
+          values.put("totalProducts", count(connection, "SELECT COUNT(*) FROM products"));
+          values.put(
+              "activeProducts",
+              count(connection, "SELECT COUNT(*) FROM products WHERE active=TRUE"));
+          values.put("totalOrders", count(connection, "SELECT COUNT(*) FROM orders"));
+          values.put(
+              "completedOrders",
+              count(
+                  connection,
+                  "SELECT COUNT(*) FROM orders WHERE UPPER(status) IN"
+                      + " ('ISSUED','COMPLETED','DELIVERED')"));
+          values.put(
+              "refundedOrders",
+              count(connection, "SELECT COUNT(*) FROM orders WHERE UPPER(status)='REFUNDED'"));
+          values.put(
+              "totalRevenue",
+              count(
+                  connection,
+                  "SELECT COALESCE(SUM(total_amount),0) FROM orders"
+                      + " WHERE UPPER(status)<>'REFUNDED'"));
+          values.put(
+              "activeListings",
+              count(
+                  connection,
+                  "SELECT COUNT(*) FROM market_listings WHERE UPPER(status)='ACTIVE'"));
+          values.put("totalTrades", count(connection, "SELECT COUNT(*) FROM market_trades"));
+          values.put(
+              "completedTrades",
+              count(
+                  connection,
+                  "SELECT COUNT(*) FROM market_trades WHERE UPPER(status) IN"
+                      + " ('PAID','SETTLED','COMPLETED','DELIVERED')"));
+          values.put(
+              "totalTradeVolume",
+              count(
+                  connection,
+                  "SELECT COALESCE(SUM(total_price),0) FROM market_trades"
+                      + " WHERE UPPER(status)<>'REFUNDED'"));
+          values.put("totalRedeemCodes", count(connection, "SELECT COUNT(*) FROM redeem_codes"));
+          values.put(
+              "totalRedeemUses",
+              count(connection, "SELECT COALESCE(SUM(used_count),0) FROM redeem_codes"));
+          return Map.copyOf(values);
+        });
+  }
+
+  private static long count(java.sql.Connection connection, String sql) throws java.sql.SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(sql);
+        ResultSet result = statement.executeQuery()) {
+      return result.next() ? result.getLong(1) : 0L;
+    }
+  }
+
   private List<LeaderboardUser> readLeaderboardUsers() {
     return database.withConnection(
         connection -> {

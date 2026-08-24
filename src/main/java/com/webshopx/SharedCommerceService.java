@@ -65,6 +65,80 @@ public final class SharedCommerceService {
         });
   }
 
+  public Product upsertProduct(ProductInput input) {
+    validateProduct(input);
+    return database.inTransaction(
+        connection -> {
+          String sku = input.sku().trim().toUpperCase(Locale.ROOT);
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE products SET title=?,remark=?,currency=?,price=?,product_type=?,"
+                      + "command_template=?,item_material=?,item_amount=?,stock_remaining=?,"
+                      + "active=?,updated_at=CURRENT_TIMESTAMP WHERE sku=?")) {
+            statement.setString(1, input.title().trim());
+            statement.setString(2, input.remark());
+            statement.setString(3, input.currency().name());
+            statement.setLong(4, input.price());
+            statement.setString(5, input.kind().name());
+            statement.setString(
+                6, input.commandTemplate() == null ? "" : input.commandTemplate().trim());
+            statement.setString(7, input.registryId());
+            if (input.stock() == null) {
+              statement.setObject(8, null);
+              statement.setObject(9, null);
+            } else {
+              statement.setInt(8, input.stock());
+              statement.setInt(9, input.stock());
+            }
+            statement.setBoolean(10, input.active());
+            statement.setString(11, sku);
+            if (statement.executeUpdate() == 1) return readProductBySku(connection, sku);
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "INSERT INTO products (sku,title,remark,currency,price,product_type,"
+                      + "command_template,item_material,item_amount,stock_remaining,active)"
+                      + " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                  Statement.RETURN_GENERATED_KEYS)) {
+            statement.setString(1, sku);
+            statement.setString(2, input.title().trim());
+            statement.setString(3, input.remark());
+            statement.setString(4, input.currency().name());
+            statement.setLong(5, input.price());
+            statement.setString(6, input.kind().name());
+            statement.setString(
+                7, input.commandTemplate() == null ? "" : input.commandTemplate().trim());
+            statement.setString(8, input.registryId());
+            if (input.stock() == null) {
+              statement.setObject(9, null);
+              statement.setObject(10, null);
+            } else {
+              statement.setInt(9, input.stock());
+              statement.setInt(10, input.stock());
+            }
+            statement.setBoolean(11, input.active());
+            statement.executeUpdate();
+            return readProduct(connection, generatedId(statement));
+          }
+        });
+  }
+
+  public Product setProductActive(long productId, boolean active) {
+    return database.inTransaction(
+        connection -> {
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE products SET active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")) {
+            statement.setBoolean(1, active);
+            statement.setLong(2, productId);
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException("product_not_found", "Product was not found");
+            }
+          }
+          return readProduct(connection, productId);
+        });
+  }
+
   public List<Product> products(boolean includeInactive) {
     return database.withConnection(
         connection -> {
@@ -932,6 +1006,11 @@ public final class SharedCommerceService {
         });
   }
 
+  public Listing forceUnlist(long listingId) {
+    Listing listing = listing(listingId);
+    return unlist(listing.sellerUserId(), listingId);
+  }
+
   private Listing readOwnedListing(Connection connection, long sellerUserId, long listingId)
       throws SQLException {
     Listing listing = readListing(connection, listingId);
@@ -1539,6 +1618,21 @@ public final class SharedCommerceService {
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next())
           throw new ServiceException("product_not_found", "Product was not found");
+        return product(result);
+      }
+    }
+  }
+
+  private Product readProductBySku(Connection connection, String sku) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT id,sku,title,remark,currency,price,product_type,command_template,item_material,"
+                + "stock_remaining,active FROM products WHERE sku=?")) {
+      statement.setString(1, sku);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) {
+          throw new ServiceException("product_not_found", "Product was not found");
+        }
         return product(result);
       }
     }

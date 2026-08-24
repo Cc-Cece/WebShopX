@@ -1264,6 +1264,66 @@ public final class SharedHttpApi implements AutoCloseable {
                 input.has("validUntil") && !input.get("validUntil").isJsonNull()
                     ? java.time.Instant.parse(input.get("validUntil").getAsString())
                     : null));
+      } else if (path.equals("/api/admin/overview/stats") && method(exchange, "GET")) {
+        administration.requireAdmin(user(exchange), null);
+        respond(exchange, 200, content.overviewStats());
+      } else if (path.equals("/api/admin/market/listings") && method(exchange, "GET")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.MARKET_MANAGE);
+        var listings = commerce.listings(true);
+        audit.log(actor, "MARKET_LIST", "listing", null, null, clientIp(exchange));
+        respond(exchange, 200, Map.of("listings", listings));
+      } else if (path.equals("/api/admin/market/unlist") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.MARKET_MANAGE);
+        var listing = commerce.forceUnlist(requiredLong(input, "listingId"));
+        audit.log(
+            actor,
+            "MARKET_UNLIST",
+            "listing",
+            String.valueOf(listing.id()),
+            input,
+            clientIp(exchange));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "listingId", listing.id(),
+                "currency", listing.currency().name(),
+                "price", listing.price(),
+                "quantity", listing.quantity()));
+      } else if (path.equals("/api/admin/products/list") && method(exchange, "GET")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.PRODUCT_MANAGE);
+        boolean includeInactive = queryBoolean(exchange, "includeInactive", false);
+        var products = commerce.products(includeInactive);
+        audit.log(actor, "PRODUCT_LIST", "product", null, null, clientIp(exchange));
+        respond(
+            exchange,
+            200,
+            Map.of("products", products.stream().map(SharedHttpApi::productJson).toList()));
+      } else if (path.equals("/api/admin/products/upsert") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.PRODUCT_MANAGE);
+        var product = commerce.upsertProduct(productInput(body(exchange)));
+        audit.log(
+            actor,
+            "PRODUCT_UPSERT",
+            "product",
+            String.valueOf(product.id()),
+            null,
+            clientIp(exchange));
+        respond(exchange, 200, productJson(product));
+      } else if (path.equals("/api/admin/products/active") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.PRODUCT_MANAGE);
+        boolean active = input.has("active") && input.get("active").getAsBoolean();
+        var product = commerce.setProductActive(requiredLong(input, "productId"), active);
+        audit.log(
+            actor,
+            "PRODUCT_ACTIVE",
+            "product",
+            String.valueOf(product.id()),
+            input,
+            clientIp(exchange));
+        respond(exchange, 200, Map.of("id", product.id(), "active", product.active()));
       } else if (path.equals("/api/admin/products") && method(exchange, "POST")) {
         var user = user(exchange);
         administration.requireAdmin(user, AdminPermission.PRODUCT_MANAGE);
@@ -1398,6 +1458,41 @@ public final class SharedHttpApi implements AutoCloseable {
     result.addProperty("dynamicPricingEnabled", false);
     result.addProperty("dynamicPricingMode", "ORDER_FIXED");
     return result;
+  }
+
+  private static ProductInput productInput(JsonObject input) {
+    String type =
+        input.has("productType")
+            ? requiredString(input, "productType")
+            : requiredString(input, "kind");
+    Integer stock =
+        input.has("itemAmount") && !input.get("itemAmount").isJsonNull()
+            ? input.get("itemAmount").getAsInt()
+            : input.has("stock") && !input.get("stock").isJsonNull()
+                ? input.get("stock").getAsInt()
+                : null;
+    ProductKind kind = ProductKind.valueOf(type.toUpperCase(Locale.ROOT));
+    String registryId =
+        input.has("itemMaterial")
+            ? optionalString(input, "itemMaterial", null)
+            : optionalString(input, "registryId", null);
+    if (kind == ProductKind.GIVE_ITEM && registryId != null) {
+      registryId = registryId.trim().toLowerCase(Locale.ROOT);
+      if (!registryId.contains(":")) registryId = "minecraft:" + registryId;
+    }
+    return new ProductInput(
+        requiredString(input, "sku"),
+        requiredString(input, "title"),
+        optionalString(input, "remark", null),
+        CurrencyType.valueOf(requiredString(input, "currency").toUpperCase(Locale.ROOT)),
+        requiredLong(input, "price"),
+        kind,
+        input.has("commandTemplate")
+            ? optionalString(input, "commandTemplate", "")
+            : optionalString(input, "command", ""),
+        registryId,
+        stock,
+        !input.has("active") || input.get("active").getAsBoolean());
   }
 
   private static Map<String, Object> userJson(AdminService.UserSupportView view) {

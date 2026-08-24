@@ -881,6 +881,11 @@ class SharedHttpApiTest {
                 null)
             .statusCode());
     assertEquals(200, get("/api/admin/auth/me", token).statusCode());
+    JsonObject overview =
+        JsonParser.parseString(get("/api/admin/overview/stats", token).body()).getAsJsonObject();
+    assertEquals(2, overview.get("totalUsers").getAsLong());
+    assertEquals(1, overview.get("totalProducts").getAsLong());
+    assertEquals(200, get("/api/admin/market/listings", token).statusCode());
     assertEquals(200, get("/api/admin/users/list", token).statusCode());
     HttpResponse<String> lookup = get("/api/admin/users/lookup?identifier=SupportTarget", token);
     assertEquals(200, lookup.statusCode(), lookup.body());
@@ -945,6 +950,40 @@ class SharedHttpApiTest {
     assertEquals(
         200,
         post("/api/admin/users/unbind", "{\"userId\":" + targetId + "}", token, null).statusCode());
+    HttpResponse<String> productUpsert =
+        post(
+            "/api/admin/products/upsert",
+            "{\"sku\":\"API_STONE\",\"title\":\"Managed Stone\","
+                + "\"remark\":\"admin update\",\"currency\":\"SHOP_COIN\","
+                + "\"price\":55,\"productType\":\"GIVE_ITEM\","
+                + "\"itemMaterial\":\"STONE\",\"itemAmount\":8,\"active\":true}",
+            token,
+            null);
+    assertEquals(200, productUpsert.statusCode(), productUpsert.body());
+    JsonObject managedProduct = JsonParser.parseString(productUpsert.body()).getAsJsonObject();
+    assertEquals(55, managedProduct.get("price").getAsLong());
+    assertEquals(8, managedProduct.get("stock").getAsInt());
+    assertEquals(
+        1,
+        JsonParser.parseString(
+                get("/api/admin/products/list?includeInactive=true", token).body())
+            .getAsJsonObject()
+            .getAsJsonArray("products")
+            .size());
+    assertEquals(
+        200,
+        post(
+                "/api/admin/products/active",
+                "{\"productId\":" + managedProduct.get("id").getAsLong() + ",\"active\":false}",
+                token,
+                null)
+            .statusCode());
+    assertEquals(
+        0,
+        JsonParser.parseString(get("/api/products", null).body())
+            .getAsJsonObject()
+            .getAsJsonArray("products")
+            .size());
     assertEquals(200, get("/api/admin/audit/list", token).statusCode());
     assertEquals(200, post("/api/admin/auth/logout", "{}", token, null).statusCode());
     assertEquals(401, get("/api/admin/auth/me", token).statusCode());
