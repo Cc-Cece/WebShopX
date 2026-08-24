@@ -155,6 +155,75 @@ public final class SharedMarketEscrowService {
     }
   }
 
+  public List<SharedCommerceService.MarketMatch> matches(MatchRequest request) {
+    if (request.quantity() < 1 || request.quantity() > 64) {
+      throw new ServiceException("invalid_quantity", "Quantity must be between 1 and 64");
+    }
+    InventorySnapshot snapshot = snapshot(request.playerId(), request.allowOffline());
+    ItemEnvelope selected = select(snapshot, request.expectedPayloadHash(), request.quantity());
+    return commerce.matchingBuyListings(request.userId(), selected, request.quantity());
+  }
+
+  public SharedCommerceService.MarketTrade fulfill(FulfillRequest request) {
+    validateKeyAndQuantity(request.idempotencyKey(), request.quantity());
+    Existing existing = find(request.userId(), request.idempotencyKey());
+    if (existing != null) return replayFulfill(existing, request);
+    InventorySnapshot snapshot = snapshot(request.playerId(), request.allowOffline());
+    ItemEnvelope selected = select(snapshot, request.expectedPayloadHash(), request.quantity());
+    SharedCommerceService.MarketTrade concurrent = beginFulfill(request, selected);
+    if (concurrent != null) return concurrent;
+    String operationId = "market-fulfill:" + request.userId() + ":" + request.idempotencyKey();
+    PlatformResult<InventoryMutationResult> result;
+    try {
+      result =
+          inventories
+              .compareAndApply(
+                  new InventoryMutation(
+                      operationId,
+                      request.playerId(),
+                      snapshot.version(),
+                      List.of(),
+                      List.of(new InventoryRemoval(selected, request.quantity()))))
+              .toCompletableFuture()
+              .get(INVENTORY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    } catch (Exception failure) {
+      throw new ServiceException(
+          "inventory_outcome_unknown", "Inventory operation requires reconciliation");
+    }
+    if (!(result instanceof PlatformResult.Success<InventoryMutationResult> success)) {
+      handleApplyFailure(request.userId(), request.idempotencyKey(), result);
+      throw new ServiceException("inventory_rejected", "Inventory operation was rejected");
+    }
+    if (success.value().removed().size() != 1
+        || success.value().removed().get(0).count() != request.quantity()) {
+      throw new ServiceException(
+          "inventory_outcome_unknown", "Inventory operation requires reconciliation");
+    }
+    ItemEnvelope removed = success.value().removed().get(0);
+    try {
+      return database.inTransaction(
+          connection -> {
+            SharedCommerceService.MarketTrade trade =
+                commerce.fulfillBuyListing(
+                    connection,
+                    new SharedCommerceService.MarketFulfillRequest(
+                        request.userId(),
+                        request.playerId(),
+                        request.listingId(),
+                        request.quantity(),
+                        request.idempotencyKey(),
+                        request.expectedUnitPrice(),
+                        request.expectedBuyerTotal()),
+                    removed);
+            completeFulfill(connection, request, trade.id(), gson.toJson(trade));
+            return trade;
+          });
+    } catch (RuntimeException failure) {
+      compensate(request.userId(), request.playerId(), request.idempotencyKey(), removed);
+      throw failure;
+    }
+  }
+
   private InventorySnapshot snapshot(UUID playerId, boolean allowOffline) {
     try {
       PlatformResult<InventorySnapshot> result =
@@ -236,6 +305,33 @@ public final class SharedMarketEscrowService {
     }
   }
 
+  private SharedCommerceService.MarketTrade beginFulfill(
+      FulfillRequest request, ItemEnvelope selected) {
+    try {
+      database.inTransaction(
+          connection -> {
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "INSERT INTO inventory_operations (user_id,idempotency_key,action,state,"
+                        + "slot_index,container_slot,item_fingerprint,quantity,result_json)"
+                        + " VALUES (?,?,'MARKET_FULFILL','PENDING',-1,NULL,?,?,?)")) {
+              statement.setLong(1, request.userId());
+              statement.setString(2, request.idempotencyKey());
+              statement.setString(3, selected.payloadHash());
+              statement.setInt(4, request.quantity());
+              statement.setString(5, gson.toJson(request));
+              statement.executeUpdate();
+            }
+            return null;
+          });
+      return null;
+    } catch (RuntimeException duplicate) {
+      Existing existing = find(request.userId(), request.idempotencyKey());
+      if (existing != null) return replayFulfill(existing, request);
+      throw duplicate;
+    }
+  }
+
   private void complete(Connection connection, Request request, long listingId, String resultJson)
       throws SQLException {
     try (PreparedStatement statement =
@@ -265,6 +361,24 @@ public final class SharedMarketEscrowService {
       statement.setString(3, request.idempotencyKey());
       if (statement.executeUpdate() != 1) {
         throw new ServiceException("idempotency_conflict", "Discard operation state changed");
+      }
+    }
+  }
+
+  private void completeFulfill(
+      Connection connection, FulfillRequest request, long tradeId, String resultJson)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE inventory_operations SET state='SUCCESS',reference_id=?,result_json=?,"
+                + "updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND idempotency_key=?"
+                + " AND action='MARKET_FULFILL' AND state='PENDING'")) {
+      statement.setLong(1, tradeId);
+      statement.setString(2, resultJson);
+      statement.setLong(3, request.userId());
+      statement.setString(4, request.idempotencyKey());
+      if (statement.executeUpdate() != 1) {
+        throw new ServiceException("idempotency_conflict", "Fulfill operation state changed");
       }
     }
   }
@@ -415,6 +529,26 @@ public final class SharedMarketEscrowService {
         "inventory_outcome_unknown", "Discard operation requires reconciliation");
   }
 
+  private SharedCommerceService.MarketTrade replayFulfill(
+      Existing existing, FulfillRequest request) {
+    if (!"MARKET_FULFILL".equals(existing.action())
+        || existing.quantity() != request.quantity()
+        || (request.expectedPayloadHash() != null
+            && !request.expectedPayloadHash().equals(existing.itemFingerprint()))) {
+      throw new ServiceException("idempotency_conflict", "Idempotency request does not match");
+    }
+    if ("SUCCESS".equals(existing.state()) && existing.referenceId() != null) {
+      return commerce.marketTrade(existing.referenceId());
+    }
+    if ("REJECTED".equals(existing.state())) {
+      throw new ServiceException(
+          existing.errorCode() == null ? "inventory_rejected" : existing.errorCode(),
+          "Fulfill operation was rejected");
+    }
+    throw new ServiceException(
+        "inventory_outcome_unknown", "Fulfill operation requires reconciliation");
+  }
+
   private static void validate(Request request) {
     Objects.requireNonNull(request, "request");
     if (request.idempotencyKey() == null
@@ -458,6 +592,24 @@ public final class SharedMarketEscrowService {
       boolean allowOffline) {}
 
   public record DiscardResult(String state, int discardedQuantity, String revision) {}
+
+  public record MatchRequest(
+      long userId,
+      UUID playerId,
+      int quantity,
+      String expectedPayloadHash,
+      boolean allowOffline) {}
+
+  public record FulfillRequest(
+      long userId,
+      UUID playerId,
+      long listingId,
+      int quantity,
+      String idempotencyKey,
+      String expectedPayloadHash,
+      boolean allowOffline,
+      Long expectedUnitPrice,
+      Long expectedBuyerTotal) {}
 
   private record Existing(
       String action,

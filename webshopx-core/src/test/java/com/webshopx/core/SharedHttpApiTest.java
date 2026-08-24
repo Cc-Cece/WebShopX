@@ -533,6 +533,97 @@ class SharedHttpApiTest {
               }
             });
     assertEquals(1, returnTasks);
+
+    String buyListingRequest =
+        "{\"side\":\"BUY\",\"currency\":\"GAME_COIN\",\"price\":10,"
+            + "\"quantity\":2,\"itemMaterial\":\"DIAMOND\","
+            + "\"idempotencyKey\":\"market-buy-listing-1\"}";
+    JsonObject buyListing =
+        JsonParser.parseString(
+                post(
+                        "/api/market/listings/create",
+                        buyListingRequest,
+                        buyerToken,
+                        null)
+                    .body())
+            .getAsJsonObject();
+    JsonObject buyListingReplay =
+        JsonParser.parseString(
+                post(
+                        "/api/market/listings/create",
+                        buyListingRequest,
+                        buyerToken,
+                        null)
+                    .body())
+            .getAsJsonObject();
+    assertEquals("BUY", buyListing.get("side").getAsString());
+    assertEquals(buyListing.get("id").getAsLong(), buyListingReplay.get("id").getAsLong());
+    assertEquals(
+        63,
+        JsonParser.parseString(get("/api/wallet", buyerToken).body())
+            .getAsJsonObject()
+            .get("gameCoin")
+            .getAsInt());
+    JsonObject sellerInventory =
+        JsonParser.parseString(get("/api/inventory/snapshot?inventory=PLAYER", token).body())
+            .getAsJsonObject();
+    String sellerFingerprint =
+        sellerInventory
+            .getAsJsonArray("slots")
+            .get(0)
+            .getAsJsonObject()
+            .getAsJsonObject("item")
+            .get("fingerprint")
+            .getAsString();
+    String matchRequest =
+        "{\"inventory\":\"PLAYER\",\"quantity\":1,\"fingerprint\":\""
+            + sellerFingerprint
+            + "\"}";
+    JsonObject matches =
+        JsonParser.parseString(post("/api/inventory/matches", matchRequest, token, null).body())
+            .getAsJsonObject();
+    assertEquals(1, matches.getAsJsonArray("matches").size());
+    String fulfillRequest =
+        "{\"inventory\":\"PLAYER\",\"listingId\":\""
+            + buyListing.get("id").getAsLong()
+            + "\",\"quantity\":1,\"fingerprint\":\""
+            + sellerFingerprint
+            + "\",\"expectedUnitPrice\":10,\"expectedBuyerTotal\":10,"
+            + "\"idempotencyKey\":\"inventory-fulfill-1\"}";
+    JsonObject fulfilled =
+        JsonParser.parseString(
+                post("/api/inventory/fulfill", fulfillRequest, token, null).body())
+            .getAsJsonObject();
+    JsonObject fulfilledReplay =
+        JsonParser.parseString(
+                post("/api/inventory/fulfill", fulfillRequest, token, null).body())
+            .getAsJsonObject();
+    assertEquals(
+        fulfilled.get("tradeId").getAsLong(), fulfilledReplay.get("tradeId").getAsLong());
+    assertEquals(
+        27,
+        JsonParser.parseString(get("/api/wallet", token).body())
+            .getAsJsonObject()
+            .get("gameCoin")
+            .getAsInt());
+    assertEquals(
+        2,
+        inventories.snapshot(player, false).toCompletableFuture().join()
+                instanceof com.webshopx.platform.PlatformResult.Success<?> success
+            ? ((com.webshopx.platform.InventoryTypes.InventorySnapshot) success.value())
+                .items()
+                .get(0)
+                .count()
+            : -1);
+    String unlistBuy = "{\"listingId\":" + buyListing.get("id").getAsLong() + "}";
+    assertEquals(200, post("/api/market/unlist", unlistBuy, buyerToken, null).statusCode());
+    assertEquals(200, post("/api/market/unlist", unlistBuy, buyerToken, null).statusCode());
+    assertEquals(
+        73,
+        JsonParser.parseString(get("/api/wallet", buyerToken).body())
+            .getAsJsonObject()
+            .get("gameCoin")
+            .getAsInt());
   }
 
   @Test

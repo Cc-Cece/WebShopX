@@ -1,7 +1,10 @@
 package com.webshopx;
 
 import com.webshopx.core.ItemEnvelopeBinaryCodec;
+import com.webshopx.core.ItemEnvelopeService;
+import com.webshopx.platform.CompatibilityDomain;
 import com.webshopx.platform.ItemEnvelope;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -601,12 +604,134 @@ public final class SharedCommerceService {
     }
   }
 
+  public Listing createBuyListing(BuyListingRequest request) {
+    requireKey(request.idempotencyKey());
+    if (request.price() < 1 || request.quantity() < 1 || request.quantity() > 64) {
+      throw new ServiceException("invalid_listing", "Listing price or quantity is invalid");
+    }
+    String registryId = normalizeRegistryId(request.itemMaterial());
+    byte[] targetPayload = registryId.getBytes(StandardCharsets.UTF_8);
+    ItemEnvelope target =
+        new ItemEnvelopeService(java.time.Clock.systemUTC(), java.util.Set.of("registry-request"))
+            .create(
+                "registry-request",
+                1,
+                new CompatibilityDomain("shared", "registry", "any", 1, "registry-only"),
+                registryId,
+                1,
+                targetPayload,
+                Map.of("request", "market-buy"));
+    try {
+      return database.inTransaction(
+          connection -> {
+            try (PreparedStatement operation =
+                connection.prepareStatement(
+                    "INSERT INTO inventory_operations"
+                        + " (user_id,idempotency_key,action,state,slot_index,item_fingerprint,quantity,result_json)"
+                        + " VALUES (?,?,'MARKET_BUY_LIST','PENDING',-1,?,?,?)")) {
+              operation.setLong(1, request.ownerUserId());
+              operation.setString(2, request.idempotencyKey());
+              operation.setString(3, target.payloadHash());
+              operation.setInt(4, request.quantity());
+              operation.setString(5, "{}");
+              operation.executeUpdate();
+            }
+            long escrow = Math.multiplyExact(request.price(), request.quantity());
+            wallets.applyDelta(
+                connection,
+                request.ownerUserId(),
+                request.currency(),
+                -escrow,
+                "MARKET_BUY_ESCROW",
+                "market-buy-list:" + request.ownerUserId() + ":" + request.idempotencyKey(),
+                true);
+            long listingId;
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "INSERT INTO market_listings"
+                        + " (seller_user_id,seller_uuid,currency,price,quantity,quantity_total,item_material,raw_item_blob,item_meta_json,remark,item_hash,escrow_total,escrow_remaining,status,market_side,trade_mode)"
+                        + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'ACTIVE','BUY','DIRECT')",
+                    Statement.RETURN_GENERATED_KEYS)) {
+              statement.setLong(1, request.ownerUserId());
+              statement.setString(2, request.ownerId().toString());
+              statement.setString(3, request.currency().name());
+              statement.setLong(4, request.price());
+              statement.setInt(5, request.quantity());
+              statement.setInt(6, request.quantity());
+              statement.setString(7, registryId);
+              statement.setBytes(8, envelopes.encode(target));
+              statement.setString(9, "{\"registryOnly\":true}");
+              statement.setString(10, request.remark());
+              statement.setString(11, target.payloadHash());
+              statement.setLong(12, escrow);
+              statement.setLong(13, escrow);
+              statement.executeUpdate();
+              listingId = generatedId(statement);
+            }
+            try (PreparedStatement operation =
+                connection.prepareStatement(
+                    "UPDATE inventory_operations SET state='SUCCESS',reference_id=?,"
+                        + "updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND idempotency_key=?"
+                        + " AND action='MARKET_BUY_LIST' AND state='PENDING'")) {
+              operation.setLong(1, listingId);
+              operation.setLong(2, request.ownerUserId());
+              operation.setString(3, request.idempotencyKey());
+              if (operation.executeUpdate() != 1) {
+                throw new ServiceException("idempotency_conflict", "Listing operation changed");
+              }
+            }
+            return readListing(connection, listingId);
+          });
+    } catch (RuntimeException failure) {
+      Listing replay = replayBuyListing(request.ownerUserId(), request.idempotencyKey());
+      if (replay != null) return replay;
+      throw failure;
+    }
+  }
+
+  private Listing replayBuyListing(long userId, String idempotencyKey) {
+    return database.withConnection(
+        connection -> {
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT action,state,reference_id FROM inventory_operations"
+                      + " WHERE user_id=? AND idempotency_key=?")) {
+            statement.setLong(1, userId);
+            statement.setString(2, idempotencyKey);
+            try (ResultSet result = statement.executeQuery()) {
+              if (!result.next()) return null;
+              if (!"MARKET_BUY_LIST".equals(result.getString(1))) {
+                throw new ServiceException(
+                    "idempotency_conflict", "Idempotency key belongs to another action");
+              }
+              if (!"SUCCESS".equals(result.getString(2))) {
+                throw new ServiceException(
+                    "inventory_outcome_unknown", "Listing operation requires reconciliation");
+              }
+              return readListing(connection, result.getLong(3));
+            }
+          }
+        });
+  }
+
+  private static String normalizeRegistryId(String raw) {
+    if (raw == null || raw.isBlank()) {
+      throw new ServiceException("invalid_item", "Item material is required");
+    }
+    String value = raw.trim().toLowerCase(Locale.ROOT);
+    if (!value.contains(":")) value = "minecraft:" + value;
+    if (!value.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")) {
+      throw new ServiceException("invalid_item", "Item material is invalid");
+    }
+    return value;
+  }
+
   public List<Listing> listings(boolean includeInactive) {
     return database.withConnection(
         connection -> {
           String sql =
               "SELECT id,seller_user_id,seller_uuid,currency,price,quantity,raw_item_blob,"
-                  + "remark,status FROM market_listings"
+                  + "remark,status,market_side,escrow_total,escrow_remaining FROM market_listings"
                   + (includeInactive ? "" : " WHERE status='ACTIVE'")
                   + " ORDER BY id DESC";
           try (PreparedStatement statement = connection.prepareStatement(sql);
@@ -623,7 +748,10 @@ public final class SharedCommerceService {
                       result.getInt(6),
                       envelopes.decode(result.getBytes(7)),
                       result.getString(8),
-                      result.getString(9)));
+                      result.getString(9),
+                      result.getString(10),
+                      result.getLong(11),
+                      result.getLong(12)));
             }
             return List.copyOf(values);
           }
@@ -645,6 +773,7 @@ public final class SharedCommerceService {
           return new MarketQuote(
               listing.id(),
               listing.currency(),
+              listing.side(),
               listing.price(),
               quantity,
               total,
@@ -776,7 +905,16 @@ public final class SharedCommerceService {
               throw new ServiceException("listing_conflict", "Listing changed concurrently");
             }
           }
-          if (listing.quantity() > 0) {
+          if (listing.side().equals("BUY") && listing.escrowRemaining() > 0) {
+            wallets.applyDelta(
+                connection,
+                listing.sellerUserId(),
+                listing.currency(),
+                listing.escrowRemaining(),
+                "MARKET_BUY_REFUND_ESCROW",
+                "market-buy-unlist:" + listing.id(),
+                false);
+          } else if (listing.quantity() > 0) {
             try (PreparedStatement statement =
                 connection.prepareStatement(
                     "INSERT INTO market_item_deliveries"
@@ -819,6 +957,9 @@ public final class SharedCommerceService {
               findMarketTrade(connection, request.buyerUserId(), request.idempotencyKey());
           if (prior != null) return prior;
           Listing listing = readListing(connection, request.listingId());
+          if (!listing.side().equals("SELL")) {
+            throw new ServiceException("listing_side_invalid", "Listing is not a sell listing");
+          }
           if (!listing.status().equals("ACTIVE") || listing.quantity() < request.quantity()) {
             throw new ServiceException("listing_unavailable", "Listing is unavailable");
           }
@@ -916,6 +1057,174 @@ public final class SharedCommerceService {
               total,
               request.idempotencyKey(),
               "PAID");
+        });
+  }
+
+  public List<MarketMatch> matchingBuyListings(
+      long sellerUserId, ItemEnvelope item, int requestedQuantity) {
+    if (requestedQuantity < 1) {
+      throw new ServiceException("invalid_quantity", "Quantity is invalid");
+    }
+    return database.withConnection(
+        connection -> {
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT id,seller_user_id,currency,price,quantity FROM market_listings"
+                      + " WHERE market_side='BUY' AND status='ACTIVE' AND seller_user_id<>?"
+                      + " AND LOWER(item_material)=? ORDER BY price DESC,id ASC")) {
+            statement.setLong(1, sellerUserId);
+            statement.setString(2, item.registryId().toLowerCase(Locale.ROOT));
+            try (ResultSet result = statement.executeQuery()) {
+              List<MarketMatch> values = new ArrayList<>();
+              while (result.next()) {
+                int quantity = Math.min(requestedQuantity, result.getInt(5));
+                long total = Math.multiplyExact(result.getLong(4), quantity);
+                values.add(
+                    new MarketMatch(
+                        result.getLong(1),
+                        result.getLong(2),
+                        CurrencyType.valueOf(result.getString(3)),
+                        result.getLong(4),
+                        result.getInt(5),
+                        quantity,
+                        total,
+                        0L));
+              }
+              return List.copyOf(values);
+            }
+          }
+        });
+  }
+
+  MarketTrade fulfillBuyListing(
+      Connection connection, MarketFulfillRequest request, ItemEnvelope item) throws SQLException {
+    requireKey(request.idempotencyKey());
+    if (request.quantity() < 1 || item.count() != request.quantity()) {
+      throw new ServiceException("invalid_quantity", "Quantity is invalid");
+    }
+    Listing listing = readListing(connection, request.listingId());
+    if (!listing.side().equals("BUY")) {
+      throw new ServiceException("listing_side_invalid", "Listing is not a buy listing");
+    }
+    if (!listing.status().equals("ACTIVE") || listing.quantity() < request.quantity()) {
+      throw new ServiceException("listing_unavailable", "Listing is unavailable");
+    }
+    if (listing.sellerUserId() == request.sellerUserId()) {
+      throw new ServiceException("self_trade", "Buyer cannot fulfill the same listing");
+    }
+    if (!listing.item().registryId().equalsIgnoreCase(item.registryId())) {
+      throw new ServiceException("item_mismatch", "Inventory item does not match buy listing");
+    }
+    long total = Math.multiplyExact(listing.price(), request.quantity());
+    if (listing.escrowRemaining() < total) {
+      throw new ServiceException("escrow_conflict", "Buy listing escrow is insufficient");
+    }
+    if (request.expectedUnitPrice() != null
+        && request.expectedUnitPrice().longValue() != listing.price()) {
+      throw new ServiceException("price_changed", "Listing price changed");
+    }
+    if (request.expectedBuyerTotal() != null
+        && request.expectedBuyerTotal().longValue() != total) {
+      throw new ServiceException("price_changed", "Listing total changed");
+    }
+    wallets.applyDelta(
+        connection,
+        request.sellerUserId(),
+        listing.currency(),
+        total,
+        "MARKET_BUY_ORDER_FULFILL",
+        "market-fulfill:" + request.sellerUserId() + ":" + request.idempotencyKey(),
+        false);
+    int remaining = listing.quantity() - request.quantity();
+    long escrowRemaining = listing.escrowRemaining() - total;
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE market_listings SET quantity=?,escrow_remaining=?,buyer_user_id=?,buyer_uuid=?,"
+                + "status=?,sold_at=CASE WHEN ?=0 THEN CURRENT_TIMESTAMP ELSE sold_at END"
+                + " WHERE id=? AND status='ACTIVE' AND quantity=? AND escrow_remaining=?")) {
+      statement.setInt(1, remaining);
+      statement.setLong(2, escrowRemaining);
+      statement.setLong(3, request.sellerUserId());
+      statement.setString(4, request.sellerId().toString());
+      statement.setString(5, remaining == 0 ? "SOLD" : "ACTIVE");
+      statement.setInt(6, remaining);
+      statement.setLong(7, listing.id());
+      statement.setInt(8, listing.quantity());
+      statement.setLong(9, listing.escrowRemaining());
+      if (statement.executeUpdate() != 1) {
+        throw new ServiceException("listing_conflict", "Listing changed concurrently");
+      }
+    }
+    long tradeId;
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO market_trades"
+                + " (listing_id,buyer_user_id,seller_user_id,currency,unit_price,quantity,total_price,buyer_total,seller_receive,idempotency_key,claim_token,status)"
+                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,'PAID')",
+            Statement.RETURN_GENERATED_KEYS)) {
+      statement.setLong(1, listing.id());
+      statement.setLong(2, listing.sellerUserId());
+      statement.setLong(3, request.sellerUserId());
+      statement.setString(4, listing.currency().name());
+      statement.setLong(5, listing.price());
+      statement.setInt(6, request.quantity());
+      statement.setLong(7, total);
+      statement.setLong(8, total);
+      statement.setLong(9, total);
+      statement.setString(10, request.idempotencyKey());
+      statement.setString(11, UUID.randomUUID().toString());
+      statement.executeUpdate();
+      tradeId = generatedId(statement);
+    }
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO market_item_deliveries"
+                + " (listing_id,trade_id,target_user_id,target_uuid,target_server_id,item_blob,quantity,delivery_type,next_retry_at)"
+                + " VALUES (?,?,?,?,NULL,?,?,'SALE',CURRENT_TIMESTAMP)")) {
+      statement.setLong(1, listing.id());
+      statement.setLong(2, tradeId);
+      statement.setLong(3, listing.sellerUserId());
+      statement.setString(4, listing.sellerId().toString());
+      statement.setBytes(5, envelopes.encode(item));
+      statement.setInt(6, request.quantity());
+      statement.executeUpdate();
+    }
+    return new MarketTrade(
+        tradeId,
+        listing.id(),
+        listing.sellerUserId(),
+        request.sellerUserId(),
+        request.quantity(),
+        listing.currency(),
+        total,
+        request.idempotencyKey(),
+        "PAID");
+  }
+
+  public MarketTrade marketTrade(long tradeId) {
+    return database.withConnection(
+        connection -> {
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT id,listing_id,buyer_user_id,seller_user_id,quantity,currency,"
+                      + "total_price,idempotency_key,status FROM market_trades WHERE id=?")) {
+            statement.setLong(1, tradeId);
+            try (ResultSet result = statement.executeQuery()) {
+              if (!result.next()) {
+                throw new ServiceException("trade_not_found", "Market trade was not found");
+              }
+              return new MarketTrade(
+                  result.getLong(1),
+                  result.getLong(2),
+                  result.getLong(3),
+                  result.getLong(4),
+                  result.getInt(5),
+                  CurrencyType.valueOf(result.getString(6)),
+                  result.getLong(7),
+                  result.getString(8),
+                  result.getString(9));
+            }
+          }
         });
   }
 
@@ -1284,7 +1593,7 @@ public final class SharedCommerceService {
     try (PreparedStatement statement =
         connection.prepareStatement(
             "SELECT"
-                + " id,seller_user_id,seller_uuid,currency,price,quantity,raw_item_blob,remark,status"
+                + " id,seller_user_id,seller_uuid,currency,price,quantity,raw_item_blob,remark,status,market_side,escrow_total,escrow_remaining"
                 + " FROM market_listings WHERE id=?")) {
       statement.setLong(1, id);
       try (ResultSet result = statement.executeQuery()) {
@@ -1299,7 +1608,10 @@ public final class SharedCommerceService {
             result.getInt(6),
             envelopes.decode(result.getBytes(7)),
             result.getString(8),
-            result.getString(9));
+            result.getString(9),
+            result.getString(10),
+            result.getLong(11),
+            result.getLong(12));
       }
     }
   }
@@ -1693,6 +2005,16 @@ public final class SharedCommerceService {
       ItemEnvelope item,
       String remark) {}
 
+  public record BuyListingRequest(
+      long ownerUserId,
+      UUID ownerId,
+      CurrencyType currency,
+      long price,
+      int quantity,
+      String itemMaterial,
+      String idempotencyKey,
+      String remark) {}
+
   public record Listing(
       long id,
       long sellerUserId,
@@ -1702,7 +2024,10 @@ public final class SharedCommerceService {
       int quantity,
       ItemEnvelope item,
       String remark,
-      String status) {}
+      String status,
+      String side,
+      long escrowTotal,
+      long escrowRemaining) {}
 
   public record MarketBuyRequest(
       long buyerUserId,
@@ -1732,9 +2057,29 @@ public final class SharedCommerceService {
     }
   }
 
+  public record MarketFulfillRequest(
+      long sellerUserId,
+      UUID sellerId,
+      long listingId,
+      int quantity,
+      String idempotencyKey,
+      Long expectedUnitPrice,
+      Long expectedBuyerTotal) {}
+
+  public record MarketMatch(
+      long listingId,
+      long buyerUserId,
+      CurrencyType currency,
+      long unitPrice,
+      int remaining,
+      int quotedQuantity,
+      long sellerReceive,
+      long fee) {}
+
   public record MarketQuote(
       long listingId,
       CurrencyType currency,
+      String side,
       long unitPrice,
       int quantity,
       long totalPrice,

@@ -388,30 +388,108 @@ public final class SharedHttpApi implements AutoCloseable {
                     requiredString(input, "idempotencyKey"),
                     requiredString(input, "fingerprint"),
                     true)));
+      } else if (path.equals("/api/inventory/matches") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        requireTopLevelPlayerInventory(input);
+        var matches =
+            marketEscrow.matches(
+                new SharedMarketEscrowService.MatchRequest(
+                    current.id(),
+                    current.boundUuid(),
+                    optionalInt(input, "quantity", 1),
+                    requiredString(input, "fingerprint"),
+                    true));
+        JsonArray rows = new JsonArray();
+        for (var match : matches) {
+          JsonObject row = new JsonObject();
+          row.addProperty("id", String.valueOf(match.listingId()));
+          row.addProperty("source", "PLAYER_BUY_ORDER");
+          row.addProperty("sourceName", "User #" + match.buyerUserId());
+          row.addProperty("remaining", match.remaining());
+          row.addProperty("currency", match.currency().name());
+          row.addProperty("unitPrice", match.unitPrice());
+          row.addProperty("sellerReceive", match.sellerReceive());
+          row.addProperty("fee", match.fee());
+          row.addProperty("quotedQuantity", match.quotedQuantity());
+          rows.add(row);
+        }
+        respond(exchange, 200, Map.of("matches", rows));
+      } else if (path.equals("/api/inventory/fulfill") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        requireTopLevelPlayerInventory(input);
+        String listingRaw = requiredString(input, "listingId");
+        if (listingRaw.startsWith("official:")) {
+          throw new ServiceException(
+              "capability_unavailable", "Official recycle products are not configured");
+        }
+        var trade =
+            marketEscrow.fulfill(
+                new SharedMarketEscrowService.FulfillRequest(
+                    current.id(),
+                    current.boundUuid(),
+                    Long.parseLong(listingRaw),
+                    optionalInt(input, "quantity", 1),
+                    requiredString(input, "idempotencyKey"),
+                    requiredString(input, "fingerprint"),
+                    true,
+                    input.has("expectedUnitPrice")
+                        ? input.get("expectedUnitPrice").getAsLong()
+                        : null,
+                    input.has("expectedBuyerTotal")
+                        ? input.get("expectedBuyerTotal").getAsLong()
+                        : null));
+        JsonObject response = new JsonObject();
+        response.addProperty("state", "SUCCESS");
+        response.addProperty("tradeId", trade.id());
+        response.addProperty("listingId", trade.listingId());
+        response.addProperty("currency", trade.currency().name());
+        response.addProperty("quantity", trade.quantity());
+        response.addProperty("totalPrice", trade.total());
+        response.addProperty("buyerTotal", trade.total());
+        response.addProperty("sellerReceive", trade.total());
+        response.addProperty("feeAmount", 0);
+        response.addProperty("taxAmount", 0);
+        respond(exchange, 200, response);
       } else if (path.equals("/api/market/listings") && method(exchange, "GET")) {
         respond(exchange, 200, commerce.listings(false));
       } else if (path.equals("/api/market/listings/create") && method(exchange, "POST")) {
         var current = boundUser(exchange);
         JsonObject input = body(exchange);
         String side = optionalString(input, "side", "SELL").toUpperCase(Locale.ROOT);
-        if (!"SELL".equals(side)) {
-          throw new ServiceException(
-              "unsupported_market_side", "Loader market currently accepts SELL listings here");
+        if ("BUY".equals(side)) {
+          respond(
+              exchange,
+              200,
+              commerce.createBuyListing(
+                  new SharedCommerceService.BuyListingRequest(
+                      current.id(),
+                      current.boundUuid(),
+                      currency(input, "currency"),
+                      requiredLong(input, "price"),
+                      optionalInt(input, "quantity", 1),
+                      requiredString(input, "itemMaterial"),
+                      requiredString(input, "idempotencyKey"),
+                      optionalString(input, "remark", null))));
+        } else if ("SELL".equals(side)) {
+          respond(
+              exchange,
+              200,
+              marketEscrow.createSellListing(
+                  new SharedMarketEscrowService.Request(
+                      current.id(),
+                      current.boundUuid(),
+                      currency(input, "currency"),
+                      requiredLong(input, "price"),
+                      optionalInt(input, "quantity", 1),
+                      requiredString(input, "idempotencyKey"),
+                      optionalString(input, "expectedPayloadHash", null),
+                      input.has("allowOffline") && input.get("allowOffline").getAsBoolean(),
+                      optionalString(input, "remark", null))));
+        } else {
+          throw new ServiceException("invalid_market_side", "Market side is invalid");
         }
-        respond(
-            exchange,
-            200,
-            marketEscrow.createSellListing(
-                new SharedMarketEscrowService.Request(
-                    current.id(),
-                    current.boundUuid(),
-                    currency(input, "currency"),
-                    requiredLong(input, "price"),
-                    optionalInt(input, "quantity", 1),
-                    requiredString(input, "idempotencyKey"),
-                    optionalString(input, "expectedPayloadHash", null),
-                    input.has("allowOffline") && input.get("allowOffline").getAsBoolean(),
-                    optionalString(input, "remark", null))));
       } else if (path.equals("/api/market/quote") && method(exchange, "POST")) {
         var current = boundUser(exchange);
         JsonObject input = body(exchange);
@@ -426,7 +504,7 @@ public final class SharedHttpApi implements AutoCloseable {
         JsonObject response = new JsonObject();
         response.addProperty("listingId", quote.listingId());
         response.addProperty("currency", quote.currency().name());
-        response.addProperty("side", "SELL");
+        response.addProperty("side", quote.side());
         response.addProperty("unitPrice", quote.unitPrice());
         response.addProperty("firstUnitPrice", quote.unitPrice());
         response.addProperty("lastUnitPrice", quote.unitPrice());
@@ -1590,6 +1668,15 @@ public final class SharedHttpApi implements AutoCloseable {
   private static long requiredLong(JsonObject input, String key) {
     if (!input.has(key)) throw new IllegalArgumentException(key + " is required");
     return input.get(key).getAsLong();
+  }
+
+  private static void requireTopLevelPlayerInventory(JsonObject input) {
+    String inventory = optionalString(input, "inventory", "PLAYER");
+    if (!"PLAYER".equalsIgnoreCase(inventory)
+        || (input.has("containerSlot") && !input.get("containerSlot").isJsonNull())) {
+      throw new ServiceException(
+          "invalid_inventory_request", "Only top-level player inventory is supported");
+    }
   }
 
   private static long optionalLong(JsonObject input, String key, long fallback) {
