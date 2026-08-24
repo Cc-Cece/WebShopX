@@ -1,6 +1,9 @@
 package com.webshopx;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.webshopx.core.ItemEnvelopeService;
 import com.webshopx.platform.CompatibilityDomain;
@@ -28,6 +31,7 @@ class SharedSupplyServiceTest {
   private ItemEnvelope template;
   private long listingId;
   private long sellerId;
+  private UUID sellerUuid;
 
   @BeforeEach
   void start() {
@@ -39,7 +43,7 @@ class SharedSupplyServiceTest {
     WalletService wallets = new WalletService(
         database, WalletService.ExchangePolicy::disabled, null, null);
     commerce = new SharedCommerceService(database, wallets);
-    UUID sellerUuid = UUID.randomUUID();
+    sellerUuid = UUID.randomUUID();
     sellerId = new AuthService(database, () -> new AuthService.SessionSettings(40, 2))
         .setPasswordFromGame(sellerUuid, "SupplySeller", "supply-secret").userId();
     template = new ItemEnvelopeService(Clock.systemUTC(), Set.of("fixture"))
@@ -116,6 +120,46 @@ class SharedSupplyServiceTest {
     assertEquals(created.listing().id(), replay.listing().id());
     assertEquals(created.refresh(), replay.refresh());
     assertEquals(7, gateway.quantity);
+  }
+
+  @Test
+  void resolvesOnlyActiveSupplyProtectionAtExactCoordinate() {
+    assertEquals(sellerUuid, commerce.supplyProtectionAt(
+        "minecraft:overworld", 1, 64, 2).ownerId());
+    database.withConnection(connection -> {
+      try (var statement = connection.prepareStatement(
+          "UPDATE market_listings SET status='ACTIVE',supply_access_protected=TRUE WHERE id=?")) {
+        statement.setLong(1, listingId);
+        statement.executeUpdate();
+      }
+      return null;
+    });
+
+    var protection = commerce.supplyProtectionAt("minecraft:overworld", 1, 64, 2);
+    assertEquals(listingId, protection.listingId());
+    assertEquals(sellerUuid, protection.ownerId());
+    assertTrue(protection.accessProtected());
+    assertNull(commerce.supplyProtectionAt("minecraft:overworld", 2, 64, 2));
+
+    database.withConnection(connection -> {
+      try (var statement = connection.prepareStatement(
+          "UPDATE market_listings SET supply_access_protected=FALSE WHERE id=?")) {
+        statement.setLong(1, listingId);
+        statement.executeUpdate();
+      }
+      return null;
+    });
+    assertFalse(commerce.supplyProtectionAt(
+        "minecraft:overworld", 1, 64, 2).accessProtected());
+    database.withConnection(connection -> {
+      try (var statement = connection.prepareStatement(
+          "UPDATE market_listings SET status='CANCELLED' WHERE id=?")) {
+        statement.setLong(1, listingId);
+        statement.executeUpdate();
+      }
+      return null;
+    });
+    assertNull(commerce.supplyProtectionAt("minecraft:overworld", 1, 64, 2));
   }
 
   private static final class FixtureGateway implements SupplyInventoryGateway {

@@ -2106,6 +2106,29 @@ public final class SharedCommerceService {
     return database.withConnection(connection -> readListing(connection, listingId));
   }
 
+  /** Returns the active supply source at an exact native block coordinate, if one exists. */
+  public SupplyProtection supplyProtectionAt(String world, int x, int y, int z) {
+    if (world == null || world.isBlank()) return null;
+    return database.withConnection(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "SELECT id,seller_uuid,supply_access_protected,status FROM market_listings"
+              + " WHERE source_mode='SUPPLY' AND status IN ('ACTIVE','PAUSED','SUPPLY_EMPTY')"
+              + " AND supply_world=? AND supply_x=? AND supply_y=? AND supply_z=?"
+              + " ORDER BY id DESC LIMIT 1")) {
+        statement.setString(1, world);
+        statement.setInt(2, x);
+        statement.setInt(3, y);
+        statement.setInt(4, z);
+        try (ResultSet result = statement.executeQuery()) {
+          if (!result.next()) return null;
+          return new SupplyProtection(
+              result.getLong(1), UUID.fromString(result.getString(2)),
+              result.getBoolean(3), result.getString(4));
+        }
+      }
+    });
+  }
+
   public AuctionDetails configureAuctionListing(
       long sellerUserId,
       long listingId,
@@ -3950,6 +3973,9 @@ public final class SharedCommerceService {
       boolean accessProtected,
       String idempotencyKey,
       String remark) {}
+
+  public record SupplyProtection(
+      long listingId, UUID ownerId, boolean accessProtected, String status) {}
 
   public record BuyListingRequest(
       long ownerUserId,

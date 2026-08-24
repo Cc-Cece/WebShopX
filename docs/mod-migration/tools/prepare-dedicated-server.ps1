@@ -28,15 +28,58 @@ function Download([string]$Url, [string]$Destination) {
     }
 }
 
+function ResponseText($Response) {
+    if ($Response.Content -is [byte[]]) {
+        return [Text.Encoding]::UTF8.GetString($Response.Content)
+    }
+    return [string]$Response.Content
+}
+
+function DownloadMavenArtifact(
+    [string]$Repository,
+    [string]$GroupPath,
+    [string]$Artifact,
+    [string]$Version,
+    [string]$Directory
+) {
+    $encodedVersion = [Uri]::EscapeDataString($Version)
+    $name = "$Artifact-$Version.jar"
+    $url = "$Repository/$GroupPath/$Artifact/$encodedVersion/$name"
+    $destination = Join-Path $Directory $name
+    Download $url $destination
+    $expected = (ResponseText (Invoke-WebRequest -UseBasicParsing "$url.sha256")).Trim().ToLowerInvariant()
+    $actual = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne $expected) {
+        throw "Checksum mismatch for $name (expected $expected, actual $actual)"
+    }
+    return $destination
+}
+
 if ($Platform -eq 'fabric') {
+    if ([string]::IsNullOrWhiteSpace($FabricApi)) {
+        throw 'FabricApi is required because WebShopX installs Fabric lifecycle and block callbacks'
+    }
     $server = Join-Path $work "fabric-server-$Minecraft-$Loader.jar"
     $url = "https://meta.fabricmc.net/v2/versions/loader/$Minecraft/$Loader/1.1.1/server/jar"
     Download $url $server
-    if ($FabricApi) {
-        $apiName = "fabric-api-$FabricApi.jar"
-        $api = Join-Path $work "mods/$apiName"
-        $encodedVersion = [Uri]::EscapeDataString($FabricApi)
-        Download "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/$encodedVersion/$apiName" $api
+    $fabricRepository = 'https://maven.fabricmc.net'
+    $fabricGroup = 'net/fabricmc/fabric-api'
+    $encodedVersion = [Uri]::EscapeDataString($FabricApi)
+    $api = DownloadMavenArtifact $fabricRepository $fabricGroup 'fabric-api' $FabricApi (Join-Path $work 'mods')
+    # Older Fabric API umbrella artifacts are Maven aggregators rather than bundled distributions.
+    # Resolve their pinned component graph into mods/ so required callbacks are actually present.
+    if ((Get-Item -LiteralPath $api).Length -lt 100KB) {
+        $pomUrl = "$fabricRepository/$fabricGroup/fabric-api/$encodedVersion/fabric-api-$FabricApi.pom"
+        $pom = [xml](ResponseText (Invoke-WebRequest -UseBasicParsing $pomUrl))
+        foreach ($dependency in @($pom.project.dependencies.dependency)) {
+            if ([string]$dependency.groupId -ne 'net.fabricmc.fabric-api') { continue }
+            DownloadMavenArtifact `
+                $fabricRepository `
+                $fabricGroup `
+                ([string]$dependency.artifactId) `
+                ([string]$dependency.version) `
+                (Join-Path $work 'mods') | Out-Null
+        }
     }
     [ordered]@{ serverJar = $server; launchArguments = $null } | ConvertTo-Json
     exit 0

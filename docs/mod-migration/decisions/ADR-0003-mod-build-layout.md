@@ -23,11 +23,13 @@ The frozen artifact families are:
 | NeoForge modern | `[1.20.2,26.3)` | 1.20.2, 26.2 | `neoforge-26.2` |
 
 Each interval is a single binary-compatibility family, not an inference from one anchor. Loader
-entrypoints only use the stable Loader bootstrap annotation/interface; all Minecraft registry,
-item, inventory and command access is runtime-reflective and fail-closed. All family artifacts are
+entrypoints only use the stable Loader bootstrap annotation/interface; Minecraft registry, item,
+inventory and command access is runtime-reflective and fail-closed. Fabric lifecycle, connection
+and supply-container protection use Fabric API callbacks, so Fabric API is a mandatory metadata
+dependency. The dedicated-server matrix pins an API release built for each exact Minecraft
+endpoint (rather than reusing an anchor API JAR across the interval). All family artifacts are
 compiled to Java 17 bytecode, while the server matrix selects the Java version required by the
-Minecraft endpoint. WebShopX does not call Fabric API, so its former exact Fabric API dependency
-was removed instead of falsely pinning an otherwise compatible server-only artifact.
+Minecraft endpoint.
 
 Every interval is accepted only when both boundary servers pass lifecycle, metadata, HTTP, native
 item corpus and clean-stop gates. The RC evidence packet contains one required check per boundary;

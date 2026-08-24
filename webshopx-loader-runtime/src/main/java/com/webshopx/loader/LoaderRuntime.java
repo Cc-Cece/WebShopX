@@ -386,6 +386,13 @@ public final class LoaderRuntime {
             });
   }
 
+  static boolean nativeSupplyAccessDenied(
+      Object player, Object level, Object position, NativeSupplyProtection.Action action) {
+    SharedDatabaseRuntime database = databaseRuntime;
+    if (database == null) return true;
+    return NativeSupplyProtection.denied(database.commerce(), player, level, position, action);
+  }
+
   private static void prepareNativeState() {
     if (active != null)
       throw new IllegalStateException("native lifecycle must be prepared before runtime start");

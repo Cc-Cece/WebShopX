@@ -1,2 +1,2 @@
-ext { platformFamily='fabric'; minecraftVersion='1.18.2'; minecraftVersionRange='>=1.18.2 <1.20'; loaderVersion='0.19.3'; fabricApiVersion=''; javaVersion=17; artifactSuffix='1.18.2'; metadataPath='fabric.mod.json'; entrypointPath='com/webshopx/fabric/WebShopXFabricMod.class' }
+ext { platformFamily='fabric'; minecraftVersion='1.18.2'; minecraftVersionRange='>=1.18.2 <1.20'; loaderVersion='0.19.3'; fabricApiVersion='0.77.0+1.18.2'; javaVersion=17; artifactSuffix='1.18.2'; metadataPath='fabric.mod.json'; entrypointPath='com/webshopx/fabric/WebShopXFabricMod.class' }
 apply from: rootProject.file('gradle/mod-platform.gradle')

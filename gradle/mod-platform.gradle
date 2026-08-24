@@ -108,6 +108,14 @@ tasks.register('verifyLoaderMetadata') {
             if (!names.contains(project.ext.entrypointPath)) {
                 throw new GradleException("${artifact.name} is missing entrypoint ${project.ext.entrypointPath}")
             }
+            if (project.ext.platformFamily == 'fabric') {
+                def metadata = new groovy.json.JsonSlurper().parseText(
+                        zip.getInputStream(zip.getEntry('fabric.mod.json')).getText('UTF-8'))
+                if (!metadata.depends?.containsKey('fabric-api')) {
+                    throw new GradleException(
+                            "${artifact.name} must declare Fabric API for lifecycle and protection callbacks")
+                }
+            }
             if (!names.contains('web/index.html') || !names.contains('web/assets-manifest.txt')) {
                 throw new GradleException("${artifact.name} is missing the pinned static frontend")
             }

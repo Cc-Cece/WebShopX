@@ -212,12 +212,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { platform: fabric, minecraft: '1.18.2', loader: '0.19.3', java: 17, project: webshopx-fabric-1182, fabricApi: '' }
-          - { platform: fabric, minecraft: '1.19.4', loader: '0.19.3', java: 17, project: webshopx-fabric-1182, fabricApi: '' }
-          - { platform: fabric, minecraft: '1.20', loader: '0.19.3', java: 17, project: webshopx-fabric-1201, fabricApi: '' }
-          - { platform: fabric, minecraft: '1.20.4', loader: '0.19.3', java: 17, project: webshopx-fabric-1201, fabricApi: '' }
-          - { platform: fabric, minecraft: '1.20.5', loader: '0.19.3', java: 21, project: webshopx-fabric-modern, fabricApi: '' }
-          - { platform: fabric, minecraft: '26.2', loader: '0.19.3', java: 25, project: webshopx-fabric-modern, fabricApi: '' }
+          - { platform: fabric, minecraft: '1.18.2', loader: '0.19.3', java: 17, project: webshopx-fabric-1182, fabricApi: '0.77.0+1.18.2' }
+          - { platform: fabric, minecraft: '1.19.4', loader: '0.19.3', java: 17, project: webshopx-fabric-1182, fabricApi: '0.87.2+1.19.4' }
+          - { platform: fabric, minecraft: '1.20', loader: '0.19.3', java: 17, project: webshopx-fabric-1201, fabricApi: '0.83.0+1.20' }
+          - { platform: fabric, minecraft: '1.20.4', loader: '0.19.3', java: 17, project: webshopx-fabric-1201, fabricApi: '0.97.3+1.20.4' }
+          - { platform: fabric, minecraft: '1.20.5', loader: '0.19.3', java: 21, project: webshopx-fabric-modern, fabricApi: '0.97.8+1.20.5' }
+          - { platform: fabric, minecraft: '26.2', loader: '0.19.3', java: 25, project: webshopx-fabric-modern, fabricApi: '0.158.0+26.2' }
           - { platform: forge, minecraft: '1.18.2', loader: '40.3.12', java: 17, project: webshopx-forge-1182, fabricApi: '' }
           - { platform: forge, minecraft: '1.19.4', loader: '45.4.3', java: 17, project: webshopx-forge-1182, fabricApi: '' }
           - { platform: forge, minecraft: '1.20', loader: '46.0.14', java: 17, project: webshopx-forge-1201, fabricApi: '' }
