@@ -2,6 +2,7 @@ package com.webshopx.testkit;
 
 import com.webshopx.platform.InventoryTypes.InventoryMutation;
 import com.webshopx.platform.InventoryTypes.InventoryMutationResult;
+import com.webshopx.platform.InventoryTypes.InventoryRemoval;
 import com.webshopx.platform.InventoryTypes.InventorySnapshot;
 import com.webshopx.platform.ItemEnvelope;
 import com.webshopx.platform.PlatformPorts;
@@ -15,7 +16,9 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-/** Reference implementation for adapter contract tests, including idempotency and partial capacity. */
+/**
+ * Reference implementation for adapter contract tests, including idempotency and partial capacity.
+ */
 public final class InMemoryInventoryGateway implements PlatformPorts.InventoryGateway {
   private final int capacity;
   private final Map<UUID, State> inventories = new HashMap<>();
@@ -27,7 +30,8 @@ public final class InMemoryInventoryGateway implements PlatformPorts.InventoryGa
   }
 
   @Override
-  public synchronized CompletionStage<PlatformResult<InventorySnapshot>> snapshot(UUID id, boolean offline) {
+  public synchronized CompletionStage<PlatformResult<InventorySnapshot>> snapshot(
+      UUID id, boolean offline) {
     State state = inventories.computeIfAbsent(id, ignored -> new State());
     return CompletableFuture.completedFuture(PlatformResult.success(snapshotOf(id, state)));
   }
@@ -39,29 +43,34 @@ public final class InMemoryInventoryGateway implements PlatformPorts.InventoryGa
     if (prior != null) return CompletableFuture.completedFuture(PlatformResult.success(prior));
     State state = inventories.computeIfAbsent(mutation.playerId(), ignored -> new State());
     if (state.version != mutation.expectedVersion()) {
-      return CompletableFuture.completedFuture(new PlatformResult.Conflict<>(
-          mutation.operationId(), Long.toString(state.version)));
+      return CompletableFuture.completedFuture(
+          new PlatformResult.Conflict<>(mutation.operationId(), Long.toString(state.version)));
     }
     List<ItemEnvelope> next = new ArrayList<>(state.items);
     List<ItemEnvelope> removed = new ArrayList<>();
-    for (ItemEnvelope requested : mutation.removals()) {
+    for (InventoryRemoval removal : mutation.removals()) {
+      ItemEnvelope requested = removal.expectedStack();
       int index = indexOf(next, requested);
       if (index < 0) {
-        return CompletableFuture.completedFuture(PlatformResult.rejected(
-            "INVENTORY_ITEM_MISSING", "error.inventory.item_missing"));
+        return CompletableFuture.completedFuture(
+            PlatformResult.rejected("INVENTORY_ITEM_MISSING", "error.inventory.item_missing"));
       }
-      removed.add(next.remove(index));
+      ItemEnvelope source = next.remove(index);
+      removed.add(withCount(source, removal.quantity()));
+      if (source.count() > removal.quantity()) {
+        next.add(index, withCount(source, source.count() - removal.quantity()));
+      }
     }
     int room = Math.max(0, capacity - next.size());
     int insertedCount = Math.min(room, mutation.insertions().size());
     List<ItemEnvelope> inserted = List.copyOf(mutation.insertions().subList(0, insertedCount));
-    List<ItemEnvelope> remainder = List.copyOf(
-        mutation.insertions().subList(insertedCount, mutation.insertions().size()));
+    List<ItemEnvelope> remainder =
+        List.copyOf(mutation.insertions().subList(insertedCount, mutation.insertions().size()));
     next.addAll(inserted);
     state.items = next;
     state.version++;
-    InventoryMutationResult result = new InventoryMutationResult(
-        state.version, inserted, removed, remainder);
+    InventoryMutationResult result =
+        new InventoryMutationResult(state.version, inserted, removed, remainder);
     completed.put(mutation.operationId(), result);
     return CompletableFuture.completedFuture(PlatformResult.success(result));
   }
@@ -78,6 +87,21 @@ public final class InMemoryInventoryGateway implements PlatformPorts.InventoryGa
           && value.count() == requested.count()) return index;
     }
     return -1;
+  }
+
+  private static ItemEnvelope withCount(ItemEnvelope source, int count) {
+    return new ItemEnvelope(
+        source.schemaVersion(),
+        source.codec(),
+        source.codecVersion(),
+        source.compatibilityDomain(),
+        source.registryId(),
+        count,
+        source.payloadEncoding(),
+        source.payload(),
+        source.payloadHash(),
+        source.summary(),
+        source.createdAt());
   }
 
   private static final class State {

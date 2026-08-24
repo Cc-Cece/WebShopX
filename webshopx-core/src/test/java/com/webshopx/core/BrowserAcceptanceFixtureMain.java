@@ -12,10 +12,12 @@ import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceCheckoutAdapter;
 import com.webshopx.SharedCommerceService;
 import com.webshopx.SharedContentService;
+import com.webshopx.SharedMarketEscrowService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.PlatformIdentity;
+import com.webshopx.testkit.InMemoryInventoryGateway;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -75,6 +77,7 @@ public final class BrowserAcceptanceFixtureMain {
               auth,
               wallets,
               commerce,
+              new SharedMarketEscrowService(database, commerce, new InMemoryInventoryGateway(36)),
               new SharedContentService(database),
               new SharedPromotionService(
                   database, wallets, new SharedCommerceCheckoutAdapter(commerce, "browser-node")),

@@ -2,11 +2,11 @@ package com.webshopx.loader;
 
 import com.webshopx.platform.InventoryTypes.InventoryMutation;
 import com.webshopx.platform.InventoryTypes.InventoryMutationResult;
+import com.webshopx.platform.InventoryTypes.InventoryRemoval;
 import com.webshopx.platform.InventoryTypes.InventorySnapshot;
 import com.webshopx.platform.ItemEnvelope;
 import com.webshopx.platform.PlatformIdentity;
 import com.webshopx.platform.PlatformResult;
-import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -21,9 +21,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.UUID;
@@ -35,7 +33,8 @@ final class OfflineInventoryStore {
   private final PlatformIdentity identity;
   private final LoaderScheduler scheduler;
 
-  OfflineInventoryStore(NativeItemCodec items, PlatformIdentity identity, LoaderScheduler scheduler) {
+  OfflineInventoryStore(
+      NativeItemCodec items, PlatformIdentity identity, LoaderScheduler scheduler) {
     this.items = items;
     this.identity = identity;
     this.scheduler = scheduler;
@@ -43,8 +42,9 @@ final class OfflineInventoryStore {
 
   PlatformResult<InventorySnapshot> snapshot(UUID playerId) {
     Path file = playerFile(playerId);
-    if (!Files.isRegularFile(file)) return new PlatformResult.Unavailable<>(
-        "offline_inventory", "offline player data does not exist", Duration.ZERO);
+    if (!Files.isRegularFile(file))
+      return new PlatformResult.Unavailable<>(
+          "offline_inventory", "offline player data does not exist", Duration.ZERO);
     try {
       OfflineData data = read(file, playerId);
       return PlatformResult.success(data.snapshot());
@@ -56,27 +56,49 @@ final class OfflineInventoryStore {
 
   PlatformResult<InventoryMutationResult> compareAndApply(InventoryMutation mutation) {
     Path file = playerFile(mutation.playerId());
-    if (!Files.isRegularFile(file)) return new PlatformResult.Unavailable<>(
-        "offline_inventory", "offline player data does not exist", Duration.ZERO);
+    if (!Files.isRegularFile(file))
+      return new PlatformResult.Unavailable<>(
+          "offline_inventory", "offline player data does not exist", Duration.ZERO);
     boolean written = false;
     try {
       OfflineData data = read(file, mutation.playerId());
       if (data.snapshot().version() != mutation.expectedVersion()) {
-        return new PlatformResult.Conflict<>(mutation.operationId(),
-            Long.toUnsignedString(data.snapshot().version()));
+        return new PlatformResult.Conflict<>(
+            mutation.operationId(), Long.toUnsignedString(data.snapshot().version()));
       }
       List<SlotItem> next = new ArrayList<>(data.slots());
       List<ItemEnvelope> removed = new ArrayList<>();
-      for (ItemEnvelope requested : mutation.removals()) {
+      for (InventoryRemoval removal : mutation.removals()) {
+        ItemEnvelope requested = removal.expectedStack();
         int index = matching(next, requested);
-        if (index < 0) return PlatformResult.rejected(
-            "INVENTORY_ITEM_MISSING", "error.inventory.item_missing");
-        removed.add(next.remove(index).envelope());
+        if (index < 0)
+          return PlatformResult.rejected("INVENTORY_ITEM_MISSING", "error.inventory.item_missing");
+        SlotItem source = next.remove(index);
+        Object nativeStack = items.decodeNativeTag(source.tag());
+        Object removedStack = copyStack(nativeStack);
+        setCount(removedStack, removal.quantity());
+        PlatformResult<ItemEnvelope> encodedRemoval = items.encode(removedStack, identity);
+        if (!(encodedRemoval instanceof PlatformResult.Success<ItemEnvelope> removedItem)) {
+          return PlatformResult.rejected("INVENTORY_ITEM_INVALID", "error.inventory.item_invalid");
+        }
+        removed.add(removedItem.value());
+        if (removal.quantity() < requested.count()) {
+          setCount(nativeStack, requested.count() - removal.quantity());
+          PlatformResult<ItemEnvelope> encodedRemainder = items.encode(nativeStack, identity);
+          if (!(encodedRemainder instanceof PlatformResult.Success<ItemEnvelope> remainder)) {
+            return PlatformResult.rejected(
+                "INVENTORY_ITEM_INVALID", "error.inventory.item_invalid");
+          }
+          Object remainderTag = items.envelopeTag(remainder.value());
+          putByte(remainderTag, "Slot", (byte) source.slot());
+          next.add(index, new SlotItem(source.slot(), remainder.value(), remainderTag));
+        }
       }
       boolean[] occupied = new boolean[MAIN_SLOTS];
-      for (SlotItem value : next) if (value.slot() >= 0 && value.slot() < MAIN_SLOTS) {
-        occupied[value.slot()] = true;
-      }
+      for (SlotItem value : next)
+        if (value.slot() >= 0 && value.slot() < MAIN_SLOTS) {
+          occupied[value.slot()] = true;
+        }
       List<Integer> free = new ArrayList<>();
       for (int slot = 0; slot < MAIN_SLOTS; slot++) if (!occupied[slot]) free.add(slot);
       int accepted = Math.min(free.size(), mutation.insertions().size());
@@ -89,9 +111,12 @@ final class OfflineInventoryStore {
       write(file, data.root(), next);
       written = true;
       InventorySnapshot after = snapshotOf(mutation.playerId(), next);
-      return PlatformResult.success(new InventoryMutationResult(
-          after.version(), mutation.insertions().subList(0, accepted), removed,
-          mutation.insertions().subList(accepted, mutation.insertions().size())));
+      return PlatformResult.success(
+          new InventoryMutationResult(
+              after.version(),
+              mutation.insertions().subList(0, accepted),
+              removed,
+              mutation.insertions().subList(accepted, mutation.insertions().size())));
     } catch (ReflectiveOperationException | IOException | RuntimeException | LinkageError failure) {
       if (written) return new PlatformResult.UnknownOutcome<>(mutation.operationId(), true);
       return PlatformResult.rejected(
@@ -99,7 +124,8 @@ final class OfflineInventoryStore {
     }
   }
 
-  private OfflineData read(Path file, UUID playerId) throws ReflectiveOperationException, IOException {
+  private OfflineData read(Path file, UUID playerId)
+      throws ReflectiveOperationException, IOException {
     Object root = readCompressed(file);
     Object list = inventoryList(root);
     List<SlotItem> slots = new ArrayList<>();
@@ -123,7 +149,8 @@ final class OfflineInventoryStore {
     Object list = listType.getConstructor().newInstance();
     @SuppressWarnings("unchecked")
     List<Object> nativeList = (List<Object>) list;
-    values.stream().sorted(Comparator.comparingInt(SlotItem::slot))
+    values.stream()
+        .sorted(Comparator.comparingInt(SlotItem::slot))
         .forEach(value -> nativeList.add(value.tag()));
     putTag(root, "Inventory", list);
 
@@ -133,8 +160,11 @@ final class OfflineInventoryStore {
     writeCompressed(root, temporary);
     Files.copy(destination, backup, StandardCopyOption.REPLACE_EXISTING);
     try {
-      Files.move(temporary, destination,
-          StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+      Files.move(
+          temporary,
+          destination,
+          StandardCopyOption.ATOMIC_MOVE,
+          StandardCopyOption.REPLACE_EXISTING);
     } catch (AtomicMoveNotSupportedException unsupported) {
       Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING);
     }
@@ -152,8 +182,8 @@ final class OfflineInventoryStore {
       }
       if (method.getParameterCount() == 2 && method.getParameterTypes()[0] == Path.class) {
         Class<?> accounter = method.getParameterTypes()[1];
-        Object unlimited = NativeItemCodec.method(accounter,
-            new String[]{"unlimitedHeap"}, 0).invoke(null);
+        Object unlimited =
+            NativeItemCodec.method(accounter, new String[] {"unlimitedHeap"}, 0).invoke(null);
         return method.invoke(null, path, unlimited);
       }
     }
@@ -176,37 +206,55 @@ final class OfflineInventoryStore {
 
   private static Object inventoryList(Object root) throws ReflectiveOperationException {
     try {
-      Object value = NativeItemCodec.method(root.getClass(),
-          new String[]{"getListOrEmpty"}, 1).invoke(root, "Inventory");
+      Object value =
+          NativeItemCodec.method(root.getClass(), new String[] {"getListOrEmpty"}, 1)
+              .invoke(root, "Inventory");
       return unwrapOptional(value);
     } catch (NoSuchMethodException modernUnavailable) {
-      return NativeItemCodec.method(root.getClass(),
-          new String[]{"getList", "method_10554", "m_128437_"}, 2)
+      return NativeItemCodec.method(
+              root.getClass(), new String[] {"getList", "method_10554", "m_128437_"}, 2)
           .invoke(root, "Inventory", 10);
     }
   }
 
   private static int readByte(Object tag, String key) throws ReflectiveOperationException {
     try {
-      Object value = NativeItemCodec.method(tag.getClass(),
-          new String[]{"getByteOr"}, 2).invoke(tag, key, (byte) 0);
+      Object value =
+          NativeItemCodec.method(tag.getClass(), new String[] {"getByteOr"}, 2)
+              .invoke(tag, key, (byte) 0);
       return ((Number) value).byteValue();
     } catch (NoSuchMethodException modernUnavailable) {
-      Object value = NativeItemCodec.method(tag.getClass(),
-          new String[]{"getByte", "method_10571", "m_128445_"}, 1).invoke(tag, key);
+      Object value =
+          NativeItemCodec.method(
+                  tag.getClass(), new String[] {"getByte", "method_10571", "m_128445_"}, 1)
+              .invoke(tag, key);
       value = unwrapOptional(value);
       return value instanceof Number number ? number.byteValue() : 0;
     }
   }
 
-  private static void putByte(Object tag, String key, byte value) throws ReflectiveOperationException {
-    NativeItemCodec.method(tag.getClass(),
-        new String[]{"putByte", "method_10567", "m_128344_"}, 2).invoke(tag, key, value);
+  private static void putByte(Object tag, String key, byte value)
+      throws ReflectiveOperationException {
+    NativeItemCodec.method(tag.getClass(), new String[] {"putByte", "method_10567", "m_128344_"}, 2)
+        .invoke(tag, key, value);
   }
 
-  private static void putTag(Object root, String key, Object tag) throws ReflectiveOperationException {
-    NativeItemCodec.method(root.getClass(),
-        new String[]{"put", "method_10566", "m_128365_"}, 2).invoke(root, key, tag);
+  private static void putTag(Object root, String key, Object tag)
+      throws ReflectiveOperationException {
+    NativeItemCodec.method(root.getClass(), new String[] {"put", "method_10566", "m_128365_"}, 2)
+        .invoke(root, key, tag);
+  }
+
+  private static Object copyStack(Object stack) throws ReflectiveOperationException {
+    return NativeItemCodec.method(
+            stack.getClass(), new String[] {"copy", "method_7972", "m_41777_"}, 0)
+        .invoke(stack);
+  }
+
+  private static void setCount(Object stack, int count) throws ReflectiveOperationException {
+    NativeItemCodec.method(
+            stack.getClass(), new String[] {"setCount", "method_7939", "m_41764_"}, 1)
+        .invoke(stack, count);
   }
 
   private static Object unwrapOptional(Object value) {
@@ -227,20 +275,23 @@ final class OfflineInventoryStore {
     boolean[] occupied = new boolean[MAIN_SLOTS];
     MessageDigest digest = sha256();
     List<ItemEnvelope> envelopes = new ArrayList<>();
-    values.stream().sorted(Comparator.comparingInt(SlotItem::slot)).forEach(value -> {
-      if (value.slot() >= 0 && value.slot() < MAIN_SLOTS) occupied[value.slot()] = true;
-      digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(value.slot()).array());
-      digest.update(value.envelope().payloadHash().getBytes(StandardCharsets.US_ASCII));
-      envelopes.add(value.envelope());
-    });
+    values.stream()
+        .sorted(Comparator.comparingInt(SlotItem::slot))
+        .forEach(
+            value -> {
+              if (value.slot() >= 0 && value.slot() < MAIN_SLOTS) occupied[value.slot()] = true;
+              digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(value.slot()).array());
+              digest.update(value.envelope().payloadHash().getBytes(StandardCharsets.US_ASCII));
+              envelopes.add(value.envelope());
+            });
     int free = 0;
     for (boolean used : occupied) if (!used) free++;
-    return new InventorySnapshot(playerId, ByteBuffer.wrap(digest.digest()).getLong(), free, envelopes);
+    return new InventorySnapshot(
+        playerId, ByteBuffer.wrap(digest.digest()).getLong(), free, envelopes);
   }
 
   private static Path playerFile(UUID playerId) {
-    Path root = Path.of(System.getProperty(
-        "webshopx.world-dir", System.getProperty("user.dir")));
+    Path root = Path.of(System.getProperty("webshopx.world-dir", System.getProperty("user.dir")));
     String level = "world";
     Path propertiesFile = root.resolve("server.properties");
     if (Files.isRegularFile(propertiesFile)) {
@@ -280,6 +331,7 @@ final class OfflineInventoryStore {
     }
   }
 
-  private record SlotItem(int slot, ItemEnvelope envelope, Object tag) { }
-  private record OfflineData(Object root, List<SlotItem> slots, InventorySnapshot snapshot) { }
+  private record SlotItem(int slot, ItemEnvelope envelope, Object tag) {}
+
+  private record OfflineData(Object root, List<SlotItem> slots, InventorySnapshot snapshot) {}
 }

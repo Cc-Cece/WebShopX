@@ -72,6 +72,7 @@ public final class LoaderRuntime {
                   databaseRuntime.authentication(),
                   databaseRuntime.wallet(),
                   databaseRuntime.commerce(),
+                  databaseRuntime.marketEscrow(inventoryGateway),
                   databaseRuntime.content(),
                   databaseRuntime.promotions(),
                   databaseRuntime.redeemCodes(),

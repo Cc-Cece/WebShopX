@@ -13,6 +13,7 @@ import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceCheckoutAdapter;
 import com.webshopx.SharedCommerceService;
 import com.webshopx.SharedContentService;
+import com.webshopx.SharedMarketEscrowService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.WalletService;
 import java.nio.file.Path;
@@ -149,6 +150,11 @@ final class SharedDatabaseRuntime implements AutoCloseable {
 
   SharedCommerceService commerce() {
     return commerce;
+  }
+
+  SharedMarketEscrowService marketEscrow(
+      com.webshopx.platform.PlatformPorts.InventoryGateway inventories) {
+    return new SharedMarketEscrowService(database, commerce, inventories);
   }
 
   SharedContentService content() {

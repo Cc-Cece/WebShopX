@@ -19,19 +19,26 @@ import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceCheckoutAdapter;
 import com.webshopx.SharedCommerceService;
 import com.webshopx.SharedContentService;
+import com.webshopx.SharedMarketEscrowService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
+import com.webshopx.platform.CompatibilityDomain;
+import com.webshopx.platform.InventoryTypes.InventoryMutation;
 import com.webshopx.platform.PlatformIdentity;
+import com.webshopx.testkit.InMemoryInventoryGateway;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +52,8 @@ class SharedHttpApiTest {
   private HttpClient client;
   private String base;
   private UUID supportTargetUuid;
+  private UUID player;
+  private InMemoryInventoryGateway inventories;
 
   @BeforeEach
   void start() {
@@ -73,12 +82,27 @@ class SharedHttpApiTest {
     AuthService auth = new AuthService(database, () -> new AuthService.SessionSettings(40, 2));
     WalletService wallets =
         new WalletService(database, WalletService.ExchangePolicy::disabled, null, null);
-    UUID player = UUID.randomUUID();
+    player = UUID.randomUUID();
     long user = auth.setPasswordFromGame(player, "ApiPlayer", "api-secret").userId();
     supportTargetUuid = UUID.randomUUID();
     auth.setPasswordFromGame(supportTargetUuid, "SupportTarget", "target-secret");
     wallets.adjustBalance(user, CurrencyType.SHOP_COIN, 500, "TEST", "api-seed");
     SharedCommerceService commerce = new SharedCommerceService(database, wallets);
+    inventories = new InMemoryInventoryGateway(36);
+    var item =
+        new ItemEnvelopeService(Clock.systemUTC(), Set.of("fixture"))
+            .create(
+                "fixture",
+                1,
+                new CompatibilityDomain("fabric", "fabric", "1.20.1", 1, "sha256:test"),
+                "minecraft:diamond",
+                5,
+                new byte[] {1, 2, 3},
+                Map.of());
+    inventories
+        .compareAndApply(new InventoryMutation("seed", player, 0, List.of(item), List.of()))
+        .toCompletableFuture()
+        .join();
     commerce.createProduct(
         new SharedCommerceService.ProductInput(
             "API_STONE",
@@ -107,6 +131,7 @@ class SharedHttpApiTest {
             auth,
             wallets,
             commerce,
+            new SharedMarketEscrowService(database, commerce, inventories),
             new SharedContentService(database),
             new SharedPromotionService(
                 database, wallets, new SharedCommerceCheckoutAdapter(commerce, "node-a")),
@@ -230,6 +255,43 @@ class SharedHttpApiTest {
             "https://evil.example");
     assertFalse(rejected.headers().firstValue("Access-Control-Allow-Origin").isPresent());
     assertTrue(rejected.headers().firstValue("Content-Security-Policy").isPresent());
+  }
+
+  @Test
+  void marketListingEscrowsServerInventoryAndReplaysIdempotently() throws Exception {
+    HttpResponse<String> login =
+        post(
+            "/api/auth/login",
+            "{\"identifier\":\"ApiPlayer\",\"password\":\"api-secret\"}",
+            null,
+            null);
+    String token =
+        JsonParser.parseString(login.body()).getAsJsonObject().get("token").getAsString();
+    String request =
+        "{\"side\":\"SELL\",\"currency\":\"GAME_COIN\",\"price\":17,"
+            + "\"quantity\":2,\"idempotencyKey\":\"market-secure-1\","
+            + "\"item\":{\"registryId\":\"minecraft:netherite_block\",\"count\":64}}";
+    HttpResponse<String> created = post("/api/market/listings/create", request, token, null);
+    assertEquals(200, created.statusCode(), created.body());
+    JsonObject listing = JsonParser.parseString(created.body()).getAsJsonObject();
+    assertEquals(
+        "minecraft:diamond", listing.getAsJsonObject("item").get("registryId").getAsString());
+    assertEquals(2, listing.get("quantity").getAsInt());
+
+    HttpResponse<String> replay = post("/api/market/listings/create", request, token, null);
+    assertEquals(200, replay.statusCode(), replay.body());
+    assertEquals(
+        listing.get("id").getAsLong(),
+        JsonParser.parseString(replay.body()).getAsJsonObject().get("id").getAsLong());
+    assertEquals(
+        3,
+        inventories.snapshot(player, false).toCompletableFuture().join()
+                instanceof com.webshopx.platform.PlatformResult.Success<?> success
+            ? ((com.webshopx.platform.InventoryTypes.InventorySnapshot) success.value())
+                .items()
+                .get(0)
+                .count()
+            : -1);
   }
 
   @Test

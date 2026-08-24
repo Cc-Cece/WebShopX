@@ -20,10 +20,10 @@ import com.webshopx.SharedCommerceService.ProductInput;
 import com.webshopx.SharedCommerceService.ProductKind;
 import com.webshopx.SharedCommerceService.PurchaseRequest;
 import com.webshopx.SharedContentService;
+import com.webshopx.SharedMarketEscrowService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
-import com.webshopx.platform.ItemEnvelope;
 import com.webshopx.platform.PlatformIdentity;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -45,6 +45,7 @@ public final class SharedHttpApi implements AutoCloseable {
   private final AuthService auth;
   private final WalletService wallets;
   private final SharedCommerceService commerce;
+  private final SharedMarketEscrowService marketEscrow;
   private final SharedContentService content;
   private final SharedPromotionService promotions;
   private final RedeemCodeService redeemCodes;
@@ -65,6 +66,7 @@ public final class SharedHttpApi implements AutoCloseable {
       AuthService auth,
       WalletService wallets,
       SharedCommerceService commerce,
+      SharedMarketEscrowService marketEscrow,
       SharedContentService content,
       SharedPromotionService promotions,
       RedeemCodeService redeemCodes,
@@ -76,6 +78,7 @@ public final class SharedHttpApi implements AutoCloseable {
     this.auth = Objects.requireNonNull(auth, "auth");
     this.wallets = Objects.requireNonNull(wallets, "wallets");
     this.commerce = Objects.requireNonNull(commerce, "commerce");
+    this.marketEscrow = Objects.requireNonNull(marketEscrow, "marketEscrow");
     this.content = Objects.requireNonNull(content, "content");
     this.promotions = Objects.requireNonNull(promotions, "promotions");
     this.redeemCodes = Objects.requireNonNull(redeemCodes, "redeemCodes");
@@ -243,21 +246,24 @@ public final class SharedHttpApi implements AutoCloseable {
       } else if (path.equals("/api/market/listings/create") && method(exchange, "POST")) {
         var current = boundUser(exchange);
         JsonObject input = body(exchange);
-        if (!input.has("item") || !input.get("item").isJsonObject()) {
-          throw new IllegalArgumentException("item is required");
+        String side = optionalString(input, "side", "SELL").toUpperCase(Locale.ROOT);
+        if (!"SELL".equals(side)) {
+          throw new ServiceException(
+              "unsupported_market_side", "Loader market currently accepts SELL listings here");
         }
-        ItemEnvelope item = gson.fromJson(input.get("item"), ItemEnvelope.class);
         respond(
             exchange,
             200,
-            commerce.createListing(
-                new SharedCommerceService.ListingRequest(
+            marketEscrow.createSellListing(
+                new SharedMarketEscrowService.Request(
                     current.id(),
                     current.boundUuid(),
                     currency(input, "currency"),
                     requiredLong(input, "price"),
-                    optionalInt(input, "quantity", item.count()),
-                    item,
+                    optionalInt(input, "quantity", 1),
+                    requiredString(input, "idempotencyKey"),
+                    optionalString(input, "expectedPayloadHash", null),
+                    input.has("allowOffline") && input.get("allowOffline").getAsBoolean(),
                     optionalString(input, "remark", null))));
       } else if (path.equals("/api/market/buy") && method(exchange, "POST")) {
         var current = boundUser(exchange);
@@ -937,7 +943,12 @@ public final class SharedHttpApi implements AutoCloseable {
             case "invalid_session", "unauthorized" -> 401;
             case "forbidden", "not_admin" -> 403;
             case "not_found", "product_not_found" -> 404;
-            case "insufficient_funds", "insufficient_stock", "stock_conflict" -> 409;
+            case "insufficient_funds",
+                    "insufficient_stock",
+                    "stock_conflict",
+                    "inventory_conflict" ->
+                409;
+            case "inventory_unavailable", "inventory_outcome_unknown" -> 503;
             default -> 400;
           };
       respond(exchange, status, error(failure.code(), failure.getMessage()));

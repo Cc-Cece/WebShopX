@@ -16,12 +16,14 @@ import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceCheckoutAdapter;
 import com.webshopx.SharedCommerceService;
 import com.webshopx.SharedContentService;
+import com.webshopx.SharedMarketEscrowService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.CompatibilityDomain;
 import com.webshopx.platform.ItemEnvelope;
 import com.webshopx.platform.PlatformIdentity;
+import com.webshopx.testkit.InMemoryInventoryGateway;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -119,6 +121,7 @@ class ReleasePerformanceBudgetTest {
               auth,
               wallets,
               commerce,
+              new SharedMarketEscrowService(database, commerce, new InMemoryInventoryGateway(36)),
               new SharedContentService(database),
               new SharedPromotionService(
                   database,

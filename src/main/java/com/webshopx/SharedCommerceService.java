@@ -295,33 +295,38 @@ public final class SharedCommerceService {
         || request.quantity() > request.item().count()) {
       throw new ServiceException("invalid_listing", "Listing price or quantity is invalid");
     }
+    return database.inTransaction(connection -> createListing(connection, request));
+  }
+
+  Listing createListing(Connection connection, ListingRequest request) throws SQLException {
+    if (request.price() < 1
+        || request.quantity() < 1
+        || request.quantity() > request.item().count()) {
+      throw new ServiceException("invalid_listing", "Listing price or quantity is invalid");
+    }
     byte[] blob = envelopes.encode(request.item());
-    return database.inTransaction(
-        connection -> {
-          try (PreparedStatement statement =
-              connection.prepareStatement(
-                  "INSERT INTO market_listings (seller_user_id,seller_uuid,currency,price,quantity,"
-                      + "quantity_total,item_material,raw_item_blob,item_meta_json,remark,item_hash,escrow_total,escrow_remaining,status,market_side,trade_mode)"
-                      + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'ACTIVE','SELL','DIRECT')",
-                  Statement.RETURN_GENERATED_KEYS)) {
-            statement.setLong(1, request.sellerUserId());
-            statement.setString(2, request.sellerId().toString());
-            statement.setString(3, request.currency().name());
-            statement.setLong(4, request.price());
-            statement.setInt(5, request.quantity());
-            statement.setInt(6, request.quantity());
-            statement.setString(7, request.item().registryId());
-            statement.setBytes(8, blob);
-            statement.setString(
-                9, "{\"payloadHash\":\"" + json(request.item().payloadHash()) + "\"}");
-            statement.setString(10, request.remark());
-            statement.setString(11, request.item().payloadHash());
-            statement.setInt(12, request.quantity());
-            statement.setInt(13, request.quantity());
-            statement.executeUpdate();
-            return readListing(connection, generatedId(statement));
-          }
-        });
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO market_listings (seller_user_id,seller_uuid,currency,price,quantity,"
+                + "quantity_total,item_material,raw_item_blob,item_meta_json,remark,item_hash,escrow_total,escrow_remaining,status,market_side,trade_mode)"
+                + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'ACTIVE','SELL','DIRECT')",
+            Statement.RETURN_GENERATED_KEYS)) {
+      statement.setLong(1, request.sellerUserId());
+      statement.setString(2, request.sellerId().toString());
+      statement.setString(3, request.currency().name());
+      statement.setLong(4, request.price());
+      statement.setInt(5, request.quantity());
+      statement.setInt(6, request.quantity());
+      statement.setString(7, request.item().registryId());
+      statement.setBytes(8, blob);
+      statement.setString(9, "{\"payloadHash\":\"" + json(request.item().payloadHash()) + "\"}");
+      statement.setString(10, request.remark());
+      statement.setString(11, request.item().payloadHash());
+      statement.setInt(12, request.quantity());
+      statement.setInt(13, request.quantity());
+      statement.executeUpdate();
+      return readListing(connection, generatedId(statement));
+    }
   }
 
   public List<Listing> listings(boolean includeInactive) {

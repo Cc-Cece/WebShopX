@@ -2,20 +2,19 @@ package com.webshopx.loader;
 
 import com.webshopx.platform.InventoryTypes.InventoryMutation;
 import com.webshopx.platform.InventoryTypes.InventoryMutationResult;
+import com.webshopx.platform.InventoryTypes.InventoryRemoval;
 import com.webshopx.platform.InventoryTypes.InventorySnapshot;
 import com.webshopx.platform.ItemEnvelope;
 import com.webshopx.platform.PlatformIdentity;
 import com.webshopx.platform.PlatformPorts;
 import com.webshopx.platform.PlatformResult;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,8 +33,11 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
   private final OfflineInventoryStore offline;
   private final Map<String, InventoryMutationResult> completed = new LinkedHashMap<>();
 
-  NativeInventoryGateway(NativePlayerDirectory players, LoaderScheduler scheduler,
-      NativeItemCodec items, PlatformIdentity identity) {
+  NativeInventoryGateway(
+      NativePlayerDirectory players,
+      LoaderScheduler scheduler,
+      NativeItemCodec items,
+      PlatformIdentity identity) {
     this.players = players;
     this.scheduler = scheduler;
     this.items = items;
@@ -44,32 +46,52 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
   }
 
   @Override
-  public CompletionStage<PlatformResult<InventorySnapshot>> snapshot(UUID playerId, boolean allowOffline) {
+  public CompletionStage<PlatformResult<InventorySnapshot>> snapshot(
+      UUID playerId, boolean allowOffline) {
     Optional<Object> player = players.nativePlayer(playerId);
     if (player.isEmpty()) {
-      if (!allowOffline) return CompletableFuture.completedFuture(new PlatformResult.Unavailable<>(
-          "inventory", "player is not online", Duration.ZERO));
+      if (!allowOffline)
+        return CompletableFuture.completedFuture(
+            new PlatformResult.Unavailable<>("inventory", "player is not online", Duration.ZERO));
       CompletableFuture<PlatformResult<InventorySnapshot>> result = new CompletableFuture<>();
-      scheduler.runGlobal(() -> result.complete(players.nativePlayer(playerId).isPresent()
-          ? PlatformResult.rejected("PLAYER_STATE_CHANGED", "error.inventory.player_state_changed")
-          : offline.snapshot(playerId))).whenComplete((ignored, failure) -> {
-            if (failure != null) result.complete(new PlatformResult.Unavailable<>(
-                "offline_inventory", "native scheduler is unavailable", Duration.ZERO));
-          });
+      scheduler
+          .runGlobal(
+              () ->
+                  result.complete(
+                      players.nativePlayer(playerId).isPresent()
+                          ? PlatformResult.rejected(
+                              "PLAYER_STATE_CHANGED", "error.inventory.player_state_changed")
+                          : offline.snapshot(playerId)))
+          .whenComplete(
+              (ignored, failure) -> {
+                if (failure != null)
+                  result.complete(
+                      new PlatformResult.Unavailable<>(
+                          "offline_inventory", "native scheduler is unavailable", Duration.ZERO));
+              });
       return result;
     }
     CompletableFuture<PlatformResult<InventorySnapshot>> result = new CompletableFuture<>();
-    scheduler.runForPlayer(playerId, () -> {
-      try {
-        result.complete(PlatformResult.success(readSnapshot(playerId, player.orElseThrow())));
-      } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
-        result.complete(PlatformResult.rejected(
-            "INVENTORY_SNAPSHOT_FAILED", "error.inventory.snapshot_failed"));
-      }
-    }).whenComplete((ignored, failure) -> {
-      if (failure != null) result.complete(new PlatformResult.Unavailable<>(
-          "inventory", "native scheduler is unavailable", Duration.ZERO));
-    });
+    scheduler
+        .runForPlayer(
+            playerId,
+            () -> {
+              try {
+                result.complete(
+                    PlatformResult.success(readSnapshot(playerId, player.orElseThrow())));
+              } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+                result.complete(
+                    PlatformResult.rejected(
+                        "INVENTORY_SNAPSHOT_FAILED", "error.inventory.snapshot_failed"));
+              }
+            })
+        .whenComplete(
+            (ignored, failure) -> {
+              if (failure != null)
+                result.complete(
+                    new PlatformResult.Unavailable<>(
+                        "inventory", "native scheduler is unavailable", Duration.ZERO));
+            });
     return result;
   }
 
@@ -83,21 +105,35 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
     Optional<Object> player = players.nativePlayer(mutation.playerId());
     if (player.isEmpty()) {
       CompletableFuture<PlatformResult<InventoryMutationResult>> result = new CompletableFuture<>();
-      scheduler.runGlobal(() -> result.complete(players.nativePlayer(mutation.playerId()).isPresent()
-          ? PlatformResult.rejected("PLAYER_STATE_CHANGED", "error.inventory.player_state_changed")
-          : offline.compareAndApply(mutation))).whenComplete((ignored, failure) -> {
-            if (failure != null) result.complete(new PlatformResult.Unavailable<>(
-                "offline_inventory", "native scheduler is unavailable", Duration.ZERO));
-          });
+      scheduler
+          .runGlobal(
+              () ->
+                  result.complete(
+                      players.nativePlayer(mutation.playerId()).isPresent()
+                          ? PlatformResult.rejected(
+                              "PLAYER_STATE_CHANGED", "error.inventory.player_state_changed")
+                          : offline.compareAndApply(mutation)))
+          .whenComplete(
+              (ignored, failure) -> {
+                if (failure != null)
+                  result.complete(
+                      new PlatformResult.Unavailable<>(
+                          "offline_inventory", "native scheduler is unavailable", Duration.ZERO));
+              });
       return result;
     }
     CompletableFuture<PlatformResult<InventoryMutationResult>> result = new CompletableFuture<>();
-    scheduler.runForPlayer(mutation.playerId(), () ->
-        result.complete(applyOnServerThread(mutation, player.orElseThrow())))
-        .whenComplete((ignored, failure) -> {
-          if (failure != null) result.complete(new PlatformResult.Unavailable<>(
-              "inventory", "native scheduler is unavailable", Duration.ZERO));
-        });
+    scheduler
+        .runForPlayer(
+            mutation.playerId(),
+            () -> result.complete(applyOnServerThread(mutation, player.orElseThrow())))
+        .whenComplete(
+            (ignored, failure) -> {
+              if (failure != null)
+                result.complete(
+                    new PlatformResult.Unavailable<>(
+                        "inventory", "native scheduler is unavailable", Duration.ZERO));
+            });
     return result;
   }
 
@@ -117,13 +153,22 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
       Object inventory = inventory(player);
       int size = size(inventory);
       boolean[] reserved = new boolean[size];
-      List<Integer> removals = new ArrayList<>();
-      for (ItemEnvelope requested : mutation.removals()) {
+      List<RemovalPlan> removals = new ArrayList<>();
+      for (InventoryRemoval removal : mutation.removals()) {
+        ItemEnvelope requested = removal.expectedStack();
         int slot = matchingSlot(inventory, size, reserved, requested);
-        if (slot < 0) return PlatformResult.rejected(
-            "INVENTORY_ITEM_MISSING", "error.inventory.item_missing");
+        if (slot < 0)
+          return PlatformResult.rejected("INVENTORY_ITEM_MISSING", "error.inventory.item_missing");
         reserved[slot] = true;
-        removals.add(slot);
+        Object source = get(inventory, slot);
+        Object removedStack = copyStack(source);
+        setCount(removedStack, removal.quantity());
+        PlatformResult<ItemEnvelope> encodedRemoval = items.encode(removedStack, identity);
+        if (!(encodedRemoval instanceof PlatformResult.Success<ItemEnvelope> success)) {
+          return PlatformResult.rejected("INVENTORY_ITEM_INVALID", "error.inventory.item_invalid");
+        }
+        removals.add(
+            new RemovalPlan(slot, source, requested.count(), removal.quantity(), success.value()));
       }
 
       List<Object> decoded = new ArrayList<>();
@@ -136,8 +181,13 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
       }
 
       Object empty = emptyStack(inventory, size, player.getClass().getClassLoader());
-      for (int slot : removals) {
-        set(inventory, slot, empty);
+      for (RemovalPlan removal : removals) {
+        if (removal.quantity() == removal.originalCount()) {
+          set(inventory, removal.slot(), empty);
+        } else {
+          setCount(removal.nativeStack(), removal.originalCount() - removal.quantity());
+          set(inventory, removal.slot(), removal.nativeStack());
+        }
         mutated = true;
       }
       List<Integer> free = freeSlots(inventory, size);
@@ -148,11 +198,12 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
       }
       markChanged(inventory);
       InventorySnapshot after = readSnapshot(mutation.playerId(), player);
-      InventoryMutationResult applied = new InventoryMutationResult(
-          after.version(),
-          mutation.insertions().subList(0, accepted),
-          mutation.removals(),
-          mutation.insertions().subList(accepted, mutation.insertions().size()));
+      InventoryMutationResult applied =
+          new InventoryMutationResult(
+              after.version(),
+              mutation.insertions().subList(0, accepted),
+              removals.stream().map(RemovalPlan::removed).toList(),
+              mutation.insertions().subList(accepted, mutation.insertions().size()));
       remember(mutation.operationId(), applied);
       return PlatformResult.success(applied);
     } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
@@ -183,8 +234,8 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
         digest.update(success.value().payloadHash().getBytes(StandardCharsets.US_ASCII));
       }
     }
-    return new InventorySnapshot(playerId,
-        ByteBuffer.wrap(digest.digest()).getLong(), free, values);
+    return new InventorySnapshot(
+        playerId, ByteBuffer.wrap(digest.digest()).getLong(), free, values);
   }
 
   private int matchingSlot(Object inventory, int size, boolean[] reserved, ItemEnvelope requested)
@@ -203,31 +254,54 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
   }
 
   private static Object inventory(Object player) throws ReflectiveOperationException {
-    return NativeItemCodec.method(player.getClass(),
-        new String[]{"getInventory", "method_31548", "m_150109_"}, 0).invoke(player);
+    return NativeItemCodec.method(
+            player.getClass(), new String[] {"getInventory", "method_31548", "m_150109_"}, 0)
+        .invoke(player);
   }
 
   private static int size(Object inventory) throws ReflectiveOperationException {
-    return (Integer) NativeItemCodec.method(inventory.getClass(),
-        new String[]{"getContainerSize", "method_5439", "m_6643_"}, 0).invoke(inventory);
+    return (Integer)
+        NativeItemCodec.method(
+                inventory.getClass(),
+                new String[] {"getContainerSize", "method_5439", "m_6643_"},
+                0)
+            .invoke(inventory);
   }
 
   private static Object get(Object inventory, int slot) throws ReflectiveOperationException {
-    return NativeItemCodec.method(inventory.getClass(),
-        new String[]{"getItem", "method_5438", "m_8020_"}, 1).invoke(inventory, slot);
+    return NativeItemCodec.method(
+            inventory.getClass(), new String[] {"getItem", "method_5438", "m_8020_"}, 1)
+        .invoke(inventory, slot);
   }
 
-  private static void set(Object inventory, int slot, Object stack) throws ReflectiveOperationException {
-    NativeItemCodec.method(inventory.getClass(),
-        new String[]{"setItem", "method_5447", "m_6836_"}, 2).invoke(inventory, slot, stack);
+  private static Object copyStack(Object stack) throws ReflectiveOperationException {
+    return NativeItemCodec.method(
+            stack.getClass(), new String[] {"copy", "method_7972", "m_41777_"}, 0)
+        .invoke(stack);
+  }
+
+  private static void setCount(Object stack, int count) throws ReflectiveOperationException {
+    NativeItemCodec.method(
+            stack.getClass(), new String[] {"setCount", "method_7939", "m_41764_"}, 1)
+        .invoke(stack, count);
+  }
+
+  private static void set(Object inventory, int slot, Object stack)
+      throws ReflectiveOperationException {
+    NativeItemCodec.method(
+            inventory.getClass(), new String[] {"setItem", "method_5447", "m_6836_"}, 2)
+        .invoke(inventory, slot, stack);
   }
 
   private static boolean isEmpty(Object stack) throws ReflectiveOperationException {
-    return (Boolean) NativeItemCodec.method(stack.getClass(),
-        new String[]{"isEmpty", "method_7960", "m_41619_"}, 0).invoke(stack);
+    return (Boolean)
+        NativeItemCodec.method(
+                stack.getClass(), new String[] {"isEmpty", "method_7960", "m_41619_"}, 0)
+            .invoke(stack);
   }
 
-  private static List<Integer> freeSlots(Object inventory, int size) throws ReflectiveOperationException {
+  private static List<Integer> freeSlots(Object inventory, int size)
+      throws ReflectiveOperationException {
     List<Integer> free = new ArrayList<>();
     for (int slot = 0; slot < size; slot++) if (isEmpty(get(inventory, slot))) free.add(slot);
     return free;
@@ -267,8 +341,9 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
 
   private static void markChanged(Object inventory) {
     try {
-      NativeItemCodec.method(inventory.getClass(),
-          new String[]{"setChanged", "method_6596", "m_6596_"}, 0).invoke(inventory);
+      NativeItemCodec.method(
+              inventory.getClass(), new String[] {"setChanged", "method_6596", "m_6596_"}, 0)
+          .invoke(inventory);
     } catch (ReflectiveOperationException ignored) {
       // setItem already notifies inventories on versions without this public hook.
     }
@@ -290,4 +365,7 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
       throw new IllegalStateException(impossible);
     }
   }
+
+  private record RemovalPlan(
+      int slot, Object nativeStack, int originalCount, int quantity, ItemEnvelope removed) {}
 }
