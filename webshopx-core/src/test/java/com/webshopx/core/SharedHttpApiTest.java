@@ -177,6 +177,19 @@ class SharedHttpApiTest {
   @Test
   void authenticatedPurchaseIsIdempotentAndCorsIsExact() throws Exception {
     assertEquals(200, get("/health", null).statusCode());
+    JsonObject currencyMeta =
+        JsonParser.parseString(get("/api/meta/currency", null).body()).getAsJsonObject();
+    assertEquals("SC", currencyMeta.getAsJsonObject("shopCoin").get("short").getAsString());
+    assertFalse(
+        currencyMeta
+            .getAsJsonObject("exchange")
+            .getAsJsonObject("shopToGame")
+            .get("enabled")
+            .getAsBoolean());
+    JsonObject localeMeta =
+        JsonParser.parseString(get("/api/meta/locales", null).body()).getAsJsonObject();
+    assertEquals("zh-CN", localeMeta.get("defaultLocale").getAsString());
+    assertTrue(localeMeta.getAsJsonArray("locales").isEmpty());
     assertEquals(401, get("/api/wallet", null).statusCode());
     HttpResponse<String> login =
         post(

@@ -853,7 +853,7 @@ public final class SharedHttpApi implements AutoCloseable {
                 "serverId",
                 identity.serverId()));
       } else if (path.equals("/api/meta/locales") && method(exchange, "GET")) {
-        respond(exchange, 200, Map.of("default", "zh-CN", "supported", List.of("zh-CN", "en-US")));
+        respond(exchange, 200, Map.of("defaultLocale", "zh-CN", "locales", List.of()));
       } else if (path.equals("/api/meta/material-overrides") && method(exchange, "GET")) {
         respond(exchange, 200, content.materialOverrides());
       } else if (path.equals("/api/meta/materials") && method(exchange, "GET")) {
@@ -861,7 +861,25 @@ public final class SharedHttpApi implements AutoCloseable {
       } else if (path.equals("/api/meta/market-tags") && method(exchange, "GET")) {
         respond(exchange, 200, List.of());
       } else if (path.equals("/api/meta/currency") && method(exchange, "GET")) {
-        respond(exchange, 200, Map.of("currencies", List.of("SHOP_COIN", "GAME_COIN")));
+        JsonObject response = new JsonObject();
+        response.add("shopCoin", currencyDisplay("ShopCoin", "SC"));
+        response.add("gameCoin", currencyDisplay("GameCoin", "GC"));
+        response.add(
+            "exchange",
+            gson.toJsonTree(
+                Map.of(
+                    "shopToGame", Map.of("enabled", false, "ratio", 0),
+                    "gameToShop", Map.of("enabled", false, "ratio", 0))));
+        response.add(
+            "payment",
+            gson.toJsonTree(
+                Map.of(
+                    "enabled", false,
+                    "primaryRechargeCurrency", "CNY",
+                    "providers", List.of())));
+        response.add("paymentProviders", new JsonArray());
+        response.addProperty("timeZone", "UTC");
+        respond(exchange, 200, response);
       } else if (path.equals("/api/admin/auth/login") && method(exchange, "POST")) {
         JsonObject input = body(exchange);
         var result =
@@ -1559,6 +1577,13 @@ public final class SharedHttpApi implements AutoCloseable {
     result.addProperty("purchasable", product.active());
     result.addProperty("dynamicPricingEnabled", false);
     result.addProperty("dynamicPricingMode", "ORDER_FIXED");
+    return result;
+  }
+
+  private static JsonObject currencyDisplay(String name, String shortName) {
+    JsonObject result = new JsonObject();
+    result.addProperty("name", name);
+    result.addProperty("short", shortName);
     return result;
   }
 
