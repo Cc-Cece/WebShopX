@@ -2335,8 +2335,25 @@ class SharedHttpApiTest {
     HttpResponse<String> landing = get("/", null);
     assertEquals(200, landing.statusCode());
     assertTrue(landing.body().contains("WebShopX"));
+    HttpResponse<String> spaRoute = get("/account", null);
+    assertEquals(200, spaRoute.statusCode());
+    assertEquals(
+        "text/html; charset=utf-8",
+        spaRoute.headers().firstValue("Content-Type").orElseThrow());
+    assertTrue(spaRoute.body().contains("WebShopX"));
     assertEquals(501, get("/api/orders/refund", null).statusCode());
     assertEquals(404, get("/not-a-webshopx-route.json", null).statusCode());
+  }
+
+  @Test
+  void acceptsTheExistingFrontendUsernameLoginContract() throws Exception {
+    HttpResponse<String> response = post(
+        "/api/auth/login",
+        "{\"username\":\"ApiPlayer\",\"password\":\"api-secret\"}",
+        null,
+        null);
+    assertEquals(200, response.statusCode(), response.body());
+    assertTrue(response.body().contains("ApiPlayer"));
   }
 
   private static final class FixtureSupplyGateway implements SupplyInventoryGateway {

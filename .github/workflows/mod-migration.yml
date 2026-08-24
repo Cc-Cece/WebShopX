@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: 16dcf7affa0837cbdf44c3c84892ea6fac8277ca
+          ref: 08a5fa3255292b949c155e0f07cba8a4e31fd52a
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:
@@ -230,7 +230,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: 16dcf7affa0837cbdf44c3c84892ea6fac8277ca
+          ref: 08a5fa3255292b949c155e0f07cba8a4e31fd52a
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:
@@ -338,7 +338,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: 16dcf7affa0837cbdf44c3c84892ea6fac8277ca
+          ref: 08a5fa3255292b949c155e0f07cba8a4e31fd52a
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:
@@ -371,13 +371,17 @@ jobs:
           done
           cat build/tmp/browser-fixture/fixture.log
           exit 1
-      - name: Install Chromium
-        run: npx --yes playwright@1.55.0 install --with-deps chromium
-      - name: Verify visible landing and health pages
+      - name: Install locked browser test dependencies and Chromium
+        working-directory: docs/mod-migration/tools
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium
+      - name: Verify visible public and authenticated critical journeys
+        working-directory: docs/mod-migration/tools
         env:
           WEBSHOPX_BROWSER_BASE: http://127.0.0.1:8123
-          WEBSHOPX_BROWSER_EVIDENCE: build/reports/mod-migration/browser
-        run: npx --yes @playwright/test@1.55.0 test docs/mod-migration/tools/browser-acceptance.spec.mjs --reporter=line
+          WEBSHOPX_BROWSER_EVIDENCE: ${{ github.workspace }}/build/reports/mod-migration/browser
+        run: npx playwright test browser-acceptance.spec.mjs --reporter=line
       - name: Stop shared HTTP fixture
         if: always()
         shell: bash
@@ -391,14 +395,19 @@ jobs:
         run: |
           & docs/mod-migration/tools/write-check-evidence.ps1 `
             -Id 'browser-landing' -SourceCommit '${{ github.sha }}' `
-            -Environment 'ubuntu-latest/playwright-1.55.0/chromium' `
+            -Environment 'ubuntu-latest/playwright-1.62.1/chromium' `
             -EvidencePath @('build/reports/mod-migration/browser/landing.json','build/reports/mod-migration/browser/landing.png') `
             -OutputFile 'build/required-checks/browser-landing.check.json'
           & docs/mod-migration/tools/write-check-evidence.ps1 `
             -Id 'browser-health' -SourceCommit '${{ github.sha }}' `
-            -Environment 'ubuntu-latest/playwright-1.55.0/chromium' `
+            -Environment 'ubuntu-latest/playwright-1.62.1/chromium' `
             -EvidencePath @('build/reports/mod-migration/browser/health.json','build/reports/mod-migration/browser/health.png') `
             -OutputFile 'build/required-checks/browser-health.check.json'
+          & docs/mod-migration/tools/write-check-evidence.ps1 `
+            -Id 'browser-critical-journeys' -SourceCommit '${{ github.sha }}' `
+            -Environment 'ubuntu-latest/playwright-1.62.1/chromium' `
+            -EvidencePath @('build/reports/mod-migration/browser/critical-journeys.json','build/reports/mod-migration/browser/critical-journeys.png','build/reports/mod-migration/browser/admin-permission-denied.json','build/reports/mod-migration/browser/admin-permission-denied.png') `
+            -OutputFile 'build/required-checks/browser-critical-journeys.check.json'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -418,7 +427,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: 16dcf7affa0837cbdf44c3c84892ea6fac8277ca
+          ref: 08a5fa3255292b949c155e0f07cba8a4e31fd52a
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:

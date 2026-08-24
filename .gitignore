@@ -24,6 +24,8 @@ server/
 cache/
 tmp/
 temp_empty/
+node_modules/
+test-results/
 
 # Local backup folders
 .old/

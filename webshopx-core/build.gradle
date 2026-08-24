@@ -143,7 +143,8 @@ tasks.register('browserAcceptanceFixture', JavaExec) {
     mainClass = 'com.webshopx.core.BrowserAcceptanceFixtureMain'
     args providers.gradleProperty('browserFixturePort').orElse('8123').get(),
             providers.gradleProperty('browserFixtureDirectory')
-                    .orElse(layout.buildDirectory.dir('tmp/browser-acceptance').get().asFile.absolutePath).get()
+                    .orElse(layout.buildDirectory.dir('tmp/browser-acceptance').get().asFile.absolutePath).get(),
+            providers.gradleProperty('browserFixtureHost').orElse('127.0.0.1').get()
 }
 
 tasks.register('verifyPlatformIsolation') {

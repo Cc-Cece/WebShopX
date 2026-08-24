@@ -3,6 +3,7 @@ package com.webshopx.core;
 import com.webshopx.AdminAuditService;
 import com.webshopx.AdminService;
 import com.webshopx.AuthService;
+import com.webshopx.CurrencyType;
 import com.webshopx.DatabaseManager;
 import com.webshopx.DatabaseSettings;
 import com.webshopx.DbType;
@@ -19,12 +20,14 @@ import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.PlatformIdentity;
 import com.webshopx.testkit.InMemoryInventoryGateway;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.UUID;
 
 /** Process fixture used by the CI Chromium acceptance job. */
 public final class BrowserAcceptanceFixtureMain {
@@ -33,6 +36,7 @@ public final class BrowserAcceptanceFixtureMain {
   public static void main(String[] args) throws Exception {
     int port = Integer.parseInt(args[0]);
     Path directory = Path.of(args[1]).toAbsolutePath();
+    String host = args.length > 2 ? args[2] : "127.0.0.1";
     Files.createDirectories(directory);
     Path stopFile = directory.resolve("stop");
     Files.deleteIfExists(stopFile);
@@ -65,6 +69,31 @@ public final class BrowserAcceptanceFixtureMain {
           new WalletService(database, WalletService.ExchangePolicy::disabled, null, null);
       SharedCommerceService commerce = new SharedCommerceService(database, wallets);
       AdminService admin = new AdminService(database, auth, wallets);
+      UUID browserUser = UUID.nameUUIDFromBytes(
+          "webshopx-browser-admin".getBytes(StandardCharsets.UTF_8));
+      long browserUserId = auth
+          .setPasswordFromGame(browserUser, "BrowserAdmin", "browser-secret")
+          .userId();
+      UUID browserViewer = UUID.nameUUIDFromBytes(
+          "webshopx-browser-viewer".getBytes(StandardCharsets.UTF_8));
+      auth.setPasswordFromGame(browserViewer, "BrowserViewer", "viewer-secret");
+      wallets.adjustBalance(
+          browserUserId, CurrencyType.SHOP_COIN, 5_000, "BROWSER_FIXTURE", "initial-wallet");
+      commerce.createProduct(
+          new SharedCommerceService.ProductInput(
+              "BROWSER_STONE",
+              "Browser Acceptance Stone",
+              "Visible product used by the real browser journey",
+              CurrencyType.SHOP_COIN,
+              50,
+              SharedCommerceService.ProductKind.GIVE_ITEM,
+              "",
+              "minecraft:stone",
+              4,
+              true));
+      admin.ensureBootstrapAdmin(
+          new AdminService.AdminBootstrapSettings(
+              true, "BrowserAdmin", "browser-secret", "SUPER_ADMIN"));
       EnumMap<CapabilitySnapshot.Capability, CapabilitySnapshot.CapabilityState> states =
           new EnumMap<>(CapabilitySnapshot.Capability.class);
       states.put(
@@ -72,7 +101,7 @@ public final class BrowserAcceptanceFixtureMain {
           CapabilitySnapshot.CapabilityState.available("browser acceptance fixture"));
       api =
           new SharedHttpApi(
-              "127.0.0.1",
+              host,
               port,
               "",
               auth,
@@ -92,7 +121,7 @@ public final class BrowserAcceptanceFixtureMain {
                   "fixture", "fixture", "ci", "ci", "browser-node", "sha256:browser-fixture"),
               new CapabilitySnapshot(Instant.now(), states));
       api.start();
-      System.out.println("BROWSER_FIXTURE_READY http://127.0.0.1:" + api.port());
+      System.out.println("BROWSER_FIXTURE_READY http://" + host + ":" + api.port());
       System.out.flush();
       while (!Files.exists(stopFile)) {
         Thread.sleep(100L);

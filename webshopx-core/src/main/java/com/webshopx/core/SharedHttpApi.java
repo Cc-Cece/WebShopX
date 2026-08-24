@@ -213,8 +213,10 @@ public final class SharedHttpApi implements AutoCloseable {
         serveStatic(exchange, path);
       } else if (path.equals("/api/auth/login") && method(exchange, "POST")) {
         JsonObject input = body(exchange);
+        String identifier = input.has("identifier")
+            ? requiredString(input, "identifier") : requiredString(input, "username");
         var result =
-            auth.login(requiredString(input, "identifier"), requiredString(input, "password"));
+            auth.login(identifier, requiredString(input, "password"));
         respond(
             exchange,
             200,
@@ -2764,8 +2766,12 @@ public final class SharedHttpApi implements AutoCloseable {
     }
     String relative = path.equals("/") ? "index.html" : path.substring(1);
     byte[] bytes = resource("web/" + relative);
-    if (bytes == null && !relative.contains(".")) bytes = resource("web/index.html");
-    if (bytes == null && relative.equals("index.html")) {
+    boolean spaFallback = false;
+    if (bytes == null && !relative.contains(".")) {
+      bytes = resource("web/index.html");
+      spaFallback = true;
+    }
+    if (bytes == null && (relative.equals("index.html") || spaFallback)) {
       bytes =
           ("<!doctype html><meta charset=utf-8><title>WebShopX</title>"
                   + "<main><h1>WebShopX</h1><p>Server API is ready.</p></main>")
@@ -2775,7 +2781,8 @@ public final class SharedHttpApi implements AutoCloseable {
       respond(exchange, 404, error("not_found", "Static asset was not found"));
       return;
     }
-    exchange.getResponseHeaders().set("Content-Type", contentType(relative));
+    exchange.getResponseHeaders().set(
+        "Content-Type", contentType(spaFallback ? "index.html" : relative));
     exchange.sendResponseHeaders(200, bytes.length);
     exchange.getResponseBody().write(bytes);
     exchange.close();
