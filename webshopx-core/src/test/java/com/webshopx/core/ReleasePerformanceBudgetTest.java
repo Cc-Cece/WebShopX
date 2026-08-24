@@ -15,6 +15,7 @@ import com.webshopx.RedeemCodeService;
 import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceCheckoutAdapter;
 import com.webshopx.SharedCommerceService;
+import com.webshopx.SharedContentService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
@@ -118,6 +119,7 @@ class ReleasePerformanceBudgetTest {
               auth,
               wallets,
               commerce,
+              new SharedContentService(database),
               new SharedPromotionService(
                   database,
                   wallets,

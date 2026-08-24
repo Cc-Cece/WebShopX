@@ -1,14 +1,14 @@
 package com.webshopx.loader;
 
-import com.webshopx.core.WebShopXCoreRuntime;
-import com.webshopx.core.RedisEventBridge;
-import com.webshopx.core.SharedHttpApi;
-import com.webshopx.AuthService;
-import com.webshopx.AdminService;
 import com.webshopx.AdminAuditService;
-import com.webshopx.WalletService;
+import com.webshopx.AdminService;
+import com.webshopx.AuthService;
 import com.webshopx.RedeemCodeService;
 import com.webshopx.SharedCommerceService;
+import com.webshopx.WalletService;
+import com.webshopx.core.RedisEventBridge;
+import com.webshopx.core.SharedHttpApi;
+import com.webshopx.core.WebShopXCoreRuntime;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.CapabilitySnapshot.Capability;
 import com.webshopx.platform.CapabilitySnapshot.CapabilityState;
@@ -17,12 +17,11 @@ import com.webshopx.platform.PlatformIdentity;
 import com.webshopx.platform.PlatformPorts;
 import com.webshopx.platform.PlatformResult;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -44,32 +43,46 @@ public final class LoaderRuntime {
   private static boolean nativeLifecycleInstalled;
   private static boolean shutdownHookInstalled;
 
-  private LoaderRuntime() { }
+  private LoaderRuntime() {}
 
   public static synchronized WebShopXCoreRuntime start(
       String loader, String minecraftVersion, String loaderVersion) {
     if (active != null && active.state() != WebShopXCoreRuntime.State.STOPPED) return active;
-    instanceGuard = RuntimeInstanceGuard.acquire(
-        Path.of(System.getProperty("webshopx.data-dir", "config/webshopx")), loader);
+    instanceGuard =
+        RuntimeInstanceGuard.acquire(
+            Path.of(System.getProperty("webshopx.data-dir", "config/webshopx")), loader);
     installShutdownHook();
     PlatformPorts.Bundle bundle = minimalBundle(loader, minecraftVersion, loaderVersion);
     try {
       if (!"paper".equals(loader)) {
         databaseRuntime = SharedDatabaseRuntime.start(bundle.paths().data());
-        deliveries = new NativeDeliveryCoordinator(databaseRuntime.commerce(), inventoryGateway,
-            itemCodec, scheduler, bundle.identity().serverId());
+        deliveries =
+            new NativeDeliveryCoordinator(
+                databaseRuntime.commerce(),
+                inventoryGateway,
+                itemCodec,
+                scheduler,
+                bundle.identity().serverId());
         if (Boolean.parseBoolean(System.getProperty("webshopx.http.enabled", "true"))) {
-          httpApi = new SharedHttpApi(
-              System.getProperty("webshopx.http.host", "127.0.0.1"),
-              Integer.getInteger("webshopx.http.port", 8123),
-              System.getProperty("webshopx.http.allowed-origin", ""),
-              databaseRuntime.authentication(), databaseRuntime.wallet(),
-              databaseRuntime.commerce(), databaseRuntime.promotions(), databaseRuntime.redeemCodes(),
-              databaseRuntime.notifications(), databaseRuntime.administration(),
-              databaseRuntime.audit(),
-              bundle.identity(), bundle.capabilities());
+          httpApi =
+              new SharedHttpApi(
+                  System.getProperty("webshopx.http.host", "127.0.0.1"),
+                  Integer.getInteger("webshopx.http.port", 8123),
+                  System.getProperty("webshopx.http.allowed-origin", ""),
+                  databaseRuntime.authentication(),
+                  databaseRuntime.wallet(),
+                  databaseRuntime.commerce(),
+                  databaseRuntime.content(),
+                  databaseRuntime.promotions(),
+                  databaseRuntime.redeemCodes(),
+                  databaseRuntime.notifications(),
+                  databaseRuntime.administration(),
+                  databaseRuntime.audit(),
+                  bundle.identity(),
+                  bundle.capabilities());
           httpApi.start();
-          System.out.printf("[WebShopX] HTTP API listening on %s:%d%n",
+          System.out.printf(
+              "[WebShopX] HTTP API listening on %s:%d%n",
               System.getProperty("webshopx.http.host", "127.0.0.1"), httpApi.port());
         }
       }
@@ -85,8 +98,10 @@ public final class LoaderRuntime {
       instanceGuard = null;
       throw failure;
     }
-    RuntimeHealth.write(bundle.paths().data(), bundle.identity(), bundle.capabilities(), active.state());
-    System.out.printf("[WebShopX] ready loader=%s minecraft=%s loaderVersion=%s domain=%s%n",
+    RuntimeHealth.write(
+        bundle.paths().data(), bundle.identity(), bundle.capabilities(), active.state());
+    System.out.printf(
+        "[WebShopX] ready loader=%s minecraft=%s loaderVersion=%s domain=%s%n",
         loader, minecraftVersion, loaderVersion, bundle.identity().modpackFingerprint());
     return active;
   }
@@ -117,7 +132,8 @@ public final class LoaderRuntime {
     if (active != null) {
       PlatformPorts.Bundle platform = active.platform();
       active.close();
-      RuntimeHealth.write(platform.paths().data(), platform.identity(), platform.capabilities(), active.state());
+      RuntimeHealth.write(
+          platform.paths().data(), platform.identity(), platform.capabilities(), active.state());
     }
     active = null;
     if (httpApi != null) httpApi.close();
@@ -179,8 +195,14 @@ public final class LoaderRuntime {
     WebShopXCoreRuntime runtime = active;
     if (runtime == null) return "WebShopX state=STOPPED";
     PlatformIdentity identity = runtime.platform().identity();
-    return "WebShopX state=" + runtime.state() + " platform=" + identity.platform()
-        + " minecraft=" + identity.minecraftVersion() + " loader=" + identity.loaderVersion();
+    return "WebShopX state="
+        + runtime.state()
+        + " platform="
+        + identity.platform()
+        + " minecraft="
+        + identity.minecraftVersion()
+        + " loader="
+        + identity.loaderVersion();
   }
 
   static String nativeItemProbe() {
@@ -197,32 +219,46 @@ public final class LoaderRuntime {
   }
 
   static PlatformPorts.Bundle minimalBundle(String loader, String minecraft, String loaderVersion) {
-    String fingerprint = CompatibilityDomain.fingerprint(List.of(
-        new CompatibilityDomain.ModIdentity("webshopx", "dev-v3.0.0")));
-    PlatformIdentity identity = new PlatformIdentity(
-        loader, loader, minecraft, loaderVersion,
-        System.getProperty("webshopx.server-id", "standalone"), fingerprint);
+    String fingerprint =
+        CompatibilityDomain.fingerprint(
+            List.of(new CompatibilityDomain.ModIdentity("webshopx", "dev-v3.0.0")));
+    PlatformIdentity identity =
+        new PlatformIdentity(
+            loader,
+            loader,
+            minecraft,
+            loaderVersion,
+            System.getProperty("webshopx.server-id", "standalone"),
+            fingerprint);
     EnumMap<Capability, CapabilityState> states = new EnumMap<>(Capability.class);
     for (Capability capability : Capability.values()) {
       states.put(capability, CapabilityState.unavailable("adapter not installed"));
     }
     states.put(Capability.RELAY, CapabilityState.available("core event contract"));
-    states.put(Capability.MOD_ITEM_CODEC,
+    states.put(
+        Capability.MOD_ITEM_CODEC,
         CapabilityState.available("lossless opaque native payload envelope"));
-    states.put(Capability.OFFLINE_INVENTORY,
+    states.put(
+        Capability.OFFLINE_INVENTORY,
         CapabilityState.available("atomic playerdata NBT compare-and-apply"));
-    states.put(Capability.PERMISSION,
+    states.put(
+        Capability.PERMISSION,
         CapabilityState.available("vanilla operator levels; online queries only"));
-    states.put(Capability.ECONOMY,
+    states.put(
+        Capability.ECONOMY,
         CapabilityState.unsupported("internal ShopCoin ledger only; no external economy adapter"));
-    states.put(Capability.PAYMENT_PROVIDER,
+    states.put(
+        Capability.PAYMENT_PROVIDER,
         CapabilityState.unsupported("no Loader payment provider registered"));
-    states.put(Capability.CLIENT_ENHANCEMENT,
+    states.put(
+        Capability.CLIENT_ENHANCEMENT,
         CapabilityState.unsupported("server-only release; use HTTP and commands"));
-    states.put(Capability.DATABASE,
-        CapabilityState.available(System.getProperty("webshopx.database.type", "sqlite")
-            + " database configured"));
-    states.put(Capability.HTTP_API,
+    states.put(
+        Capability.DATABASE,
+        CapabilityState.available(
+            System.getProperty("webshopx.database.type", "sqlite") + " database configured"));
+    states.put(
+        Capability.HTTP_API,
         Boolean.parseBoolean(System.getProperty("webshopx.http.enabled", "true"))
             ? CapabilityState.available("embedded authenticated HTTP API")
             : CapabilityState.unavailable("disabled by configuration"));
@@ -231,39 +267,60 @@ public final class LoaderRuntime {
     if (playerDirectory == null) playerDirectory = new NativePlayerDirectory(identity.serverId());
     if (!nativeLifecycleInstalled) lifecycle.fireReady();
     PlatformPorts.PlayerDirectory players = playerDirectory;
-    PlatformPorts.CommandGateway commands = command ->
-        new PlatformResult.Unavailable<>("commands", "native command adapter is unavailable", Duration.ZERO);
-    PlatformPorts.PermissionProvider permissions = new NativePermissionProvider(playerDirectory, scheduler);
+    PlatformPorts.CommandGateway commands =
+        command ->
+            new PlatformResult.Unavailable<>(
+                "commands", "native command adapter is unavailable", Duration.ZERO);
+    PlatformPorts.PermissionProvider permissions =
+        new NativePermissionProvider(playerDirectory, scheduler);
     PlatformPorts.EconomyProvider economy = new UnavailableEconomy();
-    PlatformPorts.MessagingGateway messaging = new NativeMessagingGateway(playerDirectory, scheduler);
+    PlatformPorts.MessagingGateway messaging =
+        new NativeMessagingGateway(playerDirectory, scheduler);
     PlatformPorts.EventPublisher events = event -> PlatformResult.success(null);
     if (Boolean.getBoolean("webshopx.redis.enabled")) {
       try {
-        redisEvents = new RedisEventBridge(
-            System.getProperty("webshopx.redis.host", "127.0.0.1"),
-            Integer.getInteger("webshopx.redis.port", 6379),
-            System.getProperty("webshopx.redis.password", ""),
-            System.getProperty("webshopx.redis.channel", "webshopx:events"),
-            incoming -> System.out.printf("[WebShopX] relay event id=%s type=%s source=%s%n",
-                incoming.id(), incoming.type(), incoming.serverId()));
+        redisEvents =
+            new RedisEventBridge(
+                System.getProperty("webshopx.redis.host", "127.0.0.1"),
+                Integer.getInteger("webshopx.redis.port", 6379),
+                System.getProperty("webshopx.redis.password", ""),
+                System.getProperty("webshopx.redis.channel", "webshopx:events"),
+                incoming ->
+                    System.out.printf(
+                        "[WebShopX] relay event id=%s type=%s source=%s%n",
+                        incoming.id(), incoming.type(), incoming.serverId()));
         events = redisEvents;
         states.put(Capability.REDIS, CapabilityState.available("Redis pub/sub connected"));
       } catch (RuntimeException failure) {
-        states.put(Capability.REDIS,
-            CapabilityState.unavailable("Redis connection failed: " + failure.getClass().getSimpleName()));
+        states.put(
+            Capability.REDIS,
+            CapabilityState.unavailable(
+                "Redis connection failed: " + failure.getClass().getSimpleName()));
       }
     }
     CapabilitySnapshot capabilities = new CapabilitySnapshot(Instant.now(), states);
     Path base = Path.of(System.getProperty("webshopx.data-dir", "config/webshopx"));
-    NativeItemCodec items = new NativeItemCodec(identity, scheduler::nativeServer, Clock.systemUTC());
+    NativeItemCodec items =
+        new NativeItemCodec(identity, scheduler::nativeServer, Clock.systemUTC());
     itemCodec = items;
     NativeInventoryGateway inventories =
         new NativeInventoryGateway(playerDirectory, scheduler, items, identity);
     inventoryGateway = inventories;
-    return new PlatformPorts.Bundle(lifecycle, scheduler, players, inventories, items, commands,
-        permissions, economy, messaging, events,
-        new PlatformPorts.Paths(base, base, base.resolve("web"), base.resolve("uploads"), base.resolve("logs")),
-        identity, capabilities);
+    return new PlatformPorts.Bundle(
+        lifecycle,
+        scheduler,
+        players,
+        inventories,
+        items,
+        commands,
+        permissions,
+        economy,
+        messaging,
+        events,
+        new PlatformPorts.Paths(
+            base, base, base.resolve("web"), base.resolve("uploads"), base.resolve("logs")),
+        identity,
+        capabilities);
   }
 
   static synchronized void nativeServerStarted(Object server) {
@@ -272,7 +329,8 @@ public final class LoaderRuntime {
       scheduler.bind(server);
       lifecycle.fireReady();
       PlatformPorts.Bundle platform = active.platform();
-      RuntimeHealth.write(platform.paths().data(), platform.identity(), platform.capabilities(), active.state());
+      RuntimeHealth.write(
+          platform.paths().data(), platform.identity(), platform.capabilities(), active.state());
       System.out.println("[WebShopX] native server lifecycle ready");
     } catch (RuntimeException failure) {
       System.err.printf("[WebShopX] native server binding failed: %s%n", failure);
@@ -286,29 +344,37 @@ public final class LoaderRuntime {
   static void nativePlayerJoined(Object eventOrHandler) {
     NativePlayerDirectory current = playerDirectory;
     if (current == null) return;
-    current.joined(eventOrHandler).ifPresent(player -> {
-      SharedDatabaseRuntime database = databaseRuntime;
-      if (database != null) database.presence().markOnline(player.id(), player.name());
-      NativeDeliveryCoordinator coordinator = deliveries;
-      if (coordinator != null) coordinator.deliverPending(player.id());
-    });
+    current
+        .joined(eventOrHandler)
+        .ifPresent(
+            player -> {
+              SharedDatabaseRuntime database = databaseRuntime;
+              if (database != null) database.presence().markOnline(player.id(), player.name());
+              NativeDeliveryCoordinator coordinator = deliveries;
+              if (coordinator != null) coordinator.deliverPending(player.id());
+            });
   }
 
   static void nativePlayerDisconnected(Object eventOrHandler) {
     NativePlayerDirectory current = playerDirectory;
     if (current == null) return;
-    current.disconnected(eventOrHandler).ifPresent(player -> {
-      SharedDatabaseRuntime database = databaseRuntime;
-      if (database != null) database.presence().markOffline(player.id());
-    });
+    current
+        .disconnected(eventOrHandler)
+        .ifPresent(
+            player -> {
+              SharedDatabaseRuntime database = databaseRuntime;
+              if (database != null) database.presence().markOffline(player.id());
+            });
   }
 
   private static void prepareNativeState() {
-    if (active != null) throw new IllegalStateException("native lifecycle must be prepared before runtime start");
+    if (active != null)
+      throw new IllegalStateException("native lifecycle must be prepared before runtime start");
     if (lifecycle == null) lifecycle = new LoaderLifecycle();
     if (scheduler == null) scheduler = new LoaderScheduler();
     if (playerDirectory == null) {
-      playerDirectory = new NativePlayerDirectory(System.getProperty("webshopx.server-id", "standalone"));
+      playerDirectory =
+          new NativePlayerDirectory(System.getProperty("webshopx.server-id", "standalone"));
     }
   }
 
@@ -319,13 +385,29 @@ public final class LoaderRuntime {
   private static final class UnavailableEconomy implements PlatformPorts.EconomyProvider {
     private static final PlatformPorts.EconomyCapabilities CAPS =
         new PlatformPorts.EconomyCapabilities(0, false, false, false, false, false);
-    public PlatformPorts.EconomyCapabilities capabilities() { return CAPS; }
-    public CompletionStage<PlatformResult<java.math.BigInteger>> balance(UUID id, String currency) { return unavailable(); }
-    public CompletionStage<PlatformResult<java.math.BigInteger>> debit(UUID id, String currency, java.math.BigInteger amount, String op) { return unavailable(); }
-    public CompletionStage<PlatformResult<java.math.BigInteger>> credit(UUID id, String currency, java.math.BigInteger amount, String op) { return unavailable(); }
+
+    public PlatformPorts.EconomyCapabilities capabilities() {
+      return CAPS;
+    }
+
+    public CompletionStage<PlatformResult<java.math.BigInteger>> balance(UUID id, String currency) {
+      return unavailable();
+    }
+
+    public CompletionStage<PlatformResult<java.math.BigInteger>> debit(
+        UUID id, String currency, java.math.BigInteger amount, String op) {
+      return unavailable();
+    }
+
+    public CompletionStage<PlatformResult<java.math.BigInteger>> credit(
+        UUID id, String currency, java.math.BigInteger amount, String op) {
+      return unavailable();
+    }
+
     private CompletionStage<PlatformResult<java.math.BigInteger>> unavailable() {
-      return CompletableFuture.completedFuture(new PlatformResult.Unavailable<>(
-          "economy", "economy provider is unavailable", Duration.ZERO));
+      return CompletableFuture.completedFuture(
+          new PlatformResult.Unavailable<>(
+              "economy", "economy provider is unavailable", Duration.ZERO));
     }
   }
 }

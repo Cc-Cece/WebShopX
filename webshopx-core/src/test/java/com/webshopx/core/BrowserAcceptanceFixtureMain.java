@@ -11,6 +11,7 @@ import com.webshopx.RedeemCodeService;
 import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceCheckoutAdapter;
 import com.webshopx.SharedCommerceService;
+import com.webshopx.SharedContentService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
@@ -74,6 +75,7 @@ public final class BrowserAcceptanceFixtureMain {
               auth,
               wallets,
               commerce,
+              new SharedContentService(database),
               new SharedPromotionService(
                   database, wallets, new SharedCommerceCheckoutAdapter(commerce, "browser-node")),
               new RedeemCodeService(database, wallets),

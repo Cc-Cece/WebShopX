@@ -12,6 +12,7 @@ import com.webshopx.RedeemCodeService;
 import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceCheckoutAdapter;
 import com.webshopx.SharedCommerceService;
+import com.webshopx.SharedContentService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.WalletService;
 import java.nio.file.Path;
@@ -29,6 +30,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
   private final AdminService administration;
   private final AdminAuditService audit;
   private final SharedCommerceService commerce;
+  private final SharedContentService content;
   private final NotificationService notifications;
   private final SharedPromotionService promotions;
 
@@ -41,6 +43,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
       AdminService administration,
       AdminAuditService audit,
       SharedCommerceService commerce,
+      SharedContentService content,
       NotificationService notifications,
       SharedPromotionService promotions) {
     this.database = database;
@@ -51,6 +54,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
     this.administration = administration;
     this.audit = audit;
     this.commerce = commerce;
+    this.content = content;
     this.notifications = notifications;
     this.promotions = promotions;
   }
@@ -100,6 +104,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
             System.getProperty("webshopx.admin.bootstrap.role", "SUPER_ADMIN")));
     AdminAuditService audit = new AdminAuditService(database);
     SharedCommerceService commerce = new SharedCommerceService(database, wallet);
+    SharedContentService content = new SharedContentService(database);
     NotificationService notifications = new NotificationService(database);
     SharedPromotionService promotions =
         new SharedPromotionService(
@@ -113,6 +118,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
         administration,
         audit,
         commerce,
+        content,
         notifications,
         promotions);
   }
@@ -143,6 +149,10 @@ final class SharedDatabaseRuntime implements AutoCloseable {
 
   SharedCommerceService commerce() {
     return commerce;
+  }
+
+  SharedContentService content() {
+    return content;
   }
 
   NotificationService notifications() {

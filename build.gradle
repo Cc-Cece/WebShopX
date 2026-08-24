@@ -198,6 +198,7 @@ sourceSets {
             exclude 'com/webshopx/SchemaManager.java'
             exclude 'com/webshopx/SchemaProvider.java'
             exclude 'com/webshopx/SharedCommerceService.java'
+            exclude 'com/webshopx/SharedContentService.java'
             exclude 'com/webshopx/SqliteDialect.java'
             exclude 'com/webshopx/SqliteSqlProvider.java'
             exclude 'com/webshopx/SqliteSchemaProvider.java'

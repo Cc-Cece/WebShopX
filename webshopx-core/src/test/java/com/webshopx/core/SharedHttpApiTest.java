@@ -18,6 +18,7 @@ import com.webshopx.RedeemCodeService;
 import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceCheckoutAdapter;
 import com.webshopx.SharedCommerceService;
+import com.webshopx.SharedContentService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
@@ -106,6 +107,7 @@ class SharedHttpApiTest {
             auth,
             wallets,
             commerce,
+            new SharedContentService(database),
             new SharedPromotionService(
                 database, wallets, new SharedCommerceCheckoutAdapter(commerce, "node-a")),
             new RedeemCodeService(database, wallets),
@@ -249,12 +251,33 @@ class SharedHttpApiTest {
     assertTrue(loginJson.has("token"));
     assertTrue(loginJson.has("admin"));
     String token = loginJson.get("token").getAsString();
+    assertFalse(
+        JsonParser.parseString(get("/api/homepage", null).body())
+            .getAsJsonObject()
+            .get("enabled")
+            .getAsBoolean());
+    assertEquals(200, get("/api/homepage/status", null).statusCode());
+    assertEquals(200, get("/api/admin/homepage/draft", token).statusCode());
+    HttpResponse<String> savedHomepage =
+        put(
+            "/api/admin/homepage/draft",
+            "{\"schemaVersion\":2,\"enabled\":true,\"site\":{},\"theme\":{},"
+                + "\"sections\":[{\"id\":\"hero\",\"type\":\"hero\"}]}",
+            token);
+    assertEquals(200, savedHomepage.statusCode(), savedHomepage.body());
+    assertEquals(200, post("/api/admin/homepage/publish", "{}", token, null).statusCode());
+    assertTrue(
+        JsonParser.parseString(get("/api/homepage", null).body())
+            .getAsJsonObject()
+            .get("enabled")
+            .getAsBoolean());
+    assertEquals(200, get("/api/admin/homepage/revisions", token).statusCode());
+    assertEquals(200, get("/api/admin/homepage/assets", token).statusCode());
     assertEquals(200, get("/api/admin/auth/me", token).statusCode());
     assertEquals(200, get("/api/admin/users/list", token).statusCode());
     HttpResponse<String> lookup = get("/api/admin/users/lookup?identifier=SupportTarget", token);
     assertEquals(200, lookup.statusCode(), lookup.body());
-    long targetId =
-        JsonParser.parseString(lookup.body()).getAsJsonObject().get("id").getAsLong();
+    long targetId = JsonParser.parseString(lookup.body()).getAsJsonObject().get("id").getAsLong();
     assertEquals(
         200,
         post(
@@ -343,6 +366,15 @@ class SharedHttpApiTest {
             .POST(HttpRequest.BodyPublishers.ofString(body));
     if (token != null) request.header("Authorization", "Bearer " + token);
     if (origin != null) request.header("Origin", origin);
+    return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+  }
+
+  private HttpResponse<String> put(String path, String body, String token) throws Exception {
+    HttpRequest.Builder request =
+        HttpRequest.newBuilder(URI.create(base + path))
+            .header("Content-Type", "application/json")
+            .PUT(HttpRequest.BodyPublishers.ofString(body));
+    if (token != null) request.header("Authorization", "Bearer " + token);
     return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
   }
 }

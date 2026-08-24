@@ -19,6 +19,7 @@ import com.webshopx.SharedCommerceService;
 import com.webshopx.SharedCommerceService.ProductInput;
 import com.webshopx.SharedCommerceService.ProductKind;
 import com.webshopx.SharedCommerceService.PurchaseRequest;
+import com.webshopx.SharedContentService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
@@ -44,6 +45,7 @@ public final class SharedHttpApi implements AutoCloseable {
   private final AuthService auth;
   private final WalletService wallets;
   private final SharedCommerceService commerce;
+  private final SharedContentService content;
   private final SharedPromotionService promotions;
   private final RedeemCodeService redeemCodes;
   private final NotificationService notifications;
@@ -63,6 +65,7 @@ public final class SharedHttpApi implements AutoCloseable {
       AuthService auth,
       WalletService wallets,
       SharedCommerceService commerce,
+      SharedContentService content,
       SharedPromotionService promotions,
       RedeemCodeService redeemCodes,
       NotificationService notifications,
@@ -73,6 +76,7 @@ public final class SharedHttpApi implements AutoCloseable {
     this.auth = Objects.requireNonNull(auth, "auth");
     this.wallets = Objects.requireNonNull(wallets, "wallets");
     this.commerce = Objects.requireNonNull(commerce, "commerce");
+    this.content = Objects.requireNonNull(content, "content");
     this.promotions = Objects.requireNonNull(promotions, "promotions");
     this.redeemCodes = Objects.requireNonNull(redeemCodes, "redeemCodes");
     this.notifications = Objects.requireNonNull(notifications, "notifications");
@@ -309,6 +313,19 @@ public final class SharedHttpApi implements AutoCloseable {
                 ? notifications.markAllRead(current.id())
                 : notifications.markRead(current.id(), requiredLong(input, "notificationId"));
         respond(exchange, 200, Map.of("updated", changed));
+      } else if (path.equals("/api/homepage") && method(exchange, "GET")) {
+        respond(exchange, 200, content.homepage());
+      } else if (path.equals("/api/homepage/status") && method(exchange, "GET")) {
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "online",
+                true,
+                "minecraftVersion",
+                identity.minecraftVersion(),
+                "platform",
+                identity.platform()));
       } else if (path.equals("/api/cart") && method(exchange, "GET")) {
         respond(exchange, 200, promotions.cart(user(exchange).id()));
       } else if (path.equals("/api/cart/lines/add") && method(exchange, "POST")) {
@@ -654,6 +671,55 @@ public final class SharedHttpApi implements AutoCloseable {
                 "created",
                 notifications.createSystemAnnouncement(
                     requiredString(input, "title"), requiredString(input, "content"))));
+      } else if (path.equals("/api/admin/homepage/draft") && method(exchange, "GET")) {
+        administration.requireAdmin(user(exchange), AdminPermission.HOMEPAGE_MANAGE);
+        respond(exchange, 200, content.homepageDraft());
+      } else if (path.equals("/api/admin/homepage/draft") && method(exchange, "PUT")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.HOMEPAGE_MANAGE);
+        JsonObject document =
+            input.has("document") && input.get("document").isJsonObject()
+                ? input.getAsJsonObject("document")
+                : input;
+        JsonObject saved = content.saveHomepageDraft(document, actor.username());
+        audit.log(
+            actor,
+            "HOMEPAGE_DRAFT_SAVE",
+            "homepage",
+            saved.get("id").getAsString(),
+            new JsonObject(),
+            clientIp(exchange));
+        respond(exchange, 200, saved);
+      } else if (path.equals("/api/admin/homepage/publish") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.HOMEPAGE_MANAGE);
+        JsonObject published = content.publishHomepage(actor.username());
+        audit.log(
+            actor,
+            "HOMEPAGE_PUBLISH",
+            "homepage",
+            published.get("id").getAsString(),
+            new JsonObject(),
+            clientIp(exchange));
+        respond(exchange, 200, published);
+      } else if (path.equals("/api/admin/homepage/revisions") && method(exchange, "GET")) {
+        administration.requireAdmin(user(exchange), AdminPermission.HOMEPAGE_MANAGE);
+        respond(exchange, 200, content.homepageRevisions());
+      } else if (path.equals("/api/admin/homepage/restore") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.HOMEPAGE_MANAGE);
+        String revisionId = requiredString(input, "revisionId");
+        JsonObject restored = content.restoreHomepage(revisionId, actor.username());
+        audit.log(
+            actor,
+            "HOMEPAGE_RESTORE",
+            "homepage",
+            revisionId,
+            new JsonObject(),
+            clientIp(exchange));
+        respond(exchange, 200, restored);
+      } else if (path.equals("/api/admin/homepage/assets") && method(exchange, "GET")) {
+        administration.requireAdmin(user(exchange), AdminPermission.HOMEPAGE_MANAGE);
+        respond(exchange, 200, content.homepageAssets());
       } else if (path.equals("/api/admin/promotions/list") && method(exchange, "GET")) {
         var actor = user(exchange);
         administration.requireAdmin(actor, AdminPermission.PROMOTION_VIEW);
