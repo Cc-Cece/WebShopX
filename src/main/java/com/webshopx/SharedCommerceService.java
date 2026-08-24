@@ -13,6 +13,7 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -585,7 +586,7 @@ public final class SharedCommerceService {
                         0,
                         result.getString(8),
                         instant(result, 11),
-                        true,
+                        !"PROCESSING".equals(result.getString(8)),
                         false,
                         "PRODUCT_NOT_REFUNDABLE",
                         result.getString(7),
@@ -593,7 +594,50 @@ public final class SharedCommerceService {
                         instant(result, 10),
                         item.payloadHash()));
               }
-              return List.copyOf(values);
+              String marketSql =
+                  "SELECT id,listing_id,trade_id,delivery_type,item_blob,quantity,"
+                      + "delivered_quantity,status,last_error,claimed_at,created_at"
+                      + " FROM market_item_deliveries WHERE target_user_id=?"
+                      + " AND status IN ('PENDING','RETRY','PARTIAL','PROCESSING')"
+                      + (cursor == null ? "" : " AND id<?")
+                      + " ORDER BY id DESC LIMIT ?";
+              try (PreparedStatement market = connection.prepareStatement(marketSql)) {
+                int marketParameter = 1;
+                market.setLong(marketParameter++, userId);
+                if (cursor != null) market.setLong(marketParameter++, cursor);
+                market.setInt(marketParameter, limit);
+                try (ResultSet delivery = market.executeQuery()) {
+                  while (delivery.next()) {
+                    ItemEnvelope item = envelopes.decode(delivery.getBytes(5));
+                    values.add(
+                        new MailboxEntry(
+                            "MARKET:" + delivery.getLong(1),
+                            "ITEM",
+                            "MARKET_" + delivery.getString(4),
+                            delivery.getObject(3) == null
+                                ? "listing:" + delivery.getLong(2)
+                                : "trade:" + delivery.getLong(3),
+                            item.registryId(),
+                            item.registryId(),
+                            delivery.getInt(6),
+                            delivery.getInt(7),
+                            0,
+                            delivery.getString(8),
+                            instant(delivery, 11),
+                            !"PROCESSING".equals(delivery.getString(8)),
+                            false,
+                            "MARKET_DELIVERY_NOT_REFUNDABLE",
+                            delivery.getString(4),
+                            delivery.getString(9),
+                            instant(delivery, 10),
+                            item.payloadHash()));
+                  }
+                }
+              }
+              return values.stream()
+                  .sorted(Comparator.comparing(MailboxEntry::createdAt).reversed())
+                  .limit(limit)
+                  .toList();
             }
           }
         });
@@ -607,8 +651,18 @@ public final class SharedCommerceService {
                   "SELECT COUNT(*) FROM mailbox_items WHERE user_id=?"
                       + " AND status IN ('PENDING','PARTIAL','PROCESSING')")) {
             statement.setLong(1, userId);
+            int standalone;
             try (ResultSet result = statement.executeQuery()) {
-              return result.next() ? result.getInt(1) : 0;
+              standalone = result.next() ? result.getInt(1) : 0;
+            }
+            try (PreparedStatement market =
+                connection.prepareStatement(
+                    "SELECT COUNT(*) FROM market_item_deliveries WHERE target_user_id=?"
+                        + " AND status IN ('PENDING','RETRY','PARTIAL','PROCESSING')")) {
+              market.setLong(1, userId);
+              try (ResultSet result = market.executeQuery()) {
+                return standalone + (result.next() ? result.getInt(1) : 0);
+              }
             }
           }
         });

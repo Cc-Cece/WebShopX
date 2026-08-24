@@ -578,6 +578,41 @@ class SharedHttpApiTest {
             .getAsJsonObject()
             .get("gameCoin")
             .getAsInt());
+    JsonObject buyerMailbox =
+        JsonParser.parseString(get("/api/mailbox/list", buyerToken).body()).getAsJsonObject();
+    assertEquals(1, buyerMailbox.get("count").getAsInt());
+    String marketEntryId =
+        buyerMailbox
+            .getAsJsonArray("items")
+            .get(0)
+            .getAsJsonObject()
+            .get("id")
+            .getAsString();
+    assertTrue(marketEntryId.startsWith("MARKET:"));
+    assertEquals(
+        200,
+        post("/api/mailbox/" + marketEntryId + "/claim", "{}", buyerToken, null)
+            .statusCode());
+    assertEquals(
+        200,
+        post("/api/mailbox/" + marketEntryId + "/claim", "{}", buyerToken, null)
+            .statusCode());
+    assertEquals(
+        0,
+        JsonParser.parseString(get("/api/mailbox/count", buyerToken).body())
+            .getAsJsonObject()
+            .get("count")
+            .getAsInt());
+    int buyerInventoryTotal =
+        ((com.webshopx.platform.PlatformResult.Success<
+                    com.webshopx.platform.InventoryTypes.InventorySnapshot>)
+                inventories.snapshot(supportTargetUuid, false).toCompletableFuture().join())
+            .value()
+            .items()
+            .stream()
+            .mapToInt(com.webshopx.platform.ItemEnvelope::count)
+            .sum();
+    assertEquals(1, buyerInventoryTotal);
     JsonObject trend =
         JsonParser.parseString(
                 get("/api/market/price-trend?listingId=" + listingId, buyerToken).body())

@@ -15,6 +15,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -233,6 +234,9 @@ public final class SharedMarketEscrowService {
   }
 
   public MailboxClaimResult claimMailbox(MailboxClaimRequest request) {
+    if (request.entryId() != null && request.entryId().startsWith("MARKET:")) {
+      return claimMarketMailbox(request, marketMailboxId(request.entryId()));
+    }
     long mailboxId = mailboxId(request.entryId());
     MailboxItem item = beginMailboxClaim(request.userId(), mailboxId);
     if (item.alreadyClaimed()) return new MailboxClaimResult(request.entryId(), 1, 0);
@@ -287,6 +291,129 @@ public final class SharedMarketEscrowService {
           return null;
         });
     return new MailboxClaimResult(request.entryId(), 1, remainder == 0 ? 0 : 1);
+  }
+
+  private MailboxClaimResult claimMarketMailbox(MailboxClaimRequest request, long deliveryId) {
+    MailboxItem item = beginMarketMailboxClaim(request.userId(), deliveryId);
+    if (item.alreadyClaimed()) return new MailboxClaimResult(request.entryId(), 1, 0);
+    ItemEnvelope delivery = withCount(item.item(), item.remaining());
+    InventorySnapshot snapshot = snapshot(request.playerId(), true);
+    PlatformResult<InventoryMutationResult> result;
+    try {
+      result =
+          inventories
+              .compareAndApply(
+                  new InventoryMutation(
+                      "market-mailbox-claim:" + deliveryId + ":" + item.deliveredQuantity(),
+                      request.playerId(),
+                      snapshot.version(),
+                      List.of(delivery),
+                      List.of()))
+              .toCompletableFuture()
+              .get(INVENTORY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    } catch (Exception failure) {
+      throw new ServiceException(
+          "inventory_outcome_unknown", "Market delivery requires reconciliation");
+    }
+    if (!(result instanceof PlatformResult.Success<InventoryMutationResult> success)) {
+      restoreMarketMailboxPending(deliveryId, resultCode(result));
+      throw platformFailure(result);
+    }
+    int remainder = success.value().remainder().stream().mapToInt(ItemEnvelope::count).sum();
+    int deliveredNow = item.remaining() - remainder;
+    if (deliveredNow < 1) {
+      restoreMarketMailboxPending(deliveryId, "inventory_full");
+      return new MailboxClaimResult(request.entryId(), 0, 1);
+    }
+    database.inTransaction(
+        connection -> {
+          int deliveredTotal = item.deliveredQuantity() + deliveredNow;
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE market_item_deliveries SET delivered_quantity=?,status=?,last_error=?,"
+                      + "delivered_at=CASE WHEN ?>=quantity THEN CURRENT_TIMESTAMP ELSE delivered_at END"
+                      + " WHERE id=? AND target_user_id=? AND status='PROCESSING'")) {
+            statement.setInt(1, deliveredTotal);
+            statement.setString(2, remainder == 0 ? "DELIVERED" : "PARTIAL");
+            statement.setString(3, remainder == 0 ? null : "inventory_partial");
+            statement.setInt(4, deliveredTotal);
+            statement.setLong(5, deliveryId);
+            statement.setLong(6, request.userId());
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException(
+                  "inventory_outcome_unknown", "Market delivery requires reconciliation");
+            }
+          }
+          return null;
+        });
+    return new MailboxClaimResult(request.entryId(), 1, remainder == 0 ? 0 : 1);
+  }
+
+  private MailboxItem beginMarketMailboxClaim(long userId, long deliveryId) {
+    return database.inTransaction(
+        connection -> {
+          MailboxItem item;
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT item_blob,quantity,delivered_quantity,status"
+                      + " FROM market_item_deliveries WHERE id=? AND target_user_id=?")) {
+            statement.setLong(1, deliveryId);
+            statement.setLong(2, userId);
+            try (ResultSet result = statement.executeQuery()) {
+              if (!result.next()) {
+                throw new ServiceException("mailbox_entry_missing", "Mailbox entry was not found");
+              }
+              int quantity = result.getInt(2);
+              int delivered = result.getInt(3);
+              String status = result.getString(4);
+              if ("DELIVERED".equals(status)) {
+                return new MailboxItem(null, quantity, delivered, 0, true);
+              }
+              if ("PROCESSING".equals(status)) {
+                throw new ServiceException(
+                    "inventory_outcome_unknown", "Market delivery requires reconciliation");
+              }
+              if (!Set.of("PENDING", "RETRY", "PARTIAL").contains(status)) {
+                throw new ServiceException("mailbox_entry_unavailable", "Mailbox item is unavailable");
+              }
+              item =
+                  new MailboxItem(
+                      envelopes.decode(result.getBytes(1)),
+                      quantity,
+                      delivered,
+                      Math.max(0, quantity - delivered),
+                      false);
+            }
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE market_item_deliveries SET status='PROCESSING',last_error=NULL,"
+                      + "claimed_at=CURRENT_TIMESTAMP WHERE id=? AND target_user_id=?"
+                      + " AND status IN ('PENDING','RETRY','PARTIAL')")) {
+            statement.setLong(1, deliveryId);
+            statement.setLong(2, userId);
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException("mailbox_conflict", "Mailbox item changed concurrently");
+            }
+          }
+          return item;
+        });
+  }
+
+  private void restoreMarketMailboxPending(long deliveryId, String error) {
+    database.inTransaction(
+        connection -> {
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE market_item_deliveries SET status=CASE WHEN delivered_quantity=0"
+                      + " THEN 'PENDING' ELSE 'PARTIAL' END,last_error=?"
+                      + " WHERE id=? AND status='PROCESSING'")) {
+            statement.setString(1, error);
+            statement.setLong(2, deliveryId);
+            statement.executeUpdate();
+          }
+          return null;
+        });
   }
 
   private MailboxItem beginMailboxClaim(long userId, long mailboxId) {
@@ -361,6 +488,14 @@ public final class SharedMarketEscrowService {
     try {
       return Long.parseLong(entryId.substring("MAILBOX:".length()));
     } catch (NumberFormatException failure) {
+      throw new ServiceException("mailbox_entry_missing", "Mailbox entry was not found");
+    }
+  }
+
+  private static long marketMailboxId(String entryId) {
+    try {
+      return Long.parseLong(entryId.substring("MARKET:".length()));
+    } catch (RuntimeException failure) {
       throw new ServiceException("mailbox_entry_missing", "Mailbox entry was not found");
     }
   }
