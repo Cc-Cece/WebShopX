@@ -53,8 +53,14 @@ final class LoaderEnvironment {
 
   private static Version modernNeoForge() throws ReflectiveOperationException {
     Class<?> loader = Class.forName("net.neoforged.fml.loading.FMLLoader");
-    Object current = loader.getMethod("getCurrent").invoke(null);
-    Object info = loader.getMethod("getVersionInfo").invoke(current);
+    Object info;
+    try {
+      Object current = loader.getMethod("getCurrent").invoke(null);
+      info = loader.getMethod("getVersionInfo").invoke(current);
+    } catch (NoSuchMethodException legacyModernApi) {
+      // NeoForge 20.2 exposes VersionInfo directly; 21+ moved it behind getCurrent().
+      info = loader.getMethod("versionInfo").invoke(null);
+    }
     return new Version(invokeString(info, "mcVersion"), invokeString(info, "neoForgeVersion"));
   }
 

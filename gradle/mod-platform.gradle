@@ -94,11 +94,15 @@ tasks.register('verifyLoaderMetadata') {
         try {
             def names = zip.entries().collect { it.name } as Set
             def expected = project.ext.metadataPath
-            if (!names.contains(expected)) {
-                throw new GradleException("${artifact.name} is missing ${expected}")
+            def compatibility = project.ext.has('compatibilityMetadataPaths')
+                    ? project.ext.compatibilityMetadataPaths as Set : [] as Set
+            def requiredMetadata = ([expected] + compatibility) as Set
+            def missingMetadata = requiredMetadata.findAll { !names.contains(it) }
+            if (!missingMetadata.isEmpty()) {
+                throw new GradleException("${artifact.name} is missing Loader metadata: ${missingMetadata}")
             }
             def forbidden = ['fabric.mod.json', 'META-INF/mods.toml', 'META-INF/neoforge.mods.toml']
-                    .findAll { it != expected && names.contains(it) }
+                    .findAll { !requiredMetadata.contains(it) && names.contains(it) }
             if (!forbidden.isEmpty()) {
                 throw new GradleException("${artifact.name} contains foreign Loader metadata: ${forbidden}")
             }
