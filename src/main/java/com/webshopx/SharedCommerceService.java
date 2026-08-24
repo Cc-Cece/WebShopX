@@ -79,6 +79,52 @@ public final class SharedCommerceService {
         });
   }
 
+  public ProductQuote quoteProduct(long productId, int quantity) {
+    if (quantity < 1) throw new ServiceException("invalid_quantity", "Quantity is invalid");
+    Product product = product(productId);
+    if (!product.active()) throw new ServiceException("product_inactive", "Product is inactive");
+    if (product.stockRemaining() != null && product.stockRemaining() < quantity) {
+      throw new ServiceException("insufficient_stock", "Product stock is insufficient");
+    }
+    long total = Math.multiplyExact(product.price(), quantity);
+    return new ProductQuote(
+        product.id(),
+        product.price(),
+        product.price(),
+        product.price(),
+        product.price(),
+        quantity,
+        total,
+        0L,
+        0L);
+  }
+
+  public List<ProductPricePoint> productPriceTrend(long productId, int limit) {
+    int boundedLimit = Math.max(1, Math.min(limit, 80));
+    return database.withConnection(
+        connection -> {
+          readProduct(connection, productId);
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT oi.id,oi.unit_price,oi.quantity,o.created_at FROM order_items oi"
+                      + " JOIN orders o ON o.id=oi.order_id WHERE oi.product_id=?"
+                      + " AND UPPER(o.status)<>'REFUNDED' ORDER BY oi.id DESC LIMIT ?")) {
+            statement.setLong(1, productId);
+            statement.setInt(2, boundedLimit);
+            try (ResultSet result = statement.executeQuery()) {
+              List<ProductPricePoint> values = new ArrayList<>();
+              while (result.next()) {
+                values.add(
+                    new ProductPricePoint(
+                        result.getLong(1), result.getLong(2), result.getInt(3), instant(result, 4)));
+              }
+              java.util.Collections.reverse(values);
+              return List.copyOf(values);
+            }
+          }
+        });
+  }
+
   public Purchase purchase(PurchaseRequest request) {
     if (request.quantity() < 1 || request.quantity() > 100_000) {
       throw new ServiceException("invalid_quantity", "Quantity is invalid");
@@ -1516,6 +1562,19 @@ public final class SharedCommerceService {
       String registryId,
       Integer stockRemaining,
       boolean active) {}
+
+  public record ProductQuote(
+      long productId,
+      long firstUnitPrice,
+      long lastUnitPrice,
+      long averageUnitPrice,
+      long nextUnitPrice,
+      int quantity,
+      long totalAmount,
+      long currentDemandScore,
+      long nextDemandScore) {}
+
+  public record ProductPricePoint(long orderItemId, long price, int quantity, Instant createdAt) {}
 
   public record PurchaseRequest(
       long userId,

@@ -212,7 +212,39 @@ public final class SharedHttpApi implements AutoCloseable {
             200,
             redeemCodes.redeem(current.id(), requiredString(body(exchange), "code")));
       } else if (path.equals("/api/products") && method(exchange, "GET")) {
-        respond(exchange, 200, commerce.products(false));
+        respond(
+            exchange,
+            200,
+            Map.of("products", commerce.products(false).stream().map(SharedHttpApi::productJson).toList()));
+      } else if (path.equals("/api/products/quote") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var quote =
+            commerce.quoteProduct(
+                requiredLong(input, "productId"), optionalInt(input, "quantity", 1));
+        JsonObject response = new JsonObject();
+        response.addProperty("productId", quote.productId());
+        response.addProperty("dynamicPricingMode", "ORDER_FIXED");
+        response.addProperty("firstUnitPrice", quote.firstUnitPrice());
+        response.addProperty("lastUnitPrice", quote.lastUnitPrice());
+        response.addProperty("averageUnitPrice", quote.averageUnitPrice());
+        response.addProperty("unitPrice", quote.averageUnitPrice());
+        response.addProperty("nextUnitPrice", quote.nextUnitPrice());
+        response.addProperty("quantity", quote.quantity());
+        response.addProperty("totalAmount", quote.totalAmount());
+        response.addProperty("totalPrice", quote.totalAmount());
+        response.addProperty("currentDemandScore", quote.currentDemandScore());
+        response.addProperty("nextDemandScore", quote.nextDemandScore());
+        respond(exchange, 200, response);
+      } else if (path.equals("/api/products/price-trend") && method(exchange, "GET")) {
+        long productId = Long.parseLong(requiredQuery(exchange, "productId"));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "productId",
+                productId,
+                "history",
+                commerce.productPriceTrend(productId, queryInt(exchange, "limit", 30))));
       } else if (path.equals("/api/orders") && method(exchange, "POST")) {
         var user = user(exchange);
         if (user.boundUuid() == null) throw new ServiceException("not_bound", "User is not bound");
@@ -544,6 +576,45 @@ public final class SharedHttpApi implements AutoCloseable {
                 identity.minecraftVersion(),
                 "platform",
                 identity.platform()));
+      } else if (path.equals("/api/leaderboard/config") && method(exchange, "GET")) {
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "leaderboard",
+                Map.of(
+                    "enabled", true,
+                    "showOnlineStatus", false,
+                    "defaultMetric", "SHOP_COIN",
+                    "defaultOrder", "DESC")));
+      } else if (path.equals("/api/leaderboard/list") && method(exchange, "GET")) {
+        Long viewer =
+            auth.findUserBySession(token(exchange)).map(AuthService.AuthUser::id).orElse(null);
+        var result =
+            content.leaderboard(
+                query(exchange, "metric"),
+                query(exchange, "order"),
+                query(exchange, "range"),
+                queryInt(exchange, "limit", 100),
+                viewer);
+        JsonObject response = new JsonObject();
+        response.add(
+            "leaderboard",
+            gson.toJsonTree(
+                Map.of(
+                    "enabled", true,
+                    "showOnlineStatus", false,
+                    "defaultMetric", "SHOP_COIN",
+                    "defaultOrder", "DESC")));
+        response.addProperty("metric", result.metric());
+        response.addProperty("order", result.order());
+        response.addProperty("requestedRange", result.requestedRange());
+        response.addProperty("effectiveRange", result.effectiveRange());
+        response.addProperty("total", result.total());
+        if (result.myRank() == null) response.add("myRank", JsonNull.INSTANCE);
+        else response.addProperty("myRank", result.myRank());
+        response.add("entries", gson.toJsonTree(result.entries()));
+        respond(exchange, 200, response);
       } else if (path.equals("/api/cart") && method(exchange, "GET")) {
         respond(exchange, 200, promotions.cart(user(exchange).id()));
       } else if (path.equals("/api/cart/lines/add") && method(exchange, "POST")) {
@@ -1212,6 +1283,29 @@ public final class SharedHttpApi implements AutoCloseable {
     return exchange.getRemoteAddress() == null
         ? null
         : exchange.getRemoteAddress().getAddress().getHostAddress();
+  }
+
+  private static JsonObject productJson(SharedCommerceService.Product product) {
+    JsonObject result = new JsonObject();
+    result.addProperty("id", product.id());
+    result.addProperty("sku", product.sku());
+    result.addProperty("title", product.title());
+    if (product.remark() == null) result.add("remark", JsonNull.INSTANCE);
+    else result.addProperty("remark", product.remark());
+    result.addProperty("currency", product.currency().name());
+    result.addProperty("price", product.price());
+    result.addProperty("productType", product.kind().name());
+    result.addProperty("commandTemplate", product.commandTemplate());
+    if (product.registryId() == null) result.add("itemMaterial", JsonNull.INSTANCE);
+    else result.addProperty("itemMaterial", product.registryId());
+    if (product.stockRemaining() == null) result.add("stock", JsonNull.INSTANCE);
+    else result.addProperty("stock", product.stockRemaining());
+    result.addProperty("unlimitedStock", product.stockRemaining() == null);
+    result.addProperty("active", product.active());
+    result.addProperty("purchasable", product.active());
+    result.addProperty("dynamicPricingEnabled", false);
+    result.addProperty("dynamicPricingMode", "ORDER_FIXED");
+    return result;
   }
 
   private static Map<String, Object> userJson(AdminService.UserSupportView view) {

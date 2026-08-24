@@ -174,11 +174,47 @@ class SharedHttpApiTest {
             .getAsJsonObject()
             .get("shopCoin")
             .getAsInt());
+    JsonObject leaderboardConfig =
+        JsonParser.parseString(get("/api/leaderboard/config", null).body()).getAsJsonObject();
+    assertTrue(
+        leaderboardConfig
+            .getAsJsonObject("leaderboard")
+            .get("enabled")
+            .getAsBoolean());
+    JsonObject leaderboard =
+        JsonParser.parseString(
+                get(
+                        "/api/leaderboard/list?metric=SHOP_COIN&order=DESC&range=TOTAL&limit=10",
+                        token)
+                    .body())
+            .getAsJsonObject();
+    assertEquals(1, leaderboard.get("myRank").getAsLong());
+    assertEquals(
+        "ApiPlayer",
+        leaderboard
+            .getAsJsonArray("entries")
+            .get(0)
+            .getAsJsonObject()
+            .get("username")
+            .getAsString());
     JsonObject product =
         JsonParser.parseString(get("/api/products", null).body())
-            .getAsJsonArray()
+            .getAsJsonObject()
+            .getAsJsonArray("products")
             .get(0)
             .getAsJsonObject();
+    assertEquals("GIVE_ITEM", product.get("productType").getAsString());
+    assertEquals(5, product.get("stock").getAsInt());
+    JsonObject productQuote =
+        JsonParser.parseString(
+                post(
+                        "/api/products/quote",
+                        "{\"productId\":" + product.get("id").getAsLong() + ",\"quantity\":2}",
+                        null,
+                        null)
+                    .body())
+            .getAsJsonObject();
+    assertEquals(100, productQuote.get("totalAmount").getAsLong());
     HttpResponse<String> emptyCart = get("/api/cart", token);
     assertEquals(200, emptyCart.statusCode());
     long cartVersion =
@@ -245,6 +281,23 @@ class SharedHttpApiTest {
             .getAsInt());
     assertEquals(
         2, JsonParser.parseString(get("/api/deliveries", token).body()).getAsJsonArray().size());
+    JsonObject productTrend =
+        JsonParser.parseString(
+                get(
+                        "/api/products/price-trend?productId="
+                            + product.get("id").getAsLong(),
+                        token)
+                    .body())
+            .getAsJsonObject();
+    assertTrue(productTrend.getAsJsonArray("history").size() >= 1);
+    assertEquals(
+        50,
+        productTrend
+            .getAsJsonArray("history")
+            .get(0)
+            .getAsJsonObject()
+            .get("price")
+            .getAsLong());
 
     HttpResponse<String> allowed = post("/api/auth/logout", "{}", token, "https://shop.example");
     assertEquals(
