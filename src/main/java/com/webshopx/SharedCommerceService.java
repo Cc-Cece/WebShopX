@@ -584,6 +584,185 @@ public final class SharedCommerceService {
         });
   }
 
+  public MarketQuote quoteListing(long buyerUserId, long listingId, int quantity) {
+    if (quantity < 1) throw new ServiceException("invalid_quantity", "Quantity is invalid");
+    return database.withConnection(
+        connection -> {
+          Listing listing = readListing(connection, listingId);
+          if (!listing.status().equals("ACTIVE") || listing.quantity() < quantity) {
+            throw new ServiceException("listing_unavailable", "Listing is unavailable");
+          }
+          if (listing.sellerUserId() == buyerUserId) {
+            throw new ServiceException("self_trade", "Seller cannot buy the same listing");
+          }
+          long total = Math.multiplyExact(listing.price(), quantity);
+          return new MarketQuote(
+              listing.id(),
+              listing.currency(),
+              listing.price(),
+              quantity,
+              total,
+              total,
+              total,
+              0L,
+              0L);
+        });
+  }
+
+  public List<MarketPricePoint> marketPriceTrend(long listingId, int limit) {
+    int boundedLimit = Math.max(1, Math.min(limit, 100));
+    return database.withConnection(
+        connection -> {
+          readListing(connection, listingId);
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT id,unit_price,quantity,created_at FROM market_trades"
+                      + " WHERE listing_id=? AND status IN ('PAID','SETTLED')"
+                      + " ORDER BY id DESC LIMIT ?")) {
+            statement.setLong(1, listingId);
+            statement.setInt(2, boundedLimit);
+            try (ResultSet result = statement.executeQuery()) {
+              List<MarketPricePoint> values = new ArrayList<>();
+              while (result.next()) {
+                values.add(
+                    new MarketPricePoint(
+                        result.getLong(1), result.getLong(2), result.getInt(3), instant(result, 4)));
+              }
+              return List.copyOf(values);
+            }
+          }
+        });
+  }
+
+  public Listing pauseListing(long sellerUserId, long listingId) {
+    return transitionOwnedListing(sellerUserId, listingId, "ACTIVE", "PAUSED", "paused_at");
+  }
+
+  public Listing resumeListing(long sellerUserId, long listingId) {
+    return transitionOwnedListing(sellerUserId, listingId, "PAUSED", "ACTIVE", null);
+  }
+
+  private Listing transitionOwnedListing(
+      long sellerUserId, long listingId, String expectedStatus, String nextStatus, String timeColumn) {
+    return database.inTransaction(
+        connection -> {
+          Listing listing = readOwnedListing(connection, sellerUserId, listingId);
+          if (listing.status().equals(nextStatus)) return listing;
+          if (!listing.status().equals(expectedStatus)) {
+            throw new ServiceException("listing_state_invalid", "Listing state cannot be changed");
+          }
+          String timeUpdate = timeColumn == null ? ",paused_at=NULL" : "," + timeColumn + "=CURRENT_TIMESTAMP";
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE market_listings SET status=?" + timeUpdate
+                      + " WHERE id=? AND seller_user_id=? AND status=?")) {
+            statement.setString(1, nextStatus);
+            statement.setLong(2, listingId);
+            statement.setLong(3, sellerUserId);
+            statement.setString(4, expectedStatus);
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException("listing_conflict", "Listing changed concurrently");
+            }
+          }
+          return readListing(connection, listingId);
+        });
+  }
+
+  public Listing updateListingPrice(long sellerUserId, long listingId, long price) {
+    if (price < 1) throw new ServiceException("invalid_price", "Listing price is invalid");
+    return database.inTransaction(
+        connection -> {
+          Listing listing = readOwnedListing(connection, sellerUserId, listingId);
+          requireMutableListing(listing);
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE market_listings SET price=? WHERE id=? AND seller_user_id=?"
+                      + " AND status IN ('ACTIVE','PAUSED')")) {
+            statement.setLong(1, price);
+            statement.setLong(2, listingId);
+            statement.setLong(3, sellerUserId);
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException("listing_conflict", "Listing changed concurrently");
+            }
+          }
+          return readListing(connection, listingId);
+        });
+  }
+
+  public Listing updateListingRemark(long sellerUserId, long listingId, String remark) {
+    String normalized = remark == null || remark.isBlank() ? null : remark.trim();
+    if (normalized != null && normalized.length() > 500) {
+      throw new ServiceException("invalid_remark", "Listing remark is too long");
+    }
+    return database.inTransaction(
+        connection -> {
+          Listing listing = readOwnedListing(connection, sellerUserId, listingId);
+          requireMutableListing(listing);
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE market_listings SET remark=? WHERE id=? AND seller_user_id=?"
+                      + " AND status IN ('ACTIVE','PAUSED')")) {
+            statement.setString(1, normalized);
+            statement.setLong(2, listingId);
+            statement.setLong(3, sellerUserId);
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException("listing_conflict", "Listing changed concurrently");
+            }
+          }
+          return readListing(connection, listingId);
+        });
+  }
+
+  public Listing unlist(long sellerUserId, long listingId) {
+    return database.inTransaction(
+        connection -> {
+          Listing listing = readOwnedListing(connection, sellerUserId, listingId);
+          if (listing.status().equals("UNLISTED")) return listing;
+          requireMutableListing(listing);
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE market_listings SET status='UNLISTED',unlisted_at=CURRENT_TIMESTAMP,"
+                      + "paused_at=NULL,escrow_remaining=0 WHERE id=? AND seller_user_id=?"
+                      + " AND status IN ('ACTIVE','PAUSED')")) {
+            statement.setLong(1, listingId);
+            statement.setLong(2, sellerUserId);
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException("listing_conflict", "Listing changed concurrently");
+            }
+          }
+          if (listing.quantity() > 0) {
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "INSERT INTO market_item_deliveries"
+                        + " (listing_id,trade_id,target_user_id,target_uuid,target_server_id,item_blob,quantity,delivery_type,next_retry_at)"
+                        + " VALUES (?,NULL,?,?,NULL,?,?,'UNLIST',CURRENT_TIMESTAMP)")) {
+              statement.setLong(1, listing.id());
+              statement.setLong(2, listing.sellerUserId());
+              statement.setString(3, listing.sellerId().toString());
+              statement.setBytes(4, envelopes.encode(listing.item()));
+              statement.setInt(5, listing.quantity());
+              statement.executeUpdate();
+            }
+          }
+          return readListing(connection, listingId);
+        });
+  }
+
+  private Listing readOwnedListing(Connection connection, long sellerUserId, long listingId)
+      throws SQLException {
+    Listing listing = readListing(connection, listingId);
+    if (listing.sellerUserId() != sellerUserId) {
+      throw new ServiceException("listing_forbidden", "Listing belongs to another seller");
+    }
+    return listing;
+  }
+
+  private static void requireMutableListing(Listing listing) {
+    if (!listing.status().equals("ACTIVE") && !listing.status().equals("PAUSED")) {
+      throw new ServiceException("listing_state_invalid", "Listing is no longer mutable");
+    }
+  }
+
   public MarketTrade buyListing(MarketBuyRequest request) {
     requireKey(request.idempotencyKey());
     if (request.quantity() < 1)
@@ -601,6 +780,14 @@ public final class SharedCommerceService {
             throw new ServiceException("self_trade", "Seller cannot buy the same listing");
           }
           long total = Math.multiplyExact(listing.price(), request.quantity());
+          if (request.expectedUnitPrice() != null
+              && request.expectedUnitPrice().longValue() != listing.price()) {
+            throw new ServiceException("price_changed", "Listing price changed");
+          }
+          if (request.expectedBuyerTotal() != null
+              && request.expectedBuyerTotal().longValue() != total) {
+            throw new ServiceException("price_changed", "Listing total changed");
+          }
           String biz = "MARKET-" + UUID.randomUUID();
           wallets.applyDelta(
               connection,
@@ -1429,7 +1616,40 @@ public final class SharedCommerceService {
       long listingId,
       int quantity,
       String idempotencyKey,
-      String targetServerId) {}
+      String targetServerId,
+      Long expectedUnitPrice,
+      Long expectedBuyerTotal) {
+    public MarketBuyRequest(
+        long buyerUserId,
+        UUID buyerId,
+        long listingId,
+        int quantity,
+        String idempotencyKey,
+        String targetServerId) {
+      this(
+          buyerUserId,
+          buyerId,
+          listingId,
+          quantity,
+          idempotencyKey,
+          targetServerId,
+          null,
+          null);
+    }
+  }
+
+  public record MarketQuote(
+      long listingId,
+      CurrencyType currency,
+      long unitPrice,
+      int quantity,
+      long totalPrice,
+      long buyerTotal,
+      long sellerReceive,
+      long feeAmount,
+      long taxAmount) {}
+
+  public record MarketPricePoint(long tradeId, long price, int quantity, Instant createdAt) {}
 
   public record MarketTrade(
       long id,

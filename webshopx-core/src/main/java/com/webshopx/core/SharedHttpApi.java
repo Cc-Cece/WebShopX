@@ -380,6 +380,95 @@ public final class SharedHttpApi implements AutoCloseable {
                     optionalString(input, "expectedPayloadHash", null),
                     input.has("allowOffline") && input.get("allowOffline").getAsBoolean(),
                     optionalString(input, "remark", null))));
+      } else if (path.equals("/api/market/quote") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        int quantity =
+            input.has("buyQuantity")
+                ? optionalInt(input, "buyQuantity", 1)
+                : input.has("sellQuantity")
+                    ? optionalInt(input, "sellQuantity", 1)
+                    : optionalInt(input, "quantity", 1);
+        var quote =
+            commerce.quoteListing(current.id(), requiredLong(input, "listingId"), quantity);
+        JsonObject response = new JsonObject();
+        response.addProperty("listingId", quote.listingId());
+        response.addProperty("currency", quote.currency().name());
+        response.addProperty("side", "SELL");
+        response.addProperty("unitPrice", quote.unitPrice());
+        response.addProperty("firstUnitPrice", quote.unitPrice());
+        response.addProperty("lastUnitPrice", quote.unitPrice());
+        response.addProperty("averageUnitPrice", quote.unitPrice());
+        response.addProperty("quantity", quote.quantity());
+        response.addProperty("totalPrice", quote.totalPrice());
+        response.addProperty("buyerTotal", quote.buyerTotal());
+        response.addProperty("sellerReceive", quote.sellerReceive());
+        response.addProperty("feeAmount", quote.feeAmount());
+        response.addProperty("taxAmount", quote.taxAmount());
+        response.addProperty("dynamicPricingEnabled", false);
+        response.addProperty("dynamicPricingMode", "ORDER_FIXED");
+        response.addProperty("currentDemandScore", 0);
+        response.addProperty("nextDemandScore", 0);
+        response.addProperty("nextUnitPrice", quote.unitPrice());
+        respond(exchange, 200, response);
+      } else if (path.equals("/api/market/price-trend") && method(exchange, "GET")) {
+        long listingId = Long.parseLong(requiredQuery(exchange, "listingId"));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "listingId",
+                listingId,
+                "history",
+                commerce.marketPriceTrend(listingId, queryInt(exchange, "limit", 30))));
+      } else if (path.equals("/api/market/pause") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        var listing = commerce.pauseListing(current.id(), requiredLong(input, "listingId"));
+        respond(exchange, 200, Map.of("listingId", listing.id(), "status", listing.status()));
+      } else if (path.equals("/api/market/resume") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        var listing = commerce.resumeListing(current.id(), requiredLong(input, "listingId"));
+        respond(exchange, 200, Map.of("listingId", listing.id(), "status", listing.status()));
+      } else if (path.equals("/api/market/price") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        var listing =
+            commerce.updateListingPrice(
+                current.id(), requiredLong(input, "listingId"), requiredLong(input, "price"));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "listingId", listing.id(),
+                "currency", listing.currency().name(),
+                "price", listing.price()));
+      } else if (path.equals("/api/market/remark") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        var listing =
+            commerce.updateListingRemark(
+                current.id(),
+                requiredLong(input, "listingId"),
+                optionalString(input, "remark", null));
+        JsonObject response = new JsonObject();
+        response.addProperty("listingId", listing.id());
+        if (listing.remark() == null) response.add("remark", JsonNull.INSTANCE);
+        else response.addProperty("remark", listing.remark());
+        respond(exchange, 200, response);
+      } else if (path.equals("/api/market/unlist") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        var listing = commerce.unlist(current.id(), requiredLong(input, "listingId"));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "listingId", listing.id(),
+                "currency", listing.currency().name(),
+                "price", listing.price(),
+                "quantity", listing.quantity()));
       } else if (path.equals("/api/market/buy") && method(exchange, "POST")) {
         var current = boundUser(exchange);
         JsonObject input = body(exchange);
@@ -391,9 +480,17 @@ public final class SharedHttpApi implements AutoCloseable {
                     current.id(),
                     current.boundUuid(),
                     requiredLong(input, "listingId"),
-                    optionalInt(input, "quantity", 1),
+                    input.has("buyQuantity")
+                        ? optionalInt(input, "buyQuantity", 1)
+                        : optionalInt(input, "quantity", 1),
                     requiredString(input, "idempotencyKey"),
-                    identity.serverId())));
+                    identity.serverId(),
+                    input.has("expectedUnitPrice")
+                        ? input.get("expectedUnitPrice").getAsLong()
+                        : null,
+                    input.has("expectedBuyerTotal")
+                        ? input.get("expectedBuyerTotal").getAsLong()
+                        : null)));
       } else if (path.equals("/api/recharge/create") && method(exchange, "POST")) {
         var current = user(exchange);
         JsonObject input = body(exchange);
@@ -1056,11 +1153,14 @@ public final class SharedHttpApi implements AutoCloseable {
       int status =
           switch (failure.code()) {
             case "invalid_session", "unauthorized" -> 401;
-            case "forbidden", "not_admin" -> 403;
-            case "not_found", "product_not_found", "order_not_found" -> 404;
+            case "forbidden", "not_admin", "listing_forbidden" -> 403;
+            case "not_found", "product_not_found", "order_not_found", "listing_not_found" -> 404;
             case "insufficient_funds",
                     "insufficient_stock",
                     "stock_conflict",
+                    "listing_conflict",
+                    "listing_unavailable",
+                    "price_changed",
                     "inventory_conflict",
                     "order_conflict" ->
                 409;

@@ -85,8 +85,11 @@ class SharedHttpApiTest {
     player = UUID.randomUUID();
     long user = auth.setPasswordFromGame(player, "ApiPlayer", "api-secret").userId();
     supportTargetUuid = UUID.randomUUID();
-    auth.setPasswordFromGame(supportTargetUuid, "SupportTarget", "target-secret");
+    long supportTarget =
+        auth.setPasswordFromGame(supportTargetUuid, "SupportTarget", "target-secret").userId();
     wallets.adjustBalance(user, CurrencyType.SHOP_COIN, 500, "TEST", "api-seed");
+    wallets.adjustBalance(
+        supportTarget, CurrencyType.GAME_COIN, 100, "TEST", "api-market-buyer-seed");
     SharedCommerceService commerce = new SharedCommerceService(database, wallets);
     inventories = new InMemoryInventoryGateway(36);
     var item =
@@ -267,6 +270,17 @@ class SharedHttpApiTest {
             null);
     String token =
         JsonParser.parseString(login.body()).getAsJsonObject().get("token").getAsString();
+    String buyerToken =
+        JsonParser.parseString(
+                post(
+                        "/api/auth/login",
+                        "{\"identifier\":\"SupportTarget\",\"password\":\"target-secret\"}",
+                        null,
+                        null)
+                    .body())
+            .getAsJsonObject()
+            .get("token")
+            .getAsString();
     String request =
         "{\"side\":\"SELL\",\"currency\":\"GAME_COIN\",\"price\":17,"
             + "\"quantity\":2,\"idempotencyKey\":\"market-secure-1\","
@@ -292,6 +306,115 @@ class SharedHttpApiTest {
                 .get(0)
                 .count()
             : -1);
+
+    long listingId = listing.get("id").getAsLong();
+    JsonObject quote =
+        JsonParser.parseString(
+                post(
+                        "/api/market/quote",
+                        "{\"listingId\":" + listingId + ",\"buyQuantity\":2}",
+                        buyerToken,
+                        null)
+                    .body())
+            .getAsJsonObject();
+    assertEquals(34, quote.get("buyerTotal").getAsLong());
+    assertEquals("SELL", quote.get("side").getAsString());
+
+    String buyRequest =
+        "{\"listingId\":"
+            + listingId
+            + ",\"buyQuantity\":1,\"expectedUnitPrice\":17,\"expectedBuyerTotal\":17,"
+            + "\"idempotencyKey\":\"market-buy-1\"}";
+    assertEquals(
+        409,
+        post(
+                "/api/market/buy",
+                "{\"listingId\":"
+                    + listingId
+                    + ",\"buyQuantity\":1,\"expectedUnitPrice\":99,"
+                    + "\"expectedBuyerTotal\":99,\"idempotencyKey\":\"market-stale-1\"}",
+                buyerToken,
+                null)
+            .statusCode());
+    JsonObject trade =
+        JsonParser.parseString(post("/api/market/buy", buyRequest, buyerToken, null).body())
+            .getAsJsonObject();
+    JsonObject tradeReplay =
+        JsonParser.parseString(post("/api/market/buy", buyRequest, buyerToken, null).body())
+            .getAsJsonObject();
+    assertEquals(trade.get("id").getAsLong(), tradeReplay.get("id").getAsLong());
+    assertEquals(
+        83,
+        JsonParser.parseString(get("/api/wallet", buyerToken).body())
+            .getAsJsonObject()
+            .get("gameCoin")
+            .getAsInt());
+    JsonObject trend =
+        JsonParser.parseString(
+                get("/api/market/price-trend?listingId=" + listingId, buyerToken).body())
+            .getAsJsonObject();
+    assertEquals(1, trend.getAsJsonArray("history").size());
+    assertEquals(17, trend.getAsJsonArray("history").get(0).getAsJsonObject().get("price").getAsLong());
+
+    JsonObject paused =
+        JsonParser.parseString(
+                post(
+                        "/api/market/pause",
+                        "{\"listingId\":" + listingId + "}",
+                        token,
+                        null)
+                    .body())
+            .getAsJsonObject();
+    assertEquals("PAUSED", paused.get("status").getAsString());
+    JsonObject price =
+        JsonParser.parseString(
+                post(
+                        "/api/market/price",
+                        "{\"listingId\":" + listingId + ",\"price\":23}",
+                        token,
+                        null)
+                    .body())
+            .getAsJsonObject();
+    assertEquals(23, price.get("price").getAsLong());
+    JsonObject remark =
+        JsonParser.parseString(
+                post(
+                        "/api/market/remark",
+                        "{\"listingId\":" + listingId + ",\"remark\":\"loader sale\"}",
+                        token,
+                        null)
+                    .body())
+            .getAsJsonObject();
+    assertEquals("loader sale", remark.get("remark").getAsString());
+    JsonObject resumed =
+        JsonParser.parseString(
+                post(
+                        "/api/market/resume",
+                        "{\"listingId\":" + listingId + "}",
+                        token,
+                        null)
+                    .body())
+            .getAsJsonObject();
+    assertEquals("ACTIVE", resumed.get("status").getAsString());
+
+    String unlistRequest = "{\"listingId\":" + listingId + "}";
+    assertEquals(200, post("/api/market/unlist", unlistRequest, token, null).statusCode());
+    assertEquals(200, post("/api/market/unlist", unlistRequest, token, null).statusCode());
+    int returnTasks =
+        database.withConnection(
+            connection -> {
+              try (var statement =
+                  connection.prepareStatement(
+                      "SELECT COUNT(*) FROM market_item_deliveries WHERE listing_id=?"
+                          + " AND delivery_type='UNLIST'")) {
+                statement.setLong(1, listingId);
+                try (var result = statement.executeQuery()) {
+                  result.next();
+                  return result.getInt(1);
+                }
+              }
+            });
+    assertEquals(1, returnTasks);
   }
 
   @Test
