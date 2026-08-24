@@ -885,6 +885,37 @@ class SharedHttpApiTest {
         JsonParser.parseString(get("/api/admin/overview/stats", token).body()).getAsJsonObject();
     assertEquals(2, overview.get("totalUsers").getAsLong());
     assertEquals(1, overview.get("totalProducts").getAsLong());
+    long adminProductId =
+        JsonParser.parseString(get("/api/products", null).body())
+            .getAsJsonObject()
+            .getAsJsonArray("products")
+            .get(0)
+            .getAsJsonObject()
+            .get("id")
+            .getAsLong();
+    assertEquals(
+        200,
+        post(
+                "/api/orders",
+                "{\"productId\":"
+                    + adminProductId
+                    + ",\"quantity\":1,\"idempotencyKey\":\"admin-order-view-1\"}",
+                token,
+                null)
+            .statusCode());
+    JsonObject adminOrders =
+        JsonParser.parseString(
+                get("/api/admin/orders/list?keyword=ApiPlayer&limit=20", token).body())
+            .getAsJsonObject();
+    assertEquals(1, adminOrders.getAsJsonArray("orders").size());
+    assertEquals(
+        "ApiPlayer",
+        adminOrders
+            .getAsJsonArray("orders")
+            .get(0)
+            .getAsJsonObject()
+            .get("username")
+            .getAsString());
     assertEquals(200, get("/api/admin/market/listings", token).statusCode());
     assertEquals(200, get("/api/admin/users/list", token).statusCode());
     HttpResponse<String> lookup = get("/api/admin/users/lookup?identifier=SupportTarget", token);

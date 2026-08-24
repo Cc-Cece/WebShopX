@@ -397,6 +397,114 @@ public final class SharedCommerceService {
         });
   }
 
+  public List<AdminOrderView> adminOrders(
+      int requestedLimit,
+      Long cursor,
+      String status,
+      Long userId,
+      String orderNo,
+      String keyword,
+      String currency,
+      String productType) {
+    int limit = Math.max(1, Math.min(requestedLimit, 200));
+    return database.withConnection(
+        connection -> {
+          StringBuilder sql =
+              new StringBuilder(
+                  "SELECT o.id,o.order_no,o.status,o.currency,o.total_amount,o.mc_uuid,"
+                      + "o.created_at,o.delivered_at,o.refunded_at,o.refund_deadline,"
+                      + "o.refunded_amount,o.refunded_quantity,o.claim_token,oi.quantity,"
+                      + "oi.unit_price,p.sku,p.title,p.remark,p.product_type,p.item_material,"
+                      + "u.id,u.username,u.bound_uuid FROM orders o JOIN order_items oi"
+                      + " ON oi.order_id=o.id JOIN products p ON p.id=oi.product_id"
+                      + " JOIN web_users u ON u.id=o.user_id WHERE 1=1");
+          List<Object> parameters = new ArrayList<>();
+          if (cursor != null) {
+            sql.append(" AND o.id<?");
+            parameters.add(cursor);
+          }
+          if (status != null && !status.isBlank()) {
+            sql.append(" AND UPPER(o.status)=?");
+            parameters.add(status.trim().toUpperCase(Locale.ROOT));
+          }
+          if (userId != null) {
+            sql.append(" AND o.user_id=?");
+            parameters.add(userId);
+          }
+          if (orderNo != null && !orderNo.isBlank()) {
+            sql.append(" AND UPPER(o.order_no)=?");
+            parameters.add(orderNo.trim().toUpperCase(Locale.ROOT));
+          }
+          if (keyword != null && !keyword.isBlank()) {
+            sql.append(
+                " AND (LOWER(o.order_no) LIKE ? OR LOWER(u.username) LIKE ?"
+                    + " OR LOWER(p.sku) LIKE ? OR LOWER(p.title) LIKE ?)");
+            String pattern = "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%";
+            parameters.add(pattern);
+            parameters.add(pattern);
+            parameters.add(pattern);
+            parameters.add(pattern);
+          }
+          if (currency != null && !currency.isBlank()) {
+            sql.append(" AND UPPER(o.currency)=?");
+            parameters.add(currency.trim().toUpperCase(Locale.ROOT));
+          }
+          if (productType != null && !productType.isBlank()) {
+            sql.append(" AND UPPER(p.product_type)=?");
+            parameters.add(productType.trim().toUpperCase(Locale.ROOT));
+          }
+          sql.append(" ORDER BY o.id DESC LIMIT ?");
+          parameters.add(limit);
+          try (PreparedStatement statement = connection.prepareStatement(sql.toString())) {
+            for (int index = 0; index < parameters.size(); index++) {
+              statement.setObject(index + 1, parameters.get(index));
+            }
+            try (ResultSet result = statement.executeQuery()) {
+              List<AdminOrderView> values = new ArrayList<>();
+              while (result.next()) {
+                long id = result.getLong(1);
+                int delivered = deliveredQuantity(connection, id);
+                int quantity = result.getInt(14);
+                String orderStatus = result.getString(3);
+                OrderView order =
+                    new OrderView(
+                        id,
+                        result.getString(2),
+                        orderStatus,
+                        result.getString(4),
+                        result.getLong(5),
+                        result.getString(6),
+                        instant(result, 7),
+                        instant(result, 8),
+                        instant(result, 9),
+                        instant(result, 10),
+                        result.getLong(11),
+                        result.getInt(12),
+                        result.getString(13),
+                        quantity,
+                        result.getLong(15),
+                        result.getString(16),
+                        result.getString(17),
+                        result.getString(18),
+                        result.getString(19),
+                        result.getString(20),
+                        delivered,
+                        "PAID".equals(orderStatus) && delivered == 0,
+                        Math.max(0, quantity - result.getInt(12)));
+                String uuid = result.getString(23);
+                values.add(
+                    new AdminOrderView(
+                        order,
+                        result.getLong(21),
+                        result.getString(22),
+                        uuid == null || uuid.isBlank() ? null : UUID.fromString(uuid)));
+              }
+              return List.copyOf(values);
+            }
+          }
+        });
+  }
+
   public DeliveryStatus deliveryStatus(long userId, String orderNo) {
     return database.withConnection(
         connection -> {
@@ -2070,6 +2178,9 @@ public final class SharedCommerceService {
       int deliveredQuantity,
       boolean canRefund,
       int refundableQuantity) {}
+
+  public record AdminOrderView(
+      OrderView order, long userId, String username, UUID boundUuid) {}
 
   public record DeliveryTask(
       long id,

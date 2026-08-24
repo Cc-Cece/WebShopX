@@ -1267,6 +1267,23 @@ public final class SharedHttpApi implements AutoCloseable {
       } else if (path.equals("/api/admin/overview/stats") && method(exchange, "GET")) {
         administration.requireAdmin(user(exchange), null);
         respond(exchange, 200, content.overviewStats());
+      } else if (path.equals("/api/admin/orders/list") && method(exchange, "GET")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ORDER_VIEW);
+        var orders =
+            commerce.adminOrders(
+                queryInt(exchange, "limit", 120),
+                queryLong(exchange, "cursor"),
+                query(exchange, "status"),
+                queryLong(exchange, "userId"),
+                query(exchange, "orderNo"),
+                query(exchange, "keyword"),
+                query(exchange, "currency"),
+                query(exchange, "productType"));
+        audit.log(actor, "ORDER_LIST", "order", null, null, clientIp(exchange));
+        respond(
+            exchange,
+            200,
+            Map.of("orders", orders.stream().map(this::adminOrderJson).toList()));
       } else if (path.equals("/api/admin/market/listings") && method(exchange, "GET")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.MARKET_MANAGE);
         var listings = commerce.listings(true);
@@ -1457,6 +1474,16 @@ public final class SharedHttpApi implements AutoCloseable {
     result.addProperty("purchasable", product.active());
     result.addProperty("dynamicPricingEnabled", false);
     result.addProperty("dynamicPricingMode", "ORDER_FIXED");
+    return result;
+  }
+
+  private JsonObject adminOrderJson(SharedCommerceService.AdminOrderView view) {
+    JsonObject result = gson.toJsonTree(view.order()).getAsJsonObject();
+    result.addProperty("userId", view.userId());
+    result.addProperty("username", view.username());
+    if (view.boundUuid() == null) result.add("boundUuid", JsonNull.INSTANCE);
+    else result.addProperty("boundUuid", view.boundUuid().toString());
+    result.addProperty("mcUuid", view.order().playerUuid());
     return result;
   }
 
