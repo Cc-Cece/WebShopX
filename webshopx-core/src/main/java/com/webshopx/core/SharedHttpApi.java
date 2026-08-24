@@ -699,7 +699,10 @@ public final class SharedHttpApi implements AutoCloseable {
                 listingId,
                 requiredLong(input, "price"),
                 currency(input, "currency"),
-                optionalString(input, "remark", null));
+                optionalString(input, "remark", null),
+                nullableInt(input, "supplyBatchSize"),
+                nullableInt(input, "supplyMaxStock"),
+                nullableBoolean(input, "supplyAccessProtected"));
         if (input.has("refundPolicyPreset")
             && !input.get("refundPolicyPreset").isJsonNull()
             && !input.get("refundPolicyPreset").getAsString().isBlank()) {
@@ -2426,7 +2429,7 @@ public final class SharedHttpApi implements AutoCloseable {
     if (listing.remark() == null) result.add("remark", JsonNull.INSTANCE);
     else result.addProperty("remark", listing.remark());
     result.addProperty("status", listing.status());
-    result.addProperty("sourceMode", "PLAYER");
+    result.addProperty("sourceMode", "MANUAL");
     try {
       SharedSupplyService.SupplyInfo supplyInfo = supply.info(listing.id());
       result.addProperty("sourceMode", supplyInfo.sourceMode());
@@ -3036,10 +3039,7 @@ public final class SharedHttpApi implements AutoCloseable {
             "auctionParamsJson",
             "auctionStartPrice",
             "auctionMinIncrement",
-            "auctionEndAt",
-            "supplyBatchSize",
-            "supplyMaxStock",
-            "supplyAccessProtected")) {
+            "auctionEndAt")) {
       if (input.has(key) && !input.get(key).isJsonNull()) {
         if (input.get(key).isJsonPrimitive()
             && input.get(key).getAsJsonPrimitive().isString()

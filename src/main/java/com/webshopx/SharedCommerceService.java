@@ -1417,7 +1417,8 @@ public final class SharedCommerceService {
   }
 
   public Listing updateListingPrice(long sellerUserId, long listingId, long price) {
-    return updateListingSettings(sellerUserId, listingId, price, null, null, false);
+    return updateListingSettings(
+        sellerUserId, listingId, price, null, null, false, null, null, null);
   }
 
   public Listing updateListingSettings(
@@ -1426,7 +1427,22 @@ public final class SharedCommerceService {
       long price,
       CurrencyType currency,
       String remark) {
-    return updateListingSettings(sellerUserId, listingId, price, currency, remark, true);
+    return updateListingSettings(
+        sellerUserId, listingId, price, currency, remark, true, null, null, null);
+  }
+
+  public Listing updateListingSettings(
+      long sellerUserId,
+      long listingId,
+      long price,
+      CurrencyType currency,
+      String remark,
+      Integer supplyBatchSize,
+      Integer supplyMaxStock,
+      Boolean supplyAccessProtected) {
+    return updateListingSettings(
+        sellerUserId, listingId, price, currency, remark, true,
+        supplyBatchSize, supplyMaxStock, supplyAccessProtected);
   }
 
   private Listing updateListingSettings(
@@ -1435,7 +1451,10 @@ public final class SharedCommerceService {
       long price,
       CurrencyType requestedCurrency,
       String remark,
-      boolean updateRemark) {
+      boolean updateRemark,
+      Integer requestedSupplyBatchSize,
+      Integer requestedSupplyMaxStock,
+      Boolean requestedSupplyAccessProtected) {
     if (price < 1) throw new ServiceException("invalid_price", "Listing price is invalid");
     String normalizedRemark = remark == null || remark.isBlank() ? null : remark.trim();
     if (normalizedRemark != null && normalizedRemark.length() > 500) {
@@ -1453,6 +1472,31 @@ public final class SharedCommerceService {
           if (listing.side().equals("BUY") && nextCurrency != listing.currency()) {
             throw new ServiceException(
                 "listing_currency_locked", "Buy listing currency cannot be changed");
+          }
+          SupplySettings supply = readSupplySettings(connection, listingId);
+          boolean supplyTouched = requestedSupplyBatchSize != null
+              || requestedSupplyMaxStock != null || requestedSupplyAccessProtected != null;
+          if (!"SUPPLY".equals(supply.sourceMode()) && supplyTouched) {
+            throw new ServiceException(
+                "supply_not_configured", "Listing is not a supply listing");
+          }
+          Integer nextSupplyBatch = supply.batchSize();
+          Integer nextSupplyMax = supply.maxStock();
+          boolean nextSupplyProtected = supply.accessProtected();
+          if ("SUPPLY".equals(supply.sourceMode())) {
+            int batch = requestedSupplyBatchSize == null
+                ? Math.max(1, supply.batchSize()) : requestedSupplyBatchSize;
+            int maximum = requestedSupplyMaxStock == null
+                ? Math.max(1, supply.maxStock()) : requestedSupplyMaxStock;
+            if (batch < 1 || maximum < 1
+                || batch > ItemEnvelope.MAX_COUNT || maximum > ItemEnvelope.MAX_COUNT) {
+              throw new ServiceException(
+                  "invalid_supply_settings", "Supply stock settings are invalid");
+            }
+            nextSupplyBatch = Math.min(batch, maximum);
+            nextSupplyMax = maximum;
+            nextSupplyProtected = requestedSupplyAccessProtected == null
+                ? supply.accessProtected() : requestedSupplyAccessProtected;
           }
           long nextEscrow = listing.escrowRemaining();
           long escrowDelta = 0L;
@@ -1473,7 +1517,8 @@ public final class SharedCommerceService {
           try (PreparedStatement statement =
               connection.prepareStatement(
                   "UPDATE market_listings SET price=?,currency=?,remark=CASE WHEN ? THEN ? ELSE remark END,"
-                      + "escrow_total=escrow_total+?,escrow_remaining=?"
+                      + "escrow_total=escrow_total+?,escrow_remaining=?,supply_batch_size=?,"
+                      + "supply_max_stock=?,supply_access_protected=?"
                       + " WHERE id=? AND seller_user_id=?"
                       + " AND status IN ('ACTIVE','PAUSED')")) {
             statement.setLong(1, price);
@@ -1482,14 +1527,34 @@ public final class SharedCommerceService {
             statement.setString(4, normalizedRemark);
             statement.setLong(5, escrowDelta);
             statement.setLong(6, nextEscrow);
-            statement.setLong(7, listingId);
-            statement.setLong(8, sellerUserId);
+            if (nextSupplyBatch == null) statement.setObject(7, null);
+            else statement.setInt(7, nextSupplyBatch);
+            if (nextSupplyMax == null) statement.setObject(8, null);
+            else statement.setInt(8, nextSupplyMax);
+            statement.setBoolean(9, nextSupplyProtected);
+            statement.setLong(10, listingId);
+            statement.setLong(11, sellerUserId);
             if (statement.executeUpdate() != 1) {
               throw new ServiceException("listing_conflict", "Listing changed concurrently");
             }
           }
           return readListing(connection, listingId);
         });
+  }
+
+  private SupplySettings readSupplySettings(Connection connection, long listingId)
+      throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(
+        "SELECT source_mode,supply_batch_size,supply_max_stock,supply_access_protected "
+            + "FROM market_listings WHERE id=?")) {
+      statement.setLong(1, listingId);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) throw new ServiceException("not_found", "Market listing was not found");
+        Integer batch = result.getObject(2) == null ? null : result.getInt(2);
+        Integer maximum = result.getObject(3) == null ? null : result.getInt(3);
+        return new SupplySettings(result.getString(1), batch, maximum, result.getBoolean(4));
+      }
+    }
   }
 
   public Listing updateListingRemark(long sellerUserId, long listingId, String remark) {
@@ -3239,6 +3304,8 @@ public final class SharedCommerceService {
   }
 
   private record AuctionBid(long id, long userId, UUID uuid, long amount) {}
+  private record SupplySettings(
+      String sourceMode, Integer batchSize, Integer maxStock, boolean accessProtected) {}
 
   private static Long nullableLong(ResultSet result, int column) throws SQLException {
     long value = result.getLong(column);

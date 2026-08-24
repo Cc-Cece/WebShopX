@@ -237,6 +237,18 @@ class SharedHttpApiTest {
     assertEquals(5, result.get("loadedAmount").getAsInt());
     assertEquals(5, result.get("currentStock").getAsInt());
     assertEquals(7, supplyGateway.quantity);
+    HttpResponse<String> settings = post(
+        "/api/market/settings",
+        "{\"listingId\":" + listingId + ",\"price\":12,\"currency\":\"SHOP_COIN\","
+            + "\"remark\":\"restocked\",\"tradeMode\":\"DIRECT\","
+            + "\"dynamicPricingEnabled\":false,\"supplyBatchSize\":4,"
+            + "\"supplyMaxStock\":9,\"supplyAccessProtected\":false}",
+        token, null);
+    assertEquals(200, settings.statusCode(), settings.body());
+    JsonObject updated = JsonParser.parseString(settings.body()).getAsJsonObject();
+    assertEquals(4, updated.get("supplyBatchSize").getAsInt());
+    assertEquals(9, updated.get("supplyMaxStock").getAsInt());
+    assertFalse(updated.get("supplyAccessProtected").getAsBoolean());
 
     JsonObject listing = JsonParser.parseString(get("/api/market/listings", token).body())
         .getAsJsonObject().getAsJsonArray("listings").asList().stream()
@@ -246,6 +258,14 @@ class SharedHttpApiTest {
     assertEquals("SUPPLY", listing.get("sourceMode").getAsString());
     assertEquals(5, listing.get("supplyLoadedTotal").getAsInt());
     assertEquals(5, listing.get("quantity").getAsInt());
+    long manualId = commerce.createListing(new SharedCommerceService.ListingRequest(
+        playerUserId, player, CurrencyType.SHOP_COIN, 10, 1, inventoryFixture, null)).id();
+    JsonObject manual = JsonParser.parseString(get("/api/market/listings", token).body())
+        .getAsJsonObject().getAsJsonArray("listings").asList().stream()
+        .map(element -> element.getAsJsonObject())
+        .filter(candidate -> candidate.get("id").getAsLong() == manualId)
+        .findFirst().orElseThrow();
+    assertEquals("MANUAL", manual.get("sourceMode").getAsString());
   }
 
   @AfterEach
