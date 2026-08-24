@@ -364,7 +364,7 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
   }
 
   private String encodeModern(Object item) throws ReflectiveOperationException {
-    Object codec = staticField(item.getClass(), "CODEC");
+    Object codec = staticField(item.getClass(), "CODEC", "field_24671", "f_41574_");
     Object ops = registryOps(item.getClass().getClassLoader());
     Method encodeStart = method(codec.getClass(), new String[]{"encodeStart"}, 2);
     return Objects.toString(dataResultValue(encodeStart.invoke(codec, ops, item)));
@@ -372,7 +372,7 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
 
   private Object decodeModern(Object tag) throws ReflectiveOperationException {
     Class<?> itemType = requireItemClass();
-    Object codec = staticField(itemType, "CODEC");
+    Object codec = staticField(itemType, "CODEC", "field_24671", "f_41574_");
     Object ops = registryOps(itemType.getClassLoader());
     Method parse = method(codec.getClass(), new String[]{"parse"}, 2);
     return dataResultValue(parse.invoke(codec, ops, tag));
@@ -384,11 +384,13 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
     Method accessMethod = method(nativeServer.getClass(),
         new String[]{"registryAccess", "method_30611", "m_206579_"}, 0);
     Object access = accessMethod.invoke(nativeServer);
-    Class<?> nbtOps = Class.forName("net.minecraft.nbt.NbtOps", false, loader);
-    Object baseOps = staticField(nbtOps, "INSTANCE");
-    Class<?> registryOps = Class.forName("net.minecraft.resources.RegistryOps", false, loader);
+    Class<?> nbtOps = loadFirst(loader, "net.minecraft.nbt.NbtOps", "net.minecraft.class_2509");
+    Object baseOps = staticField(nbtOps, "INSTANCE", "field_11560");
+    Class<?> registryOps = loadFirst(loader,
+        "net.minecraft.resources.RegistryOps", "net.minecraft.class_6903");
     Method create = Arrays.stream(registryOps.getMethods())
-        .filter(value -> Modifier.isStatic(value.getModifiers()) && value.getName().equals("create"))
+        .filter(value -> Modifier.isStatic(value.getModifiers())
+            && named(value, "create", "method_46632"))
         .filter(value -> value.getParameterCount() == 2
             && value.getParameterTypes()[0].isInstance(baseOps)
             && value.getParameterTypes()[1].isInstance(access))
@@ -481,7 +483,12 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
   private static boolean modern(String minecraft) {
     String[] parts = minecraft.split("\\.");
     try {
-      return Integer.parseInt(parts[0]) >= 26;
+      int major = Integer.parseInt(parts[0]);
+      if (major > 1) return true;
+      int minor = parts.length > 1 ? Integer.parseInt(parts[1]) : 0;
+      int patch = parts.length > 2
+          ? Integer.parseInt(parts[2].replaceFirst("[^0-9].*$", "")) : 0;
+      return minor > 20 || (minor == 20 && patch >= 5);
     } catch (NumberFormatException failure) {
       return false;
     }
