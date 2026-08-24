@@ -151,6 +151,19 @@ class CheckoutQuoteService {
     }
   }
 
+  Quote readForIdempotency(Connection connection, long userId, String quoteId) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT result_json FROM checkout_quotes WHERE id = ? AND user_id = ?")) {
+      statement.setString(1, quoteId);
+      statement.setLong(2, userId);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) throw new ServiceException("quote_missing", "Quote is not visible");
+        return gson.fromJson(result.getString("result_json"), Quote.class);
+      }
+    }
+  }
+
   void consume(Connection connection, String quoteId, long checkoutId) throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(

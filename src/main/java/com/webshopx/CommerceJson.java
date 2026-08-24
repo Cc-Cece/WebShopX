@@ -9,10 +9,10 @@ import java.io.IOException;
 import java.time.Instant;
 
 /** Shared JSON codec for promotion and checkout snapshots. */
-final class CommerceJson {
+public final class CommerceJson {
   private CommerceJson() {}
 
-  static Gson create() {
+  public static Gson create() {
     return new GsonBuilder()
         .disableHtmlEscaping()
         .registerTypeAdapter(Instant.class, new InstantAdapter())

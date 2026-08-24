@@ -15,13 +15,6 @@ final class CommerceHttpApi {
   private static final int MAX_BODY_BYTES = 64 * 1024;
   private final AuthService authService;
   private final AdminService adminService;
-  private final CartService cartService;
-  private final PromotionService promotionService;
-  private final CouponService couponService;
-  private final MembershipService membershipService;
-  private final CheckoutQuoteService quoteService;
-  private final CheckoutService checkoutService;
-  private final CommerceRefundService refundService;
   private final SharedPromotionService sharedPromotions;
   private final Supplier<PluginSettings> settingsSupplier;
   private final Gson gson = CommerceJson.create();
@@ -37,27 +30,11 @@ final class CommerceHttpApi {
       Supplier<PluginSettings> settingsSupplier) {
     this.authService = authService;
     this.adminService = adminService;
-    this.sharedPromotions = new SharedPromotionService(databaseManager);
-    this.cartService = sharedPromotions.cartService();
-    this.promotionService = sharedPromotions.promotionService();
-    this.couponService = sharedPromotions.couponService();
-    this.membershipService = sharedPromotions.membershipService();
     CommerceCheckoutPort checkoutPort =
         new PaperCommerceCheckoutAdapter(
             databaseManager, productService, marketService, orderService);
-    this.quoteService =
-        new CheckoutQuoteService(
-            databaseManager, cartService, checkoutPort, promotionService, membershipService);
-    this.checkoutService =
-        new CheckoutService(
-            databaseManager,
-            cartService,
-            quoteService,
-            couponService,
-            walletService,
-            checkoutPort,
-            membershipService);
-    this.refundService = new CommerceRefundService(databaseManager, walletService, couponService);
+    this.sharedPromotions =
+        new SharedPromotionService(databaseManager, walletService, checkoutPort);
     this.settingsSupplier = java.util.Objects.requireNonNull(settingsSupplier, "settingsSupplier");
   }
 
@@ -129,19 +106,19 @@ final class CommerceHttpApi {
 
   private Object quote(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
-    return quoteService.quote(
-        user(exchange).id(), gson.fromJson(body, CheckoutQuoteService.QuoteCommand.class));
+    return sharedPromotions.quote(
+        user(exchange).id(), gson.fromJson(body, SharedPromotionService.CheckoutQuoteInput.class));
   }
 
   private Object checkout(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
-    return checkoutService.submit(
-        user(exchange).id(), gson.fromJson(body, CheckoutService.SubmitCommand.class));
+    return sharedPromotions.checkout(
+        user(exchange).id(), gson.fromJson(body, SharedPromotionService.CheckoutSubmitInput.class));
   }
 
   private Object refund(HttpExchange exchange, JsonObject body) {
     requireMethod(exchange, "POST");
-    return refundService.refund(
+    return sharedPromotions.refund(
         user(exchange).id(),
         requiredString(body, "checkoutNo"),
         requiredLong(body, "lineId"),

@@ -1,6 +1,7 @@
 package com.webshopx;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
@@ -14,8 +15,16 @@ public final class SharedPromotionService {
   private final MembershipCatalogService membershipCatalog;
   private final CouponCatalogService couponCatalog;
   private final MembershipCodeService membershipCodes;
+  private final CheckoutQuoteService quotes;
+  private final CheckoutService checkouts;
+  private final CommerceRefundService refunds;
 
   public SharedPromotionService(DatabaseManager database) {
+    this(database, null, null);
+  }
+
+  public SharedPromotionService(
+      DatabaseManager database, WalletService wallets, CommerceCheckoutPort checkoutPort) {
     Objects.requireNonNull(database, "database");
     carts = new CartService(database);
     promotions = new PromotionService(database);
@@ -25,6 +34,16 @@ public final class SharedPromotionService {
     membershipCatalog = new MembershipCatalogService(database);
     couponCatalog = new CouponCatalogService(database);
     membershipCodes = new MembershipCodeService(database, memberships);
+    if (wallets == null || checkoutPort == null) {
+      quotes = null;
+      checkouts = null;
+      refunds = null;
+    } else {
+      quotes = new CheckoutQuoteService(database, carts, checkoutPort, promotions, memberships);
+      checkouts =
+          new CheckoutService(database, carts, quotes, coupons, wallets, checkoutPort, memberships);
+      refunds = new CommerceRefundService(database, wallets, coupons);
+    }
   }
 
   CartService cartService() {
@@ -41,6 +60,49 @@ public final class SharedPromotionService {
 
   MembershipService membershipService() {
     return memberships;
+  }
+
+  CheckoutQuoteService quoteService() {
+    return required(quotes);
+  }
+
+  CheckoutService checkoutService() {
+    return required(checkouts);
+  }
+
+  CommerceRefundService refundService() {
+    return required(refunds);
+  }
+
+  public Object quote(long userId, CheckoutQuoteInput input) {
+    return required(quotes)
+        .quote(
+            userId,
+            new CheckoutQuoteService.QuoteCommand(
+                input.cartVersion(),
+                input.lineIds(),
+                input.selectedRuleIds(),
+                input.disabledRuleIds()));
+  }
+
+  public Object checkout(long userId, CheckoutSubmitInput input) {
+    return required(checkouts)
+        .submit(
+            userId,
+            new CheckoutService.SubmitCommand(
+                input.quoteId(), input.cartVersion(), input.idempotencyKey()));
+  }
+
+  public Object refund(
+      long userId, String checkoutNo, long lineId, int quantity, String idempotencyKey) {
+    return required(refunds).refund(userId, checkoutNo, lineId, quantity, idempotencyKey);
+  }
+
+  private static <T> T required(T service) {
+    if (service == null) {
+      throw new ServiceException("capability_unavailable", "Checkout is not configured");
+    }
+    return service;
   }
 
   public Object cart(long userId) {
@@ -275,6 +337,14 @@ public final class SharedPromotionService {
 
   public record CartUpdate(
       long lineId, Integer quantity, Boolean selected, String deliveryMode, long expectedVersion) {}
+
+  public record CheckoutQuoteInput(
+      long cartVersion,
+      List<Long> lineIds,
+      Set<String> selectedRuleIds,
+      Set<String> disabledRuleIds) {}
+
+  public record CheckoutSubmitInput(String quoteId, long cartVersion, String idempotencyKey) {}
 
   public record SellerCampaignInput(
       String template,

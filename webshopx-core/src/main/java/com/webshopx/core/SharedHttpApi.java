@@ -6,23 +6,24 @@ import com.google.gson.JsonParser;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import com.webshopx.AdminPermission;
 import com.webshopx.AdminAuditService;
+import com.webshopx.AdminPermission;
 import com.webshopx.AdminService;
 import com.webshopx.AuthService;
+import com.webshopx.CommerceJson;
 import com.webshopx.CurrencyType;
 import com.webshopx.NotificationService;
 import com.webshopx.RedeemCodeService;
 import com.webshopx.ServiceException;
 import com.webshopx.SharedCommerceService;
-import com.webshopx.SharedPromotionService;
 import com.webshopx.SharedCommerceService.ProductInput;
 import com.webshopx.SharedCommerceService.ProductKind;
 import com.webshopx.SharedCommerceService.PurchaseRequest;
+import com.webshopx.SharedPromotionService;
 import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
-import com.webshopx.platform.PlatformIdentity;
 import com.webshopx.platform.ItemEnvelope;
+import com.webshopx.platform.PlatformIdentity;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -30,7 +31,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -48,15 +48,24 @@ public final class SharedHttpApi implements AutoCloseable {
   private final PlatformIdentity identity;
   private final CapabilitySnapshot capabilities;
   private final String allowedOrigin;
-  private final Gson gson = new Gson();
+  private final Gson gson = CommerceJson.create();
   private final ExecutorService executor;
   private final HttpServer server;
 
-  public SharedHttpApi(String host, int port, String allowedOrigin, AuthService auth,
-      WalletService wallets, SharedCommerceService commerce, SharedPromotionService promotions,
+  public SharedHttpApi(
+      String host,
+      int port,
+      String allowedOrigin,
+      AuthService auth,
+      WalletService wallets,
+      SharedCommerceService commerce,
+      SharedPromotionService promotions,
       RedeemCodeService redeemCodes,
-      NotificationService notifications, AdminService administration, AdminAuditService audit,
-      PlatformIdentity identity, CapabilitySnapshot capabilities) {
+      NotificationService notifications,
+      AdminService administration,
+      AdminAuditService audit,
+      PlatformIdentity identity,
+      CapabilitySnapshot capabilities) {
     this.auth = Objects.requireNonNull(auth, "auth");
     this.wallets = Objects.requireNonNull(wallets, "wallets");
     this.commerce = Objects.requireNonNull(commerce, "commerce");
@@ -73,18 +82,25 @@ public final class SharedHttpApi implements AutoCloseable {
     } catch (IOException failure) {
       throw new IllegalStateException("cannot bind WebShopX HTTP API", failure);
     }
-    executor = Executors.newFixedThreadPool(
-        Math.max(2, Math.min(16, Integer.getInteger("webshopx.http.threads", 4))), runnable -> {
-          Thread thread = new Thread(runnable, "webshopx-http");
-          thread.setDaemon(true);
-          return thread;
-        });
+    executor =
+        Executors.newFixedThreadPool(
+            Math.max(2, Math.min(16, Integer.getInteger("webshopx.http.threads", 4))),
+            runnable -> {
+              Thread thread = new Thread(runnable, "webshopx-http");
+              thread.setDaemon(true);
+              return thread;
+            });
     server.setExecutor(executor);
     server.createContext("/", this::dispatch);
   }
 
-  public void start() { server.start(); }
-  public int port() { return server.getAddress().getPort(); }
+  public void start() {
+    server.start();
+  }
+
+  public int port() {
+    return server.getAddress().getPort();
+  }
 
   private void dispatch(HttpExchange exchange) throws IOException {
     try {
@@ -95,13 +111,26 @@ public final class SharedHttpApi implements AutoCloseable {
       }
       String path = exchange.getRequestURI().getPath();
       if (path.equals("/health") && method(exchange, "GET")) {
-        respond(exchange, 200, Map.of("status", "UP", "platform", identity,
-            "capabilities", Map.of("capturedAt", capabilities.capturedAt().toString(),
-                "states", capabilities.states())));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "status",
+                "UP",
+                "platform",
+                identity,
+                "capabilities",
+                Map.of(
+                    "capturedAt",
+                    capabilities.capturedAt().toString(),
+                    "states",
+                    capabilities.states())));
       } else if (path.equals("/config.js") && method(exchange, "GET")) {
-        byte[] script = ("window.WEBSHOPX_CONFIG=Object.assign({},window.WEBSHOPX_CONFIG||{},"
-            + "{apiBaseUrl:'/api',serverMode:'INTERNAL',locale:{preferApi:true,"
-            + "fallbackLocale:'zh-CN'}});").getBytes(StandardCharsets.UTF_8);
+        byte[] script =
+            ("window.WEBSHOPX_CONFIG=Object.assign({},window.WEBSHOPX_CONFIG||{},"
+                    + "{apiBaseUrl:'/api',serverMode:'INTERNAL',locale:{preferApi:true,"
+                    + "fallbackLocale:'zh-CN'}});")
+                .getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "text/javascript; charset=utf-8");
         exchange.sendResponseHeaders(200, script.length);
         exchange.getResponseBody().write(script);
@@ -110,10 +139,18 @@ public final class SharedHttpApi implements AutoCloseable {
         serveStatic(exchange, path);
       } else if (path.equals("/api/auth/login") && method(exchange, "POST")) {
         JsonObject input = body(exchange);
-        var result = auth.login(requiredString(input, "identifier"), requiredString(input, "password"));
-        respond(exchange, 200, Map.of("token", result.sessionToken(),
-            "expiresAt", result.expiresAt().toString(),
-            "user", result.user()));
+        var result =
+            auth.login(requiredString(input, "identifier"), requiredString(input, "password"));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "token",
+                result.sessionToken(),
+                "expiresAt",
+                result.expiresAt().toString(),
+                "user",
+                result.user()));
       } else if (path.equals("/api/auth/me") && method(exchange, "GET")) {
         respond(exchange, 200, user(exchange));
       } else if (path.equals("/api/auth/logout") && method(exchange, "POST")) {
@@ -124,39 +161,75 @@ public final class SharedHttpApi implements AutoCloseable {
         respond(exchange, 200, wallets.getBalance(user.id()));
       } else if (path.equals("/api/wallet/ledger") && method(exchange, "GET")) {
         var user = user(exchange);
-        respond(exchange, 200, wallets.listRecentLedger(user.id(), queryInt(exchange, "limit", 20))
-            .stream().map(entry -> Map.of(
-                "currency", entry.currency(), "delta", entry.delta(), "bizType", entry.bizType(),
-                "bizId", entry.bizId(), "createdAt", entry.createdAt().toString())).toList());
+        respond(
+            exchange,
+            200,
+            wallets.listRecentLedger(user.id(), queryInt(exchange, "limit", 20)).stream()
+                .map(
+                    entry ->
+                        Map.of(
+                            "currency",
+                            entry.currency(),
+                            "delta",
+                            entry.delta(),
+                            "bizType",
+                            entry.bizType(),
+                            "bizId",
+                            entry.bizId(),
+                            "createdAt",
+                            entry.createdAt().toString()))
+                .toList());
       } else if (path.equals("/api/wallet/exchange") && method(exchange, "POST")) {
         var current = user(exchange);
         JsonObject input = body(exchange);
-        respond(exchange, 200, wallets.exchange(current.id(), currency(input, "from"),
-            currency(input, "to"), requiredLong(input, "amount"),
-            requiredString(input, "idempotencyKey")));
+        respond(
+            exchange,
+            200,
+            wallets.exchange(
+                current.id(),
+                currency(input, "from"),
+                currency(input, "to"),
+                requiredLong(input, "amount"),
+                requiredString(input, "idempotencyKey")));
       } else if (path.equals("/api/redeem/use") && method(exchange, "POST")) {
         var current = user(exchange);
-        respond(exchange, 200, redeemCodes.redeem(current.id(), requiredString(body(exchange), "code")));
+        respond(
+            exchange,
+            200,
+            redeemCodes.redeem(current.id(), requiredString(body(exchange), "code")));
       } else if (path.equals("/api/products") && method(exchange, "GET")) {
         respond(exchange, 200, commerce.products(false));
       } else if (path.equals("/api/orders") && method(exchange, "POST")) {
         var user = user(exchange);
         if (user.boundUuid() == null) throw new ServiceException("not_bound", "User is not bound");
         JsonObject input = body(exchange);
-        respond(exchange, 200, commerce.purchase(new PurchaseRequest(user.id(), user.boundUuid(),
-            requiredLong(input, "productId"), optionalInt(input, "quantity", 1),
-            requiredString(input, "idempotencyKey"), identity.serverId())));
+        respond(
+            exchange,
+            200,
+            commerce.purchase(
+                new PurchaseRequest(
+                    user.id(),
+                    user.boundUuid(),
+                    requiredLong(input, "productId"),
+                    optionalInt(input, "quantity", 1),
+                    requiredString(input, "idempotencyKey"),
+                    identity.serverId())));
       } else if (path.equals("/api/deliveries") && method(exchange, "GET")) {
         var user = user(exchange);
         if (user.boundUuid() == null) throw new ServiceException("not_bound", "User is not bound");
         respond(exchange, 200, commerce.pendingDeliveries(user.boundUuid(), identity.serverId()));
       } else if (path.equals("/api/mailbox/list") && method(exchange, "GET")) {
         var current = boundUser(exchange);
-        respond(exchange, 200, commerce.pendingDeliveries(current.boundUuid(), identity.serverId()));
+        respond(
+            exchange, 200, commerce.pendingDeliveries(current.boundUuid(), identity.serverId()));
       } else if (path.equals("/api/mailbox/count") && method(exchange, "GET")) {
         var current = boundUser(exchange);
-        respond(exchange, 200, Map.of("count",
-            commerce.pendingDeliveries(current.boundUuid(), identity.serverId()).size()));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "count",
+                commerce.pendingDeliveries(current.boundUuid(), identity.serverId()).size()));
       } else if (path.equals("/api/market/listings") && method(exchange, "GET")) {
         respond(exchange, 200, commerce.listings(false));
       } else if (path.equals("/api/market/listings/create") && method(exchange, "POST")) {
@@ -166,91 +239,186 @@ public final class SharedHttpApi implements AutoCloseable {
           throw new IllegalArgumentException("item is required");
         }
         ItemEnvelope item = gson.fromJson(input.get("item"), ItemEnvelope.class);
-        respond(exchange, 200, commerce.createListing(new SharedCommerceService.ListingRequest(
-            current.id(), current.boundUuid(), currency(input, "currency"),
-            requiredLong(input, "price"), optionalInt(input, "quantity", item.count()),
-            item, optionalString(input, "remark", null))));
+        respond(
+            exchange,
+            200,
+            commerce.createListing(
+                new SharedCommerceService.ListingRequest(
+                    current.id(),
+                    current.boundUuid(),
+                    currency(input, "currency"),
+                    requiredLong(input, "price"),
+                    optionalInt(input, "quantity", item.count()),
+                    item,
+                    optionalString(input, "remark", null))));
       } else if (path.equals("/api/market/buy") && method(exchange, "POST")) {
         var current = boundUser(exchange);
         JsonObject input = body(exchange);
-        respond(exchange, 200, commerce.buyListing(new SharedCommerceService.MarketBuyRequest(
-            current.id(), current.boundUuid(), requiredLong(input, "listingId"),
-            optionalInt(input, "quantity", 1), requiredString(input, "idempotencyKey"),
-            identity.serverId())));
+        respond(
+            exchange,
+            200,
+            commerce.buyListing(
+                new SharedCommerceService.MarketBuyRequest(
+                    current.id(),
+                    current.boundUuid(),
+                    requiredLong(input, "listingId"),
+                    optionalInt(input, "quantity", 1),
+                    requiredString(input, "idempotencyKey"),
+                    identity.serverId())));
       } else if (path.equals("/api/recharge/create") && method(exchange, "POST")) {
         var current = user(exchange);
         JsonObject input = body(exchange);
-        respond(exchange, 200, commerce.createRecharge(new SharedCommerceService.RechargeRequest(
-            current.id(), current.boundUuid(), requiredLong(input, "amountMinor"),
-            requiredString(input, "currency"), requiredLong(input, "coinAmount"),
-            requiredString(input, "provider"), requiredString(input, "idempotencyKey"),
-            optionalString(input, "description", "WebShopX recharge"))));
+        respond(
+            exchange,
+            200,
+            commerce.createRecharge(
+                new SharedCommerceService.RechargeRequest(
+                    current.id(),
+                    current.boundUuid(),
+                    requiredLong(input, "amountMinor"),
+                    requiredString(input, "currency"),
+                    requiredLong(input, "coinAmount"),
+                    requiredString(input, "provider"),
+                    requiredString(input, "idempotencyKey"),
+                    optionalString(input, "description", "WebShopX recharge"))));
       } else if (path.equals("/api/recharge/status") && method(exchange, "GET")) {
         user(exchange);
         respond(exchange, 200, commerce.rechargeByOrder(requiredQuery(exchange, "orderId")));
       } else if (path.equals("/api/notifications/list") && method(exchange, "GET")) {
         var current = user(exchange);
-        respond(exchange, 200, notifications.listForUser(current.id(),
-            queryInt(exchange, "limit", 30), queryLong(exchange, "cursor"),
-            queryBoolean(exchange, "unreadOnly", false)));
+        respond(
+            exchange,
+            200,
+            notifications.listForUser(
+                current.id(),
+                queryInt(exchange, "limit", 30),
+                queryLong(exchange, "cursor"),
+                queryBoolean(exchange, "unreadOnly", false)));
       } else if (path.equals("/api/notifications/unread-count") && method(exchange, "GET")) {
         var current = user(exchange);
         respond(exchange, 200, Map.of("count", notifications.countUnread(current.id())));
       } else if (path.equals("/api/notifications/mark-read") && method(exchange, "POST")) {
         var current = user(exchange);
         JsonObject input = body(exchange);
-        int changed = input.has("all") && input.get("all").getAsBoolean()
-            ? notifications.markAllRead(current.id())
-            : notifications.markRead(current.id(), requiredLong(input, "notificationId"));
+        int changed =
+            input.has("all") && input.get("all").getAsBoolean()
+                ? notifications.markAllRead(current.id())
+                : notifications.markRead(current.id(), requiredLong(input, "notificationId"));
         respond(exchange, 200, Map.of("updated", changed));
       } else if (path.equals("/api/cart") && method(exchange, "GET")) {
         respond(exchange, 200, promotions.cart(user(exchange).id()));
       } else if (path.equals("/api/cart/lines/add") && method(exchange, "POST")) {
         var current = user(exchange);
-        respond(exchange, 200, promotions.addCartLine(current.id(),
-            gson.fromJson(body(exchange), SharedPromotionService.CartAdd.class)));
+        respond(
+            exchange,
+            200,
+            promotions.addCartLine(
+                current.id(), gson.fromJson(body(exchange), SharedPromotionService.CartAdd.class)));
       } else if (path.equals("/api/cart/lines/update") && method(exchange, "POST")) {
         var current = user(exchange);
-        respond(exchange, 200, promotions.updateCartLine(current.id(),
-            gson.fromJson(body(exchange), SharedPromotionService.CartUpdate.class)));
+        respond(
+            exchange,
+            200,
+            promotions.updateCartLine(
+                current.id(),
+                gson.fromJson(body(exchange), SharedPromotionService.CartUpdate.class)));
       } else if (path.equals("/api/cart/lines/remove") && method(exchange, "POST")) {
         var current = user(exchange);
         JsonObject input = body(exchange);
-        respond(exchange, 200, promotions.removeCartLine(current.id(),
-            requiredLong(input, "lineId"), requiredLong(input, "expectedVersion")));
+        respond(
+            exchange,
+            200,
+            promotions.removeCartLine(
+                current.id(),
+                requiredLong(input, "lineId"),
+                requiredLong(input, "expectedVersion")));
       } else if (path.equals("/api/cart/clear") && method(exchange, "POST")) {
         var current = user(exchange);
-        respond(exchange, 200, promotions.clearCart(current.id(),
-            requiredLong(body(exchange), "expectedVersion")));
+        respond(
+            exchange,
+            200,
+            promotions.clearCart(current.id(), requiredLong(body(exchange), "expectedVersion")));
+      } else if (path.equals("/api/checkout/quote") && method(exchange, "POST")) {
+        var current = user(exchange);
+        respond(
+            exchange,
+            200,
+            promotions.quote(
+                current.id(),
+                gson.fromJson(body(exchange), SharedPromotionService.CheckoutQuoteInput.class)));
+      } else if (path.equals("/api/checkout/submit") && method(exchange, "POST")) {
+        var current = user(exchange);
+        respond(
+            exchange,
+            200,
+            promotions.checkout(
+                current.id(),
+                gson.fromJson(body(exchange), SharedPromotionService.CheckoutSubmitInput.class)));
+      } else if (path.equals("/api/checkouts/refund") && method(exchange, "POST")) {
+        var current = user(exchange);
+        JsonObject input = body(exchange);
+        respond(
+            exchange,
+            200,
+            promotions.refund(
+                current.id(),
+                requiredString(input, "checkoutNo"),
+                requiredLong(input, "lineId"),
+                Math.toIntExact(requiredLong(input, "quantity")),
+                requiredString(input, "idempotencyKey")));
       } else if (path.equals("/api/coupons/mine") && method(exchange, "GET")) {
         respond(exchange, 200, promotions.coupons(user(exchange).id(), query(exchange, "status")));
       } else if (path.equals("/api/coupons/claim") && method(exchange, "POST")) {
         var current = user(exchange);
         JsonObject input = body(exchange);
-        respond(exchange, 200, promotions.claimCoupon(current.id(),
-            requiredLong(input, "templateId"), requiredString(input, "requestId")));
+        respond(
+            exchange,
+            200,
+            promotions.claimCoupon(
+                current.id(),
+                requiredLong(input, "templateId"),
+                requiredString(input, "requestId")));
       } else if (path.equals("/api/membership/me") && method(exchange, "GET")) {
         respond(exchange, 200, promotions.memberships(user(exchange).id()));
       } else if (path.equals("/api/membership/redeem") && method(exchange, "POST")) {
         var current = user(exchange);
         JsonObject input = body(exchange);
-        respond(exchange, 200, promotions.redeemMembership(current.id(),
-            requiredString(input, "code"), requiredString(input, "requestId")));
+        respond(
+            exchange,
+            200,
+            promotions.redeemMembership(
+                current.id(), requiredString(input, "code"), requiredString(input, "requestId")));
       } else if (path.equals("/api/seller/promotions/list") && method(exchange, "GET")) {
         respond(exchange, 200, promotions.sellerCampaigns(user(exchange).id()));
       } else if (path.equals("/api/seller/promotions/create") && method(exchange, "POST")) {
         var current = user(exchange);
-        respond(exchange, 200, promotions.createSellerCampaign(current.id(), gson.fromJson(
-            body(exchange), SharedPromotionService.SellerCampaignInput.class)));
+        respond(
+            exchange,
+            200,
+            promotions.createSellerCampaign(
+                current.id(),
+                gson.fromJson(body(exchange), SharedPromotionService.SellerCampaignInput.class)));
       } else if (path.equals("/api/seller/promotions/action") && method(exchange, "POST")) {
         var current = user(exchange);
         JsonObject input = body(exchange);
-        respond(exchange, 200, promotions.transitionSellerCampaign(current.id(),
-            requiredLong(input, "campaignId"), requiredString(input, "action")));
+        respond(
+            exchange,
+            200,
+            promotions.transitionSellerCampaign(
+                current.id(), requiredLong(input, "campaignId"), requiredString(input, "action")));
       } else if (path.equals("/api/meta/version") && method(exchange, "GET")) {
-        respond(exchange, 200, Map.of("platform", identity.platform(),
-            "minecraft", identity.minecraftVersion(), "loader", identity.loaderVersion(),
-            "serverId", identity.serverId()));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "platform",
+                identity.platform(),
+                "minecraft",
+                identity.minecraftVersion(),
+                "loader",
+                identity.loaderVersion(),
+                "serverId",
+                identity.serverId()));
       } else if (path.equals("/api/meta/locales") && method(exchange, "GET")) {
         respond(exchange, 200, Map.of("default", "zh-CN", "supported", List.of("zh-CN", "en-US")));
       } else if (path.equals("/api/meta/material-overrides") && method(exchange, "GET")) {
@@ -263,15 +431,20 @@ public final class SharedHttpApi implements AutoCloseable {
         respond(exchange, 200, Map.of("currencies", List.of("SHOP_COIN", "GAME_COIN")));
       } else if (path.equals("/api/admin/auth/login") && method(exchange, "POST")) {
         JsonObject input = body(exchange);
-        respond(exchange, 200, administration.login(requiredString(input, "identifier"),
-            requiredString(input, "password")));
+        respond(
+            exchange,
+            200,
+            administration.login(
+                requiredString(input, "identifier"), requiredString(input, "password")));
       } else if (path.equals("/api/admin/auth/me") && method(exchange, "GET")) {
         respond(exchange, 200, administration.getAdminUser(user(exchange)));
       } else if (path.equals("/api/admin/users/list") && method(exchange, "GET")) {
         var actor = user(exchange);
         administration.requireAdmin(actor, AdminPermission.USER_SUPPORT);
-        respond(exchange, 200, administration.listUsers(query(exchange, "keyword"),
-            queryInt(exchange, "limit", 100)));
+        respond(
+            exchange,
+            200,
+            administration.listUsers(query(exchange, "keyword"), queryInt(exchange, "limit", 100)));
       } else if (path.equals("/api/admin/audit/list") && method(exchange, "GET")) {
         var actor = user(exchange);
         administration.requireAdmin(actor, AdminPermission.AUDIT_VIEW);
@@ -284,133 +457,216 @@ public final class SharedHttpApi implements AutoCloseable {
         var actor = user(exchange);
         administration.requireAdmin(actor, AdminPermission.REDEEM_MANAGE);
         JsonObject input = body(exchange);
-        respond(exchange, 200, Map.of("code", redeemCodes.createCode(
-            optionalLong(input, "shopCoin", 0), optionalLong(input, "gameCoin", 0),
-            optionalInt(input, "maxUses", 1), optionalInt(input, "perUserMaxUses", 1),
-            input.has("expiresInMinutes") ? input.get("expiresInMinutes").getAsInt() : null,
-            optionalString(input, "code", null))));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "code",
+                redeemCodes.createCode(
+                    optionalLong(input, "shopCoin", 0),
+                    optionalLong(input, "gameCoin", 0),
+                    optionalInt(input, "maxUses", 1),
+                    optionalInt(input, "perUserMaxUses", 1),
+                    input.has("expiresInMinutes") ? input.get("expiresInMinutes").getAsInt() : null,
+                    optionalString(input, "code", null))));
       } else if (path.equals("/api/admin/notifications/announce") && method(exchange, "POST")) {
         var actor = user(exchange);
         administration.requireAdmin(actor, AdminPermission.USER_SUPPORT);
         JsonObject input = body(exchange);
-        respond(exchange, 200, Map.of("created", notifications.createSystemAnnouncement(
-            requiredString(input, "title"), requiredString(input, "content"))));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "created",
+                notifications.createSystemAnnouncement(
+                    requiredString(input, "title"), requiredString(input, "content"))));
       } else if (path.equals("/api/admin/promotions/list") && method(exchange, "GET")) {
         var actor = user(exchange);
         administration.requireAdmin(actor, AdminPermission.PROMOTION_VIEW);
         respond(exchange, 200, promotions.campaigns(query(exchange, "ownerType")));
       } else if (path.equals("/api/admin/promotions/create") && method(exchange, "POST")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.PROMOTION_MANAGE);
-        respond(exchange, 200, promotions.createCampaign(actor.userId(), gson.fromJson(
-            body(exchange), SharedPromotionService.CampaignInput.class)));
+        respond(
+            exchange,
+            200,
+            promotions.createCampaign(
+                actor.userId(),
+                gson.fromJson(body(exchange), SharedPromotionService.CampaignInput.class)));
       } else if (path.equals("/api/admin/promotions/publish") && method(exchange, "POST")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.PROMOTION_MANAGE);
         JsonObject input = body(exchange);
-        respond(exchange, 200, promotions.publishCampaign(actor.userId(),
-            requiredLong(input, "campaignId"), requiredLong(input, "expectedVersion"),
-            gson.fromJson(requiredObject(input, "rule"),
-                SharedPromotionService.PromotionRuleInput.class)));
+        respond(
+            exchange,
+            200,
+            promotions.publishCampaign(
+                actor.userId(),
+                requiredLong(input, "campaignId"),
+                requiredLong(input, "expectedVersion"),
+                gson.fromJson(
+                    requiredObject(input, "rule"),
+                    SharedPromotionService.PromotionRuleInput.class)));
       } else if (path.equals("/api/admin/promotions/action") && method(exchange, "POST")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.PROMOTION_MANAGE);
         JsonObject input = body(exchange);
-        respond(exchange, 200, promotions.transitionCampaign(actor.userId(),
-            requiredLong(input, "campaignId"), requiredString(input, "action")));
+        respond(
+            exchange,
+            200,
+            promotions.transitionCampaign(
+                actor.userId(),
+                requiredLong(input, "campaignId"),
+                requiredString(input, "action")));
       } else if (path.equals("/api/admin/promotions/emergency-stop") && method(exchange, "POST")) {
-        var actor = administration.requireAdmin(
-            user(exchange), AdminPermission.PROMOTION_EMERGENCY_STOP);
+        var actor =
+            administration.requireAdmin(user(exchange), AdminPermission.PROMOTION_EMERGENCY_STOP);
         respond(exchange, 200, promotions.emergencyStop(actor.userId()));
       } else if (path.equals("/api/admin/coupons/grant") && method(exchange, "POST")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.COUPON_GRANT);
         JsonObject input = body(exchange);
-        respond(exchange, 200, promotions.grantCoupon(actor.userId(),
-            requiredLong(input, "userId"), requiredLong(input, "templateId"),
-            requiredString(input, "idempotencyKey")));
+        respond(
+            exchange,
+            200,
+            promotions.grantCoupon(
+                actor.userId(),
+                requiredLong(input, "userId"),
+                requiredLong(input, "templateId"),
+                requiredString(input, "idempotencyKey")));
       } else if (path.equals("/api/admin/coupons/templates") && method(exchange, "GET")) {
         administration.requireAdmin(user(exchange), AdminPermission.COUPON_MANAGE);
         respond(exchange, 200, promotions.couponTemplates());
       } else if (path.equals("/api/admin/coupons/templates/create") && method(exchange, "POST")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.COUPON_MANAGE);
-        respond(exchange, 200, promotions.createCouponTemplate(actor.userId(), gson.fromJson(
-            body(exchange), SharedPromotionService.CouponTemplateInput.class)));
+        respond(
+            exchange,
+            200,
+            promotions.createCouponTemplate(
+                actor.userId(),
+                gson.fromJson(body(exchange), SharedPromotionService.CouponTemplateInput.class)));
       } else if (path.equals("/api/admin/membership/grant") && method(exchange, "POST")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.MEMBERSHIP_GRANT);
         JsonObject input = body(exchange);
-        respond(exchange, 200, promotions.grantMembership(actor.userId(),
-            requiredLong(input, "userId"), requiredLong(input, "planVersionId"),
-            requiredString(input, "idempotencyKey")));
+        respond(
+            exchange,
+            200,
+            promotions.grantMembership(
+                actor.userId(),
+                requiredLong(input, "userId"),
+                requiredLong(input, "planVersionId"),
+                requiredString(input, "idempotencyKey")));
       } else if (path.equals("/api/admin/membership/revoke") && method(exchange, "POST")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.MEMBERSHIP_MANAGE);
         JsonObject input = body(exchange);
-        respond(exchange, 200, promotions.revokeMembership(actor.userId(),
-            requiredLong(input, "membershipId"), requiredString(input, "reason")));
+        respond(
+            exchange,
+            200,
+            promotions.revokeMembership(
+                actor.userId(),
+                requiredLong(input, "membershipId"),
+                requiredString(input, "reason")));
       } else if (path.equals("/api/admin/membership/plans") && method(exchange, "GET")) {
         administration.requireAdmin(user(exchange), AdminPermission.MEMBERSHIP_VIEW);
         respond(exchange, 200, promotions.membershipPlans());
       } else if (path.equals("/api/admin/membership/plans/create") && method(exchange, "POST")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.MEMBERSHIP_MANAGE);
-        respond(exchange, 200, promotions.createMembershipPlan(actor.userId(), gson.fromJson(
-            body(exchange), SharedPromotionService.MembershipPlanInput.class)));
+        respond(
+            exchange,
+            200,
+            promotions.createMembershipPlan(
+                actor.userId(),
+                gson.fromJson(body(exchange), SharedPromotionService.MembershipPlanInput.class)));
       } else if (path.equals("/api/admin/membership/plans/publish") && method(exchange, "POST")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.MEMBERSHIP_MANAGE);
         JsonObject input = body(exchange);
-        respond(exchange, 200, promotions.publishMembershipPlan(actor.userId(),
-            requiredLong(input, "planId"), gson.fromJson(requiredObject(input, "version"),
-                SharedPromotionService.MembershipVersionInput.class)));
+        respond(
+            exchange,
+            200,
+            promotions.publishMembershipPlan(
+                actor.userId(),
+                requiredLong(input, "planId"),
+                gson.fromJson(
+                    requiredObject(input, "version"),
+                    SharedPromotionService.MembershipVersionInput.class)));
       } else if (path.equals("/api/admin/membership/products/bind") && method(exchange, "POST")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.MEMBERSHIP_MANAGE);
         JsonObject input = body(exchange);
-        promotions.bindMembershipProduct(actor.userId(), requiredLong(input, "productId"),
-            requiredLong(input, "planVersionId"));
+        promotions.bindMembershipProduct(
+            actor.userId(), requiredLong(input, "productId"), requiredLong(input, "planVersionId"));
         respond(exchange, 200, Map.of("status", "ok"));
       } else if (path.equals("/api/admin/membership/codes/create") && method(exchange, "POST")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.MEMBERSHIP_MANAGE);
         JsonObject input = body(exchange);
-        respond(exchange, 200, promotions.createMembershipCode(actor.userId(),
-            requiredLong(input, "planVersionId"), Math.toIntExact(requiredLong(input, "maxUses")),
-            input.has("validUntil") && !input.get("validUntil").isJsonNull()
-                ? java.time.Instant.parse(input.get("validUntil").getAsString()) : null));
+        respond(
+            exchange,
+            200,
+            promotions.createMembershipCode(
+                actor.userId(),
+                requiredLong(input, "planVersionId"),
+                Math.toIntExact(requiredLong(input, "maxUses")),
+                input.has("validUntil") && !input.get("validUntil").isJsonNull()
+                    ? java.time.Instant.parse(input.get("validUntil").getAsString())
+                    : null));
       } else if (path.equals("/api/admin/products") && method(exchange, "POST")) {
         var user = user(exchange);
         administration.requireAdmin(user, AdminPermission.PRODUCT_MANAGE);
         JsonObject input = body(exchange);
-        Integer stock = input.has("stock") && !input.get("stock").isJsonNull()
-            ? input.get("stock").getAsInt() : null;
-        respond(exchange, 200, commerce.createProduct(new ProductInput(
-            requiredString(input, "sku"), requiredString(input, "title"),
-            optionalString(input, "remark", null),
-            CurrencyType.valueOf(requiredString(input, "currency").toUpperCase()),
-            requiredLong(input, "price"),
-            ProductKind.valueOf(requiredString(input, "kind").toUpperCase()),
-            optionalString(input, "command", ""), optionalString(input, "registryId", null),
-            stock, !input.has("active") || input.get("active").getAsBoolean())));
+        Integer stock =
+            input.has("stock") && !input.get("stock").isJsonNull()
+                ? input.get("stock").getAsInt()
+                : null;
+        respond(
+            exchange,
+            200,
+            commerce.createProduct(
+                new ProductInput(
+                    requiredString(input, "sku"),
+                    requiredString(input, "title"),
+                    optionalString(input, "remark", null),
+                    CurrencyType.valueOf(requiredString(input, "currency").toUpperCase()),
+                    requiredLong(input, "price"),
+                    ProductKind.valueOf(requiredString(input, "kind").toUpperCase()),
+                    optionalString(input, "command", ""),
+                    optionalString(input, "registryId", null),
+                    stock,
+                    !input.has("active") || input.get("active").getAsBoolean())));
       } else if (path.equals("/api/admin/wallet-adjust") && method(exchange, "POST")) {
         var actor = user(exchange);
         administration.requireAdmin(actor, AdminPermission.USER_SUPPORT);
         JsonObject input = body(exchange);
-        respond(exchange, 200, wallets.adjustBalance(requiredLong(input, "userId"),
-            CurrencyType.valueOf(requiredString(input, "currency").toUpperCase()),
-            requiredLong(input, "delta"), "ADMIN_ADJUST", requiredString(input, "idempotencyKey")));
+        respond(
+            exchange,
+            200,
+            wallets.adjustBalance(
+                requiredLong(input, "userId"),
+                CurrencyType.valueOf(requiredString(input, "currency").toUpperCase()),
+                requiredLong(input, "delta"),
+                "ADMIN_ADJUST",
+                requiredString(input, "idempotencyKey")));
       } else if (SharedRouteContract.routes().contains(path)) {
-        respond(exchange, 501, error("capability_unavailable",
-            "The route is part of the shared contract but is unavailable on this server"));
+        respond(
+            exchange,
+            501,
+            error(
+                "capability_unavailable",
+                "The route is part of the shared contract but is unavailable on this server"));
       } else {
         respond(exchange, 404, error("not_found", "Route was not found"));
       }
     } catch (BodyTooLarge failure) {
       respond(exchange, 413, error("body_too_large", failure.getMessage()));
     } catch (ServiceException failure) {
-      int status = switch (failure.code()) {
-        case "invalid_session", "unauthorized" -> 401;
-        case "forbidden", "not_admin" -> 403;
-        case "not_found", "product_not_found" -> 404;
-        case "insufficient_funds", "insufficient_stock", "stock_conflict" -> 409;
-        default -> 400;
-      };
+      int status =
+          switch (failure.code()) {
+            case "invalid_session", "unauthorized" -> 401;
+            case "forbidden", "not_admin" -> 403;
+            case "not_found", "product_not_found" -> 404;
+            case "insufficient_funds", "insufficient_stock", "stock_conflict" -> 409;
+            default -> 400;
+          };
       respond(exchange, status, error(failure.code(), failure.getMessage()));
     } catch (IllegalArgumentException failure) {
       respond(exchange, 400, error("bad_request", failure.getMessage()));
     } catch (RuntimeException failure) {
-      System.err.printf("[WebShopX] HTTP request failed path=%s type=%s%n",
+      System.err.printf(
+          "[WebShopX] HTTP request failed path=%s type=%s%n",
           exchange.getRequestURI().getPath(), failure.getClass().getSimpleName());
       respond(exchange, 500, error("internal_error", "Request failed"));
     }
@@ -457,9 +713,11 @@ public final class SharedHttpApi implements AutoCloseable {
     Headers headers = exchange.getResponseHeaders();
     headers.set("X-Content-Type-Options", "nosniff");
     headers.set("Cache-Control", "no-store");
-    headers.set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; "
-        + "font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; "
-        + "frame-ancestors 'none'; object-src 'none'; base-uri 'self'");
+    headers.set(
+        "Content-Security-Policy",
+        "default-src 'self'; img-src 'self' data: blob:; "
+            + "font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; "
+            + "frame-ancestors 'none'; object-src 'none'; base-uri 'self'");
     String origin = exchange.getRequestHeaders().getFirst("Origin");
     if (!allowedOrigin.isEmpty() && allowedOrigin.equals(origin)) {
       headers.set("Access-Control-Allow-Origin", origin);
@@ -478,9 +736,10 @@ public final class SharedHttpApi implements AutoCloseable {
     byte[] bytes = resource("web/" + relative);
     if (bytes == null && !relative.contains(".")) bytes = resource("web/index.html");
     if (bytes == null && relative.equals("index.html")) {
-      bytes = ("<!doctype html><meta charset=utf-8><title>WebShopX</title>"
-          + "<main><h1>WebShopX</h1><p>Server API is ready.</p></main>")
-          .getBytes(StandardCharsets.UTF_8);
+      bytes =
+          ("<!doctype html><meta charset=utf-8><title>WebShopX</title>"
+                  + "<main><h1>WebShopX</h1><p>Server API is ready.</p></main>")
+              .getBytes(StandardCharsets.UTF_8);
     }
     if (bytes == null) {
       respond(exchange, 404, error("not_found", "Static asset was not found"));
@@ -512,7 +771,8 @@ public final class SharedHttpApi implements AutoCloseable {
   }
 
   private void respond(HttpExchange exchange, int status, Object value) throws IOException {
-    byte[] bytes = status == 204 ? new byte[0] : gson.toJson(value).getBytes(StandardCharsets.UTF_8);
+    byte[] bytes =
+        status == 204 ? new byte[0] : gson.toJson(value).getBytes(StandardCharsets.UTF_8);
     exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
     exchange.sendResponseHeaders(status, bytes.length);
     if (bytes.length > 0) exchange.getResponseBody().write(bytes);
@@ -529,51 +789,74 @@ public final class SharedHttpApi implements AutoCloseable {
   private static boolean method(HttpExchange exchange, String expected) {
     return expected.equals(exchange.getRequestMethod());
   }
+
   private static int parseLength(String value) {
-    try { return value == null ? -1 : Integer.parseInt(value); }
-    catch (NumberFormatException ignored) { return -1; }
+    try {
+      return value == null ? -1 : Integer.parseInt(value);
+    } catch (NumberFormatException ignored) {
+      return -1;
+    }
   }
+
   private static String requiredString(JsonObject input, String key) {
     if (!input.has(key) || input.get(key).isJsonNull() || input.get(key).getAsString().isBlank()) {
       throw new IllegalArgumentException(key + " is required");
     }
     return input.get(key).getAsString();
   }
+
   private static String optionalString(JsonObject input, String key, String fallback) {
     return !input.has(key) || input.get(key).isJsonNull() ? fallback : input.get(key).getAsString();
   }
+
   private static long requiredLong(JsonObject input, String key) {
     if (!input.has(key)) throw new IllegalArgumentException(key + " is required");
     return input.get(key).getAsLong();
   }
+
   private static long optionalLong(JsonObject input, String key, long fallback) {
     return input.has(key) ? input.get(key).getAsLong() : fallback;
   }
+
   private static CurrencyType currency(JsonObject input, String key) {
     return CurrencyType.valueOf(requiredString(input, key).toUpperCase());
   }
+
   private static int optionalInt(JsonObject input, String key, int fallback) {
     return input.has(key) ? input.get(key).getAsInt() : fallback;
   }
+
   private static int queryInt(HttpExchange exchange, String key, int fallback) {
     String value = query(exchange, key);
     if (value == null) return fallback;
-    try { return Integer.parseInt(value); } catch (NumberFormatException ignored) { return fallback; }
+    try {
+      return Integer.parseInt(value);
+    } catch (NumberFormatException ignored) {
+      return fallback;
+    }
   }
+
   private static Long queryLong(HttpExchange exchange, String key) {
     String value = query(exchange, key);
     if (value == null) return null;
-    try { return Long.parseLong(value); } catch (NumberFormatException ignored) { return null; }
+    try {
+      return Long.parseLong(value);
+    } catch (NumberFormatException ignored) {
+      return null;
+    }
   }
+
   private static boolean queryBoolean(HttpExchange exchange, String key, boolean fallback) {
     String value = query(exchange, key);
     return value == null ? fallback : Boolean.parseBoolean(value);
   }
+
   private static String requiredQuery(HttpExchange exchange, String key) {
     String value = query(exchange, key);
     if (value == null || value.isBlank()) throw new IllegalArgumentException(key + " is required");
     return value;
   }
+
   private static String query(HttpExchange exchange, String key) {
     String query = exchange.getRequestURI().getRawQuery();
     if (query == null) return null;
@@ -586,12 +869,15 @@ public final class SharedHttpApi implements AutoCloseable {
     return null;
   }
 
-  @Override public void close() {
+  @Override
+  public void close() {
     server.stop(1);
     executor.shutdownNow();
   }
 
   private static final class BodyTooLarge extends RuntimeException {
-    BodyTooLarge(String message) { super(message); }
+    BodyTooLarge(String message) {
+      super(message);
+    }
   }
 }

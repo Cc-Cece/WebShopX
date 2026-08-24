@@ -47,6 +47,21 @@ class CheckoutService {
     if (command.idempotencyKey() == null || command.idempotencyKey().isBlank()) {
       throw new ServiceException("invalid_idempotency_key", "Idempotency key is required");
     }
+    CheckoutResult replay =
+        databaseManager.inTransaction(
+            connection -> {
+              ExistingCheckout existing =
+                  findExisting(connection, userId, command.idempotencyKey());
+              if (existing == null) return null;
+              CheckoutQuoteService.Quote submittedQuote =
+                  quoteService.readForIdempotency(connection, userId, command.quoteId());
+              if (!existing.inputHash().equals(submittedQuote.inputHash())
+                  || submittedQuote.cartVersion() != command.cartVersion()) {
+                throw new ServiceException("IDEMPOTENCY_CONFLICT", "Idempotency input differs");
+              }
+              return readResult(connection, existing.id(), "EXISTING");
+            });
+    if (replay != null) return replay;
     CheckoutQuoteService.Quote original = quoteService.read(userId, command.quoteId(), false);
     CheckoutQuoteService.Quote fresh =
         quoteService.quote(
