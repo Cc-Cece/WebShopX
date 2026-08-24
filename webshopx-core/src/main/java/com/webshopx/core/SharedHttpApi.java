@@ -471,15 +471,22 @@ public final class SharedHttpApi implements AutoCloseable {
         response.addProperty("taxAmount", 0);
         respond(exchange, 200, response);
       } else if (path.equals("/api/market/listings") && method(exchange, "GET")) {
-        respond(exchange, 200, commerce.listings(false));
+        boolean mineOnly = queryBoolean(exchange, "mine", false);
+        Long ownerId = mineOnly ? user(exchange).id() : null;
+        int limit = Math.max(1, Math.min(queryInt(exchange, "limit", 100), 200));
+        List<JsonObject> listings =
+            commerce.listings(mineOnly).stream()
+                .filter(listing -> ownerId == null || listing.sellerUserId() == ownerId)
+                .limit(limit)
+                .map(this::marketListingJson)
+                .toList();
+        respond(exchange, 200, Map.of("listings", listings));
       } else if (path.equals("/api/market/listings/create") && method(exchange, "POST")) {
         var current = boundUser(exchange);
         JsonObject input = body(exchange);
         String side = optionalString(input, "side", "SELL").toUpperCase(Locale.ROOT);
         if ("BUY".equals(side)) {
-          respond(
-              exchange,
-              200,
+          var listing =
               commerce.createBuyListing(
                   new SharedCommerceService.BuyListingRequest(
                       current.id(),
@@ -489,11 +496,13 @@ public final class SharedHttpApi implements AutoCloseable {
                       optionalInt(input, "quantity", 1),
                       requiredString(input, "itemMaterial"),
                       requiredString(input, "idempotencyKey"),
-                      optionalString(input, "remark", null))));
-        } else if ("SELL".equals(side)) {
+                      optionalString(input, "remark", null)));
           respond(
               exchange,
               200,
+              marketListingJson(listing));
+        } else if ("SELL".equals(side)) {
+          var listing =
               marketEscrow.createSellListing(
                   new SharedMarketEscrowService.Request(
                       current.id(),
@@ -504,7 +513,11 @@ public final class SharedHttpApi implements AutoCloseable {
                       requiredString(input, "idempotencyKey"),
                       optionalString(input, "expectedPayloadHash", null),
                       input.has("allowOffline") && input.get("allowOffline").getAsBoolean(),
-                      optionalString(input, "remark", null))));
+                      optionalString(input, "remark", null)));
+          respond(
+              exchange,
+              200,
+              marketListingJson(listing));
         } else {
           throw new ServiceException("invalid_market_side", "Market side is invalid");
         }
@@ -1356,7 +1369,10 @@ public final class SharedHttpApi implements AutoCloseable {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.MARKET_MANAGE);
         var listings = commerce.listings(true);
         audit.log(actor, "MARKET_LIST", "listing", null, null, clientIp(exchange));
-        respond(exchange, 200, Map.of("listings", listings));
+        respond(
+            exchange,
+            200,
+            Map.of("listings", listings.stream().map(this::marketListingJson).toList()));
       } else if (path.equals("/api/admin/market/unlist") && method(exchange, "POST")) {
         JsonObject input = body(exchange);
         var actor = administration.requireAdmin(user(exchange), AdminPermission.MARKET_MANAGE);
@@ -1543,6 +1559,35 @@ public final class SharedHttpApi implements AutoCloseable {
     result.addProperty("purchasable", product.active());
     result.addProperty("dynamicPricingEnabled", false);
     result.addProperty("dynamicPricingMode", "ORDER_FIXED");
+    return result;
+  }
+
+  private JsonObject marketListingJson(SharedCommerceService.Listing listing) {
+    JsonObject result = new JsonObject();
+    result.addProperty("id", listing.id());
+    result.addProperty("sellerUserId", listing.sellerUserId());
+    result.addProperty("sellerUuid", listing.sellerId().toString());
+    result.addProperty("currency", listing.currency().name());
+    result.addProperty("price", listing.price());
+    result.addProperty("quantity", listing.quantity());
+    result.addProperty("quantityTotal", listing.quantity());
+    result.addProperty("side", listing.side());
+    result.addProperty("escrowTotal", listing.escrowTotal());
+    result.addProperty("escrowRemaining", listing.escrowRemaining());
+    result.addProperty("itemMaterial", listing.item().registryId());
+    result.addProperty("itemMetaJson", gson.toJson(listing.item().summary()));
+    result.addProperty("itemFingerprint", listing.item().payloadHash());
+    if (listing.remark() == null) result.add("remark", JsonNull.INSTANCE);
+    else result.addProperty("remark", listing.remark());
+    result.addProperty("status", listing.status());
+    result.addProperty("sourceMode", "PLAYER");
+    result.addProperty("tradeMode", "DIRECT");
+    result.addProperty("dynamicPricingEnabled", false);
+    result.addProperty("dynamicPricingMode", "ORDER_FIXED");
+    result.add("tags", new JsonArray());
+    result.add("displayNameOverride", JsonNull.INSTANCE);
+    result.add("displayMaterial", JsonNull.INSTANCE);
+    result.add("displayIconPath", JsonNull.INSTANCE);
     return result;
   }
 

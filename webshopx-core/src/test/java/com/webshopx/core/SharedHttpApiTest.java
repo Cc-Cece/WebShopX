@@ -485,8 +485,9 @@ class SharedHttpApiTest {
     HttpResponse<String> created = post("/api/market/listings/create", request, token, null);
     assertEquals(200, created.statusCode(), created.body());
     JsonObject listing = JsonParser.parseString(created.body()).getAsJsonObject();
-    assertEquals(
-        "minecraft:diamond", listing.getAsJsonObject("item").get("registryId").getAsString());
+    assertEquals("minecraft:diamond", listing.get("itemMaterial").getAsString());
+    assertFalse(listing.has("item"));
+    assertFalse(listing.toString().contains("nativePayload"));
     assertEquals(2, listing.get("quantity").getAsInt());
 
     HttpResponse<String> replay = post("/api/market/listings/create", request, token, null);
@@ -494,6 +495,24 @@ class SharedHttpApiTest {
     assertEquals(
         listing.get("id").getAsLong(),
         JsonParser.parseString(replay.body()).getAsJsonObject().get("id").getAsLong());
+    JsonObject publicListings =
+        JsonParser.parseString(get("/api/market/listings", null).body()).getAsJsonObject();
+    JsonObject publicListing = publicListings.getAsJsonArray("listings").get(0).getAsJsonObject();
+    assertEquals("minecraft:diamond", publicListing.get("itemMaterial").getAsString());
+    assertFalse(publicListing.has("item"));
+    assertFalse(publicListing.toString().contains("nativePayload"));
+    assertEquals(
+        1,
+        JsonParser.parseString(get("/api/market/listings?mine=true", token).body())
+            .getAsJsonObject()
+            .getAsJsonArray("listings")
+            .size());
+    assertEquals(
+        0,
+        JsonParser.parseString(get("/api/market/listings?mine=true", buyerToken).body())
+            .getAsJsonObject()
+            .getAsJsonArray("listings")
+            .size());
     assertEquals(
         3,
         inventories.snapshot(player, false).toCompletableFuture().join()
