@@ -443,7 +443,7 @@ public final class SharedHttpApi implements AutoCloseable {
       } else if (path.equals("/api/meta/locales") && method(exchange, "GET")) {
         respond(exchange, 200, Map.of("default", "zh-CN", "supported", List.of("zh-CN", "en-US")));
       } else if (path.equals("/api/meta/material-overrides") && method(exchange, "GET")) {
-        respond(exchange, 200, List.of());
+        respond(exchange, 200, content.materialOverrides());
       } else if (path.equals("/api/meta/materials") && method(exchange, "GET")) {
         respond(exchange, 200, List.of());
       } else if (path.equals("/api/meta/market-tags") && method(exchange, "GET")) {
@@ -720,6 +720,45 @@ public final class SharedHttpApi implements AutoCloseable {
       } else if (path.equals("/api/admin/homepage/assets") && method(exchange, "GET")) {
         administration.requireAdmin(user(exchange), AdminPermission.HOMEPAGE_MANAGE);
         respond(exchange, 200, content.homepageAssets());
+      } else if (path.equals("/api/admin/material-overrides/list") && method(exchange, "GET")) {
+        administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "items",
+                content.materialOverrides(
+                    query(exchange, "keyword"), queryInt(exchange, "limit", 300))));
+      } else if (path.equals("/api/admin/material-overrides/upsert") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        JsonObject saved =
+            content.upsertMaterialOverride(
+                requiredString(input, "materialKey"),
+                optionalString(input, "displayNameOverride", null),
+                optionalString(input, "iconPath", null),
+                actor.username());
+        audit.log(
+            actor,
+            "MATERIAL_OVERRIDE_UPSERT",
+            "material_override",
+            requiredString(input, "materialKey"),
+            input.deepCopy(),
+            clientIp(exchange));
+        respond(exchange, 200, saved);
+      } else if (path.equals("/api/admin/material-overrides/delete") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        String materialKey = requiredString(input, "materialKey");
+        boolean deleted = content.deleteMaterialOverride(materialKey);
+        audit.log(
+            actor,
+            "MATERIAL_OVERRIDE_DELETE",
+            "material_override",
+            materialKey,
+            input.deepCopy(),
+            clientIp(exchange));
+        respond(exchange, 200, Map.of("deleted", deleted, "materialKey", materialKey));
       } else if (path.equals("/api/admin/promotions/list") && method(exchange, "GET")) {
         var actor = user(exchange);
         administration.requireAdmin(actor, AdminPermission.PROMOTION_VIEW);

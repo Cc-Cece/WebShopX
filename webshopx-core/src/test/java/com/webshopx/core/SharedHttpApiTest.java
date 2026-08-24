@@ -273,6 +273,35 @@ class SharedHttpApiTest {
             .getAsBoolean());
     assertEquals(200, get("/api/admin/homepage/revisions", token).statusCode());
     assertEquals(200, get("/api/admin/homepage/assets", token).statusCode());
+    assertEquals(
+        200,
+        post(
+                "/api/admin/material-overrides/upsert",
+                "{\"materialKey\":\"minecraft:stone\","
+                    + "\"displayNameOverride\":\"Polished API Stone\","
+                    + "\"iconPath\":\"/assets/stone.webp\"}",
+                token,
+                null)
+            .statusCode());
+    assertEquals(
+        1,
+        JsonParser.parseString(get("/api/meta/material-overrides", null).body())
+            .getAsJsonArray()
+            .size());
+    assertEquals(
+        1,
+        JsonParser.parseString(get("/api/admin/material-overrides/list", token).body())
+            .getAsJsonObject()
+            .getAsJsonArray("items")
+            .size());
+    assertEquals(
+        200,
+        post(
+                "/api/admin/material-overrides/delete",
+                "{\"materialKey\":\"minecraft:stone\"}",
+                token,
+                null)
+            .statusCode());
     assertEquals(200, get("/api/admin/auth/me", token).statusCode());
     assertEquals(200, get("/api/admin/users/list", token).statusCode());
     HttpResponse<String> lookup = get("/api/admin/users/lookup?identifier=SupportTarget", token);
