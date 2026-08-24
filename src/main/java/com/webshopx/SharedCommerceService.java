@@ -3,6 +3,10 @@ package com.webshopx;
 import com.google.gson.JsonObject;
 import com.webshopx.core.ItemEnvelopeBinaryCodec;
 import com.webshopx.core.ItemEnvelopeService;
+import com.webshopx.payment.api.PaymentConfigDescriptor;
+import com.webshopx.payment.api.PaymentConfigSnapshot;
+import com.webshopx.payment.api.PaymentConfigUpdateRequest;
+import com.webshopx.payment.api.PaymentConfigUpdateResult;
 import com.webshopx.platform.CompatibilityDomain;
 import com.webshopx.platform.ItemEnvelope;
 import java.nio.charset.StandardCharsets;
@@ -2139,6 +2143,36 @@ public final class SharedCommerceService {
     }
   }
 
+  public java.util.Optional<PaymentProviderConfiguration> paymentProviderConfiguration(
+      String providerId, String locale) {
+    PaymentProvider provider = requirePaymentProvider(providerId);
+    return java.util.Optional.ofNullable(provider.configuration(locale));
+  }
+
+  public PaymentConfigUpdateResult updatePaymentProviderConfiguration(
+      String providerId, PaymentConfigUpdateRequest request) {
+    Objects.requireNonNull(request, "request");
+    PaymentConfigUpdateResult result = requirePaymentProvider(providerId).updateConfiguration(request);
+    if (result == null) {
+      throw new ServiceException(
+          "payment_config_update_failed", "Payment provider returned no result");
+    }
+    return result;
+  }
+
+  private PaymentProvider requirePaymentProvider(String providerId) {
+    if (providerId == null || providerId.isBlank()) {
+      throw new ServiceException(
+          "payment_provider_required", "A payment provider must be specified");
+    }
+    PaymentProvider provider = paymentProviders.get(providerId.trim().toLowerCase(Locale.ROOT));
+    if (provider == null) {
+      throw new ServiceException(
+          "payment_provider_not_found", "Payment provider was not found: " + providerId);
+    }
+    return provider;
+  }
+
   public Recharge createRecharge(RechargeRequest request) {
     requireKey(request.idempotencyKey());
     if (request.amountMinor() < 1 || request.coinAmount() < 1) {
@@ -3226,6 +3260,13 @@ public final class SharedCommerceService {
       boolean paid,
       Instant paidAt) {}
 
+  public record PaymentProviderConfiguration(
+      String providerId,
+      String displayName,
+      PaymentConfigDescriptor descriptor,
+      PaymentConfigSnapshot snapshot,
+      java.util.Set<String> supportedLocales) {}
+
   public interface PaymentProvider {
     String id();
 
@@ -3233,6 +3274,15 @@ public final class SharedCommerceService {
 
     default PaymentNotification query(Recharge recharge) {
       return null;
+    }
+
+    default PaymentProviderConfiguration configuration(String locale) {
+      return null;
+    }
+
+    default PaymentConfigUpdateResult updateConfiguration(PaymentConfigUpdateRequest request) {
+      throw new ServiceException(
+          "payment_config_unsupported", "Payment provider does not expose configuration");
     }
   }
 }

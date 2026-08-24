@@ -27,6 +27,8 @@ import com.webshopx.SharedMarketEscrowService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.SharedRuntimeConfigService;
 import com.webshopx.WalletService;
+import com.webshopx.payment.api.PaymentConfigUpdateRequest;
+import com.webshopx.payment.api.PaymentConfigUpdateStatus;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.ItemEnvelope;
 import com.webshopx.platform.PlatformIdentity;
@@ -1549,6 +1551,56 @@ public final class SharedHttpApi implements AutoCloseable {
       } else if (path.equals("/api/admin/economy/recharge-payment")
           && method(exchange, "POST")) {
         respondRuntimeConfigBodyUpdate(exchange, "payment_recharge", "RECHARGE_PAYMENT_UPDATE");
+      } else if (path.equals("/api/admin/economy/payment-provider-config")
+          && method(exchange, "GET")) {
+        administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        JsonObject response = new JsonObject();
+        response.add(
+            "provider",
+            commerce.paymentProviderConfiguration(query(exchange, "providerId"), query(exchange, "locale"))
+                .map(gson::toJsonTree)
+                .orElse(JsonNull.INSTANCE));
+        respond(exchange, 200, response);
+      } else if (path.equals("/api/admin/economy/payment-provider-config")
+          && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        Map<String, Object> changes =
+            input.has("changes") && input.get("changes").isJsonObject()
+                ? gson.fromJson(input.getAsJsonObject("changes"), Map.class)
+                : Map.of();
+        Set<String> clearedSecrets = new java.util.LinkedHashSet<>();
+        if (input.has("clearedSecrets") && input.get("clearedSecrets").isJsonArray()) {
+          input.getAsJsonArray("clearedSecrets").forEach(
+              value -> clearedSecrets.add(value.getAsString()));
+        }
+        String providerId = requiredString(input, "providerId");
+        var result = commerce.updatePaymentProviderConfiguration(
+            providerId, new PaymentConfigUpdateRequest(changes, clearedSecrets));
+        JsonObject detail = new JsonObject();
+        detail.addProperty("status", result.status().name());
+        detail.addProperty("providerId", providerId);
+        detail.addProperty("changedFieldCount", changes.size());
+        detail.addProperty("clearedSecretCount", clearedSecrets.size());
+        audit.log(
+            actor,
+            "PAYMENT_PROVIDER_CONFIG_UPDATE",
+            "payment_provider",
+            null,
+            detail,
+            clientIp(exchange));
+        JsonObject response = new JsonObject();
+        response.add("result", gson.toJsonTree(result));
+        response.add(
+            "provider",
+            commerce.paymentProviderConfiguration(
+                    providerId, optionalString(input, "locale", null))
+                .map(gson::toJsonTree)
+                .orElse(JsonNull.INSTANCE));
+        respond(
+            exchange,
+            result.status() == PaymentConfigUpdateStatus.REJECTED ? 422 : 200,
+            response);
       } else if ((path.equals("/api/admin/market/tags-config")
               || path.equals("/api/admin/market/limitation-config"))
           && (method(exchange, "GET") || method(exchange, "POST"))) {

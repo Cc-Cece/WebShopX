@@ -23,6 +23,10 @@ import com.webshopx.SharedContentService;
 import com.webshopx.SharedMarketEscrowService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.WalletService;
+import com.webshopx.payment.api.PaymentConfigDescriptor;
+import com.webshopx.payment.api.PaymentConfigSnapshot;
+import com.webshopx.payment.api.PaymentConfigUpdateRequest;
+import com.webshopx.payment.api.PaymentConfigUpdateResult;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.CompatibilityDomain;
 import com.webshopx.platform.InventoryTypes.InventoryMutation;
@@ -109,6 +113,21 @@ class SharedHttpApiTest {
                 "https://pay.example/" + orderId,
                 null,
                 Instant.now().plusSeconds(600));
+          }
+
+          @Override
+          public SharedCommerceService.PaymentProviderConfiguration configuration(String locale) {
+            return new SharedCommerceService.PaymentProviderConfiguration(
+                id(),
+                "Fixture Pay",
+                new PaymentConfigDescriptor(1, List.of()),
+                new PaymentConfigSnapshot(Map.of("endpoint", "https://pay.example"), Set.of("secret")),
+                Set.of("en-US", "zh-CN"));
+          }
+
+          @Override
+          public PaymentConfigUpdateResult updateConfiguration(PaymentConfigUpdateRequest request) {
+            return PaymentConfigUpdateResult.applied("updated");
           }
         });
     inventories = new InMemoryInventoryGateway(36);
@@ -1273,6 +1292,40 @@ class SharedHttpApiTest {
         get("/api/admin/economy/settings", adminToken).body()).getAsJsonObject();
     assertTrue(refreshed.getAsJsonObject("notification")
         .get("marketEventsEnabled").getAsBoolean());
+  }
+
+  @Test
+  void paymentProviderConfigurationRequiresAdminAndNeverReturnsSecretValues() throws Exception {
+    String adminToken = login("ApiPlayer", "api-secret");
+    assertEquals(
+        401,
+        get("/api/admin/economy/payment-provider-config?providerId=fixture-pay", null)
+            .statusCode());
+    HttpResponse<String> read = get(
+        "/api/admin/economy/payment-provider-config?providerId=fixture-pay&locale=zh-CN",
+        adminToken);
+    assertEquals(200, read.statusCode(), read.body());
+    JsonObject provider = JsonParser.parseString(read.body()).getAsJsonObject()
+        .getAsJsonObject("provider");
+    assertEquals("Fixture Pay", provider.get("displayName").getAsString());
+    assertTrue(provider.getAsJsonObject("snapshot").getAsJsonArray("configuredSecrets")
+        .toString().contains("secret"));
+    assertFalse(provider.getAsJsonObject("snapshot").getAsJsonObject("values").has("secret"));
+
+    String submittedSecret = "must-never-be-returned-or-audited";
+    HttpResponse<String> update = post(
+        "/api/admin/economy/payment-provider-config",
+        "{\"providerId\":\"fixture-pay\",\"locale\":\"zh-CN\","
+            + "\"changes\":{\"secret\":\"" + submittedSecret + "\"},"
+            + "\"clearedSecrets\":[]}",
+        adminToken,
+        null);
+    assertEquals(200, update.statusCode(), update.body());
+    assertFalse(update.body().contains(submittedSecret));
+    HttpResponse<String> auditLog = get("/api/admin/audit/list?limit=20", adminToken);
+    assertEquals(200, auditLog.statusCode(), auditLog.body());
+    assertTrue(auditLog.body().contains("PAYMENT_PROVIDER_CONFIG_UPDATE"));
+    assertFalse(auditLog.body().contains(submittedSecret));
   }
 
   @Test

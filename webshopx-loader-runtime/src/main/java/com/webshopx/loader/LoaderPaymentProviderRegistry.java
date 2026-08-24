@@ -3,6 +3,13 @@ package com.webshopx.loader;
 import com.webshopx.ServiceException;
 import com.webshopx.SharedCommerceService;
 import com.webshopx.payment.api.PaymentCreateRequest;
+import com.webshopx.payment.api.PaymentConfigAccess;
+import com.webshopx.payment.api.PaymentConfigField;
+import com.webshopx.payment.api.PaymentConfigProblem;
+import com.webshopx.payment.api.PaymentConfigSnapshot;
+import com.webshopx.payment.api.PaymentConfigUpdateRequest;
+import com.webshopx.payment.api.PaymentConfigUpdateResult;
+import com.webshopx.payment.api.PaymentConfigurable;
 import com.webshopx.payment.api.PaymentNotify;
 import com.webshopx.payment.api.PaymentNotifyResult;
 import com.webshopx.payment.api.PaymentQueryRequest;
@@ -10,11 +17,13 @@ import com.webshopx.payment.api.PaymentStatus;
 import com.webshopx.payment.api.WebShopXPaymentApi;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
-import java.util.ServiceLoader;
 import java.util.ServiceConfigurationError;
+import java.util.ServiceLoader;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -162,6 +171,82 @@ final class LoaderPaymentProviderRegistry implements AutoCloseable {
           result.getCurrency(),
           paid,
           result.getPaidAt() == null ? Instant.now() : result.getPaidAt());
+    }
+
+    @Override
+    public SharedCommerceService.PaymentProviderConfiguration configuration(String locale) {
+      if (!(provider instanceof PaymentConfigurable configurable)) return null;
+      try {
+        var descriptor = configurable.describeConfiguration(locale);
+        PaymentConfigSnapshot rawSnapshot = configurable.readConfiguration();
+        Map<String, Object> safeValues = new LinkedHashMap<>();
+        if (rawSnapshot != null) safeValues.putAll(rawSnapshot.values());
+        if (descriptor != null) {
+          descriptor.sections().forEach(section -> section.fields().forEach(field -> {
+            if (field.access() == PaymentConfigAccess.WRITE_ONLY) safeValues.remove(field.key());
+          }));
+        }
+        PaymentConfigSnapshot safeSnapshot = new PaymentConfigSnapshot(
+            safeValues, rawSnapshot == null ? java.util.Set.of() : rawSnapshot.configuredSecrets());
+        return new SharedCommerceService.PaymentProviderConfiguration(
+            id,
+            provider.displayName(),
+            descriptor,
+            safeSnapshot,
+            configurable.supportedConfigurationLocales());
+      } catch (RuntimeException failure) {
+        throw new ServiceException("payment_config_read_failed", message(failure));
+      }
+    }
+
+    @Override
+    public PaymentConfigUpdateResult updateConfiguration(PaymentConfigUpdateRequest request) {
+      if (!(provider instanceof PaymentConfigurable configurable)) {
+        throw new ServiceException(
+            "payment_config_unsupported", "Payment provider does not expose configuration");
+      }
+      try {
+        var descriptor = configurable.describeConfiguration();
+        var fields = new LinkedHashMap<String, PaymentConfigField>();
+        if (descriptor != null) {
+          descriptor.sections().forEach(
+              section -> section.fields().forEach(field -> fields.put(field.key(), field)));
+        }
+        var problems = new ArrayList<PaymentConfigProblem>();
+        request.changes().keySet().forEach(key -> {
+          PaymentConfigField field = fields.get(key);
+          if (field == null || field.access() == PaymentConfigAccess.READ_ONLY) {
+            problems.add(new PaymentConfigProblem(
+                key, "unknown_or_read_only", "Setting is not writable"));
+          }
+        });
+        request.clearedSecrets().forEach(key -> {
+          PaymentConfigField field = fields.get(key);
+          if (field == null || field.access() != PaymentConfigAccess.WRITE_ONLY) {
+            problems.add(new PaymentConfigProblem(
+                key, "not_a_secret", "Setting is not a write-only secret"));
+          }
+        });
+        if (!problems.isEmpty()) {
+          return PaymentConfigUpdateResult.rejected("Configuration was not changed", problems);
+        }
+        PaymentConfigUpdateResult result = configurable.updateConfiguration(request);
+        if (result == null) {
+          throw new ServiceException(
+              "payment_config_update_failed", "Payment provider returned no result");
+        }
+        return result;
+      } catch (ServiceException failure) {
+        throw failure;
+      } catch (RuntimeException failure) {
+        throw new ServiceException("payment_config_update_failed", message(failure));
+      }
+    }
+
+    private static String message(RuntimeException failure) {
+      return failure.getMessage() == null || failure.getMessage().isBlank()
+          ? failure.getClass().getSimpleName()
+          : failure.getMessage();
     }
   }
 }
