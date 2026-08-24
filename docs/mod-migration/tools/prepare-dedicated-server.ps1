@@ -55,6 +55,31 @@ function DownloadMavenArtifact(
     return $destination
 }
 
+function SeedInstallerLibraries(
+    [string]$Log,
+    [string]$Repository,
+    [string]$LibraryDirectory
+) {
+    if (-not (Test-Path -LiteralPath $Log -PathType Leaf)) { return }
+    $repositoryPrefix = $Repository.TrimEnd('/') + '/'
+    $libraryRoot = [IO.Path]::GetFullPath($LibraryDirectory).TrimEnd(
+        [IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) +
+        [IO.Path]::DirectorySeparatorChar
+    $urls = Select-String -LiteralPath $Log -Pattern '^Downloading library from (https://\S+)$' |
+        ForEach-Object { $_.Matches[0].Groups[1].Value } |
+        Where-Object { $_.StartsWith($repositoryPrefix, [StringComparison]::OrdinalIgnoreCase) } |
+        Sort-Object -Unique
+    foreach ($url in $urls) {
+        $relative = $url.Substring($repositoryPrefix.Length).Replace('/', [IO.Path]::DirectorySeparatorChar)
+        $destination = [IO.Path]::GetFullPath((Join-Path $LibraryDirectory $relative))
+        if (-not $destination.StartsWith($libraryRoot, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Installer library URL escaped library directory: $url"
+        }
+        New-Item -ItemType Directory -Force -Path (Split-Path $destination -Parent) | Out-Null
+        Download $url $destination
+    }
+}
+
 if ($Platform -eq 'fabric') {
     if ([string]::IsNullOrWhiteSpace($FabricApi)) {
         throw 'FabricApi is required because WebShopX installs Fabric lifecycle and block callbacks'
@@ -121,7 +146,11 @@ if (-not $argumentFile) {
             -RedirectStandardOutput (Join-Path $work "installer-$attempt.log") `
             -RedirectStandardError (Join-Path $work "installer-$attempt-error.log")
         if ($install.ExitCode -eq 0) { break }
-        if ($attempt -lt 3) { Start-Sleep -Seconds (3 * $attempt) }
+        if ($attempt -lt 3) {
+            # The installer validates these files against its signed manifest on the next run.
+            SeedInstallerLibraries (Join-Path $work "installer-$attempt.log") $repository (Join-Path $work 'libraries')
+            Start-Sleep -Seconds (3 * $attempt)
+        }
     }
     if ($install.ExitCode -ne 0) {
         throw "$Platform installer exited with $($install.ExitCode); see installer logs in $work"
