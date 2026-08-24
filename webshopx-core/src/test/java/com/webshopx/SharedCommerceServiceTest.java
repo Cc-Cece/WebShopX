@@ -120,6 +120,42 @@ class SharedCommerceServiceTest {
     assertEquals(1, commerce.products(false).get(0).stockRemaining());
   }
 
+  @Test void perUserProductLimitIsAtomicIdempotentAndAdministrativelyResettable() {
+    UUID buyerId = UUID.randomUUID();
+    long buyer = auth.setPasswordFromGame(buyerId, "LimitedBuyer", "buyer-secret").userId();
+    wallets.adjustBalance(buyer, CurrencyType.SHOP_COIN, 100, "TEST", "limit-seed");
+    var product =
+        commerce.upsertProduct(
+            new ProductInput(
+                "LIMITED",
+                "Limited",
+                null,
+                CurrencyType.SHOP_COIN,
+                10,
+                ProductKind.COMMAND,
+                "say paid",
+                null,
+                null,
+                2,
+                true));
+    PurchaseRequest first =
+        new PurchaseRequest(buyer, buyerId, product.id(), 2, "limit-first", "server");
+    assertEquals(commerce.purchase(first), commerce.purchase(first));
+    ServiceException limited =
+        assertThrows(
+            ServiceException.class,
+            () ->
+                commerce.purchase(
+                    new PurchaseRequest(
+                        buyer, buyerId, product.id(), 1, "limit-rejected", "server")));
+    assertEquals("product_limit_reached", limited.code());
+    assertEquals(80, wallets.getBalance(buyer).shopCoin());
+    assertEquals(1, commerce.resetProductUserLimitUsage(product.id()));
+    commerce.purchase(
+        new PurchaseRequest(buyer, buyerId, product.id(), 1, "limit-after-reset", "server"));
+    assertEquals(70, wallets.getBalance(buyer).shopCoin());
+  }
+
   @Test void snapshotProductsPreserveNativePayloadAcrossVersionRollbackAndDelivery() {
     UUID buyerId = UUID.randomUUID();
     long buyer = auth.setPasswordFromGame(buyerId, "SnapshotBuyer", "buyer-secret").userId();

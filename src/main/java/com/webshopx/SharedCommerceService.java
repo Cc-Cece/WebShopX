@@ -47,8 +47,8 @@ public final class SharedCommerceService {
         connection -> {
           String sql =
               "INSERT INTO products (sku,title,remark,currency,price,product_type,"
-                  + "command_template,item_material,item_amount,stock_remaining,active) "
-                  + "VALUES (?,?,?,?,?,?,?,?,?,?,?)";
+                  + "command_template,item_material,item_amount,stock_remaining,per_user_limit,active) "
+                  + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
           try (PreparedStatement statement =
               connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             statement.setString(1, input.sku().trim().toUpperCase(Locale.ROOT));
@@ -67,7 +67,8 @@ public final class SharedCommerceService {
               statement.setInt(9, input.stock());
               statement.setInt(10, input.stock());
             }
-            statement.setBoolean(11, input.active());
+            setNullableInt(statement, 11, input.perUserLimit());
+            statement.setBoolean(12, input.active());
             statement.executeUpdate();
             return readProduct(connection, generatedId(statement));
           }
@@ -83,7 +84,7 @@ public final class SharedCommerceService {
               connection.prepareStatement(
                   "UPDATE products SET title=?,remark=?,currency=?,price=?,product_type=?,"
                       + "command_template=?,item_material=?,item_amount=?,stock_remaining=?,"
-                      + "active=?,updated_at=CURRENT_TIMESTAMP WHERE sku=?")) {
+                      + "per_user_limit=?,active=?,updated_at=CURRENT_TIMESTAMP WHERE sku=?")) {
             statement.setString(1, input.title().trim());
             statement.setString(2, input.remark());
             statement.setString(3, input.currency().name());
@@ -99,15 +100,16 @@ public final class SharedCommerceService {
               statement.setInt(8, input.stock());
               statement.setInt(9, input.stock());
             }
-            statement.setBoolean(10, input.active());
-            statement.setString(11, sku);
+            setNullableInt(statement, 10, input.perUserLimit());
+            statement.setBoolean(11, input.active());
+            statement.setString(12, sku);
             if (statement.executeUpdate() == 1) return readProductBySku(connection, sku);
           }
           try (PreparedStatement statement =
               connection.prepareStatement(
                   "INSERT INTO products (sku,title,remark,currency,price,product_type,"
-                      + "command_template,item_material,item_amount,stock_remaining,active)"
-                      + " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                      + "command_template,item_material,item_amount,stock_remaining,per_user_limit,active)"
+                      + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                   Statement.RETURN_GENERATED_KEYS)) {
             statement.setString(1, sku);
             statement.setString(2, input.title().trim());
@@ -125,7 +127,8 @@ public final class SharedCommerceService {
               statement.setInt(9, input.stock());
               statement.setInt(10, input.stock());
             }
-            statement.setBoolean(11, input.active());
+            setNullableInt(statement, 11, input.perUserLimit());
+            statement.setBoolean(12, input.active());
             statement.executeUpdate();
             return readProduct(connection, generatedId(statement));
           }
@@ -148,6 +151,21 @@ public final class SharedCommerceService {
         });
   }
 
+  public int resetProductUserLimitUsage(long productId) {
+    if (productId <= 0) {
+      throw new ServiceException("invalid_product", "Product id must be positive");
+    }
+    return database.inTransaction(
+        connection -> {
+          readProduct(connection, productId);
+          try (PreparedStatement statement =
+              connection.prepareStatement("DELETE FROM product_user_usage WHERE product_id=?")) {
+            statement.setLong(1, productId);
+            return statement.executeUpdate();
+          }
+        });
+  }
+
   public Product createSnapshotProduct(
       ProductInput input, ItemEnvelope template, long createdBy) {
     if (input == null || input.kind() != ProductKind.SNAPSHOT_ITEM) {
@@ -161,8 +179,9 @@ public final class SharedCommerceService {
           try (PreparedStatement statement =
               connection.prepareStatement(
                   "INSERT INTO products (sku,title,remark,currency,price,product_type,"
-                      + "command_template,item_material,item_amount,stock_remaining,snapshot_id,"
-                      + "inventory_mode,active) VALUES (?,?,?,?,?,?,?,?,?,?,?,'TEMPLATE',?)",
+                      + "command_template,item_material,item_amount,stock_remaining,per_user_limit,"
+                      + "snapshot_id,inventory_mode,active) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,"
+                      + "'TEMPLATE',?)",
                   Statement.RETURN_GENERATED_KEYS)) {
             statement.setString(1, input.sku().trim().toUpperCase(Locale.ROOT));
             statement.setString(2, input.title().trim());
@@ -179,8 +198,9 @@ public final class SharedCommerceService {
               statement.setInt(9, input.stock());
               statement.setInt(10, input.stock());
             }
-            statement.setLong(11, snapshotId);
-            statement.setBoolean(12, input.active());
+            setNullableInt(statement, 11, input.perUserLimit());
+            statement.setLong(12, snapshotId);
+            statement.setBoolean(13, input.active());
             statement.executeUpdate();
             long productId = generatedId(statement);
             insertSnapshotVersion(
@@ -294,7 +314,7 @@ public final class SharedCommerceService {
         connection -> {
           String sql =
               "SELECT id,sku,title,remark,currency,price,product_type,command_template,"
-                  + "item_material,stock_remaining,active FROM products"
+                  + "item_material,stock_remaining,per_user_limit,active FROM products"
                   + (includeInactive ? "" : " WHERE active=TRUE")
                   + " ORDER BY id";
           try (PreparedStatement statement = connection.prepareStatement(sql);
@@ -371,6 +391,7 @@ public final class SharedCommerceService {
           if (product.stockRemaining() != null && product.stockRemaining() < request.quantity()) {
             throw new ServiceException("insufficient_stock", "Product stock is insufficient");
           }
+          reserveProductUserLimit(connection, product, request.userId(), request.quantity());
           long total;
           try {
             total = Math.multiplyExact(product.price(), request.quantity());
@@ -2469,7 +2490,7 @@ public final class SharedCommerceService {
     try (PreparedStatement statement =
         connection.prepareStatement(
             "SELECT id,sku,title,remark,currency,price,product_type,command_template,item_material,"
-                + "stock_remaining,active FROM products WHERE id=?")) {
+                + "stock_remaining,per_user_limit,active FROM products WHERE id=?")) {
       statement.setLong(1, id);
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next())
@@ -2492,11 +2513,33 @@ public final class SharedCommerceService {
     }
   }
 
+  private void reserveProductUserLimit(
+      Connection connection, Product product, long userId, int quantity) throws SQLException {
+    if (product.perUserLimit() == null) return;
+    try (PreparedStatement statement =
+        connection.prepareStatement(database.sqlProvider().upsertProductUserUsageSql())) {
+      statement.setLong(1, product.id());
+      statement.setLong(2, userId);
+      statement.setInt(3, quantity);
+      statement.executeUpdate();
+    }
+    try (PreparedStatement statement = connection.prepareStatement(
+        "SELECT used_count FROM product_user_usage WHERE product_id=? AND user_id=?")) {
+      statement.setLong(1, product.id());
+      statement.setLong(2, userId);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next() || result.getInt(1) > product.perUserLimit()) {
+          throw new ServiceException("product_limit_reached", "Product purchase limit reached");
+        }
+      }
+    }
+  }
+
   private Product readProductBySku(Connection connection, String sku) throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
             "SELECT id,sku,title,remark,currency,price,product_type,command_template,item_material,"
-                + "stock_remaining,active FROM products WHERE sku=?")) {
+                + "stock_remaining,per_user_limit,active FROM products WHERE sku=?")) {
       statement.setString(1, sku);
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next()) {
@@ -2520,7 +2563,19 @@ public final class SharedCommerceService {
         result.getString("command_template"),
         result.getString("item_material"),
         stock == null ? null : ((Number) stock).intValue(),
+        nullableInt(result, "per_user_limit"),
         result.getBoolean("active"));
+  }
+
+  private static Integer nullableInt(ResultSet result, String column) throws SQLException {
+    Object value = result.getObject(column);
+    return value == null ? null : ((Number) value).intValue();
+  }
+
+  private static void setNullableInt(PreparedStatement statement, int index, Integer value)
+      throws SQLException {
+    if (value == null) statement.setObject(index, null);
+    else statement.setInt(index, value);
   }
 
   private Purchase findPurchase(Connection connection, long userId, String key)
@@ -3392,6 +3447,9 @@ public final class SharedCommerceService {
     if (input.stock() != null && input.stock() < 1) {
       throw new ServiceException("invalid_product", "Stock is invalid");
     }
+    if (input.perUserLimit() != null && input.perUserLimit() < 1) {
+      throw new ServiceException("invalid_product", "Per-user limit is invalid");
+    }
   }
 
   private static void requireKey(String key) {
@@ -3421,7 +3479,23 @@ public final class SharedCommerceService {
       String commandTemplate,
       String registryId,
       Integer stock,
-      boolean active) {}
+      Integer perUserLimit,
+      boolean active) {
+    public ProductInput(
+        String sku,
+        String title,
+        String remark,
+        CurrencyType currency,
+        long price,
+        ProductKind kind,
+        String commandTemplate,
+        String registryId,
+        Integer stock,
+        boolean active) {
+      this(sku, title, remark, currency, price, kind, commandTemplate, registryId, stock, null,
+          active);
+    }
+  }
 
   public record Product(
       long id,
@@ -3434,6 +3508,7 @@ public final class SharedCommerceService {
       String commandTemplate,
       String registryId,
       Integer stockRemaining,
+      Integer perUserLimit,
       boolean active) {}
 
   public record ProductQuote(

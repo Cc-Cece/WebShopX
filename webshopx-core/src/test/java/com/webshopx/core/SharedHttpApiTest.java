@@ -1566,6 +1566,63 @@ class SharedHttpApiTest {
   }
 
   @Test
+  void adminCanConfigureAndResetAnEnforcedPerUserProductLimit() throws Exception {
+    String token = login("ApiPlayer", "api-secret");
+    HttpResponse<String> created =
+        post(
+            "/api/admin/products/upsert",
+            "{\"sku\":\"API_LIMITED\",\"title\":\"API Limited\","
+                + "\"currency\":\"SHOP_COIN\",\"price\":10,"
+                + "\"productType\":\"COMMAND\",\"commandTemplate\":\"say paid\","
+                + "\"perUserLimit\":2,\"active\":true}",
+            token,
+            null);
+    assertEquals(200, created.statusCode(), created.body());
+    JsonObject product = JsonParser.parseString(created.body()).getAsJsonObject();
+    assertEquals(2, product.get("perUserLimit").getAsInt());
+    long productId = product.get("id").getAsLong();
+    assertEquals(
+        200,
+        post(
+                "/api/orders",
+                "{\"productId\":" + productId
+                    + ",\"quantity\":2,\"idempotencyKey\":\"api-limit-first\"}",
+                token,
+                null)
+            .statusCode());
+    HttpResponse<String> rejected =
+        post(
+            "/api/orders",
+            "{\"productId\":" + productId
+                + ",\"quantity\":1,\"idempotencyKey\":\"api-limit-rejected\"}",
+            token,
+            null);
+    assertEquals(409, rejected.statusCode(), rejected.body());
+    assertEquals(
+        "product_limit_reached",
+        JsonParser.parseString(rejected.body()).getAsJsonObject().get("error").getAsString());
+    HttpResponse<String> reset =
+        post(
+            "/api/admin/products/reset-limit",
+            "{\"productId\":" + productId + "}",
+            token,
+            null);
+    assertEquals(200, reset.statusCode(), reset.body());
+    assertEquals(
+        1,
+        JsonParser.parseString(reset.body()).getAsJsonObject().get("resetCount").getAsInt());
+    assertEquals(
+        200,
+        post(
+                "/api/orders",
+                "{\"productId\":" + productId
+                    + ",\"quantity\":1,\"idempotencyKey\":\"api-limit-after-reset\"}",
+                token,
+                null)
+            .statusCode());
+  }
+
+  @Test
   void inventoryDiscardIsServerValidatedAndIdempotent() throws Exception {
     HttpResponse<String> login =
         post(

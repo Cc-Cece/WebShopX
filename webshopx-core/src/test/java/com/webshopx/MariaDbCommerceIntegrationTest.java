@@ -82,6 +82,42 @@ class MariaDbCommerceIntegrationTest {
         + (secondResult instanceof SharedCommerceService.Purchase ? 1 : 0));
     assertEquals(100, firstWallet.getBalance(rivalOne).shopCoin()
         + secondWallet.getBalance(rivalTwo).shopCoin());
+
+    var perUserLimited =
+        firstCommerce.createProduct(
+            new ProductInput(
+                "CLUSTER_LIMITED",
+                "Cluster Limited",
+                null,
+                CurrencyType.SHOP_COIN,
+                10,
+                ProductKind.COMMAND,
+                "say limited",
+                null,
+                null,
+                1,
+                true));
+    CompletableFuture<Object> limitOne =
+        CompletableFuture.supplyAsync(
+            () ->
+                purchaseOrFailure(
+                    firstCommerce,
+                    new PurchaseRequest(
+                        userId, player, perUserLimited.id(), 1, "limit-node-one", "fabric-a")));
+    CompletableFuture<Object> limitTwo =
+        CompletableFuture.supplyAsync(
+            () ->
+                purchaseOrFailure(
+                    secondCommerce,
+                    new PurchaseRequest(
+                        userId, player, perUserLimited.id(), 1, "limit-node-two", "forge-b")));
+    Object limitFirstResult = limitOne.join();
+    Object limitSecondResult = limitTwo.join();
+    assertEquals(
+        1,
+        (limitFirstResult instanceof SharedCommerceService.Purchase ? 1 : 0)
+            + (limitSecondResult instanceof SharedCommerceService.Purchase ? 1 : 0));
+    assertEquals(370, firstWallet.getBalance(userId).shopCoin());
   }
 
   private static Object purchaseOrFailure(

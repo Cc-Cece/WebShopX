@@ -1814,6 +1814,7 @@ public final class SharedHttpApi implements AutoCloseable {
                   "",
                   template.registryId(),
                   stock,
+                  nullableInt(input, "perUserLimit"),
                   !input.has("active") || input.get("active").getAsBoolean()),
               template,
               actor.userId());
@@ -1877,6 +1878,26 @@ public final class SharedHttpApi implements AutoCloseable {
             input,
             clientIp(exchange));
         respond(exchange, 200, Map.of("id", product.id(), "active", product.active()));
+      } else if (path.equals("/api/admin/products/reset-limit") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.PRODUCT_MANAGE);
+        long productId = requiredLong(input, "productId");
+        var product = commerce.product(productId);
+        int resetCount = commerce.resetProductUserLimitUsage(productId);
+        JsonObject detail = new JsonObject();
+        detail.addProperty("sku", product.sku());
+        detail.addProperty("resetCount", resetCount);
+        audit.log(
+            actor,
+            "PRODUCT_LIMIT_RESET",
+            "product",
+            product.sku(),
+            detail,
+            clientIp(exchange));
+        respond(
+            exchange,
+            200,
+            Map.of("productId", product.id(), "sku", product.sku(), "resetCount", resetCount));
       } else if (path.equals("/api/admin/products") && method(exchange, "POST")) {
         var user = user(exchange);
         administration.requireAdmin(user, AdminPermission.PRODUCT_MANAGE);
@@ -1899,6 +1920,7 @@ public final class SharedHttpApi implements AutoCloseable {
                     optionalString(input, "command", ""),
                     optionalString(input, "registryId", null),
                     stock,
+                    nullableInt(input, "perUserLimit"),
                     !input.has("active") || input.get("active").getAsBoolean())));
       } else if (path.equals("/api/admin/wallet-adjust") && method(exchange, "POST")) {
         var actor = user(exchange);
@@ -1938,6 +1960,7 @@ public final class SharedHttpApi implements AutoCloseable {
             case "insufficient_funds",
                     "insufficient_stock",
                     "stock_conflict",
+                    "product_limit_reached",
                     "listing_conflict",
                     "listing_unavailable",
                     "price_changed",
@@ -2018,6 +2041,8 @@ public final class SharedHttpApi implements AutoCloseable {
     else result.addProperty("itemMaterial", product.registryId());
     if (product.stockRemaining() == null) result.add("stock", JsonNull.INSTANCE);
     else result.addProperty("stock", product.stockRemaining());
+    if (product.perUserLimit() == null) result.add("perUserLimit", JsonNull.INSTANCE);
+    else result.addProperty("perUserLimit", product.perUserLimit());
     result.addProperty("unlimitedStock", product.stockRemaining() == null);
     result.addProperty("active", product.active());
     result.addProperty("purchasable", product.active());
@@ -2207,12 +2232,12 @@ public final class SharedHttpApi implements AutoCloseable {
         input.has("productType")
             ? requiredString(input, "productType")
             : requiredString(input, "kind");
-    Integer stock =
-        input.has("itemAmount") && !input.get("itemAmount").isJsonNull()
-            ? input.get("itemAmount").getAsInt()
-            : input.has("stock") && !input.get("stock").isJsonNull()
-                ? input.get("stock").getAsInt()
-                : null;
+    Integer stock = null;
+    if (input.has("itemAmount") && !input.get("itemAmount").isJsonNull()) {
+      stock = input.get("itemAmount").getAsInt();
+    } else if (input.has("stock") && !input.get("stock").isJsonNull()) {
+      stock = input.get("stock").getAsInt();
+    }
     ProductKind kind = ProductKind.valueOf(type.toUpperCase(Locale.ROOT));
     String registryId =
         input.has("itemMaterial")
@@ -2234,6 +2259,7 @@ public final class SharedHttpApi implements AutoCloseable {
             : optionalString(input, "command", ""),
         registryId,
         stock,
+        nullableInt(input, "perUserLimit"),
         !input.has("active") || input.get("active").getAsBoolean());
   }
 
