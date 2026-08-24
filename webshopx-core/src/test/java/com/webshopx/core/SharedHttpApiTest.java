@@ -717,8 +717,28 @@ class SharedHttpApiTest {
             .getAsJsonObject()
             .get("gameCoin")
             .getAsInt());
+    String sellToBuyRequest =
+        "{\"listingId\":"
+            + buyListing.get("id").getAsLong()
+            + ",\"sellQuantity\":1,\"expectedUnitPrice\":10,"
+            + "\"expectedBuyerTotal\":10,\"idempotencyKey\":\"market-sell-to-buy-1\"}";
+    JsonObject soldToBuy =
+        JsonParser.parseString(
+                post("/api/market/sell-to-buy", sellToBuyRequest, token, null).body())
+            .getAsJsonObject();
+    JsonObject soldToBuyReplay =
+        JsonParser.parseString(
+                post("/api/market/sell-to-buy", sellToBuyRequest, token, null).body())
+            .getAsJsonObject();
+    assertEquals(soldToBuy.get("tradeId").getAsLong(), soldToBuyReplay.get("tradeId").getAsLong());
     assertEquals(
-        2,
+        37,
+        JsonParser.parseString(get("/api/wallet", token).body())
+            .getAsJsonObject()
+            .get("gameCoin")
+            .getAsInt());
+    assertEquals(
+        1,
         inventories.snapshot(player, false).toCompletableFuture().join()
                 instanceof com.webshopx.platform.PlatformResult.Success<?> success
             ? ((com.webshopx.platform.InventoryTypes.InventorySnapshot) success.value())
@@ -726,11 +746,8 @@ class SharedHttpApiTest {
                 .get(0)
                 .count()
             : -1);
-    String unlistBuy = "{\"listingId\":" + buyListing.get("id").getAsLong() + "}";
-    assertEquals(200, post("/api/market/unlist", unlistBuy, buyerToken, null).statusCode());
-    assertEquals(200, post("/api/market/unlist", unlistBuy, buyerToken, null).statusCode());
     assertEquals(
-        73,
+        63,
         JsonParser.parseString(get("/api/wallet", buyerToken).body())
             .getAsJsonObject()
             .get("gameCoin")

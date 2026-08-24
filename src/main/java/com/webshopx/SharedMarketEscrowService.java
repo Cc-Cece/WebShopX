@@ -171,7 +171,13 @@ public final class SharedMarketEscrowService {
     Existing existing = find(request.userId(), request.idempotencyKey());
     if (existing != null) return replayFulfill(existing, request);
     InventorySnapshot snapshot = snapshot(request.playerId(), request.allowOffline());
-    ItemEnvelope selected = select(snapshot, request.expectedPayloadHash(), request.quantity());
+    ItemEnvelope selected;
+    if (request.expectedPayloadHash() == null) {
+      SharedCommerceService.Listing listing = commerce.listing(request.listingId());
+      selected = selectRegistry(snapshot, listing.item().registryId(), request.quantity());
+    } else {
+      selected = select(snapshot, request.expectedPayloadHash(), request.quantity());
+    }
     SharedCommerceService.MarketTrade concurrent = beginFulfill(request, selected);
     if (concurrent != null) return concurrent;
     String operationId = "market-fulfill:" + request.userId() + ":" + request.idempotencyKey();
@@ -404,6 +410,16 @@ public final class SharedMarketEscrowService {
     return snapshot.items().stream()
         .filter(
             item -> expectedPayloadHash == null || item.payloadHash().equals(expectedPayloadHash))
+        .filter(item -> item.count() >= quantity)
+        .findFirst()
+        .orElseThrow(
+            () -> new ServiceException("insufficient_item", "No matching inventory stack exists"));
+  }
+
+  private static ItemEnvelope selectRegistry(
+      InventorySnapshot snapshot, String expectedRegistryId, int quantity) {
+    return snapshot.items().stream()
+        .filter(item -> item.registryId().equalsIgnoreCase(expectedRegistryId))
         .filter(item -> item.count() >= quantity)
         .findFirst()
         .orElseThrow(

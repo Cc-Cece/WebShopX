@@ -632,6 +632,30 @@ public final class SharedHttpApi implements AutoCloseable {
                     input.has("expectedBuyerTotal")
                         ? input.get("expectedBuyerTotal").getAsLong()
                         : null)));
+      } else if (path.equals("/api/market/sell-to-buy") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        int quantity =
+            input.has("sellQuantity")
+                ? optionalInt(input, "sellQuantity", 1)
+                : optionalInt(input, "quantity", 1);
+        var trade =
+            marketEscrow.fulfill(
+                new SharedMarketEscrowService.FulfillRequest(
+                    current.id(),
+                    current.boundUuid(),
+                    requiredLong(input, "listingId"),
+                    quantity,
+                    requiredString(input, "idempotencyKey"),
+                    null,
+                    true,
+                    input.has("expectedUnitPrice")
+                        ? input.get("expectedUnitPrice").getAsLong()
+                        : null,
+                    input.has("expectedBuyerTotal")
+                        ? input.get("expectedBuyerTotal").getAsLong()
+                        : null));
+        respond(exchange, 200, marketTradeJson(trade));
       } else if (path.equals("/api/recharge/create") && method(exchange, "POST")) {
         var current = user(exchange);
         JsonObject input = body(exchange);
@@ -1614,6 +1638,21 @@ public final class SharedHttpApi implements AutoCloseable {
     result.add("displayMaterial", JsonNull.INSTANCE);
     result.add("displayIconPath", JsonNull.INSTANCE);
     return result;
+  }
+
+  private static JsonObject marketTradeJson(SharedCommerceService.MarketTrade trade) {
+    JsonObject response = new JsonObject();
+    response.addProperty("state", "SUCCESS");
+    response.addProperty("tradeId", trade.id());
+    response.addProperty("listingId", trade.listingId());
+    response.addProperty("currency", trade.currency().name());
+    response.addProperty("quantity", trade.quantity());
+    response.addProperty("totalPrice", trade.total());
+    response.addProperty("buyerTotal", trade.total());
+    response.addProperty("sellerReceive", trade.total());
+    response.addProperty("feeAmount", 0);
+    response.addProperty("taxAmount", 0);
+    return response;
   }
 
   private JsonObject adminOrderJson(SharedCommerceService.AdminOrderView view) {
