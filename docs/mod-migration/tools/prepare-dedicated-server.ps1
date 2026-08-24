@@ -108,22 +108,33 @@ $installerName = "$($coordinate.artifact)-$($coordinate.version)-installer.jar"
 $installer = Join-Path $work $installerName
 $repository = if ($Platform -eq 'forge') { 'https://maven.minecraftforge.net' } else { 'https://maven.neoforged.net/releases' }
 Download "$repository/$($coordinate.groupPath)/$($coordinate.version)/$installerName" $installer
-$install = $null
-foreach ($attempt in 1..3) {
-    $install = Start-Process -FilePath $Java -ArgumentList @('-jar', $installer, '--installServer') `
-        -WorkingDirectory $work -Wait -PassThru -NoNewWindow `
-        -RedirectStandardOutput (Join-Path $work "installer-$attempt.log") `
-        -RedirectStandardError (Join-Path $work "installer-$attempt-error.log")
-    if ($install.ExitCode -eq 0) { break }
-    if ($attempt -lt 3) { Start-Sleep -Seconds (3 * $attempt) }
-}
-if ($install.ExitCode -ne 0) {
-    throw "$Platform installer exited with $($install.ExitCode); see installer logs in $work"
-}
 $argumentName = if ($IsWindows -or $env:OS -eq 'Windows_NT') { 'win_args.txt' } else { 'unix_args.txt' }
 $argumentFile = Get-ChildItem -LiteralPath (Join-Path $work 'libraries') -Recurse -File -Filter $argumentName |
     Where-Object { $_.FullName -match [regex]::Escape($coordinate.artifact) } |
     Select-Object -First 1
+if (-not $argumentFile) {
+    $install = $null
+    foreach ($attempt in 1..3) {
+        $install = Start-Process -FilePath $Java -ArgumentList @('-jar', $installer, '--installServer') `
+            -WorkingDirectory $work -Wait -PassThru -NoNewWindow `
+            -RedirectStandardOutput (Join-Path $work "installer-$attempt.log") `
+            -RedirectStandardError (Join-Path $work "installer-$attempt-error.log")
+        if ($install.ExitCode -eq 0) { break }
+        if ($attempt -lt 3) { Start-Sleep -Seconds (3 * $attempt) }
+    }
+    if ($install.ExitCode -ne 0) {
+        throw "$Platform installer exited with $($install.ExitCode); see installer logs in $work"
+    }
+    $argumentFile = Get-ChildItem -LiteralPath (Join-Path $work 'libraries') -Recurse -File -Filter $argumentName |
+        Where-Object { $_.FullName -match [regex]::Escape($coordinate.artifact) } |
+        Select-Object -First 1
+}
 if (-not $argumentFile) { throw "Installed server did not create $argumentName" }
-$relative = [IO.Path]::GetRelativePath($work, $argumentFile.FullName).Replace('\', '/')
+$workPrefix = $work.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) +
+    [IO.Path]::DirectorySeparatorChar
+$argumentPath = [IO.Path]::GetFullPath($argumentFile.FullName)
+if (-not $argumentPath.StartsWith($workPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Installed server argument file escaped working directory: $argumentPath"
+}
+$relative = $argumentPath.Substring($workPrefix.Length).Replace('\', '/')
 [ordered]@{ serverJar = $null; launchArguments = "@`"$relative`"" } | ConvertTo-Json
