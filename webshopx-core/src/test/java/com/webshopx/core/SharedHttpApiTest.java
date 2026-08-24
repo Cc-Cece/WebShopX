@@ -380,8 +380,15 @@ class SharedHttpApiTest {
             ownerToken,
             null);
     assertEquals(200, created.statusCode(), created.body());
-    String orderId =
-        JsonParser.parseString(created.body()).getAsJsonObject().get("orderId").getAsString();
+    JsonObject createdRecharge = JsonParser.parseString(created.body()).getAsJsonObject();
+    String orderId = createdRecharge.get("orderId").getAsString();
+    String redirectPath = createdRecharge.get("payUrl").getAsString();
+    assertTrue(redirectPath.startsWith("/api/recharge/redirect?id="));
+    HttpResponse<String> redirect = get(redirectPath, null);
+    assertEquals(302, redirect.statusCode());
+    assertEquals(
+        "https://pay.example/" + orderId,
+        redirect.headers().firstValue("Location").orElseThrow());
     assertEquals(
         403,
         get("/api/recharge/status?orderId=" + orderId, otherToken).statusCode());

@@ -32,6 +32,7 @@ import com.webshopx.platform.ItemEnvelope;
 import com.webshopx.platform.PlatformIdentity;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -46,6 +47,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Small platform-neutral HTTP surface used by dedicated-server Loader distributions. */
 public final class SharedHttpApi implements AutoCloseable {
@@ -68,6 +70,7 @@ public final class SharedHttpApi implements AutoCloseable {
   private final Gson gson = CommerceJson.create();
   private final ExecutorService executor;
   private final HttpServer server;
+  private final Map<String, RedirectEntry> paymentRedirects = new ConcurrentHashMap<>();
 
   public SharedHttpApi(
       String host,
@@ -730,9 +733,7 @@ public final class SharedHttpApi implements AutoCloseable {
       } else if (path.equals("/api/recharge/create") && method(exchange, "POST")) {
         var current = user(exchange);
         JsonObject input = body(exchange);
-        respond(
-            exchange,
-            200,
+        var recharge =
             commerce.createRecharge(
                 new SharedCommerceService.RechargeRequest(
                     current.id(),
@@ -742,7 +743,24 @@ public final class SharedHttpApi implements AutoCloseable {
                     requiredLong(input, "coinAmount"),
                     requiredString(input, "provider"),
                     requiredString(input, "idempotencyKey"),
-                    optionalString(input, "description", "WebShopX recharge"))));
+                    optionalString(input, "description", "WebShopX recharge")));
+        JsonObject response = gson.toJsonTree(recharge).getAsJsonObject();
+        if (recharge.payUrl() != null && !recharge.payUrl().isBlank()) {
+          String redirectId = registerPaymentRedirect(recharge.payUrl());
+          response.addProperty("payUrl", "/api/recharge/redirect?id=" + redirectId);
+        }
+        respond(exchange, 200, response);
+      } else if (path.equals("/api/recharge/redirect") && method(exchange, "GET")) {
+        String id = requiredQuery(exchange, "id");
+        RedirectEntry entry = paymentRedirects.get(id);
+        if (entry == null || entry.createdAt().isBefore(Instant.now().minusSeconds(900))) {
+          paymentRedirects.remove(id);
+          respond(exchange, 404, error("not_found", "Redirect link expired or was not found"));
+        } else {
+          exchange.getResponseHeaders().set("Location", entry.url());
+          exchange.sendResponseHeaders(302, -1);
+          exchange.close();
+        }
       } else if (path.equals("/api/recharge/status") && method(exchange, "GET")) {
         var current = user(exchange);
         String orderId = requiredQuery(exchange, "orderId");
@@ -1788,6 +1806,31 @@ public final class SharedHttpApi implements AutoCloseable {
     result.addProperty("short", shortName);
     return result;
   }
+
+  private String registerPaymentRedirect(String rawUrl) {
+    URI target;
+    try {
+      target = URI.create(rawUrl);
+    } catch (IllegalArgumentException failure) {
+      throw new ServiceException("payment_invalid_redirect", "Payment URL is invalid");
+    }
+    String scheme = target.getScheme();
+    if (target.getHost() == null
+        || scheme == null
+        || !(scheme.equalsIgnoreCase("https") || scheme.equalsIgnoreCase("http"))) {
+      throw new ServiceException("payment_invalid_redirect", "Payment URL must use HTTP or HTTPS");
+    }
+    Instant cutoff = Instant.now().minusSeconds(900);
+    paymentRedirects.entrySet().removeIf(entry -> entry.getValue().createdAt().isBefore(cutoff));
+    if (paymentRedirects.size() >= 10_000) {
+      throw new ServiceException("payment_redirect_capacity", "Payment redirect capacity reached");
+    }
+    String id = UUID.randomUUID().toString();
+    paymentRedirects.put(id, new RedirectEntry(target.toASCIIString(), Instant.now()));
+    return id;
+  }
+
+  private record RedirectEntry(String url, Instant createdAt) {}
 
   private JsonObject leaderboardConfig() {
     JsonObject stored = runtimeConfig.read("leaderboard").config();
