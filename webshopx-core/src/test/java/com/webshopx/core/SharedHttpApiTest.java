@@ -295,6 +295,103 @@ class SharedHttpApiTest {
   }
 
   @Test
+  void inventorySnapshotAndListingMatchTheBrowserContract() throws Exception {
+    HttpResponse<String> login =
+        post(
+            "/api/auth/login",
+            "{\"identifier\":\"ApiPlayer\",\"password\":\"api-secret\"}",
+            null,
+            null);
+    String token =
+        JsonParser.parseString(login.body()).getAsJsonObject().get("token").getAsString();
+    HttpResponse<String> snapshotResponse = get("/api/inventory/snapshot?inventory=PLAYER", token);
+    assertEquals(200, snapshotResponse.statusCode(), snapshotResponse.body());
+    JsonObject snapshot = JsonParser.parseString(snapshotResponse.body()).getAsJsonObject();
+    assertTrue(snapshot.get("online").getAsBoolean());
+    assertEquals(36, snapshot.getAsJsonArray("slots").size());
+    JsonObject item =
+        snapshot.getAsJsonArray("slots").get(0).getAsJsonObject().getAsJsonObject("item");
+    assertEquals("DIAMOND", item.get("material").getAsString());
+    String fingerprint = item.get("fingerprint").getAsString();
+    String request =
+        "{\"inventory\":\"PLAYER\",\"action\":\"LIST\",\"currency\":\"GAME_COIN\","
+            + "\"price\":19,\"quantity\":2,\"idempotencyKey\":\"inventory-list-1\","
+            + "\"fingerprint\":\""
+            + fingerprint
+            + "\"}";
+    HttpResponse<String> created = post("/api/inventory/list", request, token, null);
+    assertEquals(200, created.statusCode(), created.body());
+    long listingId =
+        JsonParser.parseString(created.body()).getAsJsonObject().get("listingId").getAsLong();
+    HttpResponse<String> replay = post("/api/inventory/list", request, token, null);
+    assertEquals(200, replay.statusCode(), replay.body());
+    assertEquals(
+        listingId,
+        JsonParser.parseString(replay.body()).getAsJsonObject().get("listingId").getAsLong());
+    JsonObject refreshed =
+        JsonParser.parseString(get("/api/inventory/snapshot?inventory=PLAYER", token).body())
+            .getAsJsonObject();
+    assertEquals(
+        3,
+        refreshed
+            .getAsJsonArray("slots")
+            .get(0)
+            .getAsJsonObject()
+            .getAsJsonObject("item")
+            .get("amount")
+            .getAsInt());
+  }
+
+  @Test
+  void inventoryDiscardIsServerValidatedAndIdempotent() throws Exception {
+    HttpResponse<String> login =
+        post(
+            "/api/auth/login",
+            "{\"identifier\":\"ApiPlayer\",\"password\":\"api-secret\"}",
+            null,
+            null);
+    String token =
+        JsonParser.parseString(login.body()).getAsJsonObject().get("token").getAsString();
+    JsonObject snapshot =
+        JsonParser.parseString(get("/api/inventory/snapshot?inventory=PLAYER", token).body())
+            .getAsJsonObject();
+    String fingerprint =
+        snapshot
+            .getAsJsonArray("slots")
+            .get(0)
+            .getAsJsonObject()
+            .getAsJsonObject("item")
+            .get("fingerprint")
+            .getAsString();
+    String request =
+        "{\"inventory\":\"PLAYER\",\"quantity\":2,"
+            + "\"idempotencyKey\":\"discard-1\",\"fingerprint\":\""
+            + fingerprint
+            + "\"}";
+    HttpResponse<String> discarded = post("/api/inventory/discard", request, token, null);
+    assertEquals(200, discarded.statusCode(), discarded.body());
+    assertEquals(
+        2,
+        JsonParser.parseString(discarded.body())
+            .getAsJsonObject()
+            .get("discardedQuantity")
+            .getAsInt());
+    assertEquals(200, post("/api/inventory/discard", request, token, null).statusCode());
+    JsonObject refreshed =
+        JsonParser.parseString(get("/api/inventory/snapshot?inventory=PLAYER", token).body())
+            .getAsJsonObject();
+    assertEquals(
+        3,
+        refreshed
+            .getAsJsonArray("slots")
+            .get(0)
+            .getAsJsonObject()
+            .getAsJsonObject("item")
+            .get("amount")
+            .getAsInt());
+  }
+
+  @Test
   void oversizedAndMalformedRequestsFailClosed() throws Exception {
     assertEquals(413, post("/api/auth/login", "x".repeat(70_000), null, null).statusCode());
     assertEquals(400, post("/api/auth/login", "[]", null, null).statusCode());

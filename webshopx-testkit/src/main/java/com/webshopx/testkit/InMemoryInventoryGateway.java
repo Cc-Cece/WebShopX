@@ -76,7 +76,26 @@ public final class InMemoryInventoryGateway implements PlatformPorts.InventoryGa
   }
 
   private InventorySnapshot snapshotOf(UUID id, State state) {
-    return new InventorySnapshot(id, state.version, capacity - state.items.size(), state.items);
+    List<ItemEnvelope> indexed = new ArrayList<>();
+    for (int index = 0; index < state.items.size(); index++) {
+      ItemEnvelope source = state.items.get(index);
+      Map<String, String> summary = new HashMap<>(source.summary());
+      summary.put("webshopx.slot", Integer.toString(index));
+      indexed.add(
+          new ItemEnvelope(
+              source.schemaVersion(),
+              source.codec(),
+              source.codecVersion(),
+              source.compatibilityDomain(),
+              source.registryId(),
+              source.count(),
+              source.payloadEncoding(),
+              source.payload(),
+              source.payloadHash(),
+              summary,
+              source.createdAt()));
+    }
+    return new InventorySnapshot(id, state.version, capacity - state.items.size(), indexed);
   }
 
   private static int indexOf(List<ItemEnvelope> values, ItemEnvelope requested) {

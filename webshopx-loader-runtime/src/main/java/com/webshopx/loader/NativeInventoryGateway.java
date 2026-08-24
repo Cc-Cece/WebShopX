@@ -229,7 +229,7 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
         if (!(encoded instanceof PlatformResult.Success<ItemEnvelope> success)) {
           throw new IllegalStateException("native item cannot be encoded");
         }
-        values.add(success.value());
+        values.add(withSlot(success.value(), slot));
         digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(slot).array());
         digest.update(success.value().payloadHash().getBytes(StandardCharsets.US_ASCII));
       }
@@ -364,6 +364,23 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
     } catch (NoSuchAlgorithmException impossible) {
       throw new IllegalStateException(impossible);
     }
+  }
+
+  private static ItemEnvelope withSlot(ItemEnvelope source, int slot) {
+    Map<String, String> summary = new LinkedHashMap<>(source.summary());
+    summary.put("webshopx.slot", Integer.toString(slot));
+    return new ItemEnvelope(
+        source.schemaVersion(),
+        source.codec(),
+        source.codecVersion(),
+        source.compatibilityDomain(),
+        source.registryId(),
+        source.count(),
+        source.payloadEncoding(),
+        source.payload(),
+        source.payloadHash(),
+        summary,
+        source.createdAt());
   }
 
   private record RemovalPlan(

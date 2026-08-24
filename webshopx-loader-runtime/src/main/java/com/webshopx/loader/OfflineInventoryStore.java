@@ -21,7 +21,9 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.UUID;
@@ -282,7 +284,7 @@ final class OfflineInventoryStore {
               if (value.slot() >= 0 && value.slot() < MAIN_SLOTS) occupied[value.slot()] = true;
               digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(value.slot()).array());
               digest.update(value.envelope().payloadHash().getBytes(StandardCharsets.US_ASCII));
-              envelopes.add(value.envelope());
+              envelopes.add(withSlot(value.envelope(), value.slot()));
             });
     int free = 0;
     for (boolean used : occupied) if (!used) free++;
@@ -329,6 +331,23 @@ final class OfflineInventoryStore {
     } catch (NoSuchAlgorithmException impossible) {
       throw new IllegalStateException(impossible);
     }
+  }
+
+  private static ItemEnvelope withSlot(ItemEnvelope source, int slot) {
+    Map<String, String> summary = new HashMap<>(source.summary());
+    summary.put("webshopx.slot", Integer.toString(slot));
+    return new ItemEnvelope(
+        source.schemaVersion(),
+        source.codec(),
+        source.codecVersion(),
+        source.compatibilityDomain(),
+        source.registryId(),
+        source.count(),
+        source.payloadEncoding(),
+        source.payload(),
+        source.payloadHash(),
+        summary,
+        source.createdAt());
   }
 
   private record SlotItem(int slot, ItemEnvelope envelope, Object tag) {}

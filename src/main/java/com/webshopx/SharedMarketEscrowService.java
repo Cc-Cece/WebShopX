@@ -93,6 +93,68 @@ public final class SharedMarketEscrowService {
     }
   }
 
+  public InventoryView inventory(UUID playerId) {
+    try {
+      return new InventoryView(snapshot(playerId, false), true);
+    } catch (ServiceException failure) {
+      if (!"inventory_unavailable".equals(failure.code())) throw failure;
+      return new InventoryView(snapshot(playerId, true), false);
+    }
+  }
+
+  public DiscardResult discard(DiscardRequest request) {
+    validateKeyAndQuantity(request.idempotencyKey(), request.quantity());
+    Existing existing = find(request.userId(), request.idempotencyKey());
+    if (existing != null) return replayDiscard(existing, request);
+    InventorySnapshot snapshot = snapshot(request.playerId(), request.allowOffline());
+    ItemEnvelope selected = select(snapshot, request.expectedPayloadHash(), request.quantity());
+    DiscardResult concurrent = beginDiscard(request, selected);
+    if (concurrent != null) return concurrent;
+    String operationId = "inventory-discard:" + request.userId() + ":" + request.idempotencyKey();
+    PlatformResult<InventoryMutationResult> result;
+    try {
+      result =
+          inventories
+              .compareAndApply(
+                  new InventoryMutation(
+                      operationId,
+                      request.playerId(),
+                      snapshot.version(),
+                      List.of(),
+                      List.of(new InventoryRemoval(selected, request.quantity()))))
+              .toCompletableFuture()
+              .get(INVENTORY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    } catch (Exception failure) {
+      throw new ServiceException(
+          "inventory_outcome_unknown", "Inventory operation requires reconciliation");
+    }
+    if (!(result instanceof PlatformResult.Success<InventoryMutationResult> success)) {
+      handleApplyFailure(request.userId(), request.idempotencyKey(), result);
+      throw new ServiceException("inventory_rejected", "Inventory operation was rejected");
+    }
+    if (success.value().removed().size() != 1
+        || success.value().removed().get(0).count() != request.quantity()) {
+      throw new ServiceException(
+          "inventory_outcome_unknown", "Inventory operation requires reconciliation");
+    }
+    DiscardResult discarded = new DiscardResult("SUCCESS", request.quantity(), "refresh-required");
+    try {
+      database.inTransaction(
+          connection -> {
+            completeDiscard(connection, request, gson.toJson(discarded));
+            return null;
+          });
+      return discarded;
+    } catch (RuntimeException failure) {
+      compensate(
+          request.userId(),
+          request.playerId(),
+          request.idempotencyKey(),
+          success.value().removed().get(0));
+      throw failure;
+    }
+  }
+
   private InventorySnapshot snapshot(UUID playerId, boolean allowOffline) {
     try {
       PlatformResult<InventorySnapshot> result =
@@ -148,6 +210,32 @@ public final class SharedMarketEscrowService {
     }
   }
 
+  private DiscardResult beginDiscard(DiscardRequest request, ItemEnvelope selected) {
+    try {
+      database.inTransaction(
+          connection -> {
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "INSERT INTO inventory_operations (user_id,idempotency_key,action,state,"
+                        + "slot_index,container_slot,item_fingerprint,quantity,result_json)"
+                        + " VALUES (?,?,'INVENTORY_DISCARD','PENDING',-1,NULL,?,?,?)")) {
+              statement.setLong(1, request.userId());
+              statement.setString(2, request.idempotencyKey());
+              statement.setString(3, selected.payloadHash());
+              statement.setInt(4, request.quantity());
+              statement.setString(5, gson.toJson(request));
+              statement.executeUpdate();
+            }
+            return null;
+          });
+      return null;
+    } catch (RuntimeException duplicate) {
+      Existing existing = find(request.userId(), request.idempotencyKey());
+      if (existing != null) return replayDiscard(existing, request);
+      throw duplicate;
+    }
+  }
+
   private void complete(Connection connection, Request request, long listingId, String resultJson)
       throws SQLException {
     try (PreparedStatement statement =
@@ -165,18 +253,35 @@ public final class SharedMarketEscrowService {
     }
   }
 
+  private void completeDiscard(Connection connection, DiscardRequest request, String resultJson)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE inventory_operations SET state='SUCCESS',reference_id=0,result_json=?,"
+                + "updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND idempotency_key=?"
+                + " AND action='INVENTORY_DISCARD' AND state='PENDING'")) {
+      statement.setString(1, resultJson);
+      statement.setLong(2, request.userId());
+      statement.setString(3, request.idempotencyKey());
+      if (statement.executeUpdate() != 1) {
+        throw new ServiceException("idempotency_conflict", "Discard operation state changed");
+      }
+    }
+  }
+
   private void compensate(Request request, ItemEnvelope item) {
+    compensate(request.userId(), request.playerId(), request.idempotencyKey(), item);
+  }
+
+  private void compensate(long userId, UUID playerId, String idempotencyKey, ItemEnvelope item) {
     try {
-      InventorySnapshot current = snapshot(request.playerId(), true);
+      InventorySnapshot current = snapshot(playerId, true);
       PlatformResult<InventoryMutationResult> result =
           inventories
               .compareAndApply(
                   new InventoryMutation(
-                      "market-listing-compensate:"
-                          + request.userId()
-                          + ":"
-                          + request.idempotencyKey(),
-                      request.playerId(),
+                      "inventory-compensate:" + userId + ":" + idempotencyKey,
+                      playerId,
                       current.version(),
                       List.of(item),
                       List.of()))
@@ -184,7 +289,7 @@ public final class SharedMarketEscrowService {
               .get(INVENTORY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
       if (result instanceof PlatformResult.Success<InventoryMutationResult> success
           && success.value().remainder().isEmpty()) {
-        reject(request, "market_persist_failed_compensated");
+        reject(userId, idempotencyKey, "persist_failed_compensated");
         return;
       }
     } catch (Exception ignored) {
@@ -195,6 +300,10 @@ public final class SharedMarketEscrowService {
   }
 
   private void handleApplyFailure(Request request, PlatformResult<?> result) {
+    handleApplyFailure(request.userId(), request.idempotencyKey(), result);
+  }
+
+  private void handleApplyFailure(long userId, String idempotencyKey, PlatformResult<?> result) {
     if (result instanceof PlatformResult.UnknownOutcome<?>) {
       throw new ServiceException(
           "inventory_outcome_unknown", "Inventory operation requires reconciliation");
@@ -205,7 +314,7 @@ public final class SharedMarketEscrowService {
             : result instanceof PlatformResult.Conflict<?>
                 ? "inventory_conflict"
                 : "inventory_unavailable";
-    reject(request, code);
+    reject(userId, idempotencyKey, code);
     throw platformFailure(result);
   }
 
@@ -224,6 +333,10 @@ public final class SharedMarketEscrowService {
   }
 
   private void reject(Request request, String code) {
+    reject(request.userId(), request.idempotencyKey(), code);
+  }
+
+  private void reject(long userId, String idempotencyKey, String code) {
     database.inTransaction(
         connection -> {
           try (PreparedStatement statement =
@@ -232,8 +345,8 @@ public final class SharedMarketEscrowService {
                       + "updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND idempotency_key=?"
                       + " AND state='PENDING'")) {
             statement.setString(1, code);
-            statement.setLong(2, request.userId());
-            statement.setString(3, request.idempotencyKey());
+            statement.setLong(2, userId);
+            statement.setString(3, idempotencyKey);
             statement.executeUpdate();
           }
           return null;
@@ -245,8 +358,9 @@ public final class SharedMarketEscrowService {
         connection -> {
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "SELECT action,state,reference_id,error_code FROM inventory_operations"
-                      + " WHERE user_id=? AND idempotency_key=?")) {
+                  "SELECT"
+                      + " action,state,reference_id,error_code,item_fingerprint,quantity,result_json"
+                      + " FROM inventory_operations WHERE user_id=? AND idempotency_key=?")) {
             statement.setLong(1, userId);
             statement.setString(2, key);
             try (ResultSet rows = statement.executeQuery()) {
@@ -256,7 +370,10 @@ public final class SharedMarketEscrowService {
                   rows.getString(1),
                   rows.getString(2),
                   reference instanceof Number number ? number.longValue() : null,
-                  rows.getString(4));
+                  rows.getString(4),
+                  rows.getString(5),
+                  rows.getInt(6),
+                  rows.getString(7));
             }
           }
         });
@@ -279,6 +396,25 @@ public final class SharedMarketEscrowService {
         "inventory_outcome_unknown", "Listing operation requires reconciliation");
   }
 
+  private DiscardResult replayDiscard(Existing existing, DiscardRequest request) {
+    if (!"INVENTORY_DISCARD".equals(existing.action())
+        || existing.quantity() != request.quantity()
+        || (request.expectedPayloadHash() != null
+            && !request.expectedPayloadHash().equals(existing.itemFingerprint()))) {
+      throw new ServiceException("idempotency_conflict", "Idempotency request does not match");
+    }
+    if ("SUCCESS".equals(existing.state())) {
+      return new DiscardResult("SUCCESS", existing.quantity(), "refresh-required");
+    }
+    if ("REJECTED".equals(existing.state())) {
+      throw new ServiceException(
+          existing.errorCode() == null ? "inventory_rejected" : existing.errorCode(),
+          "Discard operation was rejected");
+    }
+    throw new ServiceException(
+        "inventory_outcome_unknown", "Discard operation requires reconciliation");
+  }
+
   private static void validate(Request request) {
     Objects.requireNonNull(request, "request");
     if (request.idempotencyKey() == null
@@ -288,6 +424,15 @@ public final class SharedMarketEscrowService {
     }
     if (request.quantity() < 1 || request.quantity() > 64 || request.price() < 1) {
       throw new ServiceException("invalid_listing", "Listing price or quantity is invalid");
+    }
+  }
+
+  private static void validateKeyAndQuantity(String key, int quantity) {
+    if (key == null || key.isBlank() || key.trim().length() > 96) {
+      throw new ServiceException("invalid_idempotency", "A valid idempotency key is required");
+    }
+    if (quantity < 1 || quantity > 64) {
+      throw new ServiceException("invalid_quantity", "Quantity must be between 1 and 64");
     }
   }
 
@@ -302,5 +447,24 @@ public final class SharedMarketEscrowService {
       boolean allowOffline,
       String remark) {}
 
-  private record Existing(String action, String state, Long referenceId, String errorCode) {}
+  public record InventoryView(InventorySnapshot snapshot, boolean online) {}
+
+  public record DiscardRequest(
+      long userId,
+      UUID playerId,
+      int quantity,
+      String idempotencyKey,
+      String expectedPayloadHash,
+      boolean allowOffline) {}
+
+  public record DiscardResult(String state, int discardedQuantity, String revision) {}
+
+  private record Existing(
+      String action,
+      String state,
+      Long referenceId,
+      String errorCode,
+      String itemFingerprint,
+      int quantity,
+      String resultJson) {}
 }

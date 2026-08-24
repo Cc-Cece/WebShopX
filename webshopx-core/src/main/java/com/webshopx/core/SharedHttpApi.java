@@ -1,6 +1,8 @@
 package com.webshopx.core;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.Headers;
@@ -24,6 +26,7 @@ import com.webshopx.SharedMarketEscrowService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.WalletService;
 import com.webshopx.platform.CapabilitySnapshot;
+import com.webshopx.platform.ItemEnvelope;
 import com.webshopx.platform.PlatformIdentity;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -241,6 +244,65 @@ public final class SharedHttpApi implements AutoCloseable {
             Map.of(
                 "count",
                 commerce.pendingDeliveries(current.boundUuid(), identity.serverId()).size()));
+      } else if (path.equals("/api/inventory/snapshot") && method(exchange, "GET")) {
+        var current = boundUser(exchange);
+        String inventory = query(exchange, "inventory");
+        if (inventory != null && !"PLAYER".equalsIgnoreCase(inventory)) {
+          throw new ServiceException(
+              "inventory_source_unavailable", "This platform does not expose that inventory");
+        }
+        respond(exchange, 200, inventoryJson(marketEscrow.inventory(current.boundUuid())));
+      } else if (path.equals("/api/inventory/list") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        String inventory = optionalString(input, "inventory", "PLAYER");
+        if (!"PLAYER".equalsIgnoreCase(inventory)) {
+          throw new ServiceException(
+              "inventory_source_unavailable", "This platform does not expose that inventory");
+        }
+        if (!"LIST".equalsIgnoreCase(optionalString(input, "action", "LIST"))) {
+          throw new ServiceException(
+              "unsupported_trade_mode", "Loader inventory listing currently supports DIRECT");
+        }
+        SharedCommerceService.Listing listing =
+            marketEscrow.createSellListing(
+                new SharedMarketEscrowService.Request(
+                    current.id(),
+                    current.boundUuid(),
+                    currency(input, "currency"),
+                    requiredLong(input, "price"),
+                    optionalInt(input, "quantity", 1),
+                    requiredString(input, "idempotencyKey"),
+                    requiredString(input, "fingerprint"),
+                    true,
+                    optionalString(input, "remark", null)));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "listingId", listing.id(),
+                "state", "SUCCESS",
+                "revision", "refresh-required"));
+      } else if (path.equals("/api/inventory/discard") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        String inventory = optionalString(input, "inventory", "PLAYER");
+        if (!"PLAYER".equalsIgnoreCase(inventory)
+            || (input.has("containerSlot") && !input.get("containerSlot").isJsonNull())) {
+          throw new ServiceException(
+              "invalid_inventory_request", "Only top-level player inventory can be discarded");
+        }
+        respond(
+            exchange,
+            200,
+            marketEscrow.discard(
+                new SharedMarketEscrowService.DiscardRequest(
+                    current.id(),
+                    current.boundUuid(),
+                    optionalInt(input, "quantity", 1),
+                    requiredString(input, "idempotencyKey"),
+                    requiredString(input, "fingerprint"),
+                    true)));
       } else if (path.equals("/api/market/listings") && method(exchange, "GET")) {
         respond(exchange, 200, commerce.listings(false));
       } else if (path.equals("/api/market/listings/create") && method(exchange, "POST")) {
@@ -1149,6 +1211,70 @@ public final class SharedHttpApi implements AutoCloseable {
     value.put("error", code);
     value.put("message", message);
     return value;
+  }
+
+  private JsonObject inventoryJson(SharedMarketEscrowService.InventoryView view) {
+    var snapshot = view.snapshot();
+    int size = snapshot.items().size() + snapshot.freeSlots();
+    Map<Integer, ItemEnvelope> bySlot = new LinkedHashMap<>();
+    int fallbackSlot = 0;
+    for (ItemEnvelope item : snapshot.items()) {
+      int slot;
+      try {
+        slot = Integer.parseInt(item.summary().getOrDefault("webshopx.slot", "-1"));
+      } catch (NumberFormatException ignored) {
+        slot = -1;
+      }
+      while (slot < 0 && bySlot.containsKey(fallbackSlot)) fallbackSlot++;
+      bySlot.put(slot < 0 ? fallbackSlot++ : slot, item);
+    }
+    JsonArray slots = new JsonArray();
+    for (int index = 0; index < size; index++) {
+      JsonObject slot = new JsonObject();
+      slot.addProperty("kind", inventorySlotKind(index));
+      slot.addProperty("index", index);
+      slot.addProperty("label", "Slot " + index);
+      ItemEnvelope item = bySlot.get(index);
+      slot.add("item", item == null ? JsonNull.INSTANCE : inventoryItemJson(item));
+      slots.add(slot);
+    }
+    JsonObject response = new JsonObject();
+    response.addProperty("online", view.online());
+    response.addProperty("readOnly", false);
+    response.addProperty("snapshotSource", view.online() ? "LIVE" : "PLAYERDATA");
+    response.addProperty("offlineWriteEnabled", !view.online());
+    response.addProperty("inventory", "PLAYER");
+    response.addProperty("revision", Long.toUnsignedString(snapshot.version()));
+    response.addProperty("refreshedAt", java.time.Instant.now().toString());
+    response.addProperty("capturedAt", java.time.Instant.now().toString());
+    response.add("slots", slots);
+    return response;
+  }
+
+  private JsonObject inventoryItemJson(ItemEnvelope item) {
+    String material = item.registryId();
+    int separator = material.indexOf(':');
+    if (separator >= 0) material = material.substring(separator + 1);
+    material = material.toUpperCase(Locale.ROOT);
+    JsonObject response = new JsonObject();
+    response.addProperty("material", material);
+    response.addProperty("name", item.summary().getOrDefault("name", material));
+    response.addProperty("amount", item.count());
+    response.addProperty("maxStackSize", 64);
+    response.addProperty("fingerprint", item.payloadHash());
+    response.add("lore", new JsonArray());
+    response.add("enchantments", new JsonArray());
+    response.add("itemMeta", gson.toJsonTree(item.summary()));
+    response.addProperty("recyclable", true);
+    response.addProperty("listable", true);
+    return response;
+  }
+
+  private static String inventorySlotKind(int slot) {
+    if (slot < 9) return "HOTBAR";
+    if (slot >= 36 && slot <= 39) return "ARMOR";
+    if (slot == 40) return "OFFHAND";
+    return "MAIN";
   }
 
   private static boolean method(HttpExchange exchange, String expected) {
