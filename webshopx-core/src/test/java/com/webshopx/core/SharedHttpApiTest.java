@@ -43,6 +43,7 @@ class SharedHttpApiTest {
   private SharedHttpApi api;
   private HttpClient client;
   private String base;
+  private UUID supportTargetUuid;
 
   @BeforeEach
   void start() {
@@ -73,6 +74,8 @@ class SharedHttpApiTest {
         new WalletService(database, WalletService.ExchangePolicy::disabled, null, null);
     UUID player = UUID.randomUUID();
     long user = auth.setPasswordFromGame(player, "ApiPlayer", "api-secret").userId();
+    supportTargetUuid = UUID.randomUUID();
+    auth.setPasswordFromGame(supportTargetUuid, "SupportTarget", "target-secret");
     wallets.adjustBalance(user, CurrencyType.SHOP_COIN, 500, "TEST", "api-seed");
     SharedCommerceService commerce = new SharedCommerceService(database, wallets);
     commerce.createProduct(
@@ -88,6 +91,8 @@ class SharedHttpApiTest {
             5,
             true));
     AdminService admin = new AdminService(database, auth, wallets);
+    admin.ensureBootstrapAdmin(
+        new AdminService.AdminBootstrapSettings(true, "ApiPlayer", "api-secret", "SUPER_ADMIN"));
     EnumMap<CapabilitySnapshot.Capability, CapabilitySnapshot.CapabilityState> states =
         new EnumMap<>(CapabilitySnapshot.Capability.class);
     states.put(
@@ -229,6 +234,90 @@ class SharedHttpApiTest {
   void oversizedAndMalformedRequestsFailClosed() throws Exception {
     assertEquals(413, post("/api/auth/login", "x".repeat(70_000), null, null).statusCode());
     assertEquals(400, post("/api/auth/login", "[]", null, null).statusCode());
+  }
+
+  @Test
+  void adminSupportAndAccessManagementMatchFrontendContract() throws Exception {
+    HttpResponse<String> login =
+        post(
+            "/api/admin/auth/login",
+            "{\"username\":\"ApiPlayer\",\"password\":\"api-secret\"}",
+            null,
+            null);
+    assertEquals(200, login.statusCode(), login.body());
+    JsonObject loginJson = JsonParser.parseString(login.body()).getAsJsonObject();
+    assertTrue(loginJson.has("token"));
+    assertTrue(loginJson.has("admin"));
+    String token = loginJson.get("token").getAsString();
+    assertEquals(200, get("/api/admin/auth/me", token).statusCode());
+    assertEquals(200, get("/api/admin/users/list", token).statusCode());
+    HttpResponse<String> lookup = get("/api/admin/users/lookup?identifier=SupportTarget", token);
+    assertEquals(200, lookup.statusCode(), lookup.body());
+    long targetId =
+        JsonParser.parseString(lookup.body()).getAsJsonObject().get("id").getAsLong();
+    assertEquals(
+        200,
+        post(
+                "/api/admin/users/wallet-adjust",
+                "{\"userId\":"
+                    + targetId
+                    + ",\"currency\":\"SHOP_COIN\",\"delta\":25,\"reason\":\"SUPPORT\"}",
+                token,
+                null)
+            .statusCode());
+    UUID migratedUuid = UUID.randomUUID();
+    assertEquals(
+        200,
+        post(
+                "/api/admin/users/migrate-uuid",
+                "{\"userId\":"
+                    + targetId
+                    + ",\"oldUuid\":\""
+                    + supportTargetUuid
+                    + "\",\"newUuid\":\""
+                    + migratedUuid
+                    + "\"}",
+                token,
+                null)
+            .statusCode());
+    assertEquals(
+        200,
+        post(
+                "/api/admin/users/reset-password",
+                "{\"userId\":" + targetId + ",\"newPassword\":\"target-new-secret\"}",
+                token,
+                null)
+            .statusCode());
+    assertEquals(
+        200,
+        post(
+                "/api/admin/admin-users/upsert",
+                "{\"identifier\":\"SupportTarget\",\"isSuperAdmin\":false,"
+                    + "\"permissions\":[\"USER_SUPPORT\"]}",
+                token,
+                null)
+            .statusCode());
+    assertEquals(200, get("/api/admin/admin-users/meta?locale=en-US", token).statusCode());
+    JsonObject admins =
+        JsonParser.parseString(get("/api/admin/admin-users/list", token).body()).getAsJsonObject();
+    assertEquals(2, admins.getAsJsonArray("admins").size());
+    assertEquals(
+        200,
+        post(
+                "/api/admin/admin-users/active",
+                "{\"userId\":" + targetId + ",\"active\":false}",
+                token,
+                null)
+            .statusCode());
+    assertEquals(
+        200,
+        post("/api/admin/users/logout", "{\"userId\":" + targetId + "}", token, null).statusCode());
+    assertEquals(
+        200,
+        post("/api/admin/users/unbind", "{\"userId\":" + targetId + "}", token, null).statusCode());
+    assertEquals(200, get("/api/admin/audit/list", token).statusCode());
+    assertEquals(200, post("/api/admin/auth/logout", "{}", token, null).statusCode());
+    assertEquals(401, get("/api/admin/auth/me", token).statusCode());
   }
 
   @Test

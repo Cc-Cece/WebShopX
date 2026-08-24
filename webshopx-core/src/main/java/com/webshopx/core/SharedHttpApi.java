@@ -27,10 +27,14 @@ import com.webshopx.platform.PlatformIdentity;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -431,24 +435,194 @@ public final class SharedHttpApi implements AutoCloseable {
         respond(exchange, 200, Map.of("currencies", List.of("SHOP_COIN", "GAME_COIN")));
       } else if (path.equals("/api/admin/auth/login") && method(exchange, "POST")) {
         JsonObject input = body(exchange);
+        var result =
+            administration.login(
+                input.has("identifier")
+                    ? requiredString(input, "identifier")
+                    : requiredString(input, "username"),
+                requiredString(input, "password"));
         respond(
             exchange,
             200,
-            administration.login(
-                requiredString(input, "identifier"), requiredString(input, "password")));
+            Map.of(
+                "token",
+                result.authResult().sessionToken(),
+                "expiresAt",
+                result.authResult().expiresAt().toString(),
+                "user",
+                result.authResult().user(),
+                "admin",
+                result.admin()));
+        audit.log(
+            result.admin(),
+            "ADMIN_LOGIN",
+            "admin",
+            result.authResult().user().username(),
+            null,
+            clientIp(exchange));
       } else if (path.equals("/api/admin/auth/me") && method(exchange, "GET")) {
         respond(exchange, 200, administration.getAdminUser(user(exchange)));
+      } else if (path.equals("/api/admin/auth/logout") && method(exchange, "POST")) {
+        String sessionToken = token(exchange);
+        var current = user(exchange);
+        var actor = administration.getAdminUser(current);
+        auth.logout(sessionToken);
+        audit.log(actor, "ADMIN_LOGOUT", "admin", current.username(), null, clientIp(exchange));
+        respond(exchange, 200, Map.of("status", "ok"));
       } else if (path.equals("/api/admin/users/list") && method(exchange, "GET")) {
         var actor = user(exchange);
         administration.requireAdmin(actor, AdminPermission.USER_SUPPORT);
         respond(
             exchange,
             200,
-            administration.listUsers(query(exchange, "keyword"), queryInt(exchange, "limit", 100)));
+            Map.of(
+                "users",
+                administration
+                    .listUsers(query(exchange, "keyword"), queryInt(exchange, "limit", 120))
+                    .stream()
+                    .map(SharedHttpApi::userJson)
+                    .toList()));
+      } else if (path.equals("/api/admin/users/lookup") && method(exchange, "GET")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.USER_SUPPORT);
+        var found =
+            administration
+                .lookupUser(requiredQuery(exchange, "identifier"))
+                .orElseThrow(() -> new ServiceException("not_found", "User not found"));
+        audit.log(
+            actor, "USER_LOOKUP", "user", String.valueOf(found.userId()), null, clientIp(exchange));
+        respond(exchange, 200, userJson(found));
+      } else if (path.equals("/api/admin/users/reset-password") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.USER_SUPPORT);
+        long target = resolveUserId(input);
+        administration.resetPassword(target, requiredString(input, "newPassword"));
+        audit.log(
+            actor, "USER_RESET_PASSWORD", "user", String.valueOf(target), null, clientIp(exchange));
+        respond(exchange, 200, Map.of("status", "ok"));
+      } else if (path.equals("/api/admin/users/unbind") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.USER_SUPPORT);
+        long target = resolveUserId(input);
+        administration.unbindUser(target);
+        audit.log(actor, "USER_UNBIND", "user", String.valueOf(target), null, clientIp(exchange));
+        respond(exchange, 200, Map.of("status", "ok"));
+      } else if (path.equals("/api/admin/users/logout") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.USER_SUPPORT);
+        long target = resolveUserId(input);
+        administration.forceLogout(target);
+        audit.log(
+            actor, "USER_FORCE_LOGOUT", "user", String.valueOf(target), null, clientIp(exchange));
+        respond(exchange, 200, Map.of("status", "ok"));
+      } else if (path.equals("/api/admin/users/wallet-adjust") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.USER_SUPPORT);
+        long target = resolveUserId(input);
+        CurrencyType currency = currency(input, "currency");
+        long delta = requiredLong(input, "delta");
+        String reason = optionalString(input, "reason", "ADMIN_ADJUST");
+        var balance = administration.adjustWallet(target, currency, delta, reason);
+        JsonObject detail = new JsonObject();
+        detail.addProperty("currency", currency.name());
+        detail.addProperty("delta", delta);
+        detail.addProperty("reason", reason);
+        audit.log(
+            actor,
+            "USER_WALLET_ADJUST",
+            "wallet",
+            String.valueOf(target),
+            detail,
+            clientIp(exchange));
+        respond(exchange, 200, balance);
+      } else if (path.equals("/api/admin/users/migrate-uuid") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.USER_SUPPORT);
+        long target = resolveUserId(input);
+        UUID oldUuid = UUID.fromString(requiredString(input, "oldUuid"));
+        UUID newUuid = UUID.fromString(requiredString(input, "newUuid"));
+        var result = administration.migrateUserUuid(target, oldUuid, newUuid);
+        JsonObject detail = new JsonObject();
+        detail.addProperty("oldUuid", oldUuid.toString());
+        detail.addProperty("newUuid", newUuid.toString());
+        audit.log(
+            actor, "USER_UUID_MIGRATE", "user", String.valueOf(target), detail, clientIp(exchange));
+        respond(exchange, 200, result);
+      } else if (path.equals("/api/admin/admin-users/meta") && method(exchange, "GET")) {
+        administration.requireSuperAdmin(user(exchange));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "groups",
+                administration.listPermissionGroups(),
+                "templates",
+                administration.listPermissionTemplates()));
+      } else if (path.equals("/api/admin/admin-users/list") && method(exchange, "GET")) {
+        var actor = administration.requireSuperAdmin(user(exchange));
+        var admins = administration.listAdmins();
+        audit.log(actor, "ADMIN_USER_LIST", "admin_user", null, null, clientIp(exchange));
+        respond(
+            exchange,
+            200,
+            Map.of("admins", admins.stream().map(SharedHttpApi::adminAccessJson).toList()));
+      } else if (path.equals("/api/admin/admin-users/upsert") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireSuperAdmin(user(exchange));
+        String identifier =
+            input.has("identifier")
+                ? requiredString(input, "identifier")
+                : requiredString(input, "username");
+        boolean superAdmin = input.has("isSuperAdmin") && input.get("isSuperAdmin").getAsBoolean();
+        Set<AdminPermission> permissions = EnumSet.noneOf(AdminPermission.class);
+        if (input.has("permissions") && input.get("permissions").isJsonArray()) {
+          input
+              .getAsJsonArray("permissions")
+              .forEach(
+                  permission ->
+                      permissions.add(
+                          AdminPermission.valueOf(
+                              permission.getAsString().trim().toUpperCase(Locale.ROOT))));
+        }
+        var updated =
+            administration.upsertAdmin(
+                actor.userId(),
+                identifier,
+                superAdmin,
+                permissions,
+                optionalString(input, "templateKey", null));
+        audit.log(
+            actor,
+            "ADMIN_USER_UPSERT",
+            "admin_user",
+            String.valueOf(updated.userId()),
+            null,
+            clientIp(exchange));
+        respond(exchange, 200, adminAccessJson(updated));
+      } else if (path.equals("/api/admin/admin-users/active") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireSuperAdmin(user(exchange));
+        long target = requiredLong(input, "userId");
+        boolean active = input.has("active") && input.get("active").getAsBoolean();
+        var updated = administration.setAdminActive(actor.userId(), target, active);
+        audit.log(
+            actor,
+            active ? "ADMIN_USER_ENABLE" : "ADMIN_USER_DISABLE",
+            "admin_user",
+            String.valueOf(target),
+            null,
+            clientIp(exchange));
+        respond(exchange, 200, adminAccessJson(updated));
       } else if (path.equals("/api/admin/audit/list") && method(exchange, "GET")) {
         var actor = user(exchange);
         administration.requireAdmin(actor, AdminPermission.AUDIT_VIEW);
-        respond(exchange, 200, audit.list(queryInt(exchange, "limit", 100)));
+        respond(
+            exchange,
+            200,
+            Map.of(
+                "logs",
+                audit.list(queryInt(exchange, "limit", 100)).stream()
+                    .map(SharedHttpApi::auditJson)
+                    .toList()));
       } else if (path.equals("/api/admin/redeem/list") && method(exchange, "GET")) {
         var actor = user(exchange);
         administration.requireAdmin(actor, AdminPermission.REDEEM_MANAGE);
@@ -681,6 +855,81 @@ public final class SharedHttpApi implements AutoCloseable {
     AuthService.AuthUser current = user(exchange);
     if (current.boundUuid() == null) throw new ServiceException("not_bound", "User is not bound");
     return current;
+  }
+
+  private long resolveUserId(JsonObject input) {
+    if (input.has("userId") && !input.get("userId").isJsonNull()) {
+      long userId = input.get("userId").getAsLong();
+      if (userId > 0) return userId;
+    }
+    String identifier =
+        input.has("identifier")
+            ? requiredString(input, "identifier")
+            : requiredString(input, "username");
+    return administration
+        .lookupUser(identifier)
+        .map(AdminService.UserSupportView::userId)
+        .orElseThrow(() -> new ServiceException("not_found", "User not found"));
+  }
+
+  private static String clientIp(HttpExchange exchange) {
+    return exchange.getRemoteAddress() == null
+        ? null
+        : exchange.getRemoteAddress().getAddress().getHostAddress();
+  }
+
+  private static Map<String, Object> userJson(AdminService.UserSupportView view) {
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("id", view.userId());
+    result.put("username", view.username());
+    result.put("boundUuid", view.boundUuid() == null ? null : view.boundUuid().toString());
+    result.put("authState", view.authState());
+    result.put("createdAt", view.createdAt().toString());
+    result.put("shopCoin", view.shopCoin());
+    result.put("gameCoin", view.gameCoin());
+    return result;
+  }
+
+  private static Map<String, Object> userJson(AdminService.UserListItem view) {
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("id", view.userId());
+    result.put("username", view.username());
+    result.put("boundUuid", view.boundUuid() == null ? null : view.boundUuid().toString());
+    result.put("authState", view.authState());
+    result.put("createdAt", view.createdAt().toString());
+    result.put("shopCoin", view.shopCoin());
+    result.put("gameCoin", view.gameCoin());
+    return result;
+  }
+
+  private static Map<String, Object> adminAccessJson(AdminService.AdminAccessView view) {
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("userId", view.userId());
+    result.put("username", view.username());
+    result.put("boundUuid", view.boundUuid() == null ? null : view.boundUuid().toString());
+    result.put("isSuperAdmin", view.isSuperAdmin());
+    result.put("active", view.active());
+    result.put("roleLabel", view.roleLabel());
+    result.put("templateKey", view.templateKey());
+    result.put("permissions", view.permissions());
+    result.put("createdAt", view.createdAt().toString());
+    result.put("updatedAt", view.updatedAt().toString());
+    return result;
+  }
+
+  private static Map<String, Object> auditJson(AdminAuditService.AuditView view) {
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("id", view.id());
+    result.put("adminUserId", view.adminUserId());
+    result.put("adminUsername", view.adminUsername());
+    result.put("adminRole", view.adminRole());
+    result.put("action", view.action());
+    result.put("targetType", view.targetType());
+    result.put("targetId", view.targetId());
+    result.put("detailJson", view.detailJson());
+    result.put("sourceIp", view.sourceIp());
+    result.put("createdAt", view.createdAt().toString());
+    return result;
   }
 
   private static String token(HttpExchange exchange) {
