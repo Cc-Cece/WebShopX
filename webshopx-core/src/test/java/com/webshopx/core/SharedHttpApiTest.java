@@ -1264,12 +1264,79 @@ class SharedHttpApiTest {
         .get("gameCoin").getAsLong();
   }
 
+  @Test
+  void visualPacksAreValidatedStoredAndResolvedFromSharedAssets() throws Exception {
+    String token = login("ApiPlayer", "api-secret");
+    byte[] png = Base64.getDecoder().decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+    String hash = java.util.HexFormat.of().formatHex(
+        java.security.MessageDigest.getInstance("SHA-256").digest(png));
+    Map<String, byte[]> files = new LinkedHashMap<>();
+    files.put("manifest.json", ("{\"schemaVersion\":2,\"pack\":{\"id\":\"fixture-pack\","
+        + "\"name\":\"Fixture Pack\"},\"content\":{\"icons\":true,"
+        + "\"translations\":false},\"locales\":[],\"entries\":[{"
+        + "\"itemId\":\"minecraft:stone\",\"icon\":\"icons/stone.png\","
+        + "\"sha256\":\"" + hash + "\",\"translationKey\":\"block.minecraft.stone\"}]}"
+        ).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    files.put("catalog/items.json",
+        "{\"minecraft:stone\":{\"translationKey\":\"block.minecraft.stone\"}}"
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    files.put("icons/stone.png", png);
+    byte[] archive = binaryZip(files);
+
+    HttpResponse<String> uploaded = postBinary(
+        "/api/admin/visual-packs/upload", archive, token, "application/zip");
+    assertEquals(200, uploaded.statusCode(), uploaded.body());
+    JsonObject pack = JsonParser.parseString(uploaded.body()).getAsJsonObject();
+    assertEquals("fixture-pack", pack.get("packId").getAsString());
+    assertEquals(1, pack.get("entryCount").getAsInt());
+    assertEquals(200, post(
+        "/api/admin/visual-packs/state",
+        "{\"packId\":\"fixture-pack\",\"enabled\":true}", token, null).statusCode());
+
+    String version = pack.get("versionId").getAsString();
+    HttpResponse<byte[]> direct = getBytes(
+        "/visual-packs/fixture-pack/" + version + "/icons/stone.png", null);
+    assertEquals(200, direct.statusCode());
+    assertTrue(java.util.Arrays.equals(png, direct.body()));
+    assertEquals("nosniff", direct.headers().firstValue("X-Content-Type-Options").orElseThrow());
+    HttpResponse<byte[]> resolved = getBytes("/textures/resolved/minecraft/stone.png", null);
+    assertEquals(200, resolved.statusCode());
+    assertTrue(java.util.Arrays.equals(png, resolved.body()));
+    assertEquals("visual-pack",
+        resolved.headers().firstValue("X-WebShopX-Texture-Source").orElseThrow());
+    assertEquals(200, get("/api/admin/visual-packs?unused=true", token).statusCode());
+    assertTrue(java.util.Arrays.equals(
+        archive, getBytes("/api/admin/visual-packs/download?packId=fixture-pack", token).body()));
+
+    byte[] unsafe = binaryZip(Map.of("../escape.json", "{}".getBytes()));
+    assertEquals(400, postBinary(
+        "/api/admin/visual-packs/upload", unsafe, token, "application/zip").statusCode());
+    assertEquals(200, post(
+        "/api/admin/visual-packs/delete", "{\"packId\":\"fixture-pack\"}", token, null)
+        .statusCode());
+    assertEquals(404, get(
+        "/visual-packs/fixture-pack/" + version + "/icons/stone.png", null).statusCode());
+  }
+
   private static byte[] localeZip(Map<String, String> entries) throws Exception {
     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
       for (Map.Entry<String, String> entry : entries.entrySet()) {
         zip.putNextEntry(new ZipEntry(entry.getKey()));
         zip.write(entry.getValue().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        zip.closeEntry();
+      }
+    }
+    return bytes.toByteArray();
+  }
+
+  private static byte[] binaryZip(Map<String, byte[]> entries) throws Exception {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
+      for (Map.Entry<String, byte[]> entry : entries.entrySet()) {
+        zip.putNextEntry(new ZipEntry(entry.getKey()));
+        zip.write(entry.getValue());
         zip.closeEntry();
       }
     }
@@ -2122,6 +2189,12 @@ class SharedHttpApiTest {
     HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(base + path)).GET();
     if (token != null) request.header("Authorization", "Bearer " + token);
     return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+  }
+
+  private HttpResponse<byte[]> getBytes(String path, String token) throws Exception {
+    HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(base + path)).GET();
+    if (token != null) request.header("Authorization", "Bearer " + token);
+    return client.send(request.build(), HttpResponse.BodyHandlers.ofByteArray());
   }
 
   private HttpResponse<String> post(String path, String body, String token, String origin)

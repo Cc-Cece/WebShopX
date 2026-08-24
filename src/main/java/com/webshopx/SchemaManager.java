@@ -2352,7 +2352,7 @@ class SchemaManager {
   private void createSharedBinaryAssets(Connection connection) throws SQLException {
     execute(connection, """
         CREATE TABLE IF NOT EXISTS shared_binary_assets (
-          asset_path VARCHAR(255) NOT NULL,
+          asset_path VARCHAR(512) NOT NULL,
           mime_type VARCHAR(80) NOT NULL,
           content_blob LONGBLOB NOT NULL,
           sha256 VARCHAR(64) NOT NULL,
@@ -2362,6 +2362,15 @@ class SchemaManager {
           KEY idx_shared_binary_asset_hash (sha256)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """);
+    try (PreparedStatement statement = connection.prepareStatement(
+        "SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS "
+            + "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='shared_binary_assets' "
+            + "AND COLUMN_NAME='asset_path'"); ResultSet result = statement.executeQuery()) {
+      if (result.next() && result.getLong(1) < 512L) {
+        execute(connection,
+            "ALTER TABLE shared_binary_assets MODIFY COLUMN asset_path VARCHAR(512) NOT NULL");
+      }
+    }
   }
 
   private void widenHashColumn(Connection connection, String tableName) throws SQLException {

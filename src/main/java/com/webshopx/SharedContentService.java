@@ -24,12 +24,14 @@ public final class SharedContentService {
   private final HomepageService homepage;
   private final MaterialVisualService materialVisuals;
   private final VisualCustomizationService visualCustomization;
+  private final SharedVisualPackService visualPacks;
 
   public SharedContentService(DatabaseManager database) {
     this.database = Objects.requireNonNull(database, "database");
     homepage = new HomepageService(database);
     materialVisuals = new MaterialVisualService(database);
     visualCustomization = new VisualCustomizationService(database);
+    visualPacks = new SharedVisualPackService(database);
     ensureBinaryAssetSchema();
   }
 
@@ -117,7 +119,8 @@ public final class SharedContentService {
 
   public BinaryAsset binaryAsset(String path) {
     if (path == null
-        || (!path.startsWith("/uploads/") && !path.startsWith("/home-assets/"))
+        || (!path.startsWith("/uploads/") && !path.startsWith("/home-assets/")
+            && !path.startsWith("/visual-packs/"))
         || path.contains("..")
         || path.contains("\\")) {
       throw new ServiceException("invalid_path", "Asset path is invalid");
@@ -152,12 +155,16 @@ public final class SharedContentService {
         });
   }
 
+  public SharedVisualPackService visualPacks() {
+    return visualPacks;
+  }
+
   private void ensureBinaryAssetSchema() {
     database.inTransaction(
         connection -> {
           try (PreparedStatement statement = connection.prepareStatement(
               "CREATE TABLE IF NOT EXISTS shared_binary_assets ("
-                  + "asset_path VARCHAR(255) PRIMARY KEY,mime_type VARCHAR(80) NOT NULL,"
+                  + "asset_path VARCHAR(512) PRIMARY KEY,mime_type VARCHAR(80) NOT NULL,"
                   + "content_blob LONGBLOB NOT NULL,sha256 VARCHAR(64) NOT NULL,"
                   + "owner VARCHAR(128) NOT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)")) {
             statement.execute();

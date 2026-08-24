@@ -27,6 +27,7 @@ import com.webshopx.SharedMarketEscrowService;
 import com.webshopx.SharedLocaleCenterService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.SharedRuntimeConfigService;
+import com.webshopx.SharedVisualPackService;
 import com.webshopx.WalletService;
 import com.webshopx.payment.api.PaymentConfigUpdateRequest;
 import com.webshopx.payment.api.PaymentConfigUpdateStatus;
@@ -169,9 +170,12 @@ public final class SharedHttpApi implements AutoCloseable {
         exchange.sendResponseHeaders(200, script.length);
         exchange.getResponseBody().write(script);
         exchange.close();
-      } else if ((path.startsWith("/uploads/") || path.startsWith("/home-assets/"))
+      } else if ((path.startsWith("/uploads/") || path.startsWith("/home-assets/")
+              || path.startsWith("/visual-packs/"))
           && method(exchange, "GET")) {
         serveBinaryAsset(exchange, path);
+      } else if (path.startsWith("/textures/") && method(exchange, "GET")) {
+        serveResolvedTexture(exchange, path);
       } else if (!path.startsWith("/api/") && method(exchange, "GET")) {
         serveStatic(exchange, path);
       } else if (path.equals("/api/auth/login") && method(exchange, "POST")) {
@@ -1632,6 +1636,69 @@ public final class SharedHttpApi implements AutoCloseable {
         else response.addProperty("refundWindowMinutes", policy.windowMinutes());
         response.addProperty("partialRefundPolicy", policy.partialPolicy());
         respond(exchange, 200, response);
+      } else if (path.equals("/api/admin/visual-packs") && method(exchange, "GET")) {
+        administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        JsonArray packs = new JsonArray();
+        content.visualPacks().list().forEach(pack -> packs.add(visualPackJson(pack)));
+        JsonObject response = new JsonObject();
+        response.add("packs", packs);
+        response.addProperty("priorityRule", "FIRST_ENABLED_MATCH");
+        respond(exchange, 200, response);
+      } else if (path.equals("/api/admin/visual-packs/upload") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        byte[] bytes = bodyWithLimit(
+            exchange, SharedVisualPackService.MAX_UPLOAD_BYTES, "Visual pack exceeds 64 MiB");
+        var pack = content.visualPacks().install(bytes, actor.username());
+        JsonObject detail = visualPackJson(pack);
+        audit.log(actor, "VISUAL_PACK_UPLOAD", "visual_pack", pack.packId(),
+            detail, clientIp(exchange));
+        respond(exchange, 200, detail);
+      } else if (path.equals("/api/admin/visual-packs/state") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        var pack = content.visualPacks().updateState(
+            requiredString(input, "packId"), nullableBoolean(input, "enabled"),
+            nullableBoolean(input, "iconsEnabled"), nullableBoolean(input, "translationsEnabled"));
+        JsonObject detail = visualPackJson(pack);
+        audit.log(actor, "VISUAL_PACK_STATE", "visual_pack", pack.packId(),
+            detail, clientIp(exchange));
+        respond(exchange, 200, detail);
+      } else if (path.equals("/api/admin/visual-packs/move") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        String packId = requiredString(input, "packId");
+        String direction = requiredString(input, "direction").toUpperCase(Locale.ROOT);
+        if (!Set.of("UP", "DOWN").contains(direction)) {
+          throw new ServiceException("bad_request", "direction must be UP or DOWN");
+        }
+        content.visualPacks().move(packId, direction.equals("UP") ? -1 : 1);
+        JsonObject detail = new JsonObject();
+        detail.addProperty("packId", packId);
+        detail.addProperty("direction", direction);
+        audit.log(actor, "VISUAL_PACK_MOVE", "visual_pack", packId,
+            detail, clientIp(exchange));
+        respond(exchange, 200, detail);
+      } else if (path.equals("/api/admin/visual-packs/delete") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        String packId = requiredString(input, "packId");
+        boolean deleted = content.visualPacks().delete(packId);
+        JsonObject detail = new JsonObject();
+        detail.addProperty("packId", packId);
+        detail.addProperty("deleted", deleted);
+        audit.log(actor, "VISUAL_PACK_DELETE", "visual_pack", packId,
+            detail, clientIp(exchange));
+        respond(exchange, 200, detail);
+      } else if (path.equals("/api/admin/visual-packs/download") && method(exchange, "GET")) {
+        administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        String packId = requiredQuery(exchange, "packId");
+        byte[] bytes = content.visualPacks().original(packId);
+        exchange.getResponseHeaders().set("Content-Type", "application/zip");
+        exchange.getResponseHeaders().set(
+            "Content-Disposition", "attachment; filename=\"" + packId + ".zip\"");
+        exchange.sendResponseHeaders(200, bytes.length);
+        exchange.getResponseBody().write(bytes);
+        exchange.close();
       } else if (path.equals("/api/admin/economy/settings") && method(exchange, "GET")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
         JsonObject response = new JsonObject();
@@ -2505,6 +2572,15 @@ public final class SharedHttpApi implements AutoCloseable {
     return content;
   }
 
+  private static byte[] bodyWithLimit(HttpExchange exchange, int maxBytes, String message)
+      throws IOException {
+    int declared = parseLength(exchange.getRequestHeaders().getFirst("Content-Length"));
+    if (declared > maxBytes) throw new BodyTooLarge(message);
+    byte[] content = exchange.getRequestBody().readNBytes(maxBytes + 1);
+    if (content.length > maxBytes) throw new BodyTooLarge(message);
+    return content;
+  }
+
   private static String uploadExtension(HttpExchange exchange) {
     String name = query(exchange, "filename");
     if (name == null || name.isBlank()) {
@@ -2580,6 +2656,11 @@ public final class SharedHttpApi implements AutoCloseable {
   }
 
   private void serveBinaryAsset(HttpExchange exchange, String path) throws IOException {
+    if (path.startsWith("/visual-packs/")
+        && (!path.matches("/visual-packs/[a-z0-9][a-z0-9._-]{0,127}/[a-f0-9]{24}/"
+            + "icons/[a-z0-9._/-]+\\.png") || path.contains(".."))) {
+      throw new ServiceException("not_found", "Visual asset was not found");
+    }
     SharedContentService.BinaryAsset asset = content.binaryAsset(path);
     byte[] bytes = asset.content();
     exchange.getResponseHeaders().set("Content-Type", asset.mimeType());
@@ -2588,6 +2669,53 @@ public final class SharedHttpApi implements AutoCloseable {
     exchange.sendResponseHeaders(200, bytes.length);
     exchange.getResponseBody().write(bytes);
     exchange.close();
+  }
+
+  private void serveResolvedTexture(HttpExchange exchange, String path) throws IOException {
+    String relative = path.substring("/textures/".length());
+    String itemId;
+    if (relative.startsWith("resolved/")) {
+      String value = relative.substring("resolved/".length());
+      if (!value.matches("[a-z0-9_.-]+/[a-z0-9_./-]+\\.png") || value.contains("..")) {
+        throw new ServiceException("bad_request", "Invalid resolved texture path");
+      }
+      String withoutExtension = value.substring(0, value.length() - 4);
+      int slash = withoutExtension.indexOf('/');
+      itemId = withoutExtension.substring(0, slash) + ":" + withoutExtension.substring(slash + 1);
+    } else {
+      if (!relative.matches("(?:item|block)/[a-z0-9_./-]+\\.png")
+          || relative.contains("..")) {
+        throw new ServiceException("bad_request", "Invalid texture path");
+      }
+      String withoutExtension = relative.substring(0, relative.length() - 4);
+      itemId = "minecraft:" + withoutExtension.substring(withoutExtension.indexOf('/') + 1);
+    }
+    var visual = content.visualPacks().resolve(itemId)
+        .orElseThrow(() -> new ServiceException("not_found", "Resolved texture not found"));
+    exchange.getResponseHeaders().set("X-WebShopX-Texture-Source", "visual-pack");
+    serveBinaryAsset(exchange, visual.iconPath());
+  }
+
+  private static JsonObject visualPackJson(SharedVisualPackService.PackRecord pack) {
+    JsonObject row = new JsonObject();
+    row.addProperty("packId", pack.packId());
+    row.addProperty("name", pack.packName());
+    row.addProperty("versionId", pack.versionId());
+    row.addProperty("enabled", pack.enabled());
+    row.addProperty("sortOrder", pack.sortOrder());
+    row.addProperty("iconsEnabled", pack.iconsEnabled());
+    row.addProperty("translationsEnabled", pack.translationsEnabled());
+    row.addProperty("fileSize", pack.fileSize());
+    row.addProperty("entryCount", pack.entryCount());
+    row.addProperty("uploadedBy", pack.uploadedBy());
+    row.addProperty("createdAt", pack.createdAt() == null ? null : pack.createdAt().toString());
+    row.addProperty("updatedAt", pack.updatedAt() == null ? null : pack.updatedAt().toString());
+    JsonObject manifest = JsonParser.parseString(pack.manifestJson()).getAsJsonObject();
+    row.add("environment", manifest.has("environment")
+        ? manifest.get("environment") : new JsonObject());
+    row.add("render", manifest.has("render") ? manifest.get("render") : new JsonObject());
+    row.add("locales", manifest.has("locales") ? manifest.get("locales") : new JsonArray());
+    return row;
   }
 
   private byte[] resource(String name) throws IOException {
@@ -2799,6 +2927,10 @@ public final class SharedHttpApi implements AutoCloseable {
 
   private static String optionalString(JsonObject input, String key, String fallback) {
     return !input.has(key) || input.get(key).isJsonNull() ? fallback : input.get(key).getAsString();
+  }
+
+  private static Boolean nullableBoolean(JsonObject input, String key) {
+    return !input.has(key) || input.get(key).isJsonNull() ? null : input.get(key).getAsBoolean();
   }
 
   private static long requiredLong(JsonObject input, String key) {
