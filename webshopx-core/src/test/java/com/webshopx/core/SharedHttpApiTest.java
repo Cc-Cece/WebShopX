@@ -58,6 +58,7 @@ class SharedHttpApiTest {
   private String base;
   private UUID supportTargetUuid;
   private UUID player;
+  private long playerUserId;
   private InMemoryInventoryGateway inventories;
   private SharedCommerceService commerce;
   private AuthService auth;
@@ -90,7 +91,8 @@ class SharedHttpApiTest {
     auth = new AuthService(database, () -> new AuthService.SessionSettings(40, 2));
     wallets = new WalletService(database, WalletService.ExchangePolicy::disabled, null, null);
     player = UUID.randomUUID();
-    long user = auth.setPasswordFromGame(player, "ApiPlayer", "api-secret").userId();
+    playerUserId = auth.setPasswordFromGame(player, "ApiPlayer", "api-secret").userId();
+    long user = playerUserId;
     supportTargetUuid = UUID.randomUUID();
     long supportTarget =
         auth.setPasswordFromGame(supportTargetUuid, "SupportTarget", "target-secret").userId();
@@ -1326,6 +1328,98 @@ class SharedHttpApiTest {
     assertEquals(200, auditLog.statusCode(), auditLog.body());
     assertTrue(auditLog.body().contains("PAYMENT_PROVIDER_CONFIG_UPDATE"));
     assertFalse(auditLog.body().contains(submittedSecret));
+  }
+
+  @Test
+  void groupBuyVoucherPurchaseConsumeAndRefundAreTransactional() throws Exception {
+    var product = commerce.createProduct(
+        new SharedCommerceService.ProductInput(
+            "GROUP_FIXTURE",
+            "Group Fixture",
+            null,
+            CurrencyType.SHOP_COIN,
+            25,
+            SharedCommerceService.ProductKind.GROUP_BUY_VOUCHER,
+            "",
+            null,
+            3,
+            true));
+    String token = login("ApiPlayer", "api-secret");
+    String purchaseBody =
+        "{\"productId\":" + product.id()
+            + ",\"quantity\":1,\"idempotencyKey\":\"group-buy-1\"}";
+    HttpResponse<String> purchased = post("/api/orders", purchaseBody, token, null);
+    assertEquals(200, purchased.statusCode(), purchased.body());
+    JsonObject order = JsonParser.parseString(purchased.body()).getAsJsonObject();
+    String code = order.get("groupBuyVoucherCode").getAsString();
+    assertTrue(code.matches("GB-[A-F0-9]{12}"));
+    assertEquals("ISSUED", order.get("groupBuyVoucherStatus").getAsString());
+    assertTrue(commerce.pendingDeliveries(player, "node-a").isEmpty());
+    JsonObject listed = JsonParser.parseString(get("/api/orders/list", token).body())
+        .getAsJsonObject();
+    assertEquals(
+        code,
+        listed.getAsJsonArray("orders").get(0).getAsJsonObject()
+            .get("groupBuyVoucherCode").getAsString());
+
+    HttpResponse<String> duplicate = post("/api/orders", purchaseBody, token, null);
+    assertEquals(200, duplicate.statusCode(), duplicate.body());
+    assertEquals(
+        code,
+        JsonParser.parseString(duplicate.body()).getAsJsonObject()
+            .get("groupBuyVoucherCode").getAsString());
+
+    HttpResponse<String> consumed = post(
+        "/api/admin/group-buy/consume",
+        "{\"code\":\"" + code.toLowerCase() + "\"}",
+        token,
+        null);
+    assertEquals(200, consumed.statusCode(), consumed.body());
+    assertEquals(
+        "CONSUMED",
+        JsonParser.parseString(consumed.body()).getAsJsonObject().get("status").getAsString());
+    assertEquals(
+        409,
+        post(
+                "/api/admin/group-buy/consume",
+                "{\"code\":\"" + code + "\"}",
+                token,
+                null)
+            .statusCode());
+    assertEquals(
+        409,
+        post(
+                "/api/orders/refund",
+                "{\"orderNo\":\"" + order.get("orderNo").getAsString() + "\"}",
+                token,
+                null)
+            .statusCode());
+
+    HttpResponse<String> refundable = post(
+        "/api/orders",
+        "{\"productId\":" + product.id()
+            + ",\"quantity\":1,\"idempotencyKey\":\"group-buy-2\"}",
+        token,
+        null);
+    JsonObject refundableOrder = JsonParser.parseString(refundable.body()).getAsJsonObject();
+    String refundableCode = refundableOrder.get("groupBuyVoucherCode").getAsString();
+    HttpResponse<String> refund = post(
+        "/api/orders/refund",
+        "{\"orderNo\":\"" + refundableOrder.get("orderNo").getAsString() + "\"}",
+        token,
+        null);
+    assertEquals(200, refund.statusCode(), refund.body());
+    assertEquals(
+        "REFUNDED",
+        commerce.groupBuyVoucher(playerUserId, refundableOrder.get("id").getAsLong()).status());
+    assertEquals(
+        400,
+        post(
+                "/api/admin/group-buy/consume",
+                "{\"code\":\"" + refundableCode + "\"}",
+                token,
+                null)
+            .statusCode());
   }
 
   @Test

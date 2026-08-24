@@ -265,9 +265,7 @@ public final class SharedHttpApi implements AutoCloseable {
         var user = user(exchange);
         if (user.boundUuid() == null) throw new ServiceException("not_bound", "User is not bound");
         JsonObject input = body(exchange);
-        respond(
-            exchange,
-            200,
+        var purchase =
             commerce.purchase(
                 new PurchaseRequest(
                     user.id(),
@@ -275,7 +273,23 @@ public final class SharedHttpApi implements AutoCloseable {
                     requiredLong(input, "productId"),
                     optionalInt(input, "quantity", 1),
                     requiredString(input, "idempotencyKey"),
-                    identity.serverId())));
+                    identity.serverId()));
+        JsonObject response = gson.toJsonTree(purchase).getAsJsonObject();
+        var voucher = commerce.groupBuyVoucher(user.id(), purchase.id());
+        if (voucher == null) {
+          response.add("groupBuyVoucherCode", JsonNull.INSTANCE);
+          response.add("groupBuyVoucherStatus", JsonNull.INSTANCE);
+          response.add("groupBuyVoucherConsumedAt", JsonNull.INSTANCE);
+        } else {
+          response.addProperty("groupBuyVoucherCode", voucher.code());
+          response.addProperty("groupBuyVoucherStatus", voucher.status());
+          if (voucher.consumedAt() == null) {
+            response.add("groupBuyVoucherConsumedAt", JsonNull.INSTANCE);
+          } else {
+            response.addProperty("groupBuyVoucherConsumedAt", voucher.consumedAt().toString());
+          }
+        }
+        respond(exchange, 200, response);
       } else if (path.equals("/api/orders/list") && method(exchange, "GET")) {
         var current = user(exchange);
         respond(
@@ -1523,6 +1537,22 @@ public final class SharedHttpApi implements AutoCloseable {
         response.add("deployment", deployment);
         audit.log(actor, "ECONOMY_READ", "economy", null, null, clientIp(exchange));
         respond(exchange, 200, response);
+      } else if (path.equals("/api/admin/group-buy/consume") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.PRODUCT_MANAGE);
+        var voucher = commerce.consumeGroupBuyVoucher(actor.userId(), requiredString(input, "code"));
+        JsonObject detail = new JsonObject();
+        detail.addProperty("code", voucher.code());
+        detail.addProperty("orderNo", voucher.orderNo());
+        detail.addProperty("userId", voucher.userId());
+        audit.log(
+            actor,
+            "GROUP_BUY_CONSUME",
+            "group_buy_voucher",
+            voucher.code(),
+            detail,
+            clientIp(exchange));
+        respond(exchange, 200, voucher);
       } else if (path.equals("/api/admin/economy/exchange") && method(exchange, "POST")) {
         JsonObject input = body(exchange);
         var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
@@ -1762,7 +1792,11 @@ public final class SharedHttpApi implements AutoCloseable {
           switch (failure.code()) {
             case "invalid_session", "unauthorized" -> 401;
             case "forbidden", "not_admin", "listing_forbidden", "recharge_forbidden" -> 403;
-            case "not_found", "product_not_found", "order_not_found", "listing_not_found" -> 404;
+            case "not_found",
+                    "product_not_found",
+                    "order_not_found",
+                    "listing_not_found",
+                    "voucher_missing" -> 404;
             case "insufficient_funds",
                     "insufficient_stock",
                     "stock_conflict",
@@ -1771,6 +1805,8 @@ public final class SharedHttpApi implements AutoCloseable {
                     "price_changed",
                     "inventory_conflict",
                     "order_conflict",
+                    "voucher_unavailable",
+                    "voucher_consumed",
                     "auction_requires_bid",
                     "auction_only_buy",
                     "auction_locked",

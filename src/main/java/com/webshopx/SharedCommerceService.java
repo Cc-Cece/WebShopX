@@ -222,6 +222,10 @@ public final class SharedCommerceService {
           Product product = readProduct(connection, request.productId());
           if (!product.active())
             throw new ServiceException("product_inactive", "Product is inactive");
+          if (product.kind() == ProductKind.GROUP_BUY_VOUCHER && request.quantity() != 1) {
+            throw new ServiceException(
+                "invalid_quantity", "Group-buy vouchers must be purchased one at a time");
+          }
           if (product.stockRemaining() != null && product.stockRemaining() < request.quantity()) {
             throw new ServiceException("insufficient_stock", "Product stock is insufficient");
           }
@@ -233,6 +237,8 @@ public final class SharedCommerceService {
           }
           String orderNo =
               "MOD-" + UUID.randomUUID().toString().replace("-", "").toUpperCase(Locale.ROOT);
+          String orderStatus =
+              product.kind() == ProductKind.GROUP_BUY_VOUCHER ? "DELIVERED" : "PAID";
           wallets.applyDelta(
               connection,
               request.userId(),
@@ -252,7 +258,7 @@ public final class SharedCommerceService {
             statement.setString(3, request.playerId().toString());
             statement.setString(4, product.currency().name());
             statement.setLong(5, total);
-            statement.setString(6, "PAID");
+            statement.setString(6, orderStatus);
             statement.setString(7, request.idempotencyKey());
             statement.setString(8, request.targetServerId());
             statement.setString(9, UUID.randomUUID().toString());
@@ -272,24 +278,10 @@ public final class SharedCommerceService {
             statement.executeUpdate();
             itemId = generatedId(statement);
           }
-          try (PreparedStatement statement =
-              connection.prepareStatement(
-                  "INSERT INTO delivery_queue"
-                      + " (order_id,item_id,mc_uuid,target_server_id,command_text,delivery_kind,payload_json,quantity,next_retry_at)"
-                      + " VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)")) {
-            statement.setLong(1, orderId);
-            statement.setLong(2, itemId);
-            statement.setString(3, request.playerId().toString());
-            statement.setString(4, request.targetServerId());
-            statement.setString(5, product.commandTemplate());
-            statement.setString(6, product.kind().name());
-            statement.setString(
-                7,
-                product.registryId() == null
-                    ? null
-                    : "{\"registryId\":\"" + json(product.registryId()) + "\"}");
-            statement.setInt(8, request.quantity());
-            statement.executeUpdate();
+          if (product.kind() == ProductKind.GROUP_BUY_VOUCHER) {
+            insertGroupBuyVoucher(connection, orderId, request.userId(), product.id());
+          } else {
+            insertProductDelivery(connection, request, product, orderId, itemId);
           }
           if (product.stockRemaining() != null) {
             try (PreparedStatement statement =
@@ -313,7 +305,7 @@ public final class SharedCommerceService {
               request.quantity(),
               product.currency(),
               total,
-              "PAID",
+              orderStatus,
               request.idempotencyKey());
         });
   }
@@ -356,8 +348,10 @@ public final class SharedCommerceService {
               "SELECT o.id,o.order_no,o.status,o.currency,o.total_amount,o.mc_uuid,o.created_at,"
                   + "o.delivered_at,o.refunded_at,o.refund_deadline,o.refunded_amount,"
                   + "o.refunded_quantity,o.claim_token,oi.quantity,oi.unit_price,p.sku,p.title,"
-                  + "p.remark,p.product_type,p.item_material FROM orders o JOIN order_items oi"
+                  + "p.remark,p.product_type,p.item_material,gv.code,gv.status,gv.consumed_at"
+                  + " FROM orders o JOIN order_items oi"
                   + " ON oi.order_id=o.id JOIN products p ON p.id=oi.product_id"
+                  + " LEFT JOIN group_buy_vouchers gv ON gv.order_id=o.id"
                   + " WHERE o.user_id=?"
                   + (cursor == null ? "" : " AND o.id<?")
                   + " ORDER BY o.id DESC LIMIT ?";
@@ -396,8 +390,15 @@ public final class SharedCommerceService {
                         result.getString(19),
                         result.getString(20),
                         delivered,
-                        "PAID".equals(status) && delivered == 0,
-                        Math.max(0, quantity - result.getInt(12))));
+                        ("PAID".equals(status)
+                                || ("DELIVERED".equals(status)
+                                    && "ISSUED".equalsIgnoreCase(result.getString(22))))
+                            && delivered == 0
+                            && !"CONSUMED".equalsIgnoreCase(result.getString(22)),
+                        Math.max(0, quantity - result.getInt(12)),
+                        result.getString(21),
+                        result.getString(22),
+                        instant(result, 23)));
               }
             }
             return List.copyOf(values);
@@ -423,9 +424,11 @@ public final class SharedCommerceService {
                       + "o.created_at,o.delivered_at,o.refunded_at,o.refund_deadline,"
                       + "o.refunded_amount,o.refunded_quantity,o.claim_token,oi.quantity,"
                       + "oi.unit_price,p.sku,p.title,p.remark,p.product_type,p.item_material,"
-                      + "u.id,u.username,u.bound_uuid FROM orders o JOIN order_items oi"
+                      + "u.id,u.username,u.bound_uuid,gv.code,gv.status,gv.consumed_at"
+                      + " FROM orders o JOIN order_items oi"
                       + " ON oi.order_id=o.id JOIN products p ON p.id=oi.product_id"
-                      + " JOIN web_users u ON u.id=o.user_id WHERE 1=1");
+                      + " JOIN web_users u ON u.id=o.user_id"
+                      + " LEFT JOIN group_buy_vouchers gv ON gv.order_id=o.id WHERE 1=1");
           List<Object> parameters = new ArrayList<>();
           if (cursor != null) {
             sql.append(" AND o.id<?");
@@ -497,8 +500,15 @@ public final class SharedCommerceService {
                         result.getString(19),
                         result.getString(20),
                         delivered,
-                        "PAID".equals(orderStatus) && delivered == 0,
-                        Math.max(0, quantity - result.getInt(12)));
+                        ("PAID".equals(orderStatus)
+                                || ("DELIVERED".equals(orderStatus)
+                                    && "ISSUED".equalsIgnoreCase(result.getString(25))))
+                            && delivered == 0
+                            && !"CONSUMED".equalsIgnoreCase(result.getString(25)),
+                        Math.max(0, quantity - result.getInt(12)),
+                        result.getString(24),
+                        result.getString(25),
+                        instant(result, 26));
                 String uuid = result.getString(23);
                 values.add(
                     new AdminOrderView(
@@ -675,6 +685,43 @@ public final class SharedCommerceService {
         });
   }
 
+  public GroupBuyVoucher groupBuyVoucher(long userId, long orderId) {
+    return database.withConnection(
+        connection -> readGroupBuyVoucher(connection, userId, orderId, null, false));
+  }
+
+  public GroupBuyVoucher consumeGroupBuyVoucher(long adminUserId, String rawCode) {
+    String code = normalizeGroupBuyVoucherCode(rawCode);
+    return database.inTransaction(
+        connection -> {
+          GroupBuyVoucher voucher = readGroupBuyVoucher(connection, null, null, code, true);
+          if (voucher == null) {
+            throw new ServiceException("voucher_missing", "Group-buy voucher not found");
+          }
+          if ("REFUNDED".equals(voucher.status())) {
+            throw new ServiceException(
+                "voucher_refunded", "Group-buy voucher has been refunded");
+          }
+          if (!"ISSUED".equals(voucher.status())) {
+            throw new ServiceException(
+                "voucher_unavailable", "Group-buy voucher is already consumed");
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE group_buy_vouchers SET status='CONSUMED',"
+                      + "consumed_by_admin_id=?,consumed_at=CURRENT_TIMESTAMP"
+                      + " WHERE id=? AND status='ISSUED'")) {
+            statement.setLong(1, adminUserId);
+            statement.setLong(2, voucher.id());
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException(
+                  "voucher_unavailable", "Group-buy voucher is already consumed");
+            }
+          }
+          return readGroupBuyVoucher(connection, null, null, code, true);
+        });
+  }
+
   public RefundResult refundOrder(long userId, String orderNo) {
     String idempotencyKey = "order-refund:" + orderNo;
     RefundResult refund;
@@ -707,7 +754,15 @@ public final class SharedCommerceService {
                     quantity = result.getInt(5);
                   }
                 }
-                if (!"PAID".equals(status) || deliveredQuantity(connection, orderId) > 0) {
+                String voucherStatus = groupBuyVoucherStatus(connection, orderId);
+                if ("CONSUMED".equals(voucherStatus)) {
+                  throw new ServiceException(
+                      "voucher_consumed", "Group-buy voucher has already been consumed");
+                }
+                boolean refundableStatus =
+                    "PAID".equals(status)
+                        || ("DELIVERED".equals(status) && "ISSUED".equals(voucherStatus));
+                if (!refundableStatus || deliveredQuantity(connection, orderId) > 0) {
                   throw new ServiceException("order_not_refundable", "Order is not refundable");
                 }
                 if (hasProcessingDelivery(connection, orderId)) {
@@ -720,7 +775,7 @@ public final class SharedCommerceService {
                     connection.prepareStatement(
                         "UPDATE orders SET"
                             + " status='REFUNDED',refunded_quantity=?,refunded_amount=?,refunded_at=CURRENT_TIMESTAMP"
-                            + " WHERE id=? AND user_id=? AND status='PAID'")) {
+                            + " WHERE id=? AND user_id=? AND status IN ('PAID','DELIVERED')")) {
                   statement.setInt(1, quantity);
                   statement.setLong(2, total);
                   statement.setLong(3, orderId);
@@ -730,6 +785,7 @@ public final class SharedCommerceService {
                   }
                 }
                 cancelDeliveries(connection, orderId);
+                markGroupBuyVoucherRefunded(connection, orderId);
                 restoreProductStock(connection, orderId);
                 wallets.applyDelta(
                     connection, userId, currency, total, "ORDER_REFUND", orderNo, false);
@@ -780,6 +836,10 @@ public final class SharedCommerceService {
           if ("CANCELLED".equals(orderStatus)) return null;
           if (!"PAID".equals(orderStatus)) {
             throw new ServiceException("order_not_discardable", "Order is not discardable");
+          }
+          if (groupBuyVoucherStatus(connection, orderId) != null) {
+            throw new ServiceException(
+                "order_not_discardable", "Group-buy voucher orders cannot be discarded");
           }
           if (deliveredQuantity(connection, orderId) > 0
               || hasProcessingDelivery(connection, orderId)) {
@@ -1957,6 +2017,10 @@ public final class SharedCommerceService {
     if (existing != null) return existing;
     Product product = readProduct(connection, request.productId());
     if (!product.active()) throw new ServiceException("product_inactive", "Product is inactive");
+    if (product.kind() == ProductKind.GROUP_BUY_VOUCHER && request.quantity() != 1) {
+      throw new ServiceException(
+          "invalid_quantity", "Group-buy vouchers must be purchased one at a time");
+    }
     if (product.stockRemaining() != null && product.stockRemaining() < request.quantity()) {
       throw new ServiceException("insufficient_stock", "Product stock is insufficient");
     }
@@ -1966,16 +2030,18 @@ public final class SharedCommerceService {
     try (PreparedStatement statement =
         connection.prepareStatement(
             "INSERT INTO orders (order_no,user_id,mc_uuid,currency,total_amount,status,"
-                + "idempotency_key,target_server_id,claim_token) VALUES (?,?,?,?,?,'PAID',?,?,?)",
+                + "idempotency_key,target_server_id,claim_token) VALUES (?,?,?,?,?,?,?,?,?)",
             Statement.RETURN_GENERATED_KEYS)) {
       statement.setString(1, orderNo);
       statement.setLong(2, request.userId());
       statement.setString(3, request.playerId().toString());
       statement.setString(4, product.currency().name());
       statement.setLong(5, frozenTotal);
-      statement.setString(6, request.idempotencyKey());
-      statement.setString(7, request.targetServerId());
-      statement.setString(8, UUID.randomUUID().toString());
+      statement.setString(
+          6, product.kind() == ProductKind.GROUP_BUY_VOUCHER ? "DELIVERED" : "PAID");
+      statement.setString(7, request.idempotencyKey());
+      statement.setString(8, request.targetServerId());
+      statement.setString(9, UUID.randomUUID().toString());
       statement.executeUpdate();
       orderId = generatedId(statement);
     }
@@ -1991,24 +2057,10 @@ public final class SharedCommerceService {
       statement.executeUpdate();
       itemId = generatedId(statement);
     }
-    try (PreparedStatement statement =
-        connection.prepareStatement(
-            "INSERT INTO delivery_queue (order_id,item_id,mc_uuid,target_server_id,command_text,"
-                + "delivery_kind,payload_json,quantity,next_retry_at) "
-                + "VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)")) {
-      statement.setLong(1, orderId);
-      statement.setLong(2, itemId);
-      statement.setString(3, request.playerId().toString());
-      statement.setString(4, request.targetServerId());
-      statement.setString(5, product.commandTemplate());
-      statement.setString(6, product.kind().name());
-      statement.setString(
-          7,
-          product.registryId() == null
-              ? null
-              : "{\"registryId\":\"" + json(product.registryId()) + "\"}");
-      statement.setInt(8, request.quantity());
-      statement.executeUpdate();
+    if (product.kind() == ProductKind.GROUP_BUY_VOUCHER) {
+      insertGroupBuyVoucher(connection, orderId, request.userId(), product.id());
+    } else {
+      insertProductDelivery(connection, request, product, orderId, itemId);
     }
     if (product.stockRemaining() != null) {
       try (PreparedStatement statement =
@@ -2031,7 +2083,7 @@ public final class SharedCommerceService {
         request.quantity(),
         product.currency(),
         frozenTotal,
-        "PAID",
+        product.kind() == ProductKind.GROUP_BUY_VOUCHER ? "DELIVERED" : "PAID",
         request.idempotencyKey());
   }
 
@@ -2343,6 +2395,123 @@ public final class SharedCommerceService {
         result.getLong(7),
         result.getString(8),
         result.getString(9));
+  }
+
+  private void insertProductDelivery(
+      Connection connection,
+      PurchaseRequest request,
+      Product product,
+      long orderId,
+      long itemId)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO delivery_queue"
+                + " (order_id,item_id,mc_uuid,target_server_id,command_text,delivery_kind,"
+                + "payload_json,quantity,next_retry_at)"
+                + " VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)")) {
+      statement.setLong(1, orderId);
+      statement.setLong(2, itemId);
+      statement.setString(3, request.playerId().toString());
+      statement.setString(4, request.targetServerId());
+      statement.setString(5, product.commandTemplate());
+      statement.setString(6, product.kind().name());
+      statement.setString(
+          7,
+          product.registryId() == null
+              ? null
+              : "{\"registryId\":\"" + json(product.registryId()) + "\"}");
+      statement.setInt(8, request.quantity());
+      statement.executeUpdate();
+    }
+  }
+
+  private void insertGroupBuyVoucher(
+      Connection connection, long orderId, long userId, long productId) throws SQLException {
+    String code =
+        "GB-"
+            + UUID.randomUUID()
+                .toString()
+                .replace("-", "")
+                .substring(0, 12)
+                .toUpperCase(Locale.ROOT);
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO group_buy_vouchers"
+                + " (code,order_id,user_id,product_id,status) VALUES (?,?,?,?,'ISSUED')")) {
+      statement.setString(1, code);
+      statement.setLong(2, orderId);
+      statement.setLong(3, userId);
+      statement.setLong(4, productId);
+      statement.executeUpdate();
+    }
+  }
+
+  private GroupBuyVoucher readGroupBuyVoucher(
+      Connection connection, Long userId, Long orderId, String code, boolean lock)
+      throws SQLException {
+    String predicate = code != null ? "gv.code=?" : "gv.user_id=? AND gv.order_id=?";
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT gv.id,gv.code,gv.status,gv.consumed_at,o.order_no,gv.user_id,"
+                + "u.username,p.sku,p.title FROM group_buy_vouchers gv"
+                + " JOIN orders o ON o.id=gv.order_id"
+                + " JOIN web_users u ON u.id=gv.user_id"
+                + " JOIN products p ON p.id=gv.product_id WHERE "
+                + predicate
+                + (lock ? database.sqlProvider().forUpdateClause() : ""))) {
+      if (code != null) {
+        statement.setString(1, code);
+      } else {
+        statement.setLong(1, userId);
+        statement.setLong(2, orderId);
+      }
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) return null;
+        return new GroupBuyVoucher(
+            result.getLong(1),
+            result.getString(2),
+            result.getString(3),
+            result.getString(5),
+            result.getLong(6),
+            result.getString(7),
+            result.getString(8),
+            result.getString(9),
+            instant(result, 4));
+      }
+    }
+  }
+
+  private String groupBuyVoucherStatus(Connection connection, long orderId) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement("SELECT status FROM group_buy_vouchers WHERE order_id=?")) {
+      statement.setLong(1, orderId);
+      try (ResultSet result = statement.executeQuery()) {
+        return result.next() ? result.getString(1).toUpperCase(Locale.ROOT) : null;
+      }
+    }
+  }
+
+  private static void markGroupBuyVoucherRefunded(Connection connection, long orderId)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE group_buy_vouchers SET status='REFUNDED'"
+                + " WHERE order_id=? AND status='ISSUED'")) {
+      statement.setLong(1, orderId);
+      statement.executeUpdate();
+    }
+  }
+
+  private static String normalizeGroupBuyVoucherCode(String rawCode) {
+    if (rawCode == null || rawCode.isBlank()) {
+      throw new ServiceException("invalid_voucher", "Group-buy voucher code is required");
+    }
+    String code = rawCode.trim().toUpperCase(Locale.ROOT);
+    if (!code.matches("GB-[A-Z0-9]{8,32}")) {
+      throw new ServiceException("invalid_voucher", "Group-buy voucher code format is invalid");
+    }
+    return code;
   }
 
   private Listing readListing(Connection connection, long id) throws SQLException {
@@ -2947,7 +3116,8 @@ public final class SharedCommerceService {
 
   public enum ProductKind {
     COMMAND,
-    GIVE_ITEM
+    GIVE_ITEM,
+    GROUP_BUY_VOUCHER
   }
 
   public record ProductInput(
@@ -3007,6 +3177,17 @@ public final class SharedCommerceService {
       String status,
       String idempotencyKey) {}
 
+  public record GroupBuyVoucher(
+      long id,
+      String code,
+      String status,
+      String orderNo,
+      long userId,
+      String username,
+      String productSku,
+      String productTitle,
+      Instant consumedAt) {}
+
   public record Delivery(
       long id,
       long orderId,
@@ -3040,7 +3221,10 @@ public final class SharedCommerceService {
       String itemMaterial,
       int deliveredQuantity,
       boolean canRefund,
-      int refundableQuantity) {}
+      int refundableQuantity,
+      String groupBuyVoucherCode,
+      String groupBuyVoucherStatus,
+      Instant groupBuyVoucherConsumedAt) {}
 
   public record AdminOrderView(
       OrderView order, long userId, String username, UUID boundUuid) {}
