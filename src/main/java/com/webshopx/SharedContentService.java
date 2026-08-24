@@ -20,11 +20,13 @@ public final class SharedContentService {
   private final DatabaseManager database;
   private final HomepageService homepage;
   private final MaterialVisualService materialVisuals;
+  private final VisualCustomizationService visualCustomization;
 
   public SharedContentService(DatabaseManager database) {
     this.database = Objects.requireNonNull(database, "database");
     homepage = new HomepageService(database);
     materialVisuals = new MaterialVisualService(database);
+    visualCustomization = new VisualCustomizationService(database);
   }
 
   public JsonObject homepage() {
@@ -71,6 +73,109 @@ public final class SharedContentService {
 
   public boolean deleteMaterialOverride(String materialKey) {
     return materialVisuals.delete(materialKey);
+  }
+
+  public JsonObject userVisualPermission(long userId, int globalListingLimit) {
+    return userVisualPermissionJson(
+        visualCustomization.resolvePermission(userId),
+        readListingLimitOverride(userId),
+        globalListingLimit);
+  }
+
+  public JsonObject updateUserVisualPermission(
+      long userId,
+      String iconPermission,
+      String namePermission,
+      String uploadPermission,
+      Integer listingLimitOverride,
+      int globalListingLimit) {
+    visualCustomization.upsertUserPermission(
+        userId,
+        VisualCustomizationService.VisualPermission.fromRaw(iconPermission),
+        VisualCustomizationService.VisualPermission.fromRaw(namePermission),
+        VisualCustomizationService.VisualPermission.fromRaw(uploadPermission));
+    upsertListingLimitOverride(userId, listingLimitOverride);
+    return userVisualPermission(userId, globalListingLimit);
+  }
+
+  private Integer readListingLimitOverride(long userId) {
+    return database.withConnection(
+        connection -> {
+          try (PreparedStatement statement = connection.prepareStatement(
+              "SELECT listing_limit_override FROM user_market_settings WHERE user_id=?")) {
+            statement.setLong(1, userId);
+            try (ResultSet result = statement.executeQuery()) {
+              if (!result.next()) return null;
+              Object value = result.getObject(1);
+              return value == null ? null : ((Number) value).intValue();
+            }
+          }
+        });
+  }
+
+  private void upsertListingLimitOverride(long userId, Integer override) {
+    Integer normalized = override == null || override <= 0 ? null : Math.min(override, 1_000);
+    database.inTransaction(
+        connection -> {
+          try (PreparedStatement statement =
+              connection.prepareStatement(database.sqlProvider().upsertUserMarketSettingsSql())) {
+            statement.setLong(1, userId);
+            if (normalized == null) statement.setObject(2, null);
+            else statement.setInt(2, normalized);
+            statement.executeUpdate();
+          }
+          return null;
+        });
+  }
+
+  private static JsonObject userVisualPermissionJson(
+      VisualCustomizationService.ResolvedPermission resolved,
+      Integer listingLimitOverride,
+      int globalListingLimit) {
+    int global = Math.max(1, globalListingLimit);
+    JsonObject result = new JsonObject();
+    result.addProperty("userId", resolved.userId());
+    result.addProperty("iconPermission", resolved.iconPermission().name());
+    result.addProperty("namePermission", resolved.namePermission().name());
+    result.addProperty("uploadPermission", resolved.uploadPermission().name());
+    result.addProperty("customIconAllowed", resolved.customIconAllowed());
+    result.addProperty("customNameAllowed", resolved.customNameAllowed());
+    result.addProperty("customUploadAllowed", resolved.customUploadAllowed());
+    result.add("settings", visualSettingsJson(resolved.settings()));
+    result.addProperty(
+        "listingLimitEffective", listingLimitOverride == null ? global : listingLimitOverride);
+    result.addProperty(
+        "listingLimitSource", listingLimitOverride == null ? "GLOBAL_DEFAULT" : "USER_OVERRIDE");
+    result.addProperty("playerOnline", false);
+    result.addProperty("globalDefaultLimit", global);
+    if (listingLimitOverride == null) result.add("listingLimitOverride", null);
+    else result.addProperty("listingLimitOverride", listingLimitOverride);
+    result.add("permissionLimit", null);
+    return result;
+  }
+
+  private static JsonObject visualSettingsJson(
+      VisualCustomizationService.VisualSettings settings) {
+    JsonObject result = new JsonObject();
+    result.addProperty("globalCustomIconEnabled", settings.globalCustomIconEnabled());
+    result.addProperty("globalCustomNameEnabled", settings.globalCustomNameEnabled());
+    result.addProperty(
+        "officialProductCustomIconEnabled", settings.officialProductCustomIconEnabled());
+    result.addProperty(
+        "officialProductCustomNameEnabled", settings.officialProductCustomNameEnabled());
+    result.addProperty(
+        "officialProductUploadImageEnabled", settings.officialProductUploadImageEnabled());
+    result.addProperty(
+        "marketListingCustomIconEnabled", settings.marketListingCustomIconEnabled());
+    result.addProperty(
+        "marketListingCustomNameEnabled", settings.marketListingCustomNameEnabled());
+    result.addProperty(
+        "marketListingUploadImageEnabled", settings.marketListingUploadImageEnabled());
+    result.addProperty("iconPolicyMode", settings.iconPolicyMode().name());
+    result.addProperty("namePolicyMode", settings.namePolicyMode().name());
+    result.add("iconPriority", CommerceJson.create().toJsonTree(settings.iconPriority()));
+    result.add("namePriority", CommerceJson.create().toJsonTree(settings.namePriority()));
+    return result;
   }
 
   public LeaderboardResult leaderboard(

@@ -1082,6 +1082,49 @@ public final class SharedHttpApi implements AutoCloseable {
         audit.log(
             actor, "USER_LOOKUP", "user", String.valueOf(found.userId()), null, clientIp(exchange));
         respond(exchange, 200, userJson(found));
+      } else if (path.equals("/api/admin/users/visual-permission")
+          && method(exchange, "GET")) {
+        administration.requireAdmin(user(exchange), AdminPermission.USER_SUPPORT);
+        Long requested = queryLong(exchange, "userId");
+        long target;
+        if (requested != null && requested > 0) {
+          target = requested;
+        } else {
+          target = administration
+              .lookupUser(requiredQuery(exchange, "identifier"))
+              .map(AdminService.UserSupportView::userId)
+              .orElseThrow(() -> new ServiceException("not_found", "User not found"));
+        }
+        respond(exchange, 200, content.userVisualPermission(target, marketListingLimit()));
+      } else if (path.equals("/api/admin/users/visual-permission")
+          && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.USER_SUPPORT);
+        long target = resolveUserId(input);
+        Integer listingLimit = nullableInt(input, "listingLimitOverride");
+        JsonObject response =
+            content.updateUserVisualPermission(
+                target,
+                optionalString(input, "iconPermission", "INHERIT"),
+                optionalString(input, "namePermission", "INHERIT"),
+                optionalString(input, "uploadPermission", "INHERIT"),
+                listingLimit,
+                marketListingLimit());
+        JsonObject detail = new JsonObject();
+        detail.addProperty("userId", target);
+        detail.addProperty("iconPermission", response.get("iconPermission").getAsString());
+        detail.addProperty("namePermission", response.get("namePermission").getAsString());
+        detail.addProperty("uploadPermission", response.get("uploadPermission").getAsString());
+        if (listingLimit == null) detail.add("listingLimitOverride", JsonNull.INSTANCE);
+        else detail.addProperty("listingLimitOverride", listingLimit);
+        audit.log(
+            actor,
+            "USER_VISUAL_PERMISSION_UPDATE",
+            "user_visual_permission",
+            String.valueOf(target),
+            detail,
+            clientIp(exchange));
+        respond(exchange, 200, response);
       } else if (path.equals("/api/admin/users/reset-password") && method(exchange, "POST")) {
         JsonObject input = body(exchange);
         var actor = administration.requireAdmin(user(exchange), AdminPermission.USER_SUPPORT);
@@ -2018,6 +2061,12 @@ public final class SharedHttpApi implements AutoCloseable {
         .lookupUser(identifier)
         .map(AdminService.UserSupportView::userId)
         .orElseThrow(() -> new ServiceException("not_found", "User not found"));
+  }
+
+  private int marketListingLimit() {
+    JsonObject config = runtimeConfig.read("market_runtime").config();
+    Integer configured = nullableInt(config, "maxActiveListings");
+    return configured == null || configured < 1 ? 20 : Math.min(configured, 1_000);
   }
 
   private static String clientIp(HttpExchange exchange) {

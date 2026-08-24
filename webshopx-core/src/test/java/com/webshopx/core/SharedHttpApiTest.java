@@ -1623,6 +1623,38 @@ class SharedHttpApiTest {
   }
 
   @Test
+  void adminCanResolveAndUpdateLoaderUserVisualPermissions() throws Exception {
+    String token = login("ApiPlayer", "api-secret");
+    HttpResponse<String> updated =
+        post(
+            "/api/admin/users/visual-permission",
+            "{\"userId\":" + playerUserId
+                + ",\"iconPermission\":\"DENY\",\"namePermission\":\"ALLOW\","
+                + "\"uploadPermission\":\"DENY\",\"listingLimitOverride\":47}",
+            token,
+            null);
+    assertEquals(200, updated.statusCode(), updated.body());
+    JsonObject permission = JsonParser.parseString(updated.body()).getAsJsonObject();
+    assertEquals("DENY", permission.get("iconPermission").getAsString());
+    assertEquals("ALLOW", permission.get("namePermission").getAsString());
+    assertFalse(permission.get("customIconAllowed").getAsBoolean());
+    assertTrue(permission.get("customNameAllowed").getAsBoolean());
+    assertEquals(47, permission.get("listingLimitEffective").getAsInt());
+    assertEquals("USER_OVERRIDE", permission.get("listingLimitSource").getAsString());
+    HttpResponse<String> loaded =
+        get(
+            "/api/admin/users/visual-permission?identifier=ApiPlayer",
+            token);
+    assertEquals(200, loaded.statusCode(), loaded.body());
+    assertEquals(
+        permission.get("listingLimitEffective").getAsInt(),
+        JsonParser.parseString(loaded.body())
+            .getAsJsonObject()
+            .get("listingLimitEffective")
+            .getAsInt());
+  }
+
+  @Test
   void inventoryDiscardIsServerValidatedAndIdempotent() throws Exception {
     HttpResponse<String> login =
         post(
