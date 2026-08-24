@@ -9,6 +9,7 @@ param(
     [string]$HealthCommand,
     [string[]]$ProbeCommand = @(),
     [string[]]$ExpectedProbePattern = @(),
+    [ValidatePattern('^[A-Za-z0-9_-]*$')][string]$EvidencePrefix = '',
     [int]$Port = 25622,
     [int]$TimeoutSeconds = 180
 )
@@ -33,8 +34,9 @@ Set-Content -LiteralPath (Join-Path $work 'eula.txt') -Encoding ascii -Value 'eu
     'level-name=world-smoke'
 ) | Set-Content -LiteralPath (Join-Path $work 'server.properties') -Encoding ascii
 
-$stdout = Join-Path $work 'console.log'
-$stderr = Join-Path $work 'console-error.log'
+$logStem = if ([string]::IsNullOrWhiteSpace($EvidencePrefix)) { 'console' } else { "console-$EvidencePrefix" }
+$stdout = Join-Path $work "$logStem.log"
+$stderr = Join-Path $work "$logStem-error.log"
 $runtimeLock = Join-Path $work 'config/webshopx/runtime.lock'
 $healthFile = Join-Path $work 'config/webshopx/health.json'
 if (Test-Path -LiteralPath $runtimeLock -PathType Leaf) { Remove-Item -LiteralPath $runtimeLock -Force }
@@ -77,6 +79,9 @@ try {
         }
     }
     if (-not $started) {
+        if ($process.HasExited) {
+            throw "Server exited with code $($process.ExitCode) before reporting readiness; see $stdout and $stderr"
+        }
         throw "Server did not report both WebShopX readiness and Minecraft readiness within $TimeoutSeconds seconds"
     }
     if ($HealthCommand) {
@@ -133,6 +138,7 @@ $hash = (Get-FileHash -LiteralPath $mod -Algorithm SHA256).Hash.ToLowerInvariant
     sha256 = $hash
     port = $Port
     cleanStop = $true
+    cycle = if ([string]::IsNullOrWhiteSpace($EvidencePrefix)) { 'single' } else { $EvidencePrefix }
     probes = @($ExpectedProbePattern)
     evidence = $stdout
 } | ConvertTo-Json

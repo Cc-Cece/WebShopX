@@ -266,13 +266,24 @@ jobs:
         shell: pwsh
         run: |
           $jar = Get-ChildItem '${{ matrix.project }}/build/libs/*.jar' | Select-Object -First 1
-          & docs/mod-migration/tools/dedicated-server-smoke.ps1 `
+          $firstStart = & docs/mod-migration/tools/dedicated-server-smoke.ps1 `
             -Java (Get-Command java).Source -ServerJar $env:WEBSHOPX_SERVER_JAR `
             -LaunchArguments $env:WEBSHOPX_LAUNCH_ARGS -ModJar $jar.FullName `
             -WorkingDirectory $env:WEBSHOPX_SERVER_WORK `
             -ExpectedMinecraft '${{ matrix.minecraft }}' -ExpectedLoader '${{ matrix.loader }}' `
             -HealthCommand 'webshopx-health' -ProbeCommand 'webshopx-item-probe' `
-            -ExpectedProbePattern 'item-roundtrip=PASS','fixtures=PASS\(8,domain,hash,codec\)' |
+            -ExpectedProbePattern 'item-roundtrip=PASS','fixtures=PASS\(8,domain,hash,codec\)' `
+            -EvidencePrefix 'first-start' | ConvertFrom-Json
+          $restart = & docs/mod-migration/tools/dedicated-server-smoke.ps1 `
+            -Java (Get-Command java).Source -ServerJar $env:WEBSHOPX_SERVER_JAR `
+            -LaunchArguments $env:WEBSHOPX_LAUNCH_ARGS -ModJar $jar.FullName `
+            -WorkingDirectory $env:WEBSHOPX_SERVER_WORK `
+            -ExpectedMinecraft '${{ matrix.minecraft }}' -ExpectedLoader '${{ matrix.loader }}' `
+            -HealthCommand 'webshopx-health' -ProbeCommand 'webshopx-item-probe' `
+            -ExpectedProbePattern 'item-roundtrip=PASS','fixtures=PASS\(8,domain,hash,codec\)' `
+            -EvidencePrefix 'restart' | ConvertFrom-Json
+          [ordered]@{ status = 'passed'; firstStart = $firstStart; restart = $restart } |
+            ConvertTo-Json -Depth 10 |
             Set-Content (Join-Path $env:WEBSHOPX_SERVER_WORK 'smoke-evidence.json')
       - name: Freeze dedicated-server evidence
         shell: pwsh
@@ -295,8 +306,7 @@ jobs:
           if-no-files-found: error
           path: |
             ${{ env.WEBSHOPX_SERVER_WORK }}/smoke-evidence.json
-            ${{ env.WEBSHOPX_SERVER_WORK }}/console.log
-            ${{ env.WEBSHOPX_SERVER_WORK }}/console-error.log
+            ${{ env.WEBSHOPX_SERVER_WORK }}/console-*.log
             ${{ env.WEBSHOPX_SERVER_WORK }}/logs/latest.log
             ${{ env.WEBSHOPX_SERVER_WORK }}/config/webshopx/health.json
 
