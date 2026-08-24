@@ -4,15 +4,18 @@ import com.google.gson.JsonObject;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Timestamp;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /** Platform-neutral content-management use cases shared by Paper and Loader HTTP adapters. */
@@ -27,6 +30,7 @@ public final class SharedContentService {
     homepage = new HomepageService(database);
     materialVisuals = new MaterialVisualService(database);
     visualCustomization = new VisualCustomizationService(database);
+    ensureBinaryAssetSchema();
   }
 
   public JsonObject homepage() {
@@ -57,6 +61,18 @@ public final class SharedContentService {
     return homepage.assets();
   }
 
+  public JsonObject recordHomepageAsset(
+      BinaryAsset asset, String originalName, String author) {
+    String storedName = asset.path().substring("/home-assets/".length());
+    return homepage.recordAsset(
+        storedName,
+        originalName,
+        asset.mimeType(),
+        asset.content().length,
+        asset.sha256(),
+        author);
+  }
+
   public List<JsonObject> materialOverrides() {
     return materialJson(materialVisuals.listAll());
   }
@@ -73,6 +89,132 @@ public final class SharedContentService {
 
   public boolean deleteMaterialOverride(String materialKey) {
     return materialVisuals.delete(materialKey);
+  }
+
+  public BinaryAsset storeImage(
+      String category, String extension, byte[] content, String owner) {
+    String normalizedCategory = normalizeAssetCategory(category);
+    String normalizedExtension = normalizeImageExtension(extension);
+    validateImage(normalizedExtension, content);
+    String path = "/" + normalizedCategory + "/" + UUID.randomUUID() + "." + normalizedExtension;
+    String hash = sha256(content);
+    database.inTransaction(
+        connection -> {
+          try (PreparedStatement statement = connection.prepareStatement(
+              "INSERT INTO shared_binary_assets"
+                  + " (asset_path,mime_type,content_blob,sha256,owner) VALUES (?,?,?,?,?)")) {
+            statement.setString(1, path);
+            statement.setString(2, imageMimeType(normalizedExtension));
+            statement.setBytes(3, content);
+            statement.setString(4, hash);
+            statement.setString(5, owner == null || owner.isBlank() ? "system" : owner);
+            statement.executeUpdate();
+          }
+          return null;
+        });
+    return new BinaryAsset(path, imageMimeType(normalizedExtension), content.clone(), hash);
+  }
+
+  public BinaryAsset binaryAsset(String path) {
+    if (path == null
+        || (!path.startsWith("/uploads/") && !path.startsWith("/home-assets/"))
+        || path.contains("..")
+        || path.contains("\\")) {
+      throw new ServiceException("invalid_path", "Asset path is invalid");
+    }
+    return database.withConnection(
+        connection -> {
+          try (PreparedStatement statement = connection.prepareStatement(
+              "SELECT mime_type,content_blob,sha256 FROM shared_binary_assets WHERE asset_path=?")) {
+            statement.setString(1, path);
+            try (ResultSet result = statement.executeQuery()) {
+              if (!result.next()) {
+                throw new ServiceException("not_found", "Asset was not found");
+              }
+              return new BinaryAsset(
+                  path, result.getString(1), result.getBytes(2), result.getString(3));
+            }
+          }
+        });
+  }
+
+  public void deleteBinaryAsset(String path) {
+    if (path == null
+        || (!path.startsWith("/uploads/") && !path.startsWith("/home-assets/"))) return;
+    database.inTransaction(
+        connection -> {
+          try (PreparedStatement statement =
+              connection.prepareStatement("DELETE FROM shared_binary_assets WHERE asset_path=?")) {
+            statement.setString(1, path);
+            statement.executeUpdate();
+          }
+          return null;
+        });
+  }
+
+  private void ensureBinaryAssetSchema() {
+    database.inTransaction(
+        connection -> {
+          try (PreparedStatement statement = connection.prepareStatement(
+              "CREATE TABLE IF NOT EXISTS shared_binary_assets ("
+                  + "asset_path VARCHAR(255) PRIMARY KEY,mime_type VARCHAR(80) NOT NULL,"
+                  + "content_blob LONGBLOB NOT NULL,sha256 VARCHAR(64) NOT NULL,"
+                  + "owner VARCHAR(128) NOT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)")) {
+            statement.execute();
+          }
+          return null;
+        });
+  }
+
+  private static String normalizeAssetCategory(String category) {
+    if (category == null
+        || !category.matches("(?:uploads/(?:material-icons|product-icons|listing-icons)|home-assets)")) {
+      throw new ServiceException("invalid_asset_category", "Asset category is invalid");
+    }
+    return category;
+  }
+
+  private static String normalizeImageExtension(String extension) {
+    String value = extension == null ? "" : extension.trim().toLowerCase(Locale.ROOT);
+    if (value.equals("jpeg")) value = "jpg";
+    if (!Set.of("png", "jpg", "gif", "webp").contains(value)) {
+      throw new ServiceException("invalid_image", "Image type is not supported");
+    }
+    return value;
+  }
+
+  private static void validateImage(String extension, byte[] content) {
+    if (content == null || content.length < 12 || content.length > 2 * 1024 * 1024) {
+      throw new ServiceException("invalid_image", "Image size is invalid");
+    }
+    boolean valid = switch (extension) {
+      case "png" -> content[0] == (byte) 0x89 && content[1] == 0x50
+          && content[2] == 0x4e && content[3] == 0x47;
+      case "jpg" -> content[0] == (byte) 0xff && content[1] == (byte) 0xd8;
+      case "gif" -> content[0] == 0x47 && content[1] == 0x49 && content[2] == 0x46;
+      case "webp" -> content[0] == 0x52 && content[1] == 0x49 && content[2] == 0x46
+          && content[3] == 0x46 && content[8] == 0x57 && content[9] == 0x45
+          && content[10] == 0x42 && content[11] == 0x50;
+      default -> false;
+    };
+    if (!valid) throw new ServiceException("invalid_image", "Image signature is invalid");
+  }
+
+  private static String imageMimeType(String extension) {
+    return switch (extension) {
+      case "jpg" -> "image/jpeg";
+      case "gif" -> "image/gif";
+      case "webp" -> "image/webp";
+      default -> "image/png";
+    };
+  }
+
+  private static String sha256(byte[] content) {
+    try {
+      return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content));
+    } catch (java.security.NoSuchAlgorithmException failure) {
+      throw new IllegalStateException("SHA-256 is unavailable", failure);
+    }
   }
 
   public JsonObject userVisualPermission(long userId, int globalListingLimit) {
@@ -382,6 +524,17 @@ public final class SharedContentService {
       long total,
       Long myRank,
       List<LeaderboardEntry> entries) {}
+
+  public record BinaryAsset(String path, String mimeType, byte[] content, String sha256) {
+    public BinaryAsset {
+      content = content.clone();
+    }
+
+    @Override
+    public byte[] content() {
+      return content.clone();
+    }
+  }
 
   private record LeaderboardUser(
       long userId,

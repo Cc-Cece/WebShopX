@@ -636,6 +636,17 @@ CREATE TABLE IF NOT EXISTS visual_packs (
 CREATE INDEX IF NOT EXISTS idx_visual_packs_order
   ON visual_packs (enabled, sort_order);
 
+CREATE TABLE IF NOT EXISTS shared_binary_assets (
+  asset_path TEXT PRIMARY KEY,
+  mime_type TEXT NOT NULL,
+  content_blob BLOB NOT NULL,
+  sha256 TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_shared_binary_asset_hash
+  ON shared_binary_assets (sha256);
+
 -- Promotion, membership, cart and checkout schema capability v1.
 CREATE TABLE IF NOT EXISTS commerce_carts (
   id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL UNIQUE,

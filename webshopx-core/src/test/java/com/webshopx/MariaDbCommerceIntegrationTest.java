@@ -1,5 +1,6 @@
 package com.webshopx;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.webshopx.SharedCommerceService.ProductInput;
@@ -48,6 +49,14 @@ class MariaDbCommerceIntegrationTest {
     firstWallet.adjustBalance(userId, CurrencyType.SHOP_COIN, 500, "TEST", "cluster-seed");
     SharedCommerceService firstCommerce = new SharedCommerceService(first, firstWallet);
     SharedCommerceService secondCommerce = new SharedCommerceService(second, secondWallet);
+    byte[] sharedPng = new byte[] {
+      (byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0
+    };
+    var storedAsset =
+        new SharedContentService(first)
+            .storeImage("uploads/product-icons", "png", sharedPng, "cluster-test");
+    assertArrayEquals(
+        sharedPng, new SharedContentService(second).binaryAsset(storedAsset.path()).content());
     var product = firstCommerce.createProduct(new ProductInput(
         "CLUSTER_ITEM", "Cluster Item", null, CurrencyType.SHOP_COIN, 60,
         ProductKind.GIVE_ITEM, "", "minecraft:emerald", 4, true));

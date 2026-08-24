@@ -55,6 +55,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Small platform-neutral HTTP surface used by dedicated-server Loader distributions. */
 public final class SharedHttpApi implements AutoCloseable {
   private static final int MAX_BODY = 64 * 1024;
+  private static final int MAX_BINARY_BODY = 2 * 1024 * 1024;
   private final AuthService auth;
   private final WalletService wallets;
   private final SharedCommerceService commerce;
@@ -168,6 +169,9 @@ public final class SharedHttpApi implements AutoCloseable {
         exchange.sendResponseHeaders(200, script.length);
         exchange.getResponseBody().write(script);
         exchange.close();
+      } else if ((path.startsWith("/uploads/") || path.startsWith("/home-assets/"))
+          && method(exchange, "GET")) {
+        serveBinaryAsset(exchange, path);
       } else if (!path.startsWith("/api/") && method(exchange, "GET")) {
         serveStatic(exchange, path);
       } else if (path.equals("/api/auth/login") && method(exchange, "POST")) {
@@ -669,6 +673,29 @@ public final class SharedHttpApi implements AutoCloseable {
               nullableInt(input, "refundWindowMinutes"));
         }
         respond(exchange, 200, marketListingJson(listing));
+      } else if (path.equals("/api/market/icon/upload") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject permission = content.userVisualPermission(current.id(), marketListingLimit());
+        if (!permission.get("customIconAllowed").getAsBoolean()
+            || !permission.get("customUploadAllowed").getAsBoolean()) {
+          throw new ServiceException("forbidden", "Custom listing icon upload is disabled");
+        }
+        long listingId = requiredQueryLong(exchange, "listingId");
+        var asset = content.storeImage(
+            "uploads/listing-icons", uploadExtension(exchange), binaryBody(exchange),
+            current.username());
+        SharedCommerceService.AssetPathUpdate update;
+        try {
+          update = commerce.updateListingIcon(current.id(), listingId, asset.path());
+        } catch (RuntimeException failure) {
+          content.deleteBinaryAsset(asset.path());
+          throw failure;
+        }
+        content.deleteBinaryAsset(update.previousPath());
+        respond(
+            exchange,
+            200,
+            Map.of("listingId", listingId, "displayIconPath", update.currentPath()));
       } else if (path.equals("/api/market/unlist") && method(exchange, "POST")) {
         var current = boundUser(exchange);
         JsonObject input = body(exchange);
@@ -1337,6 +1364,29 @@ public final class SharedHttpApi implements AutoCloseable {
       } else if (path.equals("/api/admin/homepage/assets") && method(exchange, "GET")) {
         administration.requireAdmin(user(exchange), AdminPermission.HOMEPAGE_MANAGE);
         respond(exchange, 200, content.homepageAssets());
+      } else if (path.equals("/api/admin/homepage/assets") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.HOMEPAGE_MANAGE);
+        var asset = content.storeImage(
+            "home-assets", uploadExtension(exchange), binaryBody(exchange), actor.username());
+        String originalName = query(exchange, "filename");
+        if (originalName == null || originalName.isBlank()) {
+          originalName = asset.path().substring("/home-assets/".length());
+        }
+        JsonObject saved;
+        try {
+          saved = content.recordHomepageAsset(asset, originalName, actor.username());
+        } catch (RuntimeException failure) {
+          content.deleteBinaryAsset(asset.path());
+          throw failure;
+        }
+        audit.log(
+            actor,
+            "HOMEPAGE_ASSET_UPLOAD",
+            "homepage_asset",
+            saved.get("id").getAsString(),
+            saved,
+            clientIp(exchange));
+        respond(exchange, 200, saved);
       } else if (path.equals("/api/admin/material-overrides/list") && method(exchange, "GET")) {
         administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
         respond(
@@ -1376,6 +1426,38 @@ public final class SharedHttpApi implements AutoCloseable {
             input.deepCopy(),
             clientIp(exchange));
         respond(exchange, 200, Map.of("deleted", deleted, "materialKey", materialKey));
+      } else if (path.equals("/api/admin/material-overrides/icon")
+          && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        String material = requiredQuery(exchange, "material").trim().toUpperCase(Locale.ROOT);
+        var asset = content.storeImage(
+            "uploads/material-icons", uploadExtension(exchange), binaryBody(exchange),
+            actor.username());
+        JsonObject saved;
+        String previousPath = null;
+        try {
+          JsonObject existing = content.materialOverrides(material, 1).stream()
+              .filter(value -> material.equals(value.get("materialKey").getAsString()))
+              .findFirst()
+              .orElse(null);
+          String displayName = existing == null
+              ? null : optionalString(existing, "displayNameOverride", null);
+          previousPath = existing == null ? null : optionalString(existing, "iconPath", null);
+          saved = content.upsertMaterialOverride(
+              material, displayName, asset.path(), actor.username());
+        } catch (RuntimeException failure) {
+          content.deleteBinaryAsset(asset.path());
+          throw failure;
+        }
+        content.deleteBinaryAsset(previousPath);
+        audit.log(
+            actor,
+            "MATERIAL_OVERRIDE_ICON_UPLOAD",
+            "material_override",
+            material,
+            saved,
+            clientIp(exchange));
+        respond(exchange, 200, saved);
       } else if (path.equals("/api/admin/promotions/list") && method(exchange, "GET")) {
         var actor = user(exchange);
         administration.requireAdmin(actor, AdminPermission.PROMOTION_VIEW);
@@ -1921,6 +2003,30 @@ public final class SharedHttpApi implements AutoCloseable {
             input,
             clientIp(exchange));
         respond(exchange, 200, Map.of("id", product.id(), "active", product.active()));
+      } else if (path.equals("/api/admin/products/icon") && method(exchange, "POST")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.PRODUCT_MANAGE);
+        long productId = requiredQueryLong(exchange, "productId");
+        var asset = content.storeImage(
+            "uploads/product-icons", uploadExtension(exchange), binaryBody(exchange),
+            actor.username());
+        SharedCommerceService.AssetPathUpdate update;
+        try {
+          update = commerce.updateProductIcon(productId, asset.path());
+        } catch (RuntimeException failure) {
+          content.deleteBinaryAsset(asset.path());
+          throw failure;
+        }
+        content.deleteBinaryAsset(update.previousPath());
+        JsonObject response = productJson(commerce.product(productId));
+        response.addProperty("displayIconPath", update.currentPath());
+        audit.log(
+            actor,
+            "PRODUCT_ICON_UPLOAD",
+            "product",
+            String.valueOf(productId),
+            response,
+            clientIp(exchange));
+        respond(exchange, 200, response);
       } else if (path.equals("/api/admin/products/reset-limit") && method(exchange, "POST")) {
         JsonObject input = body(exchange);
         var actor = administration.requireAdmin(user(exchange), AdminPermission.PRODUCT_MANAGE);
@@ -2389,6 +2495,41 @@ public final class SharedHttpApi implements AutoCloseable {
     return value.getAsJsonObject();
   }
 
+  private byte[] binaryBody(HttpExchange exchange) throws IOException {
+    int declared = parseLength(exchange.getRequestHeaders().getFirst("Content-Length"));
+    if (declared > MAX_BINARY_BODY) {
+      throw new BodyTooLarge("Image exceeds endpoint limit");
+    }
+    byte[] content = exchange.getRequestBody().readNBytes(MAX_BINARY_BODY + 1);
+    if (content.length > MAX_BINARY_BODY) throw new BodyTooLarge("Image exceeds endpoint limit");
+    return content;
+  }
+
+  private static String uploadExtension(HttpExchange exchange) {
+    String name = query(exchange, "filename");
+    if (name == null || name.isBlank()) {
+      name = exchange.getRequestHeaders().getFirst("X-File-Name");
+    }
+    if (name != null) {
+      int separator = name.lastIndexOf('.');
+      if (separator >= 0 && separator + 1 < name.length()) {
+        return name.substring(separator + 1);
+      }
+    }
+    String type = exchange.getRequestHeaders().getFirst("Content-Type");
+    if (type != null) {
+      String normalized = type.split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
+      return switch (normalized) {
+        case "image/jpeg" -> "jpg";
+        case "image/gif" -> "gif";
+        case "image/webp" -> "webp";
+        case "image/png" -> "png";
+        default -> throw new ServiceException("invalid_image", "Image type is not supported");
+      };
+    }
+    throw new ServiceException("invalid_image", "Image filename or content type is required");
+  }
+
   private static JsonObject requiredObject(JsonObject input, String name) {
     if (!input.has(name) || !input.get(name).isJsonObject()) {
       throw new IllegalArgumentException(name + " is required");
@@ -2433,6 +2574,17 @@ public final class SharedHttpApi implements AutoCloseable {
       return;
     }
     exchange.getResponseHeaders().set("Content-Type", contentType(relative));
+    exchange.sendResponseHeaders(200, bytes.length);
+    exchange.getResponseBody().write(bytes);
+    exchange.close();
+  }
+
+  private void serveBinaryAsset(HttpExchange exchange, String path) throws IOException {
+    SharedContentService.BinaryAsset asset = content.binaryAsset(path);
+    byte[] bytes = asset.content();
+    exchange.getResponseHeaders().set("Content-Type", asset.mimeType());
+    exchange.getResponseHeaders().set("Cache-Control", "public, max-age=31536000, immutable");
+    exchange.getResponseHeaders().set("ETag", "\"" + asset.sha256() + "\"");
     exchange.sendResponseHeaders(200, bytes.length);
     exchange.getResponseBody().write(bytes);
     exchange.close();

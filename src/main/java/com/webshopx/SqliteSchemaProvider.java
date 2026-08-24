@@ -97,6 +97,7 @@ final class SqliteSchemaProvider implements SchemaProvider {
     assertTableExists(connection, "market_listing_tags");
     assertTableExists(connection, "webshopx_recharge_order");
     assertTableExists(connection, "visual_packs");
+    assertTableExists(connection, "shared_binary_assets");
     assertTableExists(connection, "official_item_snapshots");
     assertTableExists(connection, "product_item_snapshots");
     assertTableExists(connection, "commerce_carts");
@@ -135,6 +136,7 @@ final class SqliteSchemaProvider implements SchemaProvider {
     assertIndexExists(connection, "market_listing_tags", "idx_market_listing_tags_tag");
     assertIndexExists(connection, "webshopx_recharge_order", "uniq_recharge_order_id");
     assertIndexExists(connection, "visual_packs", "idx_visual_packs_order");
+    assertIndexExists(connection, "shared_binary_assets", "idx_shared_binary_asset_hash");
   }
 
   private void migrateSchema(Connection connection) throws SQLException {

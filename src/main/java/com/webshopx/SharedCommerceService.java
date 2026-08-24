@@ -166,6 +166,30 @@ public final class SharedCommerceService {
         });
   }
 
+  public AssetPathUpdate updateProductIcon(long productId, String assetPath) {
+    requireManagedAssetPath(assetPath, "/uploads/product-icons/");
+    return database.inTransaction(
+        connection -> {
+          readProduct(connection, productId);
+          String previous;
+          try (PreparedStatement statement = connection.prepareStatement(
+              "SELECT display_icon_path FROM products WHERE id=?")) {
+            statement.setLong(1, productId);
+            try (ResultSet result = statement.executeQuery()) {
+              result.next();
+              previous = result.getString(1);
+            }
+          }
+          try (PreparedStatement statement = connection.prepareStatement(
+              "UPDATE products SET display_icon_path=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")) {
+            statement.setString(1, assetPath);
+            statement.setLong(2, productId);
+            statement.executeUpdate();
+          }
+          return new AssetPathUpdate(productId, previous, assetPath);
+        });
+  }
+
   public Product createSnapshotProduct(
       ProductInput input, ItemEnvelope template, long createdBy) {
     if (input == null || input.kind() != ProductKind.SNAPSHOT_ITEM) {
@@ -1484,6 +1508,35 @@ public final class SharedCommerceService {
             }
           }
           return readListing(connection, listingId);
+        });
+  }
+
+  public AssetPathUpdate updateListingIcon(
+      long sellerUserId, long listingId, String assetPath) {
+    requireManagedAssetPath(assetPath, "/uploads/listing-icons/");
+    return database.inTransaction(
+        connection -> {
+          Listing listing = readOwnedListing(connection, sellerUserId, listingId);
+          requireMutableListing(listing);
+          String previous;
+          try (PreparedStatement statement = connection.prepareStatement(
+              "SELECT display_icon_path FROM market_listings WHERE id=?")) {
+            statement.setLong(1, listingId);
+            try (ResultSet result = statement.executeQuery()) {
+              result.next();
+              previous = result.getString(1);
+            }
+          }
+          try (PreparedStatement statement = connection.prepareStatement(
+              "UPDATE market_listings SET display_icon_path=? WHERE id=? AND seller_user_id=?")) {
+            statement.setString(1, assetPath);
+            statement.setLong(2, listingId);
+            statement.setLong(3, sellerUserId);
+            if (statement.executeUpdate() != 1) {
+              throw new ServiceException("listing_conflict", "Listing changed concurrently");
+            }
+          }
+          return new AssetPathUpdate(listingId, previous, assetPath);
         });
   }
 
@@ -3458,6 +3511,12 @@ public final class SharedCommerceService {
     }
   }
 
+  private static void requireManagedAssetPath(String path, String prefix) {
+    if (path == null || !path.startsWith(prefix) || path.contains("..") || path.contains("\\")) {
+      throw new ServiceException("invalid_asset_path", "Asset path is invalid");
+    }
+  }
+
   private static String json(String value) {
     return value.replace("\\", "\\\\").replace("\"", "\\\"");
   }
@@ -3523,6 +3582,8 @@ public final class SharedCommerceService {
       long nextDemandScore) {}
 
   public record ProductPricePoint(long orderItemId, long price, int quantity, Instant createdAt) {}
+
+  public record AssetPathUpdate(long id, String previousPath, String currentPath) {}
 
   public record PurchaseRequest(
       long userId,

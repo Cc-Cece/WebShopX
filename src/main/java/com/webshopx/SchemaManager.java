@@ -42,6 +42,7 @@ class SchemaManager {
     createMaterialVisualOverrides(connection);
     migrateMaterialVisualOverrides(connection);
     createVisualPacks(connection);
+    createSharedBinaryAssets(connection);
     createProducts(connection);
     migrateProducts(connection);
     createProductItemSnapshots(connection);
@@ -2346,6 +2347,21 @@ class SchemaManager {
         return resultSet.getInt(1) > 0;
       }
     }
+  }
+
+  private void createSharedBinaryAssets(Connection connection) throws SQLException {
+    execute(connection, """
+        CREATE TABLE IF NOT EXISTS shared_binary_assets (
+          asset_path VARCHAR(255) NOT NULL,
+          mime_type VARCHAR(80) NOT NULL,
+          content_blob LONGBLOB NOT NULL,
+          sha256 VARCHAR(64) NOT NULL,
+          owner VARCHAR(128) NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (asset_path),
+          KEY idx_shared_binary_asset_hash (sha256)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """);
   }
 
   private void widenHashColumn(Connection connection, String tableName) throws SQLException {

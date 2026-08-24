@@ -1655,6 +1655,80 @@ class SharedHttpApiTest {
   }
 
   @Test
+  void binaryImagesAreValidatedPersistedAndServedAcrossSharedRoutes() throws Exception {
+    String token = login("ApiPlayer", "api-secret");
+    byte[] png = new byte[] {
+      (byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0
+    };
+    long productId = commerce.products(false).stream()
+        .filter(product -> product.sku().equals("API_STONE"))
+        .findFirst()
+        .orElseThrow()
+        .id();
+    HttpResponse<String> productUpload = postBinary(
+        "/api/admin/products/icon?productId=" + productId + "&filename=stone.png",
+        png,
+        token,
+        "image/png");
+    assertEquals(200, productUpload.statusCode(), productUpload.body());
+    String productPath = JsonParser.parseString(productUpload.body()).getAsJsonObject()
+        .get("displayIconPath").getAsString();
+    assertBinaryAsset(productPath, png);
+
+    HttpResponse<String> materialUpload = postBinary(
+        "/api/admin/material-overrides/icon?material=STONE&filename=stone.png",
+        png,
+        token,
+        "image/png");
+    assertEquals(200, materialUpload.statusCode(), materialUpload.body());
+    String materialPath = JsonParser.parseString(materialUpload.body()).getAsJsonObject()
+        .get("iconPath").getAsString();
+    assertBinaryAsset(materialPath, png);
+
+    HttpResponse<String> homepageUpload = postBinary(
+        "/api/admin/homepage/assets?filename=hero.png", png, token, "image/png");
+    assertEquals(200, homepageUpload.statusCode(), homepageUpload.body());
+    String homepagePath = JsonParser.parseString(homepageUpload.body()).getAsJsonObject()
+        .get("url").getAsString();
+    assertBinaryAsset(homepagePath, png);
+
+    var listing = commerce.createListing(
+        new SharedCommerceService.ListingRequest(
+            playerUserId,
+            player,
+            CurrencyType.SHOP_COIN,
+            25,
+            1,
+            inventoryFixture,
+            "icon fixture"));
+    HttpResponse<String> listingUpload = postBinary(
+        "/api/market/icon/upload?listingId=" + listing.id() + "&filename=listing.png",
+        png,
+        token,
+        "image/png");
+    assertEquals(200, listingUpload.statusCode(), listingUpload.body());
+    String listingPath = JsonParser.parseString(listingUpload.body()).getAsJsonObject()
+        .get("displayIconPath").getAsString();
+    assertBinaryAsset(listingPath, png);
+
+    HttpResponse<String> invalid = postBinary(
+        "/api/admin/products/icon?productId=" + productId + "&filename=fake.png",
+        new byte[12],
+        token,
+        "image/png");
+    assertEquals(400, invalid.statusCode(), invalid.body());
+  }
+
+  private void assertBinaryAsset(String path, byte[] expected) throws Exception {
+    HttpResponse<byte[]> loaded = client.send(
+        HttpRequest.newBuilder(URI.create(base + path)).GET().build(),
+        HttpResponse.BodyHandlers.ofByteArray());
+    assertEquals(200, loaded.statusCode());
+    assertTrue(java.util.Arrays.equals(expected, loaded.body()));
+    assertEquals("nosniff", loaded.headers().firstValue("X-Content-Type-Options").orElse(null));
+  }
+
+  @Test
   void inventoryDiscardIsServerValidatedAndIdempotent() throws Exception {
     HttpResponse<String> login =
         post(
@@ -2058,6 +2132,16 @@ class SharedHttpApiTest {
             .POST(HttpRequest.BodyPublishers.ofString(body));
     if (token != null) request.header("Authorization", "Bearer " + token);
     if (origin != null) request.header("Origin", origin);
+    return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+  }
+
+  private HttpResponse<String> postBinary(
+      String path, byte[] body, String token, String contentType) throws Exception {
+    HttpRequest.Builder request =
+        HttpRequest.newBuilder(URI.create(base + path))
+            .header("Content-Type", contentType)
+            .POST(HttpRequest.BodyPublishers.ofByteArray(body));
+    if (token != null) request.header("Authorization", "Bearer " + token);
     return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
   }
 

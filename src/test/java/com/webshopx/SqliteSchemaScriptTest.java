@@ -35,6 +35,7 @@ class SqliteSchemaScriptTest {
       assertTrue(tableExists(connection, "market_tags"));
       assertTrue(tableExists(connection, "market_listing_tags"));
       assertTrue(tableExists(connection, "visual_packs"));
+      assertTrue(tableExists(connection, "shared_binary_assets"));
       assertTrue(tableExists(connection, "commerce_carts"));
       assertTrue(tableExists(connection, "promotion_campaigns"));
       assertTrue(tableExists(connection, "promotion_rule_versions"));
@@ -57,6 +58,7 @@ class SqliteSchemaScriptTest {
       assertTrue(indexExists(connection, "market_listings", "idx_market_supply_location"));
       assertTrue(indexExists(connection, "market_listing_tags", "idx_market_listing_tags_tag"));
       assertTrue(indexExists(connection, "visual_packs", "idx_visual_packs_order"));
+      assertTrue(indexExists(connection, "shared_binary_assets", "idx_shared_binary_asset_hash"));
     } finally {
       Files.deleteIfExists(dbFile);
     }
