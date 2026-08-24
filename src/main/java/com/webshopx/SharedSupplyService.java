@@ -106,7 +106,7 @@ public final class SharedSupplyService {
           listing.loadedTotal(), listing.soldTotal(), listing.status(), operationId);
     }
     SupplyRefreshResult raced = acquire(
-        listing, requestedBy, operationId, snapshot.version(), requested);
+        listing, requestedBy, operationId, snapshot, requested);
     if (raced != null) return raced;
     PlatformResult<SupplyWithdrawal> outcome;
     try {
@@ -144,6 +144,70 @@ public final class SharedSupplyService {
     throw new ServiceException("supply_rejected", "Supply withdrawal was rejected");
   }
 
+  /** Replays a platform-side durable result without issuing another withdrawal. */
+  public SupplyRefreshResult reconcileUnknown(String operationId, long requestedBy) {
+    SupplyOperation operation = readOperation(normalizeOperationId(operationId));
+    if (operation.requestedBy() != requestedBy) {
+      throw new ServiceException("forbidden", "Only the supply listing owner can reconcile it");
+    }
+    if ("SUCCESS".equals(operation.state())) return operation.result();
+    if (!"UNKNOWN".equals(operation.state())) {
+      throw new ServiceException("supply_not_unknown", "Supply operation is not unknown");
+    }
+    SupplyListing listing = readListing(operation.listingId());
+    PlatformResult<SupplyWithdrawal> outcome;
+    try {
+      outcome = gateway.reconcile(new SupplyWithdrawalRequest(
+              operation.operationId(), listing.location(), operation.expectedVersion(),
+              listing.item(), operation.requestedQuantity()))
+          .toCompletableFuture().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    } catch (Exception failure) {
+      throw new ServiceException(
+          "supply_outcome_unknown", "Supply withdrawal still requires reconciliation");
+    }
+    if (outcome instanceof PlatformResult.Success<SupplyWithdrawal> success) {
+      return complete(listing, operation.operationId(), success.value(), "UNKNOWN");
+    }
+    throw new ServiceException(
+        "supply_outcome_unknown", "Supply withdrawal still requires reconciliation");
+  }
+
+  /** Resolves an unknown operation from server-observed container evidence and an admin decision. */
+  public SupplyRefreshResult resolveUnknown(
+      String operationId, long resolvedBy, UnknownResolution resolution, int removedQuantity) {
+    SupplyOperation operation = readOperation(normalizeOperationId(operationId));
+    if (!"UNKNOWN".equals(operation.state())) {
+      throw new ServiceException("supply_not_unknown", "Supply operation is not unknown");
+    }
+    SupplyListing listing = readListing(operation.listingId());
+    SupplySnapshot observed = snapshot(listing.location());
+    int observedQuantity = envelopeQuantity(observed, listing.item());
+    if (resolution == UnknownResolution.NOT_APPLIED) {
+      if (observed.version() != operation.expectedVersion()
+          || observedQuantity != operation.expectedItemQuantity()) {
+        throw new ServiceException(
+            "supply_reconciliation_conflict", "Container no longer matches pre-withdraw evidence");
+      }
+      recordResolution(operation, resolvedBy, resolution, observed, observedQuantity, 0);
+      SupplyListing current = readListing(operation.listingId());
+      return new SupplyRefreshResult(
+          current.id(), 0, current.currentStock(), current.maximumStock(),
+          current.loadedTotal(), current.soldTotal(), current.status(), operation.operationId());
+    }
+    if (removedQuantity < 1 || removedQuantity > operation.requestedQuantity()
+        || observed.version() == operation.expectedVersion()
+        || observedQuantity != operation.expectedItemQuantity() - removedQuantity) {
+      throw new ServiceException(
+          "supply_reconciliation_conflict", "Container evidence does not prove the removed quantity");
+    }
+    return complete(
+        listing, operation.operationId(),
+        new SupplyWithdrawal(observed.version(), withCount(listing.item(), removedQuantity),
+            removedQuantity),
+        "UNKNOWN",
+        new ResolutionEvidence(resolvedBy, resolution, observed.version(), observedQuantity));
+  }
+
   public SupplyInfo info(long listingId) {
     SupplyListing listing = readListing(listingId);
     return new SupplyInfo(
@@ -153,8 +217,50 @@ public final class SharedSupplyService {
         listing.soldTotal());
   }
 
+  public List<UnknownOperationView> unknownOperations(int requestedLimit) {
+    int limit = Math.max(1, Math.min(requestedLimit, 200));
+    return database.withConnection(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "SELECT o.operation_id,o.listing_id,o.requested_by,u.username,o.expected_version,"
+              + "o.requested_quantity,e.expected_item_quantity,o.error_message,"
+              + "o.created_at,o.updated_at FROM market_supply_operations o "
+              + "JOIN web_users u ON u.id=o.requested_by "
+              + "JOIN market_supply_operation_evidence e ON e.operation_id=o.operation_id "
+              + "WHERE o.state='UNKNOWN' ORDER BY o.updated_at ASC LIMIT ?")) {
+        statement.setInt(1, limit);
+        try (ResultSet result = statement.executeQuery()) {
+          java.util.ArrayList<UnknownOperationView> values = new java.util.ArrayList<>();
+          while (result.next()) {
+            values.add(new UnknownOperationView(
+                result.getString(1), result.getLong(2), result.getLong(3), result.getString(4),
+                result.getString(5), result.getInt(6), result.getInt(7), result.getString(8),
+                result.getTimestamp(9).toInstant(), result.getTimestamp(10).toInstant()));
+          }
+          return List.copyOf(values);
+        }
+      }
+    });
+  }
+
   private SupplyRefreshResult complete(
       SupplyListing expected, String operationId, SupplyWithdrawal withdrawal) {
+    return complete(expected, operationId, withdrawal, "PENDING", null);
+  }
+
+  private SupplyRefreshResult complete(
+      SupplyListing expected,
+      String operationId,
+      SupplyWithdrawal withdrawal,
+      String expectedState) {
+    return complete(expected, operationId, withdrawal, expectedState, null);
+  }
+
+  private SupplyRefreshResult complete(
+      SupplyListing expected,
+      String operationId,
+      SupplyWithdrawal withdrawal,
+      String expectedState,
+      ResolutionEvidence resolution) {
     if (withdrawal.removedQuantity() < 0
         || withdrawal.removedQuantity() > expected.batchSize()
         || (withdrawal.removedQuantity() > 0
@@ -193,13 +299,30 @@ public final class SharedSupplyService {
               loaded, current.soldTotal(), status, operationId);
           try (PreparedStatement statement = connection.prepareStatement(
               "UPDATE market_supply_operations SET state='SUCCESS',removed_quantity=?,"
-                  + "result_json=?,updated_at=CURRENT_TIMESTAMP WHERE operation_id=? AND state='PENDING'")) {
+                  + "result_json=?,updated_at=CURRENT_TIMESTAMP WHERE operation_id=? AND state=?")) {
             statement.setInt(1, withdrawal.removedQuantity());
             statement.setString(2, gson.toJson(result));
             statement.setString(3, operationId);
+            statement.setString(4, expectedState);
             if (statement.executeUpdate() != 1) {
               throw new ServiceException(
                   "supply_outcome_unknown", "Supply operation journal changed unexpectedly");
+            }
+          }
+          if (resolution != null) {
+            try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE market_supply_operation_evidence SET observed_version=?,"
+                    + "observed_item_quantity=?,resolution=?,resolved_by=?,"
+                    + "resolved_at=CURRENT_TIMESTAMP WHERE operation_id=? AND resolution IS NULL")) {
+              statement.setString(1, Long.toUnsignedString(resolution.observedVersion()));
+              statement.setInt(2, resolution.observedItemQuantity());
+              statement.setString(3, resolution.resolution().name());
+              statement.setLong(4, resolution.resolvedBy());
+              statement.setString(5, operationId);
+              if (statement.executeUpdate() != 1) {
+                throw new ServiceException(
+                    "supply_reconciliation_conflict", "Supply reconciliation was already recorded");
+              }
             }
           }
           deleteLease(connection, current.id(), operationId);
@@ -208,13 +331,28 @@ public final class SharedSupplyService {
   }
 
   private SupplyRefreshResult acquire(
-      SupplyListing listing, long requestedBy, String operationId, long version, int requested) {
+      SupplyListing listing,
+      long requestedBy,
+      String operationId,
+      SupplySnapshot snapshot,
+      int requested) {
     try {
       database.inTransaction(
           connection -> {
             try (PreparedStatement expired = connection.prepareStatement(
                 "DELETE FROM market_supply_leases WHERE lease_until<CURRENT_TIMESTAMP")) {
               expired.executeUpdate();
+            }
+            try (PreparedStatement unresolved = connection.prepareStatement(
+                "SELECT operation_id FROM market_supply_operations"
+                    + " WHERE listing_id=? AND state='UNKNOWN' LIMIT 1")) {
+              unresolved.setLong(1, listing.id());
+              try (ResultSet result = unresolved.executeQuery()) {
+                if (result.next()) {
+                  throw new ServiceException(
+                      "supply_outcome_unknown", "A prior supply withdrawal requires reconciliation");
+                }
+              }
             }
             try (PreparedStatement lease = connection.prepareStatement(
                     "INSERT INTO market_supply_leases"
@@ -231,16 +369,27 @@ public final class SharedSupplyService {
               operation.setString(1, operationId);
               operation.setLong(2, listing.id());
               operation.setLong(3, requestedBy);
-              operation.setString(4, Long.toUnsignedString(version));
+              operation.setString(4, Long.toUnsignedString(snapshot.version()));
               operation.setString(5, listing.item().payloadHash());
               operation.setInt(6, requested);
               operation.executeUpdate();
+            }
+            try (PreparedStatement evidence = connection.prepareStatement(
+                "INSERT INTO market_supply_operation_evidence"
+                    + " (operation_id,expected_item_quantity) VALUES (?,?)")) {
+              evidence.setString(1, operationId);
+              evidence.setInt(2, envelopeQuantity(snapshot, listing.item()));
+              evidence.executeUpdate();
             }
             return null;
           });
     } catch (RuntimeException conflict) {
       SupplyRefreshResult replay = replay(operationId, listing.id(), requestedBy);
       if (replay != null) return replay;
+      if (conflict instanceof ServiceException service
+          && "supply_outcome_unknown".equals(service.code())) {
+        throw service;
+      }
       throw new ServiceException("supply_refresh_busy", "Another supply refresh is in progress");
     }
     return null;
@@ -252,6 +401,21 @@ public final class SharedSupplyService {
         && actual.codec().equals(expected.codec())
         && actual.codecVersion() == expected.codecVersion()
         && actual.compatibilityDomain().equals(expected.compatibilityDomain());
+  }
+
+  private static int envelopeQuantity(SupplySnapshot snapshot, ItemEnvelope expected) {
+    return snapshot.items().stream()
+        .filter(item -> sameEnvelopeType(item, expected))
+        .mapToInt(ItemEnvelope::count)
+        .sum();
+  }
+
+  private static ItemEnvelope withCount(ItemEnvelope source, int count) {
+    return new ItemEnvelope(
+        source.schemaVersion(), source.codec(), source.codecVersion(),
+        source.compatibilityDomain(), source.registryId(), count,
+        source.payloadEncoding(), source.payload(), source.payloadHash(),
+        source.summary(), source.createdAt());
   }
 
   private SupplySnapshot snapshot(SupplyLocation location) {
@@ -290,6 +454,74 @@ public final class SharedSupplyService {
             }
           }
         });
+  }
+
+  private SupplyOperation readOperation(String operationId) {
+    return database.withConnection(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "SELECT o.operation_id,o.listing_id,o.requested_by,o.state,o.expected_version,"
+              + "o.requested_quantity,o.result_json,e.expected_item_quantity "
+              + "FROM market_supply_operations o "
+              + "LEFT JOIN market_supply_operation_evidence e ON e.operation_id=o.operation_id "
+              + "WHERE o.operation_id=?")) {
+        statement.setString(1, operationId);
+        try (ResultSet result = statement.executeQuery()) {
+          if (!result.next()) {
+            throw new ServiceException("supply_operation_not_found", "Supply operation was not found");
+          }
+          if (result.getObject(8) == null) {
+            throw new ServiceException(
+                "supply_evidence_missing", "Supply operation predates durable reconciliation evidence");
+          }
+          String resultJson = result.getString(7);
+          return new SupplyOperation(
+              result.getString(1), result.getLong(2), result.getLong(3), result.getString(4),
+              Long.parseUnsignedLong(result.getString(5)), result.getInt(6), result.getInt(8),
+              resultJson == null || resultJson.isBlank()
+                  ? null : gson.fromJson(resultJson, SupplyRefreshResult.class));
+        }
+      }
+    });
+  }
+
+  private void recordResolution(
+      SupplyOperation operation,
+      long resolvedBy,
+      UnknownResolution resolution,
+      SupplySnapshot observed,
+      int observedQuantity,
+      int removedQuantity) {
+    if (resolution != UnknownResolution.NOT_APPLIED || removedQuantity != 0) {
+      throw new IllegalArgumentException("Only a not-applied resolution is recorded separately");
+    }
+    database.inTransaction(connection -> {
+      try (PreparedStatement evidence = connection.prepareStatement(
+          "UPDATE market_supply_operation_evidence SET observed_version=?,"
+              + "observed_item_quantity=?,resolution=?,resolved_by=?,"
+              + "resolved_at=CURRENT_TIMESTAMP WHERE operation_id=? AND resolution IS NULL")) {
+        evidence.setString(1, Long.toUnsignedString(observed.version()));
+        evidence.setInt(2, observedQuantity);
+        evidence.setString(3, resolution.name());
+        evidence.setLong(4, resolvedBy);
+        evidence.setString(5, operation.operationId());
+        if (evidence.executeUpdate() != 1) {
+          throw new ServiceException(
+              "supply_reconciliation_conflict", "Supply reconciliation was already recorded");
+        }
+      }
+      try (PreparedStatement journal = connection.prepareStatement(
+          "UPDATE market_supply_operations SET state='FAILED',removed_quantity=0,"
+              + "error_message='admin confirmed not applied',updated_at=CURRENT_TIMESTAMP "
+              + "WHERE operation_id=? AND state='UNKNOWN'")) {
+        journal.setString(1, operation.operationId());
+        if (journal.executeUpdate() != 1) {
+          throw new ServiceException(
+              "supply_reconciliation_conflict", "Supply operation changed during reconciliation");
+        }
+      }
+      deleteLease(connection, operation.listingId(), operation.operationId());
+      return null;
+    });
   }
 
   private SupplyListing readListing(long listingId) {
@@ -385,9 +617,16 @@ public final class SharedSupplyService {
               PreparedStatement leases = connection.prepareStatement(
                   "CREATE TABLE IF NOT EXISTS market_supply_leases ("
                       + "listing_id BIGINT PRIMARY KEY,operation_id VARCHAR(128) NOT NULL,"
-                      + "owner_server VARCHAR(128) NOT NULL,lease_until TIMESTAMP NOT NULL)")) {
+                      + "owner_server VARCHAR(128) NOT NULL,lease_until TIMESTAMP NOT NULL)");
+              PreparedStatement evidence = connection.prepareStatement(
+                  "CREATE TABLE IF NOT EXISTS market_supply_operation_evidence ("
+                      + "operation_id VARCHAR(128) PRIMARY KEY,"
+                      + "expected_item_quantity INT NOT NULL,observed_version VARCHAR(32) NULL,"
+                      + "observed_item_quantity INT NULL,resolution VARCHAR(32) NULL,"
+                      + "resolved_by BIGINT NULL,resolved_at TIMESTAMP NULL)")) {
             operations.execute();
             leases.execute();
+            evidence.execute();
           }
           return null;
         });
@@ -416,6 +655,23 @@ public final class SharedSupplyService {
   public record SupplyRefreshResult(
       long listingId, int loadedAmount, int currentStock, int maxStock,
       long loadedTotal, long soldTotal, String status, String operationId) {}
+
+  public enum UnknownResolution {
+    APPLIED,
+    NOT_APPLIED
+  }
+
+  public record UnknownOperationView(
+      String operationId,
+      long listingId,
+      long requestedBy,
+      String username,
+      String expectedVersion,
+      int requestedQuantity,
+      int expectedItemQuantity,
+      String error,
+      Instant createdAt,
+      Instant updatedAt) {}
 
   public record SupplyInfo(
       String sourceMode, String world, int x, int y, int z, int batchSize,
@@ -460,4 +716,20 @@ public final class SharedSupplyService {
       int batchSize, int maximumStock,
       boolean accessProtected, long loadedTotal, long soldTotal, int currentStock,
       String status, ItemEnvelope item) {}
+
+  private record SupplyOperation(
+      String operationId,
+      long listingId,
+      long requestedBy,
+      String state,
+      long expectedVersion,
+      int requestedQuantity,
+      int expectedItemQuantity,
+      SupplyRefreshResult result) {}
+
+  private record ResolutionEvidence(
+      long resolvedBy,
+      UnknownResolution resolution,
+      long observedVersion,
+      int observedItemQuantity) {}
 }

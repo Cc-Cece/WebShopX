@@ -431,6 +431,16 @@ CREATE TABLE IF NOT EXISTS market_supply_operations (
 CREATE INDEX IF NOT EXISTS idx_market_supply_operation_listing
   ON market_supply_operations (listing_id, state);
 
+CREATE TABLE IF NOT EXISTS market_supply_operation_evidence (
+  operation_id TEXT PRIMARY KEY,
+  expected_item_quantity INTEGER NOT NULL,
+  observed_version TEXT NULL,
+  observed_item_quantity INTEGER NULL,
+  resolution TEXT NULL,
+  resolved_by INTEGER NULL,
+  resolved_at TIMESTAMP NULL
+);
+
 CREATE TABLE IF NOT EXISTS market_supply_leases (
   listing_id INTEGER PRIMARY KEY,
   operation_id TEXT NOT NULL,

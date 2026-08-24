@@ -2393,6 +2393,17 @@ class SchemaManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """);
     execute(connection, """
+        CREATE TABLE IF NOT EXISTS market_supply_operation_evidence (
+          operation_id VARCHAR(128) PRIMARY KEY,
+          expected_item_quantity INT NOT NULL,
+          observed_version VARCHAR(32) NULL,
+          observed_item_quantity INT NULL,
+          resolution VARCHAR(32) NULL,
+          resolved_by BIGINT NULL,
+          resolved_at TIMESTAMP NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """);
+    execute(connection, """
         CREATE TABLE IF NOT EXISTS market_supply_leases (
           listing_id BIGINT PRIMARY KEY,
           operation_id VARCHAR(128) NOT NULL,

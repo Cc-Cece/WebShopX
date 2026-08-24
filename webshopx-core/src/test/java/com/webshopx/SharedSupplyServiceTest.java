@@ -3,6 +3,7 @@ package com.webshopx;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.webshopx.core.ItemEnvelopeService;
@@ -162,11 +163,72 @@ class SharedSupplyServiceTest {
     assertNull(commerce.supplyProtectionAt("minecraft:overworld", 1, 64, 2));
   }
 
+  @Test
+  void reconcilesUnknownFromPlatformIdempotencyRecordWithoutSecondWithdrawal() {
+    FixtureGateway gateway = new FixtureGateway(template, 12);
+    gateway.returnUnknown = true;
+    gateway.retainReconciliation = true;
+    SharedSupplyService supply = commerce.supplyService(gateway, "fabric-a");
+
+    ServiceException unknown = assertThrows(
+        ServiceException.class, () -> supply.refresh(listingId, sellerId, "unknown-replay"));
+    assertEquals("supply_outcome_unknown", unknown.code());
+    assertEquals(7, gateway.quantity);
+
+    var reconciled = supply.reconcileUnknown("unknown-replay", sellerId);
+    assertEquals(5, reconciled.loadedAmount());
+    assertEquals(5, reconciled.currentStock());
+    assertEquals(7, gateway.quantity);
+    assertEquals(reconciled, supply.refresh(listingId, sellerId, "unknown-replay"));
+  }
+
+  @Test
+  void adminResolutionUsesObservedEvidenceAndBlocksNewRefreshWhileUnknown() {
+    FixtureGateway gateway = new FixtureGateway(template, 12);
+    gateway.returnUnknown = true;
+    SharedSupplyService supply = commerce.supplyService(gateway, "fabric-a");
+    assertThrows(
+        ServiceException.class, () -> supply.refresh(listingId, sellerId, "unknown-admin"));
+    assertEquals(7, gateway.quantity);
+    ServiceException blocked = assertThrows(
+        ServiceException.class, () -> supply.refresh(listingId, sellerId, "must-not-run"));
+    assertEquals("supply_outcome_unknown", blocked.code());
+
+    var reconciled = supply.resolveUnknown(
+        "unknown-admin", 999, SharedSupplyService.UnknownResolution.APPLIED, 5);
+    assertEquals(5, reconciled.loadedAmount());
+    assertEquals(5, reconciled.currentStock());
+    assertEquals(7, gateway.quantity);
+  }
+
+  @Test
+  void adminCanProveUnknownWasNotAppliedThenRetry() {
+    FixtureGateway gateway = new FixtureGateway(template, 12);
+    gateway.returnUnknown = true;
+    gateway.unknownMutates = false;
+    SharedSupplyService supply = commerce.supplyService(gateway, "fabric-a");
+    assertThrows(
+        ServiceException.class, () -> supply.refresh(listingId, sellerId, "unknown-noop"));
+
+    var notApplied = supply.resolveUnknown(
+        "unknown-noop", 999, SharedSupplyService.UnknownResolution.NOT_APPLIED, 0);
+    assertEquals(0, notApplied.loadedAmount());
+    assertEquals(0, notApplied.currentStock());
+    gateway.returnUnknown = false;
+    var retried = supply.refresh(listingId, sellerId, "after-noop");
+    assertEquals(5, retried.loadedAmount());
+    assertEquals(7, gateway.quantity);
+  }
+
   private static final class FixtureGateway implements SupplyInventoryGateway {
     private final ItemEnvelope template;
     private int quantity;
     private long version = 1;
     private boolean inspectAvailable = true;
+    private boolean returnUnknown;
+    private boolean unknownMutates = true;
+    private boolean retainReconciliation;
+    private SupplyWithdrawal reconciliation;
 
     private FixtureGateway(ItemEnvelope template, int quantity) {
       this.template = template;
@@ -196,11 +258,28 @@ class SharedSupplyServiceTest {
         return CompletableFuture.completedFuture(
             new PlatformResult.Conflict<>(request.operationId(), Long.toString(version)));
       }
-      int removed = Math.min(quantity, request.maximumQuantity());
-      quantity -= removed;
-      version++;
-      return CompletableFuture.completedFuture(PlatformResult.success(
-          new SupplyWithdrawal(version, removed == 0 ? null : withCount(removed), removed)));
+      int removed = unknownMutates || !returnUnknown
+          ? Math.min(quantity, request.maximumQuantity()) : 0;
+      if (removed > 0) {
+        quantity -= removed;
+        version++;
+      }
+      SupplyWithdrawal withdrawal =
+          new SupplyWithdrawal(version, removed == 0 ? null : withCount(removed), removed);
+      if (returnUnknown) {
+        if (retainReconciliation) reconciliation = withdrawal;
+        return CompletableFuture.completedFuture(
+            new PlatformResult.UnknownOutcome<>(request.operationId(), removed > 0));
+      }
+      return CompletableFuture.completedFuture(PlatformResult.success(withdrawal));
+    }
+
+    @Override
+    public synchronized CompletionStage<PlatformResult<SupplyWithdrawal>> reconcile(
+        SupplyWithdrawalRequest request) {
+      return CompletableFuture.completedFuture(reconciliation == null
+          ? new PlatformResult.UnknownOutcome<>(request.operationId(), false)
+          : PlatformResult.success(reconciliation));
     }
 
     private ItemEnvelope withCount(int count) {

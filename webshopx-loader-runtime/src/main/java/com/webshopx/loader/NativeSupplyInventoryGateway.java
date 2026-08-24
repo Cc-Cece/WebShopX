@@ -92,6 +92,17 @@ final class NativeSupplyInventoryGateway implements SupplyInventoryGateway {
     return result;
   }
 
+  @Override
+  public CompletionStage<PlatformResult<SupplyWithdrawal>> reconcile(
+      SupplyWithdrawalRequest request) {
+    synchronized (completed) {
+      SupplyWithdrawal prior = completed.get(request.operationId());
+      return CompletableFuture.completedFuture(prior == null
+          ? new PlatformResult.UnknownOutcome<>(request.operationId(), false)
+          : PlatformResult.success(prior));
+    }
+  }
+
   private PlatformResult<SupplyWithdrawal> withdraw(SupplyWithdrawalRequest request) {
     boolean mutated = false;
     try {

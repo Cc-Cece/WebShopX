@@ -811,6 +811,13 @@ public final class SharedHttpApi implements AutoCloseable {
             exchange,
             200,
             supply.refresh(requiredLong(input, "listingId"), current.id(), operationId));
+      } else if (path.equals("/api/market/supply/reconcile") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        respond(
+            exchange,
+            200,
+            supply.reconcileUnknown(requiredString(input, "operationId"), current.id()));
       } else if (path.equals("/api/market/sell-to-buy") && method(exchange, "POST")) {
         var current = boundUser(exchange);
         JsonObject input = body(exchange);
@@ -2019,6 +2026,35 @@ public final class SharedHttpApi implements AutoCloseable {
                 "currency", listing.currency().name(),
                 "price", listing.price(),
                 "quantity", listing.quantity()));
+      } else if (path.equals("/api/admin/market/supply/unknown") && method(exchange, "GET")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.MARKET_MANAGE);
+        var operations = supply.unknownOperations(queryInt(exchange, "limit", 100));
+        audit.log(actor, "MARKET_SUPPLY_UNKNOWN_LIST", "supply_operation", null, null,
+            clientIp(exchange));
+        respond(exchange, 200, Map.of("operations", operations));
+      } else if (path.equals("/api/admin/market/supply/reconcile")
+          && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.MARKET_MANAGE);
+        String operationId = requiredString(input, "operationId");
+        SharedSupplyService.UnknownResolution resolution;
+        try {
+          resolution = SharedSupplyService.UnknownResolution.valueOf(
+              requiredString(input, "resolution").trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException failure) {
+          throw new ServiceException(
+              "invalid_reconciliation", "Resolution must be APPLIED or NOT_APPLIED");
+        }
+        var result = supply.resolveUnknown(
+            operationId, actor.userId(), resolution, optionalInt(input, "removedQuantity", 0));
+        audit.log(
+            actor,
+            "MARKET_SUPPLY_RECONCILE",
+            "supply_operation",
+            operationId,
+            input,
+            clientIp(exchange));
+        respond(exchange, 200, result);
       } else if (path.equals("/api/admin/products/list") && method(exchange, "GET")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.PRODUCT_MANAGE);
         boolean includeInactive = queryBoolean(exchange, "includeInactive", false);
@@ -2259,12 +2295,17 @@ public final class SharedHttpApi implements AutoCloseable {
                     "auction_locked",
                     "auction_conflict",
                     "auction_unavailable",
-                    "bid_too_low" ->
+                    "bid_too_low",
+                    "supply_conflict",
+                    "supply_refresh_busy",
+                    "supply_reconciliation_conflict" ->
                 409;
             case "inventory_unavailable",
                     "inventory_outcome_unknown",
                     "delivery_outcome_unknown",
-                    "refund_outcome_unknown" ->
+                    "refund_outcome_unknown",
+                    "supply_outcome_unknown",
+                    "supply_unavailable" ->
                 503;
             case "capability_unavailable" -> 501;
             default -> 400;

@@ -269,6 +269,64 @@ class SharedHttpApiTest {
   }
 
   @Test
+  void reconcilesUnknownSupplyThroughOwnerAndAuditedAdminContracts() throws Exception {
+    long listingId = commerce.createListing(new SharedCommerceService.ListingRequest(
+        playerUserId, player, CurrencyType.SHOP_COIN, 10, 1, inventoryFixture, null)).id();
+    database.withConnection(connection -> {
+      try (var statement = connection.prepareStatement(
+          "UPDATE market_listings SET source_mode='SUPPLY',supply_world='minecraft:overworld',"
+              + "supply_x=4,supply_y=65,supply_z=8,supply_batch_size=5,supply_max_stock=10,"
+              + "quantity=0,status='SUPPLY_EMPTY' WHERE id=?")) {
+        statement.setLong(1, listingId);
+        statement.executeUpdate();
+      }
+      return null;
+    });
+    String ownerToken = JsonParser.parseString(post(
+        "/api/auth/login", "{\"identifier\":\"ApiPlayer\",\"password\":\"api-secret\"}",
+        null, null).body()).getAsJsonObject().get("token").getAsString();
+    String supportToken = JsonParser.parseString(post(
+        "/api/auth/login", "{\"identifier\":\"SupportTarget\",\"password\":\"target-secret\"}",
+        null, null).body()).getAsJsonObject().get("token").getAsString();
+
+    supplyGateway.returnUnknown = true;
+    supplyGateway.retainReconciliation = true;
+    HttpResponse<String> unknown = post(
+        "/api/market/supply/refresh",
+        "{\"listingId\":" + listingId + ",\"idempotencyKey\":\"http-unknown-owner\"}",
+        ownerToken, null);
+    assertEquals(503, unknown.statusCode(), unknown.body());
+    HttpResponse<String> ownerReconciled = post(
+        "/api/market/supply/reconcile", "{\"operationId\":\"http-unknown-owner\"}",
+        ownerToken, null);
+    assertEquals(200, ownerReconciled.statusCode(), ownerReconciled.body());
+    assertEquals(5, JsonParser.parseString(ownerReconciled.body())
+        .getAsJsonObject().get("loadedAmount").getAsInt());
+
+    supplyGateway.retainReconciliation = false;
+    supplyGateway.reconciliation = null;
+    post(
+        "/api/market/supply/refresh",
+        "{\"listingId\":" + listingId + ",\"idempotencyKey\":\"http-unknown-admin\"}",
+        ownerToken, null);
+    String resolution = "{\"operationId\":\"http-unknown-admin\","
+        + "\"resolution\":\"APPLIED\",\"removedQuantity\":5}";
+    assertEquals(403, get(
+        "/api/admin/market/supply/unknown", supportToken).statusCode());
+    HttpResponse<String> unknownList = get(
+        "/api/admin/market/supply/unknown", ownerToken);
+    assertEquals(200, unknownList.statusCode(), unknownList.body());
+    assertTrue(unknownList.body().contains("http-unknown-admin"));
+    assertEquals(403, post(
+        "/api/admin/market/supply/reconcile", resolution, supportToken, null).statusCode());
+    HttpResponse<String> adminReconciled = post(
+        "/api/admin/market/supply/reconcile", resolution, ownerToken, null);
+    assertEquals(200, adminReconciled.statusCode(), adminReconciled.body());
+    assertTrue(get("/api/admin/audit/list", ownerToken).body()
+        .contains("MARKET_SUPPLY_RECONCILE"));
+  }
+
+  @Test
   void inspectsNearbyContainerAndCreatesSupplyListingWithoutClientMod() throws Exception {
     String token = JsonParser.parseString(post(
         "/api/auth/login", "{\"identifier\":\"ApiPlayer\",\"password\":\"api-secret\"}",
@@ -2285,6 +2343,9 @@ class SharedHttpApiTest {
     private final ItemEnvelope template;
     private int quantity;
     private long version = 1;
+    private boolean returnUnknown;
+    private boolean retainReconciliation;
+    private SupplyWithdrawal reconciliation;
 
     private FixtureSupplyGateway(ItemEnvelope template, int quantity) {
       this.template = template;
@@ -2314,8 +2375,22 @@ class SharedHttpApiTest {
       int removed = Math.min(quantity, request.maximumQuantity());
       quantity -= removed;
       version++;
-      return CompletableFuture.completedFuture(PlatformResult.success(
-          new SupplyWithdrawal(version, removed == 0 ? null : withCount(removed), removed)));
+      SupplyWithdrawal withdrawal =
+          new SupplyWithdrawal(version, removed == 0 ? null : withCount(removed), removed);
+      if (returnUnknown) {
+        if (retainReconciliation) reconciliation = withdrawal;
+        return CompletableFuture.completedFuture(
+            new PlatformResult.UnknownOutcome<>(request.operationId(), removed > 0));
+      }
+      return CompletableFuture.completedFuture(PlatformResult.success(withdrawal));
+    }
+
+    @Override
+    public synchronized java.util.concurrent.CompletionStage<PlatformResult<SupplyWithdrawal>>
+        reconcile(SupplyWithdrawalRequest request) {
+      return CompletableFuture.completedFuture(reconciliation == null
+          ? new PlatformResult.UnknownOutcome<>(request.operationId(), false)
+          : PlatformResult.success(reconciliation));
     }
 
     private ItemEnvelope withCount(int count) {

@@ -36,6 +36,13 @@ public interface SupplyInventoryGateway {
   CompletionStage<PlatformResult<SupplyWithdrawal>> compareAndWithdraw(
       SupplyWithdrawalRequest request);
 
+  /** Reads a platform-side idempotency result without performing a new withdrawal. */
+  default CompletionStage<PlatformResult<SupplyWithdrawal>> reconcile(
+      SupplyWithdrawalRequest request) {
+    return CompletableFuture.completedFuture(
+        new PlatformResult.UnknownOutcome<>(request.operationId(), false));
+  }
+
   record SupplyLocation(String world, int x, int y, int z) {
     public SupplyLocation {
       if (world == null || world.isBlank()) throw new IllegalArgumentException("world is required");
