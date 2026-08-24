@@ -953,8 +953,9 @@ tasks.register('generateModSbom') {
         }
         def commit = providers.exec { commandLine 'git', 'rev-parse', 'HEAD' }
                 .standardOutput.asText.get().trim()
-        def commitTime = providers.exec { commandLine 'git', 'show', '-s', '--format=%cI', 'HEAD' }
-                .standardOutput.asText.get().trim()
+        def commitTime = java.time.Instant.ofEpochSecond(
+                providers.exec { commandLine 'git', 'show', '-s', '--format=%ct', 'HEAD' }
+                        .standardOutput.asText.get().trim().toLong()).toString()
         def document = [
                 spdxVersion: 'SPDX-2.3',
                 dataLicense: 'CC0-1.0',
