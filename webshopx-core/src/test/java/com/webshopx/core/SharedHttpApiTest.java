@@ -2344,7 +2344,9 @@ class SharedHttpApiTest {
         "text/html; charset=utf-8",
         spaRoute.headers().firstValue("Content-Type").orElseThrow());
     assertTrue(spaRoute.body().contains("WebShopX"));
-    assertEquals(501, get("/api/orders/refund", null).statusCode());
+    HttpResponse<String> wrongMethod = get("/api/orders/refund", null);
+    assertEquals(405, wrongMethod.statusCode());
+    assertTrue(wrongMethod.body().contains("method_not_allowed"));
     assertEquals(404, get("/not-a-webshopx-route.json", null).statusCode());
   }
 

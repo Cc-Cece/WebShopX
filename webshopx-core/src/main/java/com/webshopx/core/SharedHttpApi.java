@@ -2262,10 +2262,10 @@ public final class SharedHttpApi implements AutoCloseable {
       } else if (SharedRouteContract.routes().contains(path)) {
         respond(
             exchange,
-            501,
+            405,
             error(
-                "capability_unavailable",
-                "The route is part of the shared contract but is unavailable on this server"));
+                "method_not_allowed",
+                "The route does not accept this HTTP method"));
       } else {
         respond(exchange, 404, error("not_found", "Route was not found"));
       }
