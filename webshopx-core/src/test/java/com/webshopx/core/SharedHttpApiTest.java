@@ -15,6 +15,7 @@ import com.webshopx.DatabaseSettings;
 import com.webshopx.DbType;
 import com.webshopx.NotificationService;
 import com.webshopx.RedeemCodeService;
+import com.webshopx.RefundPolicyService;
 import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceCheckoutAdapter;
 import com.webshopx.SharedCommerceService;
@@ -159,6 +160,7 @@ class SharedHttpApiTest {
             new NotificationService(database),
             admin,
             new AdminAuditService(database),
+            new RefundPolicyService(database),
             new PlatformIdentity("fabric", "fabric", "1.20.1", "test", "node-a", "sha256:test"),
             new CapabilitySnapshot(Instant.now(), states));
     api.start();
@@ -1071,6 +1073,41 @@ class SharedHttpApiTest {
     JsonObject managedProduct = JsonParser.parseString(productUpsert.body()).getAsJsonObject();
     assertEquals(55, managedProduct.get("price").getAsLong());
     assertEquals(8, managedProduct.get("stock").getAsInt());
+    JsonObject defaultRefundPolicy =
+        JsonParser.parseString(get("/api/admin/refund-policy", token).body()).getAsJsonObject();
+    assertTrue(defaultRefundPolicy.get("selfServiceEnabled").getAsBoolean());
+    HttpResponse<String> refundPolicyUpdate =
+        post(
+            "/api/admin/refund-policy",
+            "{\"selfServiceEnabled\":true,\"mailboxPendingRefundEnabled\":true,"
+                + "\"fixedPriceWindowMinutes\":15,\"dynamicPriceWindowMinutes\":4,"
+                + "\"partialRefundEnabled\":false,\"maxSelfServiceRefundsPerDay\":7,"
+                + "\"orderLevelPolicyEnabled\":true}",
+            token,
+            null);
+    assertEquals(200, refundPolicyUpdate.statusCode(), refundPolicyUpdate.body());
+    assertEquals(
+        15,
+        JsonParser.parseString(get("/api/admin/refund-policy", token).body())
+            .getAsJsonObject()
+            .get("fixedPriceWindowMinutes")
+            .getAsInt());
+    HttpResponse<String> productRefundPolicy =
+        post(
+            "/api/admin/products/refund-policy",
+            "{\"productId\":"
+                + managedProduct.get("id").getAsLong()
+                + ",\"refundPolicy\":\"CUSTOM\",\"refundWindowMinutes\":20,"
+                + "\"partialRefundPolicy\":\"DENY\"}",
+            token,
+            null);
+    assertEquals(200, productRefundPolicy.statusCode(), productRefundPolicy.body());
+    assertEquals(
+        "CUSTOM",
+        JsonParser.parseString(productRefundPolicy.body())
+            .getAsJsonObject()
+            .get("refundPolicy")
+            .getAsString());
     assertEquals(
         1,
         JsonParser.parseString(

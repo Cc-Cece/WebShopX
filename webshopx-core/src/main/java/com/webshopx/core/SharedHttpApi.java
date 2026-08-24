@@ -16,6 +16,7 @@ import com.webshopx.CommerceJson;
 import com.webshopx.CurrencyType;
 import com.webshopx.NotificationService;
 import com.webshopx.RedeemCodeService;
+import com.webshopx.RefundPolicyService;
 import com.webshopx.ServiceException;
 import com.webshopx.SharedCommerceService;
 import com.webshopx.SharedCommerceService.ProductInput;
@@ -55,6 +56,7 @@ public final class SharedHttpApi implements AutoCloseable {
   private final NotificationService notifications;
   private final AdminService administration;
   private final AdminAuditService audit;
+  private final RefundPolicyService refundPolicies;
   private final PlatformIdentity identity;
   private final CapabilitySnapshot capabilities;
   private final String allowedOrigin;
@@ -76,6 +78,7 @@ public final class SharedHttpApi implements AutoCloseable {
       NotificationService notifications,
       AdminService administration,
       AdminAuditService audit,
+      RefundPolicyService refundPolicies,
       PlatformIdentity identity,
       CapabilitySnapshot capabilities) {
     this.auth = Objects.requireNonNull(auth, "auth");
@@ -88,6 +91,7 @@ public final class SharedHttpApi implements AutoCloseable {
     this.notifications = Objects.requireNonNull(notifications, "notifications");
     this.administration = Objects.requireNonNull(administration, "administration");
     this.audit = Objects.requireNonNull(audit, "audit");
+    this.refundPolicies = Objects.requireNonNull(refundPolicies, "refundPolicies");
     this.identity = Objects.requireNonNull(identity, "identity");
     this.capabilities = Objects.requireNonNull(capabilities, "capabilities");
     this.allowedOrigin = allowedOrigin == null ? "" : allowedOrigin.trim();
@@ -1278,6 +1282,56 @@ public final class SharedHttpApi implements AutoCloseable {
                 input.has("validUntil") && !input.get("validUntil").isJsonNull()
                     ? java.time.Instant.parse(input.get("validUntil").getAsString())
                     : null));
+      } else if (path.equals("/api/admin/refund-policy") && method(exchange, "GET")) {
+        administration.requireAdmin(user(exchange), AdminPermission.PRODUCT_MANAGE);
+        respond(exchange, 200, refundPolicies.getPolicy());
+      } else if (path.equals("/api/admin/refund-policy") && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.PRODUCT_MANAGE);
+        var policy =
+            refundPolicies.updatePolicy(
+                new RefundPolicyService.Policy(
+                    optionalBoolean(input, "selfServiceEnabled", false),
+                    optionalBoolean(input, "mailboxPendingRefundEnabled", false),
+                    nullableInt(input, "fixedPriceWindowMinutes"),
+                    nullableInt(input, "dynamicPriceWindowMinutes"),
+                    optionalBoolean(input, "partialRefundEnabled", false),
+                    optionalInt(input, "maxSelfServiceRefundsPerDay", 5),
+                    optionalBoolean(input, "orderLevelPolicyEnabled", false)));
+        JsonObject detail = gson.toJsonTree(policy).getAsJsonObject();
+        audit.log(
+            actor,
+            "REFUND_POLICY_UPDATE",
+            "refund_policy",
+            null,
+            detail,
+            clientIp(exchange));
+        respond(exchange, 200, policy);
+      } else if (path.equals("/api/admin/products/refund-policy")
+          && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.PRODUCT_MANAGE);
+        var policy =
+            refundPolicies.updateProductPolicy(
+                requiredLong(input, "productId"),
+                optionalString(input, "refundPolicy", "INHERIT"),
+                nullableInt(input, "refundWindowMinutes"),
+                optionalString(input, "partialRefundPolicy", "INHERIT"));
+        JsonObject detail = gson.toJsonTree(policy).getAsJsonObject();
+        audit.log(
+            actor,
+            "PRODUCT_REFUND_POLICY_UPDATE",
+            "product",
+            Long.toString(policy.productId()),
+            detail,
+            clientIp(exchange));
+        JsonObject response = new JsonObject();
+        response.addProperty("productId", policy.productId());
+        response.addProperty("refundPolicy", policy.refundPolicy());
+        if (policy.windowMinutes() == null) response.add("refundWindowMinutes", JsonNull.INSTANCE);
+        else response.addProperty("refundWindowMinutes", policy.windowMinutes());
+        response.addProperty("partialRefundPolicy", policy.partialPolicy());
+        respond(exchange, 200, response);
       } else if (path.equals("/api/admin/overview/stats") && method(exchange, "GET")) {
         administration.requireAdmin(user(exchange), null);
         respond(exchange, 200, content.overviewStats());
@@ -1826,6 +1880,16 @@ public final class SharedHttpApi implements AutoCloseable {
 
   private static int optionalInt(JsonObject input, String key, int fallback) {
     return input.has(key) ? input.get(key).getAsInt() : fallback;
+  }
+
+  private static Integer nullableInt(JsonObject input, String key) {
+    return input.has(key) && !input.get(key).isJsonNull() ? input.get(key).getAsInt() : null;
+  }
+
+  private static boolean optionalBoolean(JsonObject input, String key, boolean fallback) {
+    return input.has(key) && !input.get(key).isJsonNull()
+        ? input.get(key).getAsBoolean()
+        : fallback;
   }
 
   private static int queryInt(HttpExchange exchange, String key, int fallback) {

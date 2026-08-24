@@ -79,6 +79,7 @@ public final class LoaderRuntime {
                   databaseRuntime.notifications(),
                   databaseRuntime.administration(),
                   databaseRuntime.audit(),
+                  databaseRuntime.refundPolicies(),
                   bundle.identity(),
                   bundle.capabilities());
           httpApi.start();

@@ -8,6 +8,7 @@ import com.webshopx.DatabaseSettings;
 import com.webshopx.DbType;
 import com.webshopx.NotificationService;
 import com.webshopx.RedeemCodeService;
+import com.webshopx.RefundPolicyService;
 import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceCheckoutAdapter;
 import com.webshopx.SharedCommerceService;
@@ -85,6 +86,7 @@ public final class BrowserAcceptanceFixtureMain {
               new NotificationService(database),
               admin,
               new AdminAuditService(database),
+              new RefundPolicyService(database),
               new PlatformIdentity(
                   "fixture", "fixture", "ci", "ci", "browser-node", "sha256:browser-fixture"),
               new CapabilitySnapshot(Instant.now(), states));

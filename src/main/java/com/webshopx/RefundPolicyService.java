@@ -12,22 +12,22 @@ import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.Locale;
 
-class RefundPolicyService {
+public final class RefundPolicyService {
   static final String CONFIG_KEY = "refund_policy";
   private static final Policy DEFAULT_POLICY = new Policy(true, true, 10, 3, true, 5, false);
 
   private final DatabaseManager databaseManager;
   private final Gson gson = new GsonBuilder().disableHtmlEscaping().serializeNulls().create();
 
-  RefundPolicyService(DatabaseManager databaseManager) {
+  public RefundPolicyService(DatabaseManager databaseManager) {
     this.databaseManager = databaseManager;
   }
 
-  Policy getPolicy() {
+  public Policy getPolicy() {
     return databaseManager.withConnection(this::readPolicy);
   }
 
-  Policy updatePolicy(Policy requested) {
+  public Policy updatePolicy(Policy requested) {
     Policy normalized = normalize(requested);
     return databaseManager.inTransaction(connection -> {
       String json = gson.toJson(normalized);
@@ -51,7 +51,7 @@ class RefundPolicyService {
     });
   }
 
-  ProductPolicy updateProductPolicy(
+  public ProductPolicy updateProductPolicy(
       long productId, String refundPolicy, Integer windowMinutes, String partialPolicy) {
     String normalizedRefund = normalizedEnum(refundPolicy, "INHERIT");
     String normalizedPartial = normalizedEnum(partialPolicy, "INHERIT");
@@ -356,7 +356,7 @@ class RefundPolicyService {
     return root.has(key) ? root.get(key).isJsonNull() ? null : root.get(key).getAsInt() : fallback;
   }
 
-  record Policy(
+  public record Policy(
       boolean selfServiceEnabled,
       boolean mailboxPendingRefundEnabled,
       Integer fixedPriceWindowMinutes,
@@ -364,7 +364,7 @@ class RefundPolicyService {
       boolean partialRefundEnabled,
       int maxSelfServiceRefundsPerDay,
       boolean orderLevelPolicyEnabled) {
-    Policy(
+    public Policy(
         boolean selfServiceEnabled,
         boolean mailboxPendingRefundEnabled,
         Integer fixedPriceWindowMinutes,
@@ -382,7 +382,7 @@ class RefundPolicyService {
     }
   }
 
-  record ResolvedPolicy(
+  public record ResolvedPolicy(
       boolean allowed,
       Integer windowMinutes,
       boolean partialAllowed,
@@ -390,10 +390,10 @@ class RefundPolicyService {
       String partialPolicy) {
   }
 
-  record ProductPolicy(
+  public record ProductPolicy(
       long productId, String refundPolicy, Integer windowMinutes, String partialPolicy) {
   }
 
-  record ListingPolicy(long listingId, String preset, Integer windowMinutes) {
+  public record ListingPolicy(long listingId, String preset, Integer windowMinutes) {
   }
 }

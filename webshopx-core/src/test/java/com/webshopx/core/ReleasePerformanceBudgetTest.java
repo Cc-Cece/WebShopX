@@ -12,6 +12,7 @@ import com.webshopx.DatabaseSettings;
 import com.webshopx.DbType;
 import com.webshopx.NotificationService;
 import com.webshopx.RedeemCodeService;
+import com.webshopx.RefundPolicyService;
 import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceCheckoutAdapter;
 import com.webshopx.SharedCommerceService;
@@ -131,6 +132,7 @@ class ReleasePerformanceBudgetTest {
               new NotificationService(database),
               new AdminService(database, auth, wallets),
               new AdminAuditService(database),
+              new RefundPolicyService(database),
               new PlatformIdentity(
                   "fabric", "fabric", "1.20.1", "test", "performance-node", "sha256:performance"),
               new CapabilitySnapshot(Instant.now(), states));

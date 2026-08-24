@@ -9,6 +9,7 @@ import com.webshopx.DbType;
 import com.webshopx.NotificationService;
 import com.webshopx.PlayerPresenceService;
 import com.webshopx.RedeemCodeService;
+import com.webshopx.RefundPolicyService;
 import com.webshopx.SchemaProvider;
 import com.webshopx.SharedCommerceCheckoutAdapter;
 import com.webshopx.SharedCommerceService;
@@ -34,6 +35,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
   private final SharedContentService content;
   private final NotificationService notifications;
   private final SharedPromotionService promotions;
+  private final RefundPolicyService refundPolicies;
 
   private SharedDatabaseRuntime(
       DatabaseManager database,
@@ -46,7 +48,8 @@ final class SharedDatabaseRuntime implements AutoCloseable {
       SharedCommerceService commerce,
       SharedContentService content,
       NotificationService notifications,
-      SharedPromotionService promotions) {
+      SharedPromotionService promotions,
+      RefundPolicyService refundPolicies) {
     this.database = database;
     this.authentication = authentication;
     this.presence = presence;
@@ -58,6 +61,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
     this.content = content;
     this.notifications = notifications;
     this.promotions = promotions;
+    this.refundPolicies = refundPolicies;
   }
 
   static SharedDatabaseRuntime start(Path dataDirectory) {
@@ -110,6 +114,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
     SharedPromotionService promotions =
         new SharedPromotionService(
             database, wallet, new SharedCommerceCheckoutAdapter(commerce, serverId));
+    RefundPolicyService refundPolicies = new RefundPolicyService(database);
     return new SharedDatabaseRuntime(
         database,
         authentication,
@@ -121,7 +126,8 @@ final class SharedDatabaseRuntime implements AutoCloseable {
         commerce,
         content,
         notifications,
-        promotions);
+        promotions,
+        refundPolicies);
   }
 
   AuthService authentication() {
@@ -167,6 +173,10 @@ final class SharedDatabaseRuntime implements AutoCloseable {
 
   SharedPromotionService promotions() {
     return promotions;
+  }
+
+  RefundPolicyService refundPolicies() {
+    return refundPolicies;
   }
 
   @Override
