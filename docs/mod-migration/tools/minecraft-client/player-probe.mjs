@@ -102,7 +102,7 @@ function runMcc () {
     'EnableSentry = false',
     'Language = "en_us"',
     'LoadMccTranslation = false',
-    'MinecraftVersion = "26.2"',
+    `MinecraftVersion = "${options.version}"`,
     'ExitOnFailure = true',
     'SessionCache = "none"',
     'ProfileKeyCache = "none"',
@@ -149,7 +149,6 @@ function runMcc () {
       ...identity,
       client: 'Minecraft Console Client 20260704-478',
       clientSha256: actualHash,
-      protocol: 776,
       ...detail
     })
     process.exitCode = status === 'passed' ? 0 : 1
@@ -169,11 +168,14 @@ function runMcc () {
   }, 100)
   child.on('error', (error) => finish('failed', { reason: 'client_error', detail: error.message }))
   child.on('close', (code) => {
-    const outputValid = stdout.includes('Using Minecraft version 26.2 (protocol v776)') &&
-      stdout.includes('[MCC] Server was successfully joined.')
+    const escapedVersion = options.version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const protocolMatch = stdout.match(
+      new RegExp(`Using Minecraft version ${escapedVersion} \\(protocol v(\\d+)\\)`))
+    const outputValid = protocolMatch !== null && stdout.includes('[MCC] Server was successfully joined.')
     const passed = code === 0 && loggedIn && requestedDisconnect && outputValid
     finish(passed ? 'passed' : 'failed', {
       reason: passed ? 'requested_disconnect' : 'unexpected_disconnect',
+      protocol: protocolMatch === null ? null : Number.parseInt(protocolMatch[1], 10),
       exitCode: code
     })
   })

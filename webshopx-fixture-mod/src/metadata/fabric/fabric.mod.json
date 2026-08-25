@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "webshopx_fixture",
+  "version": "1.0.0",
+  "name": "WebShopX Controlled Fixture Mod",
+  "description": "Server-side acceptance fixture for native item round-trip verification",
+  "environment": "server",
+  "entrypoints": { "main": ["com.webshopx.fixture.FabricFixtureMod"] },
+  "depends": { "fabricloader": ">=0.14.0", "minecraft": ">=1.18.2 <=26.2", "java": ">=17" }
+}

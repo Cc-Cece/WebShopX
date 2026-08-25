@@ -19,7 +19,7 @@ import java.util.UUID;
 
 /** Destructive, disposable-player acceptance probe for the native inventory gateway. */
 final class NativeInventoryProbe {
-  enum Mode { ONLINE, OFFLINE, RECOVERY }
+  enum Mode { ONLINE, OFFLINE, RECOVERY, FIXTURE }
 
   private NativeInventoryProbe() { }
 
@@ -35,6 +35,7 @@ final class NativeInventoryProbe {
         case ONLINE -> online(inventories, items, playerId);
         case OFFLINE -> offline(inventories, items, playerId);
         case RECOVERY -> recovery(inventories, playerId);
+        case FIXTURE -> fixture(inventories, items, playerId);
       };
     } catch (RuntimeException failure) {
       writeFailure(evidenceDirectory, mode.name().toLowerCase(), playerId, failure);
@@ -141,6 +142,50 @@ final class NativeInventoryProbe {
         snapshot.items().size(), 4);
   }
 
+  private static ProbeResult fixture(
+      NativeInventoryGateway inventories, NativeItemCodec items, UUID playerId) {
+    InventorySnapshot snapshot = success(inventories.snapshot(playerId, false), "fixture_snapshot");
+    List<FixtureExpectation> expected = List.of(
+        new FixtureExpectation("minecraft:diamond_sword", "wx_enchanted_durable",
+            List.of("damage", "enchant")),
+        new FixtureExpectation("minecraft:potion", "wx_potion", List.of("effect")),
+        new FixtureExpectation("minecraft:written_book", "wx_written_book", List.of("page")),
+        new FixtureExpectation("minecraft:filled_map", "wx_map", List.of("map")),
+        new FixtureExpectation("minecraft:shulker_box", "wx_shulker_nested",
+            List.of("nested_level_2")),
+        new FixtureExpectation("minecraft:bundle", "wx_bundle_nested",
+            List.of("nested_level_2")),
+        new FixtureExpectation("webshopx_fixture:data_item", "wx_mod_item", List.of()));
+    int assertions = 0;
+    for (FixtureExpectation expectation : expected) {
+      ItemEnvelope envelope = snapshot.items().stream()
+          .filter(value -> value.registryId().equals(expectation.registryId()))
+          .filter(value -> payload(value).contains(expectation.marker()))
+          .findFirst()
+          .orElseThrow(() -> new IllegalStateException(
+              "fixture_missing:" + expectation.registryId() + ":" + expectation.marker()));
+      String payload = payload(envelope);
+      for (String token : expectation.tokens()) {
+        require(payload.contains(token), "fixture_token:" + expectation.registryId() + ":" + token);
+      }
+      Object restored = success(items.decode(envelope, items.domain()),
+          "fixture_decode:" + expectation.registryId());
+      ItemEnvelope roundTrip = success(items.encode(restored, items.identity()),
+          "fixture_reencode:" + expectation.registryId());
+      require(envelope.payloadHash().equals(roundTrip.payloadHash()),
+          "fixture_hash:" + expectation.registryId());
+      require(envelope.registryId().equals(roundTrip.registryId()),
+          "fixture_registry:" + expectation.registryId());
+      assertions += 4 + expectation.tokens().size();
+    }
+    return new ProbeResult("fixture", playerId, snapshot.version(), snapshot.freeSlots(),
+        snapshot.items().size(), assertions);
+  }
+
+  private static String payload(ItemEnvelope envelope) {
+    return new String(envelope.payload(), StandardCharsets.UTF_8).toLowerCase(java.util.Locale.ROOT);
+  }
+
   private static <T> T success(
       java.util.concurrent.CompletionStage<PlatformResult<T>> stage, String assertion) {
     return success(stage.toCompletableFuture().join(), assertion);
@@ -224,4 +269,6 @@ final class NativeInventoryProbe {
 
   private record ProbeResult(
       String mode, UUID playerId, long version, int freeSlots, int itemCount, int assertions) { }
+
+  private record FixtureExpectation(String registryId, String marker, List<String> tokens) { }
 }

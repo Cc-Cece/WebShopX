@@ -144,6 +144,10 @@ public final class ReflectiveHealthCommand {
           literalBuilder, commandType, "webshopx-inventory-recovery-probe", "playerId",
           invocation -> LoaderRuntime.nativeInventoryProbe(
               invocation.argument(), NativeInventoryProbe.Mode.RECOVERY)));
+      register.invoke(dispatcher, command(
+          literalBuilder, commandType, "webshopx-inventory-fixture-probe", "playerId",
+          invocation -> LoaderRuntime.nativeInventoryProbe(
+              invocation.argument(), NativeInventoryProbe.Mode.FIXTURE)));
     }
     register.invoke(dispatcher, command(
         literalBuilder, commandType, "webshopx-balance", null,

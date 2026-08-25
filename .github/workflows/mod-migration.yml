@@ -249,14 +249,12 @@ jobs:
       - name: Install pinned automated player dependencies
         working-directory: docs/mod-migration/tools/minecraft-client
         run: npm ci --ignore-scripts --no-fund && npm audit --omit=dev --audit-level=moderate
-      - name: Cache pinned Minecraft 26.2 console client
-        if: matrix.minecraft == '26.2'
+      - name: Cache pinned Minecraft console client
         uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}/webshopx-mcc-player
           key: mcc-player-20260704-478-${{ runner.os }}-${{ runner.arch }}
-      - name: Prepare pinned Minecraft 26.2 console client
-        if: matrix.minecraft == '26.2'
+      - name: Prepare pinned Minecraft console client
         shell: pwsh
         run: |
           $prepared = & docs/mod-migration/tools/prepare-mcc-player.ps1 `
@@ -269,7 +267,9 @@ jobs:
           java-version: ${{ matrix.java }}
           cache: gradle
       - name: Build exact candidate
-        run: ./gradlew :${{ matrix.project }}:jar --stacktrace
+        run: >-
+          ./gradlew :${{ matrix.project }}:jar
+          :webshopx-fixture-mod:${{ matrix.platform }}FixtureJar --stacktrace
       - name: Prepare official Loader server
         shell: pwsh
         run: |
@@ -286,32 +286,32 @@ jobs:
         shell: pwsh
         run: |
           $jar = Get-ChildItem '${{ matrix.project }}/build/libs/*.jar' | Select-Object -First 1
+          $fixtureJar = Get-ChildItem 'webshopx-fixture-mod/build/fixture-libs/webshopx-fixture-${{ matrix.platform }}-*.jar' |
+            Select-Object -First 1
+          $fixtureCommands = & docs/mod-migration/tools/item-fixture-commands.ps1 `
+            -Minecraft '${{ matrix.minecraft }}' | ConvertFrom-Json
           $playerClient = (Resolve-Path 'docs/mod-migration/tools/minecraft-client/player-probe.mjs').Path
-          $playerArgs = if ('${{ matrix.minecraft }}' -eq '26.2') {
-            @{
-              Node = (Get-Command node).Source
-              PlayerClientScript = $playerClient
-              MccExecutable = $env:WEBSHOPX_MCC_PLAYER
-            }
-          } else {
-            @{ Node = (Get-Command node).Source; PlayerClientScript = $playerClient }
+          $playerArgs = @{
+            Node = (Get-Command node).Source
+            PlayerClientScript = $playerClient
+            MccExecutable = $env:WEBSHOPX_MCC_PLAYER
           }
           $firstStart = & docs/mod-migration/tools/dedicated-server-smoke.ps1 `
             -Java (Get-Command java).Source -ServerJar $env:WEBSHOPX_SERVER_JAR `
-            -LaunchArguments $env:WEBSHOPX_LAUNCH_ARGS -ModJar $jar.FullName `
+            -LaunchArguments $env:WEBSHOPX_LAUNCH_ARGS -ModJar $jar.FullName -FixtureModJar $fixtureJar.FullName `
             -WorkingDirectory $env:WEBSHOPX_SERVER_WORK `
             -ExpectedMinecraft '${{ matrix.minecraft }}' -ExpectedLoader '${{ matrix.loader }}' `
             -HealthCommand 'webshopx-health' -ProbeCommand 'webshopx-item-probe' `
-            -ExpectedProbePattern 'item-roundtrip=PASS','fixtures=PASS\(8,domain,hash,codec\)' `
-            @playerArgs -VerifyInventory `
+            -ExpectedProbePattern 'item-roundtrip=PASS','fixtures=PASS\(9,domain,hash,codec\)' `
+            @playerArgs -VerifyInventory -VerifyItemFixtures -OnlinePlayerCommand $fixtureCommands `
             -EvidencePrefix 'first-start' | ConvertFrom-Json
           $restart = & docs/mod-migration/tools/dedicated-server-smoke.ps1 `
             -Java (Get-Command java).Source -ServerJar $env:WEBSHOPX_SERVER_JAR `
-            -LaunchArguments $env:WEBSHOPX_LAUNCH_ARGS -ModJar $jar.FullName `
+            -LaunchArguments $env:WEBSHOPX_LAUNCH_ARGS -ModJar $jar.FullName -FixtureModJar $fixtureJar.FullName `
             -WorkingDirectory $env:WEBSHOPX_SERVER_WORK `
             -ExpectedMinecraft '${{ matrix.minecraft }}' -ExpectedLoader '${{ matrix.loader }}' `
             -HealthCommand 'webshopx-health' -ProbeCommand 'webshopx-item-probe' `
-            -ExpectedProbePattern 'item-roundtrip=PASS','fixtures=PASS\(8,domain,hash,codec\)' `
+            -ExpectedProbePattern 'item-roundtrip=PASS','fixtures=PASS\(9,domain,hash,codec\)' `
             @playerArgs -VerifyInventory -ExpectInventoryRecovery `
             -EvidencePrefix 'restart' | ConvertFrom-Json
           [ordered]@{ status = 'passed'; firstStart = $firstStart; restart = $restart } |
@@ -326,7 +326,8 @@ jobs:
             (Join-Path $env:WEBSHOPX_SERVER_WORK 'config/webshopx/health.json'),
             (Join-Path $env:WEBSHOPX_SERVER_WORK 'config/webshopx/inventory-probe-online.json'),
             (Join-Path $env:WEBSHOPX_SERVER_WORK 'config/webshopx/inventory-probe-offline.json'),
-            (Join-Path $env:WEBSHOPX_SERVER_WORK 'config/webshopx/inventory-probe-recovery.json'))
+            (Join-Path $env:WEBSHOPX_SERVER_WORK 'config/webshopx/inventory-probe-recovery.json'),
+            (Join-Path $env:WEBSHOPX_SERVER_WORK 'config/webshopx/inventory-probe-fixture.json'))
           $evidencePaths += Get-ChildItem $env:WEBSHOPX_SERVER_WORK -Filter 'player-*-mcc*.log' |
             ForEach-Object FullName
           & docs/mod-migration/tools/write-check-evidence.ps1 `

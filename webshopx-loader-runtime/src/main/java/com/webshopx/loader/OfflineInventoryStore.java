@@ -191,7 +191,8 @@ final class OfflineInventoryStore {
               || method.getParameterTypes()[0] == java.io.File.class)) {
         Class<?> accounter = method.getParameterTypes()[1];
         Object unlimited =
-            NativeItemCodec.method(accounter, new String[] {"unlimitedHeap"}, 0).invoke(null);
+            NativeItemCodec.method(accounter,
+                new String[] {"unlimitedHeap", "method_53898", "m_328286_"}, 0).invoke(null);
         Object source = method.getParameterTypes()[0] == Path.class ? path : path.toFile();
         return method.invoke(null, source, unlimited);
       }

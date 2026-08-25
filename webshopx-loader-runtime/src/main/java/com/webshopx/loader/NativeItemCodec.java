@@ -43,6 +43,7 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
 
   @Override public String id() { return id; }
   @Override public int version() { return version; }
+  PlatformIdentity identity() { return identity; }
 
   @Override
   public PlatformResult<ItemEnvelope> encode(Object item, PlatformIdentity requestedIdentity) {
@@ -55,12 +56,21 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
       if (isEmpty(item)) return PlatformResult.rejected("ITEM_EMPTY", "error.item.empty");
       int count = count(item);
       String snbt = version == 1 ? encodeLegacy(item) : encodeModern(item);
-      Matcher matcher = ITEM_ID.matcher(snbt);
-      if (!matcher.find()) return PlatformResult.rejected("ITEM_ID_MISSING", "error.item.id_missing");
+      String registryId;
+      try {
+        registryId = nativeRegistryId(item);
+      } catch (ReflectiveOperationException | LinkageError unavailableRegistryLookup) {
+        registryId = null;
+      }
+      if (registryId == null) {
+        Matcher matcher = ITEM_ID.matcher(snbt);
+        if (!matcher.find()) return PlatformResult.rejected("ITEM_ID_MISSING", "error.item.id_missing");
+        registryId = matcher.group(1);
+      }
       byte[] payload = snbt.getBytes(StandardCharsets.UTF_8);
       CompatibilityDomain domain = domain();
       return PlatformResult.success(envelopes.create(
-          id, version, domain, matcher.group(1), count, payload,
+          id, version, domain, registryId, count, payload,
           Map.of("format", version == 1 ? "legacy-snbt" : "components-snbt")));
     } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
       Throwable cause = failure instanceof java.lang.reflect.InvocationTargetException invocation
@@ -191,7 +201,8 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
   private String probeCorpus(ItemEnvelope reference) {
     List<String> registryIds = List.of("minecraft:stone", "minecraft:diamond_sword",
         "minecraft:enchanted_book", "minecraft:potion", "minecraft:written_book",
-        "minecraft:filled_map", "minecraft:shulker_box", "minecraft:bundle");
+        "minecraft:filled_map", "minecraft:shulker_box", "minecraft:bundle",
+        "webshopx_fixture:data_item");
     int passed = 0;
     for (String registryId : registryIds) {
       PlatformResult<ItemEnvelope> created = createEnvelope(registryId, 1);
@@ -331,6 +342,25 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
       }
     }
     throw new NoSuchMethodException("item registry lookup");
+  }
+
+  private static String nativeRegistryId(Object stack) throws ReflectiveOperationException {
+    Object nativeItem = method(stack.getClass(),
+        new String[]{"getItem", "method_7909", "m_41720_"}, 0).invoke(stack);
+    Object registry = itemRegistry(stack.getClass().getClassLoader());
+    for (Class<?> apiType : List.of(registry.getClass(),
+        loadFirst(stack.getClass().getClassLoader(),
+            "net.minecraft.core.Registry", "net.minecraft.class_2378"))) {
+      for (Method candidate : apiType.getMethods()) {
+        if (!named(candidate, "getKey", "method_10221", "m_7981_")
+            || candidate.getParameterCount() != 1
+            || !candidate.getParameterTypes()[0].isInstance(nativeItem)) continue;
+        Object location = candidate.invoke(registry, nativeItem);
+        String value = Objects.toString(location, "");
+        if (value.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")) return value;
+      }
+    }
+    return null;
   }
 
   private static Class<?> loadFirst(ClassLoader loader, String... names)

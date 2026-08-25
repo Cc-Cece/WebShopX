@@ -1,0 +1,14 @@
+modLoader="javafml"
+loaderVersion="[1,)"
+license="GPL-3.0-or-later"
+[[mods]]
+modId="webshopx_fixture"
+version="1.0.0"
+displayName="WebShopX Controlled Fixture Mod"
+description='''Server-side acceptance fixture for native item round-trip verification'''
+[[dependencies.webshopx_fixture]]
+modId="minecraft"
+type="required"
+versionRange="[1.20.1,26.3)"
+ordering="NONE"
+side="SERVER"

@@ -3,6 +3,7 @@ param(
     [string]$ServerJar,
     [string]$LaunchArguments,
     [Parameter(Mandatory = $true)][string]$ModJar,
+    [string]$FixtureModJar,
     [Parameter(Mandatory = $true)][string]$WorkingDirectory,
     [string]$ExpectedMinecraft,
     [string]$ExpectedLoader,
@@ -13,7 +14,9 @@ param(
     [string]$PlayerClientScript,
     [string]$MccExecutable,
     [switch]$VerifyInventory,
+    [switch]$VerifyItemFixtures,
     [switch]$ExpectInventoryRecovery,
+    [string[]]$OnlinePlayerCommand = @(),
     [ValidatePattern('^[A-Za-z0-9_]{3,16}$')][string]$PlayerUsername = 'WebShopXProbe',
     [ValidatePattern('^[A-Za-z0-9_-]*$')][string]$EvidencePrefix = '',
     [int]$Port = 25622,
@@ -24,10 +27,14 @@ $ErrorActionPreference = 'Stop'
 $work = [IO.Path]::GetFullPath($WorkingDirectory)
 $server = if ($ServerJar) { [IO.Path]::GetFullPath($ServerJar) } else { $null }
 $mod = [IO.Path]::GetFullPath($ModJar)
+$fixtureMod = if ($FixtureModJar) { [IO.Path]::GetFullPath($FixtureModJar) } else { $null }
 if (-not (Test-Path -LiteralPath $Java -PathType Leaf)) { throw "Java not found: $Java" }
 if (-not $server -and -not $LaunchArguments) { throw 'ServerJar or LaunchArguments is required' }
 if ($server -and -not (Test-Path -LiteralPath $server -PathType Leaf)) { throw "Server JAR not found: $server" }
 if (-not (Test-Path -LiteralPath $mod -PathType Leaf)) { throw "Mod JAR not found: $mod" }
+if ($fixtureMod -and -not (Test-Path -LiteralPath $fixtureMod -PathType Leaf)) {
+    throw "Fixture Mod JAR not found: $fixtureMod"
+}
 if ($PlayerClientScript) {
     if (-not $Node -or -not (Test-Path -LiteralPath $Node -PathType Leaf)) {
         throw "Node executable is required for player verification: $Node"
@@ -49,7 +56,6 @@ if ($MccExecutable) {
         '8736c0d7979fe6cd1bacfa669a2a0d301978171afb4c18d5a10112435dc01578'
     )
     if ($mccHash -notin $approvedMccHashes) { throw "MCC executable hash is not approved: $mccHash" }
-    if ($ExpectedMinecraft -ne '26.2') { throw 'The pinned MCC verifier is reserved for Minecraft 26.2' }
     if (-not $PlayerClientScript) { throw 'MCC verification requires PlayerClientScript' }
 }
 if (($VerifyInventory -or $ExpectInventoryRecovery) -and -not $PlayerClientScript) {
@@ -57,6 +63,12 @@ if (($VerifyInventory -or $ExpectInventoryRecovery) -and -not $PlayerClientScrip
 }
 if ($ExpectInventoryRecovery -and -not $VerifyInventory) {
     throw 'ExpectInventoryRecovery requires VerifyInventory'
+}
+if ($VerifyItemFixtures -and (-not $VerifyInventory -or $ExpectInventoryRecovery)) {
+    throw 'VerifyItemFixtures requires the first-start inventory verification cycle'
+}
+if ($VerifyItemFixtures -and (-not $fixtureMod -or $OnlinePlayerCommand.Count -eq 0)) {
+    throw 'VerifyItemFixtures requires FixtureModJar and OnlinePlayerCommand'
 }
 
 function Invoke-InventoryProbe {
@@ -98,6 +110,9 @@ function Send-ProcessLine {
 
 New-Item -ItemType Directory -Force -Path $work, (Join-Path $work 'mods') | Out-Null
 Copy-Item -LiteralPath $mod -Destination (Join-Path $work 'mods/webshopx.jar') -Force
+if ($fixtureMod) {
+    Copy-Item -LiteralPath $fixtureMod -Destination (Join-Path $work 'mods/webshopx-fixture.jar') -Force
+}
 Set-Content -LiteralPath (Join-Path $work 'eula.txt') -Encoding ascii -Value 'eula=true'
 @(
     'online-mode=false'
@@ -217,6 +232,16 @@ try {
         if ($playerLog -notmatch $joinPattern) {
             throw 'Dedicated server did not record the real player join before probes'
         }
+        if ($VerifyItemFixtures) {
+            foreach ($onlineCommand in $OnlinePlayerCommand) {
+                Send-ProcessLine -Target $process -Line $onlineCommand.Replace('{player}', $PlayerUsername)
+            }
+            Start-Sleep -Seconds 1
+            $inventoryEvidence += Invoke-InventoryProbe -ServerProcess $process `
+                -Mode 'fixture' -PlayerId $ready.uuid `
+                -DataDirectory (Join-Path $work 'config/webshopx') `
+                -MinimumAssertions 35
+        }
         if ($VerifyInventory) {
             $inventoryMode = if ($ExpectInventoryRecovery) { 'recovery' } else { 'online' }
             $minimumAssertions = if ($ExpectInventoryRecovery) { 4 } else { 9 }
@@ -303,10 +328,15 @@ if ($unexpectedErrors) {
     throw "Server output contains an error: $(@($unexpectedErrors)[0])"
 }
 $hash = (Get-FileHash -LiteralPath $mod -Algorithm SHA256).Hash.ToLowerInvariant()
+$fixtureHash = if ($fixtureMod) {
+    (Get-FileHash -LiteralPath $fixtureMod -Algorithm SHA256).Hash.ToLowerInvariant()
+} else { $null }
 [ordered]@{
     status = 'passed'
     artifact = [IO.Path]::GetFileName($mod)
     sha256 = $hash
+    fixtureArtifact = if ($fixtureMod) { [IO.Path]::GetFileName($fixtureMod) } else { $null }
+    fixtureSha256 = $fixtureHash
     port = $Port
     cleanStop = $true
     cycle = if ([string]::IsNullOrWhiteSpace($EvidencePrefix)) { 'single' } else { $EvidencePrefix }

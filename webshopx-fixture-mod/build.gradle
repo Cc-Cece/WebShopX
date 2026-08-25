@@ -1,0 +1,48 @@
+plugins {
+    id 'java'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+dependencies {
+    compileOnly project(':webshopx-loader-stubs')
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
+    options.encoding = 'UTF-8'
+}
+
+jar {
+    enabled = false
+}
+
+def fixtureJar = { String taskName, String family, String metadataDirectory ->
+    tasks.register(taskName, Jar) {
+        dependsOn tasks.named('classes')
+        archiveBaseName.set("webshopx-fixture-${family}")
+        archiveVersion.set('1.0.0')
+        destinationDirectory.set(layout.buildDirectory.dir('fixture-libs'))
+        from sourceSets.main.output
+        from("src/metadata/${metadataDirectory}")
+        manifest {
+            attributes(
+                    'Implementation-Title': "WebShopX controlled ${family} fixture Mod",
+                    'Implementation-Version': '1.0.0',
+                    'WebShopX-Fixture': 'true',
+                    'WebShopX-Fixture-Registry': 'webshopx_fixture:data_item')
+        }
+    }
+}
+
+fixtureJar('fabricFixtureJar', 'fabric', 'fabric')
+fixtureJar('forgeFixtureJar', 'forge', 'forge')
+fixtureJar('neoforgeFixtureJar', 'neoforge', 'neoforge')
+
+tasks.register('fixtureJars') {
+    dependsOn 'fabricFixtureJar', 'forgeFixtureJar', 'neoforgeFixtureJar'
+}
