@@ -497,8 +497,6 @@ class SharedHttpApiTest {
             .getAsJsonObject()
             .get("shopCoin")
             .getAsInt());
-    assertEquals(
-        2, JsonParser.parseString(get("/api/deliveries", token).body()).getAsJsonArray().size());
     JsonObject productTrend =
         JsonParser.parseString(
                 get(

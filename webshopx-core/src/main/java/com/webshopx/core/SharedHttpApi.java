@@ -389,10 +389,6 @@ public final class SharedHttpApi implements AutoCloseable {
         String orderNo = requiredString(body(exchange), "orderNo");
         commerce.discardOrder(current.id(), orderNo);
         respond(exchange, 200, Map.of("orderNo", orderNo, "status", "CANCELLED"));
-      } else if (path.equals("/api/deliveries") && method(exchange, "GET")) {
-        var user = user(exchange);
-        if (user.boundUuid() == null) throw new ServiceException("not_bound", "User is not bound");
-        respond(exchange, 200, commerce.pendingDeliveries(user.boundUuid(), identity.serverId()));
       } else if (path.equals("/api/mailbox/list") && method(exchange, "GET")) {
         var current = user(exchange);
         var items =
@@ -2222,43 +2218,6 @@ public final class SharedHttpApi implements AutoCloseable {
             exchange,
             200,
             Map.of("productId", product.id(), "sku", product.sku(), "resetCount", resetCount));
-      } else if (path.equals("/api/admin/products") && method(exchange, "POST")) {
-        var user = user(exchange);
-        administration.requireAdmin(user, AdminPermission.PRODUCT_MANAGE);
-        JsonObject input = body(exchange);
-        Integer stock =
-            input.has("stock") && !input.get("stock").isJsonNull()
-                ? input.get("stock").getAsInt()
-                : null;
-        respond(
-            exchange,
-            200,
-            commerce.createProduct(
-                new ProductInput(
-                    requiredString(input, "sku"),
-                    requiredString(input, "title"),
-                    optionalString(input, "remark", null),
-                    CurrencyType.valueOf(requiredString(input, "currency").toUpperCase()),
-                    requiredLong(input, "price"),
-                    ProductKind.valueOf(requiredString(input, "kind").toUpperCase()),
-                    optionalString(input, "command", ""),
-                    optionalString(input, "registryId", null),
-                    stock,
-                    nullableInt(input, "perUserLimit"),
-                    !input.has("active") || input.get("active").getAsBoolean())));
-      } else if (path.equals("/api/admin/wallet-adjust") && method(exchange, "POST")) {
-        var actor = user(exchange);
-        administration.requireAdmin(actor, AdminPermission.USER_SUPPORT);
-        JsonObject input = body(exchange);
-        respond(
-            exchange,
-            200,
-            wallets.adjustBalance(
-                requiredLong(input, "userId"),
-                CurrencyType.valueOf(requiredString(input, "currency").toUpperCase()),
-                requiredLong(input, "delta"),
-                "ADMIN_ADJUST",
-                requiredString(input, "idempotencyKey")));
       } else if (SharedRouteContract.routes().contains(path)) {
         respond(
             exchange,
