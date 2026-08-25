@@ -10,6 +10,8 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class LoaderSchedulerTest {
@@ -57,6 +59,34 @@ class LoaderSchedulerTest {
       scheduler.unbind();
       assertThrows(CompletionException.class,
           () -> scheduler.runGlobal(() -> { }).toCompletableFuture().join());
+    }
+  }
+
+  @Test void executesInlineWhenAlreadyOnTheBoundNativeServerThread() {
+    try (LoaderScheduler scheduler = new LoaderScheduler()) {
+      AtomicBoolean executorInvoked = new AtomicBoolean();
+      scheduler.bind((Executor) ignored -> executorInvoked.set(true));
+      AtomicBoolean actionInvoked = new AtomicBoolean();
+      scheduler.runGlobal(() -> {
+        actionInvoked.set(true);
+        assertTrue(scheduler.isOnRequiredThread(PlatformPorts.ThreadScope.GLOBAL, null));
+      }).toCompletableFuture().join();
+      assertTrue(actionInvoked.get());
+      assertFalse(executorInvoked.get());
+    }
+  }
+
+  @Test void deferGlobalAlwaysUsesTheNativeQueue() {
+    try (LoaderScheduler scheduler = new LoaderScheduler()) {
+      AtomicReference<Runnable> queued = new AtomicReference<>();
+      scheduler.bind((Executor) queued::set);
+      AtomicBoolean actionInvoked = new AtomicBoolean();
+      var completion = scheduler.deferGlobal(() -> actionInvoked.set(true));
+      assertFalse(actionInvoked.get());
+      assertFalse(completion.toCompletableFuture().isDone());
+      queued.get().run();
+      completion.toCompletableFuture().join();
+      assertTrue(actionInvoked.get());
     }
   }
 }

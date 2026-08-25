@@ -47,6 +47,7 @@ final class NativePlayerDirectory implements PlatformPorts.PlayerDirectory {
     Object nativePlayer = findServerPlayer(eventOrHandler).orElse(null);
     Optional<Profile> nativeProfile = nativePlayer == null
         ? profile(eventOrHandler) : directProfile(nativePlayer);
+    if (nativeProfile.isEmpty()) diagnostic("join", eventOrHandler, nativePlayer);
     nativeProfile.ifPresent(profile -> online.put(profile.id(),
         new PlatformPorts.PlayerSnapshot(profile.id(), profile.name(), true, serverId, Locale.ROOT)));
     nativeProfile.ifPresent(profile -> {
@@ -56,15 +57,23 @@ final class NativePlayerDirectory implements PlatformPorts.PlayerDirectory {
   }
 
   Optional<PlatformPorts.PlayerSnapshot> disconnected(Object eventOrHandler) {
-    Optional<Profile> nativeProfile = profile(eventOrHandler);
-    return nativeProfile.map(profile -> {
-      nativePlayers.remove(profile.id());
-      PlatformPorts.PlayerSnapshot removed = online.remove(profile.id());
-      return removed == null
-          ? new PlatformPorts.PlayerSnapshot(profile.id(), profile.name(), false, serverId, Locale.ROOT)
-          : new PlatformPorts.PlayerSnapshot(
-              removed.id(), removed.name(), false, removed.serverId(), removed.locale());
-    });
+    return disconnectIdentity(eventOrHandler).map(this::completeDisconnect);
+  }
+
+  Optional<PlatformPorts.PlayerSnapshot> disconnectIdentity(Object eventOrHandler) {
+    Object nativePlayer = findServerPlayer(eventOrHandler).orElse(null);
+    Optional<Profile> nativeProfile = nativePlayer == null
+        ? profile(eventOrHandler) : directProfile(nativePlayer);
+    if (nativeProfile.isEmpty()) diagnostic("disconnect", eventOrHandler, nativePlayer);
+    return nativeProfile.map(profile -> new PlatformPorts.PlayerSnapshot(
+        profile.id(), profile.name(), false, serverId, Locale.ROOT));
+  }
+
+  PlatformPorts.PlayerSnapshot completeDisconnect(PlatformPorts.PlayerSnapshot identity) {
+    nativePlayers.remove(identity.id());
+    PlatformPorts.PlayerSnapshot removed = online.remove(identity.id());
+    return removed == null ? identity : new PlatformPorts.PlayerSnapshot(
+        removed.id(), removed.name(), false, removed.serverId(), removed.locale());
   }
 
   void clear() {
@@ -162,6 +171,16 @@ final class NativePlayerDirectory implements PlatformPorts.PlayerDirectory {
       if (value == null || visited.put(value, Boolean.TRUE) != null) continue;
       if (isServerPlayer(value)) return Optional.of(value);
       if (node.depth() >= 3 || !isGameType(value.getClass())) continue;
+      for (String methodName : List.of("getEntity", "getPlayer", "getHandler")) {
+        try {
+          Method method = value.getClass().getMethod(methodName);
+          if (method.getParameterCount() != 0 || !isGameType(method.getReturnType())) continue;
+          Object child = method.invoke(value);
+          if (child != null) queue.addLast(new Node(child, node.depth() + 1));
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+          // The next accessor or a native field may expose the player.
+        }
+      }
       for (Field field : fields(value.getClass())) {
         if (!isGameType(field.getType())) continue;
         try {
@@ -193,6 +212,13 @@ final class NativePlayerDirectory implements PlatformPorts.PlayerDirectory {
     if (name.equals("of")) return 1;
     if (name.equals("method_43470")) return 2;
     return 10;
+  }
+
+  private static void diagnostic(String operation, Object root, Object nativePlayer) {
+    System.err.printf("[WebShopX] native player %s identity unavailable root=%s player=%s%n",
+        operation,
+        root == null ? "null" : root.getClass().getName(),
+        nativePlayer == null ? "not_found" : nativePlayer.getClass().getName());
   }
 
   private static Optional<Profile> profile(Object root) {
@@ -235,6 +261,18 @@ final class NativePlayerDirectory implements PlatformPorts.PlayerDirectory {
     if (value.getClass().getName().equals("com.mojang.authlib.GameProfile")) {
       return readProfile(value);
     }
+    for (String methodName : List.of("getGameProfile", "gameProfile", "method_7334", "m_36316_")) {
+      try {
+        Method method = value.getClass().getMethod(methodName);
+        if (method.getParameterCount() != 0) continue;
+        Optional<Profile> result = readProfile(method.invoke(value));
+        if (result.isPresent()) return result;
+      } catch (ReflectiveOperationException | RuntimeException ignored) {
+        // Try the next mapped accessor or direct field.
+      }
+    }
+    Optional<Profile> entityIdentity = entityIdentity(value);
+    if (entityIdentity.isPresent()) return entityIdentity;
     for (Field field : fields(value.getClass())) {
       if (!field.getType().getName().equals("com.mojang.authlib.GameProfile")) continue;
       try {
@@ -244,6 +282,28 @@ final class NativePlayerDirectory implements PlatformPorts.PlayerDirectory {
       }
     }
     return Optional.empty();
+  }
+
+  private static Optional<Profile> entityIdentity(Object value) {
+    try {
+      Method uuidMethod = Arrays.stream(value.getClass().getMethods())
+          .filter(method -> method.getParameterCount() == 0 && method.getReturnType() == UUID.class)
+          .filter(method -> method.getName().equals("getUUID")
+              || method.getName().equals("getUuid") || method.getName().equals("method_5667")
+              || method.getName().equals("m_20148_"))
+          .findFirst().orElseThrow();
+      Method nameMethod = Arrays.stream(value.getClass().getMethods())
+          .filter(method -> method.getParameterCount() == 0 && method.getReturnType() == String.class)
+          .filter(method -> method.getName().equals("getScoreboardName")
+              || method.getName().equals("method_5477") || method.getName().equals("m_7755_"))
+          .findFirst().orElseThrow();
+      Object id = uuidMethod.invoke(value);
+      Object name = nameMethod.invoke(value);
+      return id instanceof UUID uuid && name instanceof String text
+          ? Optional.of(new Profile(uuid, text)) : Optional.empty();
+    } catch (ReflectiveOperationException | RuntimeException ignored) {
+      return Optional.empty();
+    }
   }
 
   private static Optional<Profile> readProfile(Object value) {

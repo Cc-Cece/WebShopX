@@ -249,6 +249,20 @@ jobs:
       - name: Install pinned automated player dependencies
         working-directory: docs/mod-migration/tools/minecraft-client
         run: npm ci --ignore-scripts --no-fund && npm audit --omit=dev --audit-level=moderate
+      - name: Cache pinned Minecraft 26.2 console client
+        if: matrix.minecraft == '26.2'
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/webshopx-mcc-player
+          key: mcc-player-20260704-478-${{ runner.os }}-${{ runner.arch }}
+      - name: Prepare pinned Minecraft 26.2 console client
+        if: matrix.minecraft == '26.2'
+        shell: pwsh
+        run: |
+          $prepared = & docs/mod-migration/tools/prepare-mcc-player.ps1 `
+            -WorkingDirectory (Join-Path $env:RUNNER_TEMP 'webshopx-mcc-player') |
+            ConvertFrom-Json
+          "WEBSHOPX_MCC_PLAYER=$($prepared.executable)" >> $env:GITHUB_ENV
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -273,6 +287,15 @@ jobs:
         run: |
           $jar = Get-ChildItem '${{ matrix.project }}/build/libs/*.jar' | Select-Object -First 1
           $playerClient = (Resolve-Path 'docs/mod-migration/tools/minecraft-client/player-probe.mjs').Path
+          $playerArgs = if ('${{ matrix.minecraft }}' -eq '26.2') {
+            @{
+              Node = (Get-Command node).Source
+              PlayerClientScript = $playerClient
+              MccExecutable = $env:WEBSHOPX_MCC_PLAYER
+            }
+          } else {
+            @{ Node = (Get-Command node).Source; PlayerClientScript = $playerClient }
+          }
           $firstStart = & docs/mod-migration/tools/dedicated-server-smoke.ps1 `
             -Java (Get-Command java).Source -ServerJar $env:WEBSHOPX_SERVER_JAR `
             -LaunchArguments $env:WEBSHOPX_LAUNCH_ARGS -ModJar $jar.FullName `
@@ -280,7 +303,7 @@ jobs:
             -ExpectedMinecraft '${{ matrix.minecraft }}' -ExpectedLoader '${{ matrix.loader }}' `
             -HealthCommand 'webshopx-health' -ProbeCommand 'webshopx-item-probe' `
             -ExpectedProbePattern 'item-roundtrip=PASS','fixtures=PASS\(8,domain,hash,codec\)' `
-            -Node (Get-Command node).Source -PlayerClientScript $playerClient `
+            @playerArgs -VerifyInventory `
             -EvidencePrefix 'first-start' | ConvertFrom-Json
           $restart = & docs/mod-migration/tools/dedicated-server-smoke.ps1 `
             -Java (Get-Command java).Source -ServerJar $env:WEBSHOPX_SERVER_JAR `
@@ -289,7 +312,7 @@ jobs:
             -ExpectedMinecraft '${{ matrix.minecraft }}' -ExpectedLoader '${{ matrix.loader }}' `
             -HealthCommand 'webshopx-health' -ProbeCommand 'webshopx-item-probe' `
             -ExpectedProbePattern 'item-roundtrip=PASS','fixtures=PASS\(8,domain,hash,codec\)' `
-            -Node (Get-Command node).Source -PlayerClientScript $playerClient `
+            @playerArgs -VerifyInventory -ExpectInventoryRecovery `
             -EvidencePrefix 'restart' | ConvertFrom-Json
           [ordered]@{ status = 'passed'; firstStart = $firstStart; restart = $restart } |
             ConvertTo-Json -Depth 10 |
@@ -298,10 +321,18 @@ jobs:
         shell: pwsh
         run: |
           $id = 'server-${{ matrix.platform }}-${{ matrix.minecraft }}'
+          $evidencePaths = @(
+            (Join-Path $env:WEBSHOPX_SERVER_WORK 'smoke-evidence.json'),
+            (Join-Path $env:WEBSHOPX_SERVER_WORK 'config/webshopx/health.json'),
+            (Join-Path $env:WEBSHOPX_SERVER_WORK 'config/webshopx/inventory-probe-online.json'),
+            (Join-Path $env:WEBSHOPX_SERVER_WORK 'config/webshopx/inventory-probe-offline.json'),
+            (Join-Path $env:WEBSHOPX_SERVER_WORK 'config/webshopx/inventory-probe-recovery.json'))
+          $evidencePaths += Get-ChildItem $env:WEBSHOPX_SERVER_WORK -Filter 'player-*-mcc*.log' |
+            ForEach-Object FullName
           & docs/mod-migration/tools/write-check-evidence.ps1 `
             -Id $id -SourceCommit '${{ github.sha }}' `
             -Environment 'ubuntu-latest/${{ matrix.platform }}-${{ matrix.loader }}/minecraft-${{ matrix.minecraft }}/java-${{ matrix.java }}' `
-            -EvidencePath @((Join-Path $env:WEBSHOPX_SERVER_WORK 'smoke-evidence.json'),(Join-Path $env:WEBSHOPX_SERVER_WORK 'config/webshopx/health.json')) `
+            -EvidencePath $evidencePaths `
             -OutputFile "build/required-checks/$id.check.json"
       - uses: actions/upload-artifact@v4
         with:
@@ -317,8 +348,10 @@ jobs:
             ${{ env.WEBSHOPX_SERVER_WORK }}/smoke-evidence.json
             ${{ env.WEBSHOPX_SERVER_WORK }}/console-*.log
             ${{ env.WEBSHOPX_SERVER_WORK }}/player-*.json
+            ${{ env.WEBSHOPX_SERVER_WORK }}/player-*-mcc*.log
             ${{ env.WEBSHOPX_SERVER_WORK }}/logs/latest.log
             ${{ env.WEBSHOPX_SERVER_WORK }}/config/webshopx/health.json
+            ${{ env.WEBSHOPX_SERVER_WORK }}/config/webshopx/inventory-probe-*.json
 
   codeql:
     runs-on: ubuntu-latest

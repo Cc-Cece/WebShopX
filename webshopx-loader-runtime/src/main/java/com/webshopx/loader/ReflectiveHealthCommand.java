@@ -128,9 +128,23 @@ public final class ReflectiveHealthCommand {
   private static void registerBusinessCommands(
       Object dispatcher, Method register, Class<?> literalBuilder, Class<?> commandType)
       throws ReflectiveOperationException {
-    register.invoke(dispatcher, command(
-        literalBuilder, commandType, "webshopx-item-probe", null,
-        invocation -> LoaderRuntime.nativeItemProbe()));
+    if (Boolean.getBoolean("webshopx.acceptance-probes.enabled")) {
+      register.invoke(dispatcher, command(
+          literalBuilder, commandType, "webshopx-item-probe", null,
+          invocation -> LoaderRuntime.nativeItemProbe()));
+      register.invoke(dispatcher, command(
+          literalBuilder, commandType, "webshopx-inventory-online-probe", "playerId",
+          invocation -> LoaderRuntime.nativeInventoryProbe(
+              invocation.argument(), NativeInventoryProbe.Mode.ONLINE)));
+      register.invoke(dispatcher, command(
+          literalBuilder, commandType, "webshopx-inventory-offline-probe", "playerId",
+          invocation -> LoaderRuntime.nativeInventoryProbe(
+              invocation.argument(), NativeInventoryProbe.Mode.OFFLINE)));
+      register.invoke(dispatcher, command(
+          literalBuilder, commandType, "webshopx-inventory-recovery-probe", "playerId",
+          invocation -> LoaderRuntime.nativeInventoryProbe(
+              invocation.argument(), NativeInventoryProbe.Mode.RECOVERY)));
+    }
     register.invoke(dispatcher, command(
         literalBuilder, commandType, "webshopx-balance", null,
         invocation -> {

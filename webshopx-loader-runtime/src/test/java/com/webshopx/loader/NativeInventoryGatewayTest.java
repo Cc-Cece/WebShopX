@@ -34,7 +34,7 @@ class NativeInventoryGatewayTest {
     PlatformIdentity identity =
         new PlatformIdentity("fabric", "fabric", "1.20.1", "test", "server", "sha256:test");
     NativePlayerDirectory directory = new NativePlayerDirectory("server");
-    ServerPlayer player = new ServerPlayer(new GameProfile(id, "InventoryUser"), 3);
+    ServerPlayer player = new ServerPlayer(new GameProfile(id, "InventoryUser"), 41);
     player.getInventory().setItem(0, new ItemStack("minecraft:diamond_sword", 3, "mod-data"));
     directory.joined(player).orElseThrow();
     LoaderScheduler scheduler = new LoaderScheduler();
@@ -46,6 +46,7 @@ class NativeInventoryGatewayTest {
 
     InventorySnapshot before = success(gateway.snapshot(id, false).toCompletableFuture().get());
     assertEquals(1, before.items().size());
+    assertEquals(35, before.freeSlots());
     ItemEnvelope sword = before.items().get(0);
     assertEquals("minecraft:diamond_sword", sword.registryId());
     assertEquals(
@@ -115,6 +116,10 @@ class NativeInventoryGatewayTest {
     itemTag.putByte("Slot", (byte) 4);
     ListTag inventory = new ListTag();
     inventory.add(itemTag);
+    CompoundTag armorTag =
+        new CompoundTag("{id:\"minecraft:diamond_chestplate\",Count:1,custom:\"armor-data\"}");
+    armorTag.putByte("Slot", (byte) 100);
+    inventory.add(armorTag);
     CompoundTag root = new CompoundTag();
     root.put("Inventory", inventory);
     NbtIo.install(playerFile.toFile(), root);
@@ -132,6 +137,7 @@ class NativeInventoryGatewayTest {
 
     InventorySnapshot before = success(gateway.snapshot(id, true).toCompletableFuture().get());
     assertEquals(35, before.freeSlots());
+    assertEquals(1, before.items().size());
     assertEquals("minecraft:diamond", before.items().get(0).registryId());
     ItemEnvelope stone =
         success(codec.encode(new ItemStack("minecraft:stone", 8, "offline-insert"), identity));
@@ -148,6 +154,19 @@ class NativeInventoryGatewayTest {
                 .toCompletableFuture()
                 .get());
     assertEquals(List.of(stone), applied.inserted());
+    assertEquals(
+        applied,
+        success(
+            gateway
+                .compareAndApply(
+                    new InventoryMutation(
+                        "offline-op",
+                        id,
+                        before.version(),
+                        List.of(stone),
+                        List.of(new InventoryRemoval(before.items().get(0), 2))))
+                .toCompletableFuture()
+                .get()));
     InventorySnapshot after = success(gateway.snapshot(id, true).toCompletableFuture().get());
     assertEquals(34, after.freeSlots());
     assertEquals(
@@ -160,6 +179,11 @@ class NativeInventoryGatewayTest {
     assertEquals(
         true,
         Files.isRegularFile(playerFile.resolveSibling(playerFile.getFileName() + ".webshopx.bak")));
+    assertEquals(
+        true,
+        root.getList("Inventory", 10).stream()
+            .map(CompoundTag.class::cast)
+            .anyMatch(tag -> tag.getByte("Slot") == (byte) 100 && tag.toString().contains("armor-data")));
     scheduler.close();
     System.clearProperty("webshopx.world-dir");
   }

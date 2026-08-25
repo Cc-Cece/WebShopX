@@ -51,6 +51,7 @@ final class OfflineInventoryStore {
       OfflineData data = read(file, playerId);
       return PlatformResult.success(data.snapshot());
     } catch (ReflectiveOperationException | IOException | RuntimeException | LinkageError failure) {
+      diagnostic("read", failure);
       return PlatformResult.rejected(
           "OFFLINE_INVENTORY_READ_FAILED", "error.inventory.offline_read_failed");
     }
@@ -120,6 +121,7 @@ final class OfflineInventoryStore {
               removed,
               mutation.insertions().subList(accepted, mutation.insertions().size())));
     } catch (ReflectiveOperationException | IOException | RuntimeException | LinkageError failure) {
+      diagnostic("apply", failure);
       if (written) return new PlatformResult.UnknownOutcome<>(mutation.operationId(), true);
       return PlatformResult.rejected(
           "OFFLINE_INVENTORY_APPLY_FAILED", "error.inventory.offline_apply_failed");
@@ -178,15 +180,20 @@ final class OfflineInventoryStore {
     for (Method method : io.getMethods()) {
       if (!Modifier.isStatic(method.getModifiers())) continue;
       if (!named(method, "readCompressed", "method_30613", "m_128937_")) continue;
-      if (method.getParameterCount() == 1) {
+      if (method.getParameterCount() == 1
+          && (method.getParameterTypes()[0] == Path.class
+              || method.getParameterTypes()[0] == java.io.File.class)) {
         Object argument = method.getParameterTypes()[0] == Path.class ? path : path.toFile();
         return method.invoke(null, argument);
       }
-      if (method.getParameterCount() == 2 && method.getParameterTypes()[0] == Path.class) {
+      if (method.getParameterCount() == 2
+          && (method.getParameterTypes()[0] == Path.class
+              || method.getParameterTypes()[0] == java.io.File.class)) {
         Class<?> accounter = method.getParameterTypes()[1];
         Object unlimited =
             NativeItemCodec.method(accounter, new String[] {"unlimitedHeap"}, 0).invoke(null);
-        return method.invoke(null, path, unlimited);
+        Object source = method.getParameterTypes()[0] == Path.class ? path : path.toFile();
+        return method.invoke(null, source, unlimited);
       }
     }
     throw new NoSuchMethodException("NbtIo.readCompressed");
@@ -199,6 +206,8 @@ final class OfflineInventoryStore {
       if (!Modifier.isStatic(method.getModifiers()) || method.getParameterCount() != 2) continue;
       if (!named(method, "writeCompressed", "method_30614", "m_128944_")) continue;
       if (!method.getParameterTypes()[0].isInstance(root)) continue;
+      if (method.getParameterTypes()[1] != Path.class
+          && method.getParameterTypes()[1] != java.io.File.class) continue;
       Object target = method.getParameterTypes()[1] == Path.class ? path : path.toFile();
       method.invoke(null, root, target);
       return;
@@ -266,7 +275,8 @@ final class OfflineInventoryStore {
   private static int matching(List<SlotItem> values, ItemEnvelope requested) {
     for (int index = 0; index < values.size(); index++) {
       ItemEnvelope value = values.get(index).envelope();
-      if (value.payloadHash().equals(requested.payloadHash())
+      if (values.get(index).slot() >= 0 && values.get(index).slot() < MAIN_SLOTS
+          && value.payloadHash().equals(requested.payloadHash())
           && value.registryId().equals(requested.registryId())
           && value.count() == requested.count()) return index;
     }
@@ -281,10 +291,11 @@ final class OfflineInventoryStore {
         .sorted(Comparator.comparingInt(SlotItem::slot))
         .forEach(
             value -> {
-              if (value.slot() >= 0 && value.slot() < MAIN_SLOTS) occupied[value.slot()] = true;
+              boolean mainSlot = value.slot() >= 0 && value.slot() < MAIN_SLOTS;
+              if (mainSlot) occupied[value.slot()] = true;
               digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(value.slot()).array());
               digest.update(value.envelope().payloadHash().getBytes(StandardCharsets.US_ASCII));
-              envelopes.add(withSlot(value.envelope(), value.slot()));
+              if (mainSlot) envelopes.add(withSlot(value.envelope(), value.slot()));
             });
     int free = 0;
     for (boolean used : occupied) if (!used) free++;
@@ -292,7 +303,7 @@ final class OfflineInventoryStore {
         playerId, ByteBuffer.wrap(digest.digest()).getLong(), free, envelopes);
   }
 
-  private static Path playerFile(UUID playerId) {
+  private Path playerFile(UUID playerId) {
     Path root = Path.of(System.getProperty("webshopx.world-dir", System.getProperty("user.dir")));
     String level = "world";
     Path propertiesFile = root.resolve("server.properties");
@@ -305,7 +316,21 @@ final class OfflineInventoryStore {
         // The default level name is still a safe read-only fallback.
       }
     }
-    return root.resolve(level).resolve("playerdata").resolve(playerId + ".dat");
+    Path world = root.resolve(level);
+    Path legacy = world.resolve("playerdata").resolve(playerId + ".dat");
+    Path modern = world.resolve("players").resolve("data").resolve(playerId + ".dat");
+    if (modernLayout(identity.minecraftVersion())) {
+      return Files.isRegularFile(modern) || !Files.isRegularFile(legacy) ? modern : legacy;
+    }
+    return Files.isRegularFile(legacy) || !Files.isRegularFile(modern) ? legacy : modern;
+  }
+
+  private static boolean modernLayout(String minecraftVersion) {
+    try {
+      return Integer.parseInt(minecraftVersion.split("\\.", 2)[0]) >= 26;
+    } catch (NumberFormatException invalid) {
+      return false;
+    }
   }
 
   private static Class<?> loadFirst(ClassLoader loader, String... names)
@@ -323,6 +348,14 @@ final class OfflineInventoryStore {
   private static boolean named(Method method, String... names) {
     for (String name : names) if (method.getName().equals(name)) return true;
     return false;
+  }
+
+  private static void diagnostic(String operation, Throwable failure) {
+    Throwable detail = failure instanceof java.lang.reflect.InvocationTargetException invocation
+        && invocation.getCause() != null ? invocation.getCause() : failure;
+    System.err.printf("[WebShopX] offline inventory %s failed type=%s detail=%s%n",
+        operation, detail.getClass().getSimpleName(),
+        java.util.Objects.toString(detail.getMessage(), ""));
   }
 
   private static MessageDigest sha256() {

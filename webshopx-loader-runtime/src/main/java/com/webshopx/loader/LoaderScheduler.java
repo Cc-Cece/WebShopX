@@ -26,12 +26,17 @@ final class LoaderScheduler implements PlatformPorts.Scheduler, AutoCloseable {
   private final ThreadLocal<Boolean> serverThread = ThreadLocal.withInitial(() -> false);
   private volatile Executor serverExecutor;
   private volatile Object nativeServer;
+  private volatile Thread nativeServerThread;
 
   @Override
   public CompletionStage<Void> runGlobal(Runnable action) {
     Executor current = serverExecutor;
     if (current == null) return unavailable("global server executor is not bound");
     CompletableFuture<Void> result = new CompletableFuture<>();
+    if (Thread.currentThread() == nativeServerThread || serverThread.get()) {
+      runServerAction(action, result);
+      return result;
+    }
     try {
       current.execute(() -> runServerAction(action, result));
     } catch (RuntimeException failure) {
@@ -43,6 +48,19 @@ final class LoaderScheduler implements PlatformPorts.Scheduler, AutoCloseable {
   @Override
   public CompletionStage<Void> runForPlayer(UUID playerId, Runnable action) {
     return runGlobal(action);
+  }
+
+  /** Always appends work to the native server queue, even when called by the server thread. */
+  CompletionStage<Void> deferGlobal(Runnable action) {
+    Executor current = serverExecutor;
+    if (current == null) return unavailable("global server executor is not bound");
+    CompletableFuture<Void> result = new CompletableFuture<>();
+    try {
+      current.execute(() -> runServerAction(action, result));
+    } catch (RuntimeException failure) {
+      result.completeExceptionally(failure);
+    }
+    return result;
   }
 
   @Override
@@ -74,6 +92,7 @@ final class LoaderScheduler implements PlatformPorts.Scheduler, AutoCloseable {
   public void close() {
     serverExecutor = null;
     nativeServer = null;
+    nativeServerThread = null;
     if (closed.compareAndSet(false, true)) async.shutdownNow();
   }
 
@@ -83,11 +102,13 @@ final class LoaderScheduler implements PlatformPorts.Scheduler, AutoCloseable {
     }
     serverExecutor = executor;
     nativeServer = server;
+    nativeServerThread = Thread.currentThread();
   }
 
   void unbind() {
     serverExecutor = null;
     nativeServer = null;
+    nativeServerThread = null;
   }
 
   Object nativeServer() {

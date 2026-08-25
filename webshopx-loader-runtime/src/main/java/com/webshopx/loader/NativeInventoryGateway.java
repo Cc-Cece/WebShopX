@@ -25,6 +25,7 @@ import java.util.concurrent.CompletionStage;
 
 /** Main-thread online inventory adapter with optimistic versioning and operation idempotency. */
 final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
+  private static final int MAIN_SLOTS = 36;
   private static final int COMPLETED_LIMIT = 10_000;
   private final NativePlayerDirectory players;
   private final LoaderScheduler scheduler;
@@ -107,12 +108,25 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
       CompletableFuture<PlatformResult<InventoryMutationResult>> result = new CompletableFuture<>();
       scheduler
           .runGlobal(
-              () ->
-                  result.complete(
-                      players.nativePlayer(mutation.playerId()).isPresent()
-                          ? PlatformResult.rejected(
-                              "PLAYER_STATE_CHANGED", "error.inventory.player_state_changed")
-                          : offline.compareAndApply(mutation)))
+              () -> {
+                if (players.nativePlayer(mutation.playerId()).isPresent()) {
+                  result.complete(PlatformResult.rejected(
+                      "PLAYER_STATE_CHANGED", "error.inventory.player_state_changed"));
+                  return;
+                }
+                synchronized (completed) {
+                  InventoryMutationResult prior = completed.get(mutation.operationId());
+                  if (prior != null) {
+                    result.complete(PlatformResult.success(prior));
+                    return;
+                  }
+                }
+                PlatformResult<InventoryMutationResult> applied = offline.compareAndApply(mutation);
+                if (applied instanceof PlatformResult.Success<InventoryMutationResult> success) {
+                  remember(mutation.operationId(), success.value());
+                }
+                result.complete(applied);
+              })
           .whenComplete(
               (ignored, failure) -> {
                 if (failure != null)
@@ -151,7 +165,7 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
             mutation.operationId(), Long.toUnsignedString(before.version()));
       }
       Object inventory = inventory(player);
-      int size = size(inventory);
+      int size = Math.min(MAIN_SLOTS, size(inventory));
       boolean[] reserved = new boolean[size];
       List<RemovalPlan> removals = new ArrayList<>();
       for (InventoryRemoval removal : mutation.removals()) {
@@ -216,7 +230,7 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
   private InventorySnapshot readSnapshot(UUID playerId, Object player)
       throws ReflectiveOperationException {
     Object inventory = inventory(player);
-    int size = size(inventory);
+    int size = Math.min(MAIN_SLOTS, size(inventory));
     List<ItemEnvelope> values = new ArrayList<>();
     int free = 0;
     MessageDigest digest = sha256();

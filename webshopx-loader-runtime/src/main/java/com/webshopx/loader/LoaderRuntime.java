@@ -4,6 +4,7 @@ import com.webshopx.AdminAuditService;
 import com.webshopx.AdminService;
 import com.webshopx.AuthService;
 import com.webshopx.RedeemCodeService;
+import com.webshopx.ServiceException;
 import com.webshopx.SharedCommerceService;
 import com.webshopx.SharedRuntimeConfigService;
 import com.webshopx.WalletService;
@@ -229,6 +230,23 @@ public final class LoaderRuntime {
         : current.probeRoundTrip();
   }
 
+  static String nativeInventoryProbe(String playerId, NativeInventoryProbe.Mode mode) {
+    NativeInventoryGateway inventories = inventoryGateway;
+    NativeItemCodec items = itemCodec;
+    WebShopXCoreRuntime runtime = active;
+    if (inventories == null || items == null || runtime == null) {
+      throw new IllegalStateException("native inventory is not started");
+    }
+    UUID id;
+    try {
+      id = UUID.fromString(playerId);
+    } catch (IllegalArgumentException invalid) {
+      throw new ServiceException("invalid_player", "Player UUID is invalid");
+    }
+    return NativeInventoryProbe.run(
+        inventories, items, id, mode, runtime.platform().paths().data());
+  }
+
   private static synchronized void installShutdownHook() {
     if (shutdownHookInstalled) return;
     Runtime.getRuntime().addShutdownHook(new Thread(LoaderRuntime::stop, "webshopx-shutdown"));
@@ -377,13 +395,27 @@ public final class LoaderRuntime {
   static void nativePlayerDisconnected(Object eventOrHandler) {
     NativePlayerDirectory current = playerDirectory;
     if (current == null) return;
-    current
-        .disconnected(eventOrHandler)
-        .ifPresent(
-            player -> {
-              SharedDatabaseRuntime database = databaseRuntime;
-              if (database != null) database.presence().markOffline(player.id());
-            });
+    Optional<PlatformPorts.PlayerSnapshot> identity = current.disconnectIdentity(eventOrHandler);
+    if (identity.isEmpty()) {
+      System.err.println("[WebShopX] native player disconnect identity unavailable");
+      return;
+    }
+    Runnable completeDisconnect = () -> {
+      PlatformPorts.PlayerSnapshot player = current.completeDisconnect(identity.orElseThrow());
+      SharedDatabaseRuntime database = databaseRuntime;
+      if (database != null) database.presence().markOffline(player.id());
+    };
+    LoaderScheduler currentScheduler = scheduler;
+    if (currentScheduler == null || currentScheduler.nativeServer() == null) {
+      completeDisconnect.run();
+      return;
+    }
+    currentScheduler.deferGlobal(completeDisconnect).whenComplete((ignored, failure) -> {
+      if (failure != null) {
+        System.err.printf("[WebShopX] deferred player disconnect failed type=%s%n",
+            failure.getClass().getSimpleName());
+      }
+    });
   }
 
   static boolean nativeSupplyAccessDenied(
