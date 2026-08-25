@@ -90,6 +90,21 @@ jobs:
             -Environment 'anchore-scan-action-v7/grype-high' `
             -EvidencePath @('${{ steps.dependency-scan.outputs.sarif }}') `
             -OutputFile 'build/required-checks/dependency-scan.check.json'
+          & docs/mod-migration/tools/write-check-evidence.ps1 `
+            -Id 'security-scan' -SourceCommit '${{ github.sha }}' `
+            -Environment 'anchore-scan-action-v7/grype-high' `
+            -EvidencePath @('${{ steps.dependency-scan.outputs.sarif }}') `
+            -OutputFile 'build/required-checks/security-scan.check.json'
+          & docs/mod-migration/tools/write-check-evidence.ps1 `
+            -Id 'license-scan' -SourceCommit '${{ github.sha }}' `
+            -Environment 'gradle-verifyModSbom/SPDX-2.3' `
+            -EvidencePath @('build/reports/mod-migration/mod-sbom.spdx.json') `
+            -OutputFile 'build/required-checks/license-scan.check.json'
+          & docs/mod-migration/tools/write-check-evidence.ps1 `
+            -Id 'sbom-validate' -SourceCommit '${{ github.sha }}' `
+            -Environment 'gradle-verifyModSbom/SPDX-2.3' `
+            -EvidencePath @('build/reports/mod-migration/mod-sbom.spdx.json','build/reports/mod-migration/release-manifest.json') `
+            -OutputFile 'build/required-checks/sbom-validate.check.json'
       - name: Upload contracts and scan evidence
         uses: actions/upload-artifact@v4
         with:
@@ -590,6 +605,16 @@ jobs:
       - name: Assemble immutable required-check packet
         shell: pwsh
         run: |
+          $serverEvidence = Get-ChildItem 'build/required-check-input' `
+            -Filter 'server-*.check.json' -File -Recurse | ForEach-Object FullName
+          if (@($serverEvidence).Count -ne 13) {
+            throw "Expected 13 dedicated-server evidence rows, found $(@($serverEvidence).Count)"
+          }
+          & docs/mod-migration/tools/write-check-evidence.ps1 `
+            -Id 'real-player-item-corpus' -SourceCommit '${{ github.sha }}' `
+            -Environment '13-row-fabric-forge-neoforge/real-MCC/controlled-fixture-mod' `
+            -EvidencePath $serverEvidence `
+            -OutputFile 'build/required-check-input/real-player-item-corpus.check.json'
           & docs/mod-migration/tools/assemble-rc-evidence.ps1 `
             -SourceCommit '${{ github.sha }}' -EvidenceDirectory 'build/required-check-input' `
             -ReleaseManifest 'build/reports/mod-migration/release-manifest.json' `
