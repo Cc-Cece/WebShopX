@@ -8,6 +8,7 @@ import com.webshopx.core.SharedRouteContract;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /** HTTP facade for cart, checkout, coupons, memberships and promotion management. */
@@ -38,41 +39,43 @@ final class CommerceHttpApi {
     this.settingsSupplier = java.util.Objects.requireNonNull(settingsSupplier, "settingsSupplier");
   }
 
-  void register(HttpServer server) {
-    context(server, "/api/cart", this::cart);
-    context(server, "/api/cart/lines/add", this::cartAdd);
-    context(server, "/api/cart/lines/update", this::cartUpdate);
-    context(server, "/api/cart/lines/remove", this::cartRemove);
-    context(server, "/api/cart/clear", this::cartClear);
-    context(server, "/api/checkout/quote", this::quote);
-    context(server, "/api/checkout/submit", this::checkout);
-    context(server, "/api/checkouts/refund", this::refund);
-    context(server, "/api/coupons/mine", this::couponsMine);
-    context(server, "/api/coupons/claim", this::couponClaim);
-    context(server, "/api/membership/me", this::membershipMine);
-    context(server, "/api/membership/redeem", this::membershipRedeem);
-    context(server, "/api/seller/promotions/list", this::sellerPromotions);
-    context(server, "/api/seller/promotions/create", this::sellerPromotionCreate);
-    context(server, "/api/seller/promotions/action", this::sellerPromotionAction);
-    context(server, "/api/admin/promotions/list", this::adminPromotions);
-    context(server, "/api/admin/promotions/create", this::adminPromotionCreate);
-    context(server, "/api/admin/promotions/publish", this::adminPromotionPublish);
-    context(server, "/api/admin/promotions/action", this::adminPromotionAction);
-    context(server, "/api/admin/promotions/emergency-stop", this::emergencyStop);
-    context(server, "/api/admin/coupons/grant", this::adminCouponGrant);
-    context(server, "/api/admin/coupons/templates", this::adminCouponTemplates);
-    context(server, "/api/admin/coupons/templates/create", this::adminCouponTemplateCreate);
-    context(server, "/api/admin/membership/grant", this::adminMembershipGrant);
-    context(server, "/api/admin/membership/revoke", this::adminMembershipRevoke);
-    context(server, "/api/admin/membership/plans", this::adminMembershipPlans);
-    context(server, "/api/admin/membership/plans/create", this::adminMembershipPlanCreate);
-    context(server, "/api/admin/membership/plans/publish", this::adminMembershipPlanPublish);
-    context(server, "/api/admin/membership/products/bind", this::adminMembershipProductBind);
-    context(server, "/api/admin/membership/codes/create", this::adminMembershipCodeCreate);
+  void register(HttpServer server, Consumer<String> routeObserver) {
+    context(server, routeObserver, "/api/cart", this::cart);
+    context(server, routeObserver, "/api/cart/lines/add", this::cartAdd);
+    context(server, routeObserver, "/api/cart/lines/update", this::cartUpdate);
+    context(server, routeObserver, "/api/cart/lines/remove", this::cartRemove);
+    context(server, routeObserver, "/api/cart/clear", this::cartClear);
+    context(server, routeObserver, "/api/checkout/quote", this::quote);
+    context(server, routeObserver, "/api/checkout/submit", this::checkout);
+    context(server, routeObserver, "/api/checkouts/refund", this::refund);
+    context(server, routeObserver, "/api/coupons/mine", this::couponsMine);
+    context(server, routeObserver, "/api/coupons/claim", this::couponClaim);
+    context(server, routeObserver, "/api/membership/me", this::membershipMine);
+    context(server, routeObserver, "/api/membership/redeem", this::membershipRedeem);
+    context(server, routeObserver, "/api/seller/promotions/list", this::sellerPromotions);
+    context(server, routeObserver, "/api/seller/promotions/create", this::sellerPromotionCreate);
+    context(server, routeObserver, "/api/seller/promotions/action", this::sellerPromotionAction);
+    context(server, routeObserver, "/api/admin/promotions/list", this::adminPromotions);
+    context(server, routeObserver, "/api/admin/promotions/create", this::adminPromotionCreate);
+    context(server, routeObserver, "/api/admin/promotions/publish", this::adminPromotionPublish);
+    context(server, routeObserver, "/api/admin/promotions/action", this::adminPromotionAction);
+    context(server, routeObserver, "/api/admin/promotions/emergency-stop", this::emergencyStop);
+    context(server, routeObserver, "/api/admin/coupons/grant", this::adminCouponGrant);
+    context(server, routeObserver, "/api/admin/coupons/templates", this::adminCouponTemplates);
+    context(server, routeObserver, "/api/admin/coupons/templates/create", this::adminCouponTemplateCreate);
+    context(server, routeObserver, "/api/admin/membership/grant", this::adminMembershipGrant);
+    context(server, routeObserver, "/api/admin/membership/revoke", this::adminMembershipRevoke);
+    context(server, routeObserver, "/api/admin/membership/plans", this::adminMembershipPlans);
+    context(server, routeObserver, "/api/admin/membership/plans/create", this::adminMembershipPlanCreate);
+    context(server, routeObserver, "/api/admin/membership/plans/publish", this::adminMembershipPlanPublish);
+    context(server, routeObserver, "/api/admin/membership/products/bind", this::adminMembershipProductBind);
+    context(server, routeObserver, "/api/admin/membership/codes/create", this::adminMembershipCodeCreate);
   }
 
-  private void context(HttpServer server, String path, Endpoint endpoint) {
+  private void context(
+      HttpServer server, Consumer<String> routeObserver, String path, Endpoint endpoint) {
     SharedRouteContract.requireDeclared(path);
+    routeObserver.accept(path);
     server.createContext(path, exchange -> handle(exchange, endpoint));
   }
 

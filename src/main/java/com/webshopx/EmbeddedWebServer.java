@@ -109,6 +109,7 @@ class EmbeddedWebServer {
 
   private HttpServer server;
   private ExecutorService executorService;
+  private final Set<String> registeredRoutes = new LinkedHashSet<>();
   private Path staticRoot;
   private Path webUserRoot;
 
@@ -331,12 +332,16 @@ class EmbeddedWebServer {
     register("/home-assets/", this::handleHomepageAsset);
     register("/textures/", this::handleTextureAsset);
     register("/visual-packs/", this::handleVisualPackAsset);
-    commerceHttpApi.register(server);
+    commerceHttpApi.register(server, registeredRoutes::add);
 
     // Only serve static files in INTERNAL mode
     if (serverMode == PluginSettings.ServerMode.INTERNAL) {
       register("/", this::handleStatic);
     }
+
+    SharedRouteContract.requireComplete(
+        "paper", registeredRoutes,
+        serverMode == PluginSettings.ServerMode.INTERNAL ? Set.of() : Set.of("/"));
 
     server.start();
     MessageService ms = new MessageService(plugin, settingsSupplier);
@@ -346,6 +351,9 @@ class EmbeddedWebServer {
 
   private void register(String path, com.sun.net.httpserver.HttpHandler handler) {
     SharedRouteContract.requireDeclared(path);
+    if (!registeredRoutes.add(path)) {
+      throw new IllegalStateException("Duplicate Paper HTTP route registration: " + path);
+    }
     server.createContext(path, handler);
   }
 
@@ -360,6 +368,7 @@ class EmbeddedWebServer {
     }
     staticRoot = null;
     webUserRoot = null;
+    registeredRoutes.clear();
   }
 
   private void handleHealth(HttpExchange exchange) throws IOException {

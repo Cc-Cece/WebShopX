@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.LinkedHashSet;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class SharedRouteContractTest {
@@ -19,5 +21,19 @@ class SharedRouteContractTest {
         UnsupportedOperationException.class, () -> SharedRouteContract.routes().add("/undeclared"));
     assertThrows(
         IllegalArgumentException.class, () -> SharedRouteContract.requireDeclared("/undeclared"));
+  }
+
+  @Test
+  void rejectsAdaptersThatRelyOnTheStaticRootToMaskMissingApiRoutes() {
+    assertThrows(
+        IllegalStateException.class,
+        () -> SharedRouteContract.requireComplete("broken", Set.of("/"), Set.of()));
+  }
+
+  @Test
+  void permitsAnExplicitStaticRootOmissionInExternalFrontendMode() {
+    Set<String> externalRoutes = new LinkedHashSet<>(SharedRouteContract.routes());
+    externalRoutes.remove("/");
+    SharedRouteContract.requireComplete("external", externalRoutes, Set.of("/"));
   }
 }

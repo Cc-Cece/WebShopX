@@ -1,5 +1,6 @@
 package com.webshopx.core;
 
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 /** Canonical external HTTP route contract shared by Paper and Loader adapters. */
@@ -184,5 +185,37 @@ public final class SharedRouteContract {
     if (!ROUTES.contains(path)) {
       throw new IllegalArgumentException("HTTP route is absent from the shared contract: " + path);
     }
+  }
+
+  /** Fails adapter startup when a declared public route was silently omitted or added. */
+  public static void requireComplete(
+      String adapter, Set<String> registeredRoutes, Set<String> intentionalOmissions) {
+    Set<String> registered = Set.copyOf(registeredRoutes);
+    Set<String> omissions = Set.copyOf(intentionalOmissions);
+    if (!ROUTES.containsAll(omissions)) {
+      Set<String> undeclaredOmissions = new LinkedHashSet<>(omissions);
+      undeclaredOmissions.removeAll(ROUTES);
+      throw new IllegalArgumentException(
+          "Adapter omissions are absent from the shared contract: " + undeclaredOmissions);
+    }
+    Set<String> expected = new LinkedHashSet<>(ROUTES);
+    expected.removeAll(omissions);
+    Set<String> missing = new LinkedHashSet<>(expected);
+    missing.removeIf(route -> registered.stream().anyMatch(prefix -> covers(prefix, route)));
+    Set<String> unexpected = new LinkedHashSet<>(registered);
+    unexpected.removeAll(expected);
+    if (!missing.isEmpty() || !unexpected.isEmpty()) {
+      throw new IllegalStateException(
+          "Incomplete shared HTTP adapter " + adapter
+              + ": missing=" + missing + ", unexpected=" + unexpected);
+    }
+  }
+
+  private static boolean covers(String registeredPrefix, String declaredRoute) {
+    if (registeredPrefix.equals(declaredRoute)) return true;
+    if (registeredPrefix.equals("/")) return false;
+    if (!declaredRoute.startsWith(registeredPrefix)) return false;
+    return registeredPrefix.endsWith("/")
+        || declaredRoute.charAt(registeredPrefix.length()) == '/';
   }
 }
