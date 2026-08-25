@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -1403,6 +1404,71 @@ public final class SharedCommerceService {
     return value;
   }
 
+  private static String normalizeChoice(String raw, String fallback, Set<String> allowed) {
+    String value = raw == null || raw.isBlank() ? fallback : raw.trim().toUpperCase(Locale.ROOT);
+    if (!allowed.contains(value)) {
+      throw new ServiceException("invalid_market_settings", "Unsupported market setting: " + value);
+    }
+    return value;
+  }
+
+  private static String normalizeNullable(String raw, int maximumLength, String errorCode) {
+    if (raw == null || raw.isBlank()) return null;
+    String value = raw.trim();
+    if (value.length() > maximumLength) {
+      throw new ServiceException(errorCode, "Market display setting is too long");
+    }
+    return value;
+  }
+
+  private static boolean sameAuctionConfiguration(
+      AuctionDetails current, String tradeMode, String algorithm, long start, long increment,
+      Instant publicEnd, String paramsJson) {
+    if (!Objects.equals(current.tradeMode(), tradeMode)) return false;
+    if (!"AUCTION".equals(tradeMode)) return true;
+    return Objects.equals(current.algorithm(), algorithm)
+        && Objects.equals(current.startPrice(), start)
+        && Objects.equals(current.minIncrement(), increment)
+        && Objects.equals(current.publicEndAt(), publicEnd)
+        && Objects.equals(
+            MarketAlgorithmRegistry.toJson(MarketAlgorithmRegistry.parseParams(current.paramsJson())),
+            MarketAlgorithmRegistry.toJson(MarketAlgorithmRegistry.parseParams(paramsJson)));
+  }
+
+  private static void validateTags(Connection connection, List<String> tags) throws SQLException {
+    if (tags.isEmpty()) return;
+    try (PreparedStatement statement = connection.prepareStatement(
+        "SELECT enabled FROM market_tags WHERE code=?")) {
+      for (String tag : tags) {
+        statement.setString(1, tag);
+        try (ResultSet result = statement.executeQuery()) {
+          if (!result.next() || !result.getBoolean(1)) {
+            throw new ServiceException("invalid_market_tags", "Market tag is unavailable: " + tag);
+          }
+        }
+      }
+    }
+  }
+
+  private static void replaceListingTags(Connection connection, long listingId, List<String> tags)
+      throws SQLException {
+    try (PreparedStatement delete = connection.prepareStatement(
+        "DELETE FROM market_listing_tags WHERE listing_id=?")) {
+      delete.setLong(1, listingId);
+      delete.executeUpdate();
+    }
+    try (PreparedStatement insert = connection.prepareStatement(
+        "INSERT INTO market_listing_tags (listing_id,tag_code,source,position) VALUES (?,?,'MANUAL',?)")) {
+      for (int index = 0; index < tags.size(); index++) {
+        insert.setLong(1, listingId);
+        insert.setString(2, tags.get(index));
+        insert.setInt(3, index);
+        insert.addBatch();
+      }
+      insert.executeBatch();
+    }
+  }
+
   private static ItemEnvelope withCount(ItemEnvelope source, int count) {
     return new ItemEnvelope(
         source.schemaVersion(), source.codec(), source.codecVersion(),
@@ -1466,19 +1532,49 @@ public final class SharedCommerceService {
             throw new ServiceException("self_trade", "Seller cannot buy the same listing");
           }
           long unitPrice = dutch ? dutchPrice(auction, Instant.now()) : listing.price();
-          long total = Math.multiplyExact(unitPrice, quantity);
+          AdvancedListing advanced = readAdvancedListing(connection, listingId);
+          MarketAlgorithmRegistry.DynamicPriceQuote dynamicQuote =
+              !dutch && advanced.dynamicPricingEnabled()
+                  ? dynamicQuote(advanced, unitPrice, quantity) : null;
+          long total = dynamicQuote == null
+              ? Math.multiplyExact(unitPrice, quantity) : dynamicQuote.totalAmount();
+          long first = dynamicQuote == null ? unitPrice : dynamicQuote.firstUnitPrice();
+          long last = dynamicQuote == null ? unitPrice : dynamicQuote.lastUnitPrice();
+          long average = dynamicQuote == null ? unitPrice : dynamicQuote.averageUnitPrice();
           return new MarketQuote(
               listing.id(),
               listing.currency(),
               listing.side(),
-              unitPrice,
+              average,
               quantity,
               total,
               total,
               total,
               0L,
-              0L);
+              0L,
+              first,
+              last,
+              average,
+              dynamicQuote != null,
+              dynamicQuote == null ? "ORDER_FIXED" : dynamicQuote.pricingMode().name(),
+              advanced.dynamicDemandScore(),
+              dynamicQuote == null ? advanced.dynamicDemandScore() : dynamicQuote.nextDemandScore(),
+              dynamicQuote == null ? unitPrice : dynamicQuote.nextUnitPrice());
         });
+  }
+
+  private static MarketAlgorithmRegistry.DynamicPriceQuote dynamicQuote(
+      AdvancedListing settings, long fallbackPrice, int quantity) {
+    return MarketAlgorithmRegistry.computeDynamicPriceQuote(
+        MarketAlgorithmRegistry.DynamicAlgorithmType.fromRaw(settings.dynamicAlgorithm()),
+        MarketAlgorithmRegistry.DynamicPricingMode.fromRaw(settings.dynamicPricingMode()),
+        settings.dynamicBasePrice() == null ? fallbackPrice : settings.dynamicBasePrice(),
+        settings.dynamicDemandScore(),
+        quantity,
+        settings.dynamicPriceStep() == null ? 1L : settings.dynamicPriceStep(),
+        settings.dynamicFloorPrice(),
+        settings.dynamicCapPrice(),
+        MarketAlgorithmRegistry.parseParams(settings.dynamicParamsJson()));
   }
 
   public List<MarketPricePoint> marketPriceTrend(long listingId, int limit) {
@@ -1570,6 +1666,192 @@ public final class SharedCommerceService {
     return updateListingSettings(
         sellerUserId, listingId, price, currency, remark, true,
         supplyBatchSize, supplyMaxStock, supplyAccessProtected);
+  }
+
+  public Listing updateAdvancedListingSettings(
+      long sellerUserId, long listingId, AdvancedListingUpdate update) {
+    Objects.requireNonNull(update, "update");
+    String tradeMode = normalizeChoice(update.tradeMode(), "DIRECT", Set.of("DIRECT", "AUCTION"));
+    boolean dynamic = update.dynamicPricingEnabled() && "DIRECT".equals(tradeMode);
+    String dynamicAlgorithm = normalizeChoice(
+        update.dynamicAlgorithm(), "LINEAR_DEMAND_V1",
+        Set.of("LINEAR_DEMAND_V1", "DIMINISHING_RETURN_V1", "LOG_SMOOTH_V1",
+            "EXPONENTIAL_DEFENSE_V1", "THRESHOLD_STEP_V1", "ELASTICITY_V1",
+            "PANIC_BUYING_V1"));
+    String dynamicMode = normalizeChoice(
+        update.dynamicPricingMode(), "ORDER_FIXED", Set.of("ORDER_FIXED", "PER_UNIT_MARGINAL"));
+    long base = update.dynamicBasePrice() == null ? update.price() : update.dynamicBasePrice();
+    long step = update.dynamicPriceStep() == null ? 1L : update.dynamicPriceStep();
+    if (base < 1 || step < 1
+        || (update.dynamicFloorPrice() != null && update.dynamicFloorPrice() < 1)
+        || (update.dynamicCapPrice() != null && update.dynamicCapPrice() < 1)
+        || (update.dynamicFloorPrice() != null && update.dynamicCapPrice() != null
+            && update.dynamicFloorPrice() > update.dynamicCapPrice())) {
+      throw new ServiceException("invalid_dynamic_pricing", "Dynamic pricing bounds are invalid");
+    }
+    String dynamicParams = MarketAlgorithmRegistry.toJson(
+        MarketAlgorithmRegistry.parseParams(update.dynamicParamsJson()));
+    String auctionAlgorithm = normalizeChoice(
+        update.auctionAlgorithm(), "ENGLISH_AUCTION_V1",
+        Set.of("ENGLISH_AUCTION_V1", "DUTCH_AUCTION_V1", "VICKREY_AUCTION_V1",
+            "CANDLE_AUCTION_V1"));
+    JsonObject auctionParams = MarketAlgorithmRegistry.parseParams(update.auctionParamsJson());
+    Instant publicEnd = update.auctionEndAt();
+    Instant actualEnd = publicEnd;
+    long auctionStart = update.auctionStartPrice() == null ? update.price() : update.auctionStartPrice();
+    long auctionIncrement = update.auctionMinIncrement() == null ? 1L : update.auctionMinIncrement();
+    if ("AUCTION".equals(tradeMode)) {
+      if (auctionStart < 1 || auctionIncrement < 1 || publicEnd == null
+          || publicEnd.isBefore(Instant.now().plusSeconds(30))) {
+        throw new ServiceException("invalid_auction", "Auction parameters are invalid");
+      }
+      if ("DUTCH_AUCTION_V1".equals(auctionAlgorithm)) {
+        long floor = MarketAlgorithmRegistry.getLongParam(auctionParams, "floorPrice", 1L);
+        if (floor < 1 || floor > auctionStart) {
+          throw new ServiceException("invalid_auction", "Dutch auction floor price is invalid");
+        }
+      }
+      if ("CANDLE_AUCTION_V1".equals(auctionAlgorithm)) {
+        int extension = Math.toIntExact(Math.min(86_400L, Math.max(0L,
+            MarketAlgorithmRegistry.getLongParam(auctionParams, "maxExtensionSeconds", 0L))));
+        actualEnd = MarketAlgorithmRegistry.computeCandleActualEnd(
+            LocalDateTime.ofInstant(publicEnd, ZoneOffset.UTC), extension).toInstant(ZoneOffset.UTC);
+      }
+    }
+    String displayName = normalizeNullable(update.displayNameOverride(), 128, "invalid_display_name");
+    String requestedDisplayMaterial =
+        normalizeNullable(update.displayMaterial(), 128, "invalid_display_material");
+    String displayMaterial = requestedDisplayMaterial == null
+        ? null : normalizeRegistryId(requestedDisplayMaterial);
+    String displayIcon = normalizeNullable(update.displayIconPath(), 512, "invalid_display_icon");
+    if (displayIcon != null && (displayIcon.contains("..") || displayIcon.startsWith("/")
+        || displayIcon.contains(":"))) {
+      throw new ServiceException("invalid_display_icon", "Display icon path is invalid");
+    }
+    List<String> tags = update.tags() == null ? List.of() : update.tags().stream()
+        .filter(Objects::nonNull).map(value -> value.trim().toLowerCase(Locale.ROOT))
+        .filter(value -> !value.isBlank()).distinct().toList();
+    if (tags.size() > 16 || tags.stream().anyMatch(value -> !value.matches("[a-z0-9_.-]{1,64}"))) {
+      throw new ServiceException("invalid_market_tags", "Listing tags are invalid");
+    }
+    Instant resolvedEnd = actualEnd;
+    return database.inTransaction(connection -> {
+      Listing listing = readOwnedListing(connection, sellerUserId, listingId);
+      requireMutableListing(listing);
+      CurrencyType nextCurrency = update.currency() == null ? listing.currency() : update.currency();
+      if ("BUY".equals(listing.side()) && nextCurrency != listing.currency()) {
+        throw new ServiceException(
+            "listing_currency_locked", "Buy listing currency cannot be changed");
+      }
+      String remark = normalizeNullable(update.remark(), 500, "invalid_remark");
+      SupplySettings supplySettings = readSupplySettings(connection, listingId);
+      boolean supplyTouched = update.supplyBatchSize() != null || update.supplyMaxStock() != null
+          || update.supplyAccessProtected() != null;
+      if (!"SUPPLY".equals(supplySettings.sourceMode()) && supplyTouched) {
+        throw new ServiceException("supply_not_configured", "Listing is not a supply listing");
+      }
+      Integer supplyBatch = supplySettings.batchSize();
+      Integer supplyMaximum = supplySettings.maxStock();
+      boolean supplyProtected = supplySettings.accessProtected();
+      if ("SUPPLY".equals(supplySettings.sourceMode())) {
+        int batch = update.supplyBatchSize() == null
+            ? Math.max(1, supplySettings.batchSize()) : update.supplyBatchSize();
+        int maximum = update.supplyMaxStock() == null
+            ? Math.max(1, supplySettings.maxStock()) : update.supplyMaxStock();
+        if (batch < 1 || maximum < 1 || batch > ItemEnvelope.MAX_COUNT
+            || maximum > ItemEnvelope.MAX_COUNT) {
+          throw new ServiceException("invalid_supply_settings", "Supply stock settings are invalid");
+        }
+        supplyBatch = Math.min(batch, maximum);
+        supplyMaximum = maximum;
+        supplyProtected = update.supplyAccessProtected() == null
+            ? supplySettings.accessProtected() : update.supplyAccessProtected();
+      }
+      long escrow = listing.escrowRemaining();
+      long escrowDelta = 0L;
+      if ("BUY".equals(listing.side())) {
+        escrow = Math.multiplyExact(update.price(), listing.quantity());
+        escrowDelta = escrow - listing.escrowRemaining();
+        if (escrowDelta != 0) {
+          wallets.applyDelta(
+              connection, listing.sellerUserId(), listing.currency(), -escrowDelta,
+              "MARKET_BUY_REPRICE", "market-buy-reprice:" + listing.id() + ":" + UUID.randomUUID(),
+              escrowDelta > 0);
+        }
+      }
+      AuctionDetails existing = readAuctionDetails(connection, listingId);
+      boolean auctionChanged = !sameAuctionConfiguration(
+          existing, tradeMode, auctionAlgorithm, auctionStart,
+          auctionIncrement, publicEnd, update.auctionParamsJson());
+      if (auctionChanged) {
+        try (PreparedStatement bids = connection.prepareStatement(
+            "SELECT COUNT(*) FROM market_bids WHERE listing_id=?")) {
+          bids.setLong(1, listingId);
+          try (ResultSet result = bids.executeQuery()) {
+            if (result.next() && result.getLong(1) > 0) {
+              throw new ServiceException("auction_locked", "Auction already has bids");
+            }
+          }
+        }
+      }
+      validateTags(connection, tags);
+      try (PreparedStatement baseUpdate = connection.prepareStatement(
+          "UPDATE market_listings SET price=?,currency=?,remark=?,escrow_total=escrow_total+?,"
+              + "escrow_remaining=?,supply_batch_size=?,supply_max_stock=?,"
+              + "supply_access_protected=? WHERE id=? AND seller_user_id=? "
+              + "AND status IN ('ACTIVE','PAUSED')")) {
+        baseUpdate.setLong(1, update.price());
+        baseUpdate.setString(2, nextCurrency.name());
+        baseUpdate.setString(3, remark);
+        baseUpdate.setLong(4, escrowDelta);
+        baseUpdate.setLong(5, escrow);
+        if (supplyBatch == null) baseUpdate.setObject(6, null); else baseUpdate.setInt(6, supplyBatch);
+        if (supplyMaximum == null) baseUpdate.setObject(7, null); else baseUpdate.setInt(7, supplyMaximum);
+        baseUpdate.setBoolean(8, supplyProtected);
+        baseUpdate.setLong(9, listingId);
+        baseUpdate.setLong(10, sellerUserId);
+        if (baseUpdate.executeUpdate() != 1) {
+          throw new ServiceException("listing_conflict", "Listing changed concurrently");
+        }
+      }
+      try (PreparedStatement statement = connection.prepareStatement(
+          "UPDATE market_listings SET display_name_override=?,display_material=?,display_icon_path=?,"
+              + "trade_mode=?,dynamic_pricing_enabled=?,dynamic_algorithm=?,dynamic_pricing_mode=?,"
+              + "dynamic_base_price=?,dynamic_floor_price=?,dynamic_cap_price=?,dynamic_price_step=?,"
+              + "dynamic_params_json=?,auction_algorithm=?,auction_start_price=?,auction_min_increment=?,"
+              + "auction_started_at=CASE WHEN ?<>'AUCTION' THEN NULL WHEN ? THEN CURRENT_TIMESTAMP "
+              + "ELSE auction_started_at END,"
+              + "auction_public_end_at=?,auction_end_at=?,auction_params_json=? "
+              + "WHERE id=? AND seller_user_id=? AND status IN ('ACTIVE','PAUSED')")) {
+        statement.setString(1, displayName);
+        statement.setString(2, displayMaterial);
+        statement.setString(3, displayIcon);
+        statement.setString(4, tradeMode);
+        statement.setBoolean(5, dynamic);
+        statement.setString(6, dynamicAlgorithm);
+        statement.setString(7, dynamicMode);
+        if (dynamic) statement.setLong(8, base); else statement.setObject(8, null);
+        if (dynamic && update.dynamicFloorPrice() != null) statement.setLong(9, update.dynamicFloorPrice());
+        else statement.setObject(9, null);
+        if (dynamic && update.dynamicCapPrice() != null) statement.setLong(10, update.dynamicCapPrice());
+        else statement.setObject(10, null);
+        if (dynamic) statement.setLong(11, step); else statement.setObject(11, null);
+        statement.setString(12, dynamic ? dynamicParams : null);
+        statement.setString(13, auctionAlgorithm);
+        if ("AUCTION".equals(tradeMode)) statement.setLong(14, auctionStart); else statement.setObject(14, null);
+        if ("AUCTION".equals(tradeMode)) statement.setLong(15, auctionIncrement); else statement.setObject(15, null);
+        statement.setString(16, tradeMode);
+        statement.setBoolean(17, auctionChanged);
+        if ("AUCTION".equals(tradeMode)) statement.setTimestamp(18, Timestamp.from(publicEnd)); else statement.setObject(18, null);
+        if ("AUCTION".equals(tradeMode)) statement.setTimestamp(19, Timestamp.from(resolvedEnd)); else statement.setObject(19, null);
+        statement.setString(20, "AUCTION".equals(tradeMode) ? MarketAlgorithmRegistry.toJson(auctionParams) : null);
+        statement.setLong(21, listingId);
+        statement.setLong(22, sellerUserId);
+        if (statement.executeUpdate() != 1) throw new ServiceException("listing_conflict", "Listing changed concurrently");
+      }
+      replaceListingTags(connection, listingId, tags);
+      return readListing(connection, listingId);
+    });
   }
 
   private Listing updateListingSettings(
@@ -1835,8 +2117,15 @@ public final class SharedCommerceService {
           if (listing.sellerUserId() == request.buyerUserId()) {
             throw new ServiceException("self_trade", "Seller cannot buy the same listing");
           }
-          long unitPrice = dutch ? dutchPrice(auction, Instant.now()) : listing.price();
-          long total = Math.multiplyExact(unitPrice, request.quantity());
+          long baseUnitPrice = dutch ? dutchPrice(auction, Instant.now()) : listing.price();
+          AdvancedListing advanced = readAdvancedListing(connection, listing.id());
+          MarketAlgorithmRegistry.DynamicPriceQuote dynamicQuote =
+              !dutch && advanced.dynamicPricingEnabled()
+                  ? dynamicQuote(advanced, baseUnitPrice, request.quantity()) : null;
+          long unitPrice = dynamicQuote == null
+              ? baseUnitPrice : dynamicQuote.averageUnitPrice();
+          long total = dynamicQuote == null
+              ? Math.multiplyExact(unitPrice, request.quantity()) : dynamicQuote.totalAmount();
           if (request.expectedUnitPrice() != null
               && request.expectedUnitPrice().longValue() != unitPrice) {
             throw new ServiceException("price_changed", "Listing price changed");
@@ -1867,7 +2156,8 @@ public final class SharedCommerceService {
               connection.prepareStatement(
                   "UPDATE market_listings SET"
                       + " quantity=?,escrow_remaining=?,buyer_user_id=?,buyer_uuid=?,status=?,sold_at=CASE"
-                      + " WHEN ?=0 THEN CURRENT_TIMESTAMP ELSE sold_at END WHERE id=? AND"
+                      + " WHEN ?=0 THEN CURRENT_TIMESTAMP ELSE sold_at END,"
+                      + "dynamic_demand_score=?,price=? WHERE id=? AND"
                       + " status='ACTIVE' AND quantity=?")) {
             statement.setInt(1, remaining);
             statement.setInt(2, remaining);
@@ -1875,8 +2165,11 @@ public final class SharedCommerceService {
             statement.setString(4, request.buyerId().toString());
             statement.setString(5, remaining == 0 ? "SOLD" : "ACTIVE");
             statement.setInt(6, remaining);
-            statement.setLong(7, listing.id());
-            statement.setInt(8, listing.quantity());
+            statement.setLong(7, dynamicQuote == null
+                ? advanced.dynamicDemandScore() : dynamicQuote.nextDemandScore());
+            statement.setLong(8, dynamicQuote == null ? listing.price() : dynamicQuote.nextUnitPrice());
+            statement.setLong(9, listing.id());
+            statement.setInt(10, listing.quantity());
             if (statement.executeUpdate() != 1) {
               throw new ServiceException("listing_conflict", "Listing changed concurrently");
             }
@@ -2146,7 +2439,7 @@ public final class SharedCommerceService {
             "CANDLE_AUCTION_V1")
         .contains(normalizedAlgorithm)) {
       throw new ServiceException(
-          "capability_unavailable", "This auction algorithm is not available on Loader nodes");
+          "invalid_auction", "This auction algorithm is not available");
     }
     if (startPrice < 1 || minIncrement < 1 || endAt == null || endAt.isBefore(Instant.now().plusSeconds(30))) {
       throw new ServiceException("invalid_auction", "Auction parameters are invalid");
@@ -2214,6 +2507,37 @@ public final class SharedCommerceService {
 
   public AuctionDetails auctionDetails(long listingId) {
     return database.withConnection(connection -> readAuctionDetails(connection, listingId));
+  }
+
+  public AdvancedListing advancedListing(long listingId) {
+    return database.withConnection(connection -> readAdvancedListing(connection, listingId));
+  }
+
+  private AdvancedListing readAdvancedListing(Connection connection, long listingId)
+      throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(
+          "SELECT display_name_override,display_material,display_icon_path,"
+              + "dynamic_pricing_enabled,dynamic_algorithm,dynamic_pricing_mode,"
+              + "dynamic_base_price,dynamic_floor_price,dynamic_cap_price,dynamic_price_step,"
+              + "dynamic_demand_score,dynamic_params_json FROM market_listings WHERE id=?")) {
+        statement.setLong(1, listingId);
+        try (ResultSet result = statement.executeQuery()) {
+          if (!result.next()) throw new ServiceException("listing_not_found", "Listing was not found");
+          List<String> tags = new ArrayList<>();
+          try (PreparedStatement tagQuery = connection.prepareStatement(
+              "SELECT tag_code FROM market_listing_tags WHERE listing_id=? ORDER BY position,tag_code")) {
+            tagQuery.setLong(1, listingId);
+            try (ResultSet tagRows = tagQuery.executeQuery()) {
+              while (tagRows.next()) tags.add(tagRows.getString(1));
+            }
+          }
+          return new AdvancedListing(
+              result.getString(1), result.getString(2), result.getString(3), result.getBoolean(4),
+              result.getString(5), result.getString(6), nullableLong(result, 7),
+              nullableLong(result, 8), nullableLong(result, 9), nullableLong(result, 10),
+              result.getLong(11), result.getString(12), List.copyOf(tags));
+        }
+      }
   }
 
   public long currentListingPrice(long listingId) {
@@ -3987,6 +4311,47 @@ public final class SharedCommerceService {
       String idempotencyKey,
       String remark) {}
 
+  public record AdvancedListingUpdate(
+      long price,
+      CurrencyType currency,
+      String remark,
+      Integer supplyBatchSize,
+      Integer supplyMaxStock,
+      Boolean supplyAccessProtected,
+      List<String> tags,
+      String displayNameOverride,
+      String displayMaterial,
+      String displayIconPath,
+      String tradeMode,
+      boolean dynamicPricingEnabled,
+      String dynamicAlgorithm,
+      String dynamicPricingMode,
+      Long dynamicBasePrice,
+      Long dynamicFloorPrice,
+      Long dynamicCapPrice,
+      Long dynamicPriceStep,
+      String dynamicParamsJson,
+      String auctionAlgorithm,
+      Long auctionStartPrice,
+      Long auctionMinIncrement,
+      Instant auctionEndAt,
+      String auctionParamsJson) {}
+
+  public record AdvancedListing(
+      String displayNameOverride,
+      String displayMaterial,
+      String displayIconPath,
+      boolean dynamicPricingEnabled,
+      String dynamicAlgorithm,
+      String dynamicPricingMode,
+      Long dynamicBasePrice,
+      Long dynamicFloorPrice,
+      Long dynamicCapPrice,
+      Long dynamicPriceStep,
+      long dynamicDemandScore,
+      String dynamicParamsJson,
+      List<String> tags) {}
+
   public record Listing(
       long id,
       long sellerUserId,
@@ -4093,7 +4458,15 @@ public final class SharedCommerceService {
       long buyerTotal,
       long sellerReceive,
       long feeAmount,
-      long taxAmount) {}
+      long taxAmount,
+      long firstUnitPrice,
+      long lastUnitPrice,
+      long averageUnitPrice,
+      boolean dynamicPricingEnabled,
+      String dynamicPricingMode,
+      long currentDemandScore,
+      long nextDemandScore,
+      long nextUnitPrice) {}
 
   public record MarketPricePoint(long tradeId, long price, int quantity, Instant createdAt) {}
 

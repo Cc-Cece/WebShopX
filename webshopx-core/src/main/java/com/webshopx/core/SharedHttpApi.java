@@ -2,6 +2,7 @@ package com.webshopx.core;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -414,7 +415,7 @@ public final class SharedHttpApi implements AutoCloseable {
           && path.endsWith("/refund")
           && method(exchange, "POST")) {
         throw new ServiceException(
-            "capability_unavailable", "Standalone mailbox items are not refundable");
+            "refund_not_supported", "Standalone mailbox items are not refundable");
       } else if (path.equals("/api/inventory/snapshot") && method(exchange, "GET")) {
         var current = boundUser(exchange);
         String inventory = query(exchange, "inventory");
@@ -528,7 +529,7 @@ public final class SharedHttpApi implements AutoCloseable {
         String listingRaw = requiredString(input, "listingId");
         if (listingRaw.startsWith("official:")) {
           throw new ServiceException(
-              "capability_unavailable", "Official recycle products are not configured");
+              "official_recycle_unavailable", "Official recycle products are not configured");
         }
         var trade =
             marketEscrow.fulfill(
@@ -656,20 +657,20 @@ public final class SharedHttpApi implements AutoCloseable {
         response.addProperty("currency", quote.currency().name());
         response.addProperty("side", quote.side());
         response.addProperty("unitPrice", quote.unitPrice());
-        response.addProperty("firstUnitPrice", quote.unitPrice());
-        response.addProperty("lastUnitPrice", quote.unitPrice());
-        response.addProperty("averageUnitPrice", quote.unitPrice());
+        response.addProperty("firstUnitPrice", quote.firstUnitPrice());
+        response.addProperty("lastUnitPrice", quote.lastUnitPrice());
+        response.addProperty("averageUnitPrice", quote.averageUnitPrice());
         response.addProperty("quantity", quote.quantity());
         response.addProperty("totalPrice", quote.totalPrice());
         response.addProperty("buyerTotal", quote.buyerTotal());
         response.addProperty("sellerReceive", quote.sellerReceive());
         response.addProperty("feeAmount", quote.feeAmount());
         response.addProperty("taxAmount", quote.taxAmount());
-        response.addProperty("dynamicPricingEnabled", false);
-        response.addProperty("dynamicPricingMode", "ORDER_FIXED");
-        response.addProperty("currentDemandScore", 0);
-        response.addProperty("nextDemandScore", 0);
-        response.addProperty("nextUnitPrice", quote.unitPrice());
+        response.addProperty("dynamicPricingEnabled", quote.dynamicPricingEnabled());
+        response.addProperty("dynamicPricingMode", quote.dynamicPricingMode());
+        response.addProperty("currentDemandScore", quote.currentDemandScore());
+        response.addProperty("nextDemandScore", quote.nextDemandScore());
+        response.addProperty("nextUnitPrice", quote.nextUnitPrice());
         respond(exchange, 200, response);
       } else if (path.equals("/api/market/price-trend") && method(exchange, "GET")) {
         long listingId = Long.parseLong(requiredQuery(exchange, "listingId"));
@@ -720,18 +721,37 @@ public final class SharedHttpApi implements AutoCloseable {
       } else if (path.equals("/api/market/settings") && method(exchange, "POST")) {
         var current = boundUser(exchange);
         JsonObject input = body(exchange);
-        requireDirectListingSettings(input);
         long listingId = requiredLong(input, "listingId");
-        var listing =
-            commerce.updateListingSettings(
-                current.id(),
-                listingId,
-                requiredLong(input, "price"),
+        long price = requiredLong(input, "price");
+        var listing = commerce.updateAdvancedListingSettings(
+            current.id(),
+            listingId,
+            new SharedCommerceService.AdvancedListingUpdate(
+                price,
                 currency(input, "currency"),
                 optionalString(input, "remark", null),
                 nullableInt(input, "supplyBatchSize"),
                 nullableInt(input, "supplyMaxStock"),
-                nullableBoolean(input, "supplyAccessProtected"));
+                nullableBoolean(input, "supplyAccessProtected"),
+                stringList(input, "tags"),
+                optionalString(input, "displayNameOverride", null),
+                optionalString(input, "displayMaterial", null),
+                optionalString(input, "displayIconPath", null),
+                optionalString(input, "tradeMode", "DIRECT"),
+                optionalBoolean(input, "dynamicPricingEnabled", false),
+                optionalString(input, "dynamicAlgorithm", null),
+                optionalString(input, "dynamicPricingMode", null),
+                nullableLong(input, "dynamicBasePrice"),
+                nullableLong(input, "dynamicFloorPrice"),
+                nullableLong(input, "dynamicCapPrice"),
+                nullableLong(input, "dynamicPriceStep"),
+                optionalString(input, "dynamicParamsJson", null),
+                optionalString(input, "auctionAlgorithm", null),
+                nullableLong(input, "auctionStartPrice"),
+                nullableLong(input, "auctionMinIncrement"),
+                input.has("auctionEndAt") && !input.get("auctionEndAt").isJsonNull()
+                    ? requiredInstant(input, "auctionEndAt") : null,
+                optionalString(input, "auctionParamsJson", null)));
         if (input.has("refundPolicyPreset")
             && !input.get("refundPolicyPreset").isJsonNull()
             && !input.get("refundPolicyPreset").getAsString().isBlank()) {
@@ -2267,9 +2287,10 @@ public final class SharedHttpApi implements AutoCloseable {
                     "delivery_outcome_unknown",
                     "refund_outcome_unknown",
                     "supply_outcome_unknown",
-                    "supply_unavailable" ->
+                    "supply_unavailable",
+                    "checkout_unavailable" ->
                 503;
-            case "capability_unavailable" -> 501;
+            case "official_recycle_unavailable", "refund_not_supported" -> 409;
             default -> 400;
           };
       respond(exchange, status, error(failure.code(), failure.getMessage()));
@@ -2480,13 +2501,22 @@ public final class SharedHttpApi implements AutoCloseable {
       if (!"supply_not_configured".equals(notSupply.code())) throw notSupply;
     }
     SharedCommerceService.AuctionDetails auction = commerce.auctionDetails(listing.id());
+    SharedCommerceService.AdvancedListing advanced = commerce.advancedListing(listing.id());
     result.addProperty("tradeMode", auction.tradeMode());
-    result.addProperty("dynamicPricingEnabled", false);
-    result.addProperty("dynamicPricingMode", "ORDER_FIXED");
-    result.add("tags", new JsonArray());
-    result.add("displayNameOverride", JsonNull.INSTANCE);
-    result.add("displayMaterial", JsonNull.INSTANCE);
-    result.add("displayIconPath", JsonNull.INSTANCE);
+    result.addProperty("dynamicPricingEnabled", advanced.dynamicPricingEnabled());
+    result.addProperty("dynamicAlgorithm", advanced.dynamicAlgorithm());
+    result.addProperty("dynamicPricingMode", advanced.dynamicPricingMode());
+    addNullable(result, "dynamicBasePrice", advanced.dynamicBasePrice());
+    addNullable(result, "dynamicFloorPrice", advanced.dynamicFloorPrice());
+    addNullable(result, "dynamicCapPrice", advanced.dynamicCapPrice());
+    addNullable(result, "dynamicPriceStep", advanced.dynamicPriceStep());
+    result.addProperty("dynamicDemandScore", advanced.dynamicDemandScore());
+    if (advanced.dynamicParamsJson() == null) result.add("dynamicParamsJson", JsonNull.INSTANCE);
+    else result.addProperty("dynamicParamsJson", advanced.dynamicParamsJson());
+    result.add("tags", gson.toJsonTree(advanced.tags()));
+    addNullable(result, "displayNameOverride", advanced.displayNameOverride());
+    addNullable(result, "displayMaterial", advanced.displayMaterial());
+    addNullable(result, "displayIconPath", advanced.displayIconPath());
     result.addProperty("auctionAlgorithm", auction.algorithm());
     addNullable(result, "auctionStartPrice", auction.startPrice());
     addNullable(result, "auctionMinIncrement", auction.minIncrement());
@@ -3056,44 +3086,20 @@ public final class SharedHttpApi implements AutoCloseable {
     }
   }
 
-  private static void requireDirectListingSettings(JsonObject input) {
-    if (input.has("tags")
-        && input.get("tags").isJsonArray()
-        && !input.getAsJsonArray("tags").isEmpty()) {
-      throw new ServiceException("capability_unavailable", "Listing tags are not configured");
+  private static Long nullableLong(JsonObject input, String key) {
+    return input.has(key) && !input.get(key).isJsonNull() ? input.get(key).getAsLong() : null;
+  }
+
+  private static List<String> stringList(JsonObject input, String key) {
+    if (!input.has(key) || input.get(key).isJsonNull()) return List.of();
+    if (!input.get(key).isJsonArray()) {
+      throw new ServiceException("bad_request", key + " must be an array");
     }
-    String tradeMode = optionalString(input, "tradeMode", "DIRECT");
-    if (!"DIRECT".equalsIgnoreCase(tradeMode)) {
-      throw new ServiceException("capability_unavailable", "Auction settings are unavailable");
+    List<String> values = new java.util.ArrayList<>();
+    for (JsonElement element : input.getAsJsonArray(key)) {
+      if (!element.isJsonNull()) values.add(element.getAsString());
     }
-    if (optionalBoolean(input, "dynamicPricingEnabled", false)) {
-      throw new ServiceException("capability_unavailable", "Dynamic pricing is unavailable");
-    }
-    for (String key :
-        List.of(
-            "displayNameOverride",
-            "displayMaterial",
-            "displayIconPath",
-            "dynamicAlgorithm",
-            "dynamicPricingMode",
-            "dynamicParamsJson",
-            "dynamicBasePrice",
-            "dynamicFloorPrice",
-            "dynamicCapPrice",
-            "dynamicPriceStep",
-            "auctionAlgorithm",
-            "auctionParamsJson",
-            "auctionStartPrice",
-            "auctionMinIncrement",
-            "auctionEndAt")) {
-      if (input.has(key) && !input.get(key).isJsonNull()) {
-        if (input.get(key).isJsonPrimitive()
-            && input.get(key).getAsJsonPrimitive().isString()
-            && input.get(key).getAsString().isBlank()) continue;
-        throw new ServiceException(
-            "capability_unavailable", "Advanced listing settings are unavailable");
-      }
-    }
+    return List.copyOf(values);
   }
 
   private static long optionalLong(JsonObject input, String key, long fallback) {

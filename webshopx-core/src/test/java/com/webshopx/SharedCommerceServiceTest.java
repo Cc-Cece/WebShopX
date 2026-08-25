@@ -107,6 +107,55 @@ class SharedCommerceServiceTest {
     assertEquals(950, wallets.getBalance(buyer).shopCoin());
   }
 
+  @Test void advancedMarketSettingsDriveDynamicQuotesAndAuctionState() {
+    UUID sellerUuid = UUID.randomUUID();
+    UUID buyerUuid = UUID.randomUUID();
+    long seller = auth.setPasswordFromGame(sellerUuid, "AdvancedSeller", "seller-secret").userId();
+    long buyer = auth.setPasswordFromGame(buyerUuid, "AdvancedBuyer", "buyer-secret").userId();
+    wallets.adjustBalance(buyer, CurrencyType.SHOP_COIN, 10_000, "TEST", "advanced-buyer");
+    database.withConnection(connection -> {
+      try (var statement = connection.prepareStatement(
+          "INSERT INTO market_tags (code,display_name,enabled,priority) VALUES ('rare','Rare',TRUE,1)")) {
+        statement.executeUpdate();
+      }
+      return null;
+    });
+    var dynamicListing = commerce.createListing(new ListingRequest(
+        seller, sellerUuid, CurrencyType.SHOP_COIN, 10, 3,
+        envelope("minecraft:diamond", 3, "dynamic-item"), null));
+    commerce.updateAdvancedListingSettings(
+        seller,
+        dynamicListing.id(),
+        new SharedCommerceService.AdvancedListingUpdate(
+            10, CurrencyType.SHOP_COIN, "dynamic", null, null, null, List.of("rare"),
+            "Rare Diamond", "minecraft:diamond", null, "DIRECT", true,
+            "LINEAR_DEMAND_V1", "PER_UNIT_MARGINAL", 10L, 5L, 100L, 2L, "{}",
+            null, null, null, null, null));
+    var advanced = commerce.advancedListing(dynamicListing.id());
+    assertTrue(advanced.dynamicPricingEnabled());
+    assertEquals(List.of("rare"), advanced.tags());
+    var quote = commerce.quoteListing(buyer, dynamicListing.id(), 2);
+    assertTrue(quote.dynamicPricingEnabled());
+    assertTrue(quote.totalPrice() >= 20);
+    assertTrue(quote.nextDemandScore() > quote.currentDemandScore());
+    commerce.buyListing(new MarketBuyRequest(
+        buyer, buyerUuid, dynamicListing.id(), 2, "dynamic-buy", "fabric-a",
+        quote.unitPrice(), quote.buyerTotal()));
+    assertEquals(quote.nextDemandScore(), commerce.advancedListing(dynamicListing.id()).dynamicDemandScore());
+
+    var auctionListing = commerce.createListing(new ListingRequest(
+        seller, sellerUuid, CurrencyType.SHOP_COIN, 20, 1,
+        envelope("minecraft:emerald", 1, "auction-item"), null));
+    commerce.updateAdvancedListingSettings(
+        seller,
+        auctionListing.id(),
+        new SharedCommerceService.AdvancedListingUpdate(
+            20, CurrencyType.SHOP_COIN, null, null, null, null, List.of(), null, null, null,
+            "AUCTION", false, null, null, null, null, null, null, null,
+            "ENGLISH_AUCTION_V1", 20L, 2L, Instant.now().plusSeconds(600), "{}"));
+    assertEquals("AUCTION", commerce.auctionDetails(auctionListing.id()).tradeMode());
+  }
+
   @Test void failedPurchaseRollsBackWalletAndStock() {
     UUID buyerId = UUID.randomUUID();
     long buyer = auth.setPasswordFromGame(buyerId, "PoorBuyer", "buyer-secret").userId();

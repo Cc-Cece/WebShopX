@@ -100,7 +100,7 @@ public final class SharedPromotionService {
 
   private static <T> T required(T service) {
     if (service == null) {
-      throw new ServiceException("capability_unavailable", "Checkout is not configured");
+      throw new ServiceException("checkout_unavailable", "Checkout is not configured");
     }
     return service;
   }

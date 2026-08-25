@@ -869,17 +869,20 @@ class SharedHttpApiTest {
             .getAsJsonObject();
     assertEquals(25, settingsUpdated.get("price").getAsLong());
     assertEquals("combined settings", settingsUpdated.get("remark").getAsString());
-    assertEquals(
-        501,
-        post(
-                "/api/market/settings",
-                "{\"listingId\":"
-                    + listingId
-                    + ",\"price\":25,\"currency\":\"GAME_COIN\","
-                    + "\"tradeMode\":\"DIRECT\",\"dynamicPricingEnabled\":true}",
-                token,
-                null)
-            .statusCode());
+    HttpResponse<String> dynamicSettings = post(
+        "/api/market/settings",
+        "{\"listingId\":"
+            + listingId
+            + ",\"price\":25,\"currency\":\"GAME_COIN\","
+            + "\"tradeMode\":\"DIRECT\",\"dynamicPricingEnabled\":true,"
+            + "\"dynamicAlgorithm\":\"LINEAR_DEMAND_V1\","
+            + "\"dynamicPricingMode\":\"PER_UNIT_MARGINAL\",\"dynamicPriceStep\":2}",
+        token,
+        null);
+    assertEquals(200, dynamicSettings.statusCode(), dynamicSettings.body());
+    JsonObject dynamicListing = JsonParser.parseString(dynamicSettings.body()).getAsJsonObject();
+    assertTrue(dynamicListing.get("dynamicPricingEnabled").getAsBoolean());
+    assertEquals("PER_UNIT_MARGINAL", dynamicListing.get("dynamicPricingMode").getAsString());
 
     String unlistRequest = "{\"listingId\":" + listingId + "}";
     assertEquals(200, post("/api/market/unlist", unlistRequest, token, null).statusCode());
