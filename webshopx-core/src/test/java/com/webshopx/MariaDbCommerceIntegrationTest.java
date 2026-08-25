@@ -14,7 +14,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
-@EnabledIfSystemProperty(named = "webshopx.mariadb.integration", matches = "true")
+@EnabledIfSystemProperty(named = "webshopx.database.integration", matches = "true")
 class MariaDbCommerceIntegrationTest {
   private DatabaseManager first;
   private DatabaseManager second;
@@ -25,23 +25,29 @@ class MariaDbCommerceIntegrationTest {
   }
 
   @Test void twoNodesShareSchemaWalletOrdersAndIdempotency() {
+    DbType databaseType = DbType.fromRaw(
+        System.getProperty("webshopx.database.type", "mariadb"));
+    if (!databaseType.isMysqlFamily()) {
+      throw new IllegalArgumentException("External integration requires MySQL or MariaDB");
+    }
     DatabaseSettings settings = new DatabaseSettings(
-        DbType.MARIADB, System.getProperty("webshopx.mariadb.host", "127.0.0.1"),
-        Integer.getInteger("webshopx.mariadb.port", 3306),
-        System.getProperty("webshopx.mariadb.schema", "webshopx_it"),
-        System.getProperty("webshopx.mariadb.user", "webshopx_it"),
-        System.getProperty("webshopx.mariadb.password", "integration-secret"),
+        databaseType, System.getProperty("webshopx.database.host", "127.0.0.1"),
+        Integer.getInteger("webshopx.database.port", 3306),
+        System.getProperty("webshopx.database.schema", "webshopx_it"),
+        System.getProperty("webshopx.database.user", "webshopx_it"),
+        System.getProperty("webshopx.database.password", "integration-secret"),
         false, false, "", 4, "", "WAL", "NORMAL", 5_000, 3, List.of(10, 50));
     first = new DatabaseManager(null, settings);
     first.start();
-    SchemaProvider.forType(DbType.MARIADB).ensureSchema(first, ZoneOffset.UTC);
+    SchemaProvider.forType(databaseType).ensureSchema(first, ZoneOffset.UTC);
     second = new DatabaseManager(null, settings);
     second.start();
-    SchemaProvider.forType(DbType.MARIADB).ensureSchema(second, ZoneOffset.UTC);
+    SchemaProvider.forType(databaseType).ensureSchema(second, ZoneOffset.UTC);
 
     UUID player = UUID.randomUUID();
     AuthService auth = new AuthService(first, () -> new AuthService.SessionSettings(40, 2));
-    long userId = auth.setPasswordFromGame(player, "MariaBuyer", "maria-secret").userId();
+    long userId = auth.setPasswordFromGame(
+        player, "DatabaseBuyer", "database-secret").userId();
     WalletService firstWallet = new WalletService(
         first, WalletService.ExchangePolicy::disabled, null, null);
     WalletService secondWallet = new WalletService(

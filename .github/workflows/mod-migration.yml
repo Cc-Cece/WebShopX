@@ -172,12 +172,13 @@ jobs:
       - name: Exercise MariaDB cluster and Redis recovery
         env:
           JAVA_TOOL_OPTIONS: >-
-            -Dwebshopx.mariadb.integration=true
-            -Dwebshopx.mariadb.host=127.0.0.1
-            -Dwebshopx.mariadb.port=3306
-            -Dwebshopx.mariadb.schema=webshopx_it
-            -Dwebshopx.mariadb.user=webshopx_it
-            -Dwebshopx.mariadb.password=integration-secret
+            -Dwebshopx.database.integration=true
+            -Dwebshopx.database.type=mariadb
+            -Dwebshopx.database.host=127.0.0.1
+            -Dwebshopx.database.port=3306
+            -Dwebshopx.database.schema=webshopx_it
+            -Dwebshopx.database.user=webshopx_it
+            -Dwebshopx.database.password=integration-secret
             -Dwebshopx.redis.integration=true
             -Dwebshopx.redis.port=6379
             -Dwebshopx.redis.reconnect.integration=true
@@ -188,14 +189,19 @@ jobs:
           --tests com.webshopx.core.RedisEventBridgeIntegrationTest
           --tests com.webshopx.core.RedisReconnectIntegrationTest
           --rerun-tasks --stacktrace
-      - name: Freeze database and Redis evidence
+      - name: Freeze MariaDB and Redis evidence
         shell: pwsh
-        run: >-
-          & docs/mod-migration/tools/write-check-evidence.ps1
-          -Id 'database-and-redis' -SourceCommit '${{ github.sha }}'
-          -Environment 'ubuntu-latest/mariadb-11.4/redis-7/java-25'
-          -EvidencePath @('webshopx-core/build/test-results/test')
-          -OutputFile 'build/required-checks/database-and-redis.check.json'
+        run: |
+          & docs/mod-migration/tools/write-check-evidence.ps1 `
+            -Id 'database-mariadb' -SourceCommit '${{ github.sha }}' `
+            -Environment 'ubuntu-latest/mariadb-11.4/java-25' `
+            -EvidencePath @('webshopx-core/build/test-results/test/TEST-com.webshopx.MariaDbCommerceIntegrationTest.xml') `
+            -OutputFile 'build/required-checks/database-mariadb.check.json'
+          & docs/mod-migration/tools/write-check-evidence.ps1 `
+            -Id 'redis-relay' -SourceCommit '${{ github.sha }}' `
+            -Environment 'ubuntu-latest/redis-7/java-25' `
+            -EvidencePath @('webshopx-core/build/test-results/test/TEST-com.webshopx.core.RedisEventBridgeIntegrationTest.xml','webshopx-core/build/test-results/test/TEST-com.webshopx.core.RedisReconnectIntegrationTest.xml') `
+            -OutputFile 'build/required-checks/redis-relay.check.json'
       - uses: actions/upload-artifact@v4
         with:
           name: database-redis-check-evidence-${{ github.sha }}
@@ -205,6 +211,63 @@ jobs:
         if: always()
         with:
           name: database-redis-evidence-${{ github.sha }}
+          if-no-files-found: error
+          path: webshopx-core/build/reports/tests/test
+
+  database-mysql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: webshopx_it
+          MYSQL_USER: webshopx_it
+          MYSQL_PASSWORD: integration-secret
+          MYSQL_ROOT_PASSWORD: root-integration-secret
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent --host=127.0.0.1 --user=root --password=root-integration-secret"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+      - name: Exercise MySQL shared-node transactions
+        env:
+          JAVA_TOOL_OPTIONS: >-
+            -Dwebshopx.database.integration=true
+            -Dwebshopx.database.type=mysql
+            -Dwebshopx.database.host=127.0.0.1
+            -Dwebshopx.database.port=3306
+            -Dwebshopx.database.schema=webshopx_it
+            -Dwebshopx.database.user=webshopx_it
+            -Dwebshopx.database.password=integration-secret
+        run: >-
+          ./gradlew :webshopx-core:test
+          --tests com.webshopx.MariaDbCommerceIntegrationTest
+          --rerun-tasks --stacktrace
+      - name: Freeze MySQL evidence
+        shell: pwsh
+        run: >-
+          & docs/mod-migration/tools/write-check-evidence.ps1
+          -Id 'database-mysql' -SourceCommit '${{ github.sha }}'
+          -Environment 'ubuntu-latest/mysql-8.4/java-25'
+          -EvidencePath @('webshopx-core/build/test-results/test/TEST-com.webshopx.MariaDbCommerceIntegrationTest.xml')
+          -OutputFile 'build/required-checks/database-mysql.check.json'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: database-mysql-check-evidence-${{ github.sha }}
+          if-no-files-found: error
+          path: build/required-checks/*.check.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: database-mysql-evidence-${{ github.sha }}
           if-no-files-found: error
           path: webshopx-core/build/reports/tests/test
 
@@ -480,7 +543,7 @@ jobs:
             build/required-checks/*.check.json
 
   rc-readiness:
-    needs: [contracts-and-artifacts, paper-regression, database-and-redis, dedicated-server-matrix, codeql, browser-acceptance]
+    needs: [contracts-and-artifacts, paper-regression, database-and-redis, database-mysql, dedicated-server-matrix, codeql, browser-acceptance]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
