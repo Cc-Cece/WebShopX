@@ -13,6 +13,8 @@ import com.webshopx.platform.CapabilitySnapshot.Status;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.util.UUID;
@@ -63,5 +65,15 @@ class LoaderRuntimeTest {
     assertEquals(WebShopXCoreRuntime.State.STOPPED, first.state());
     assertFalse(LoaderRuntime.active().isPresent());
     assertTrue(LoaderRuntime.authentication().isEmpty());
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"paper", "folia"})
+  void pluginPlatformsReuseOnlyThePlatformRuntime(String platform) {
+    System.setProperty("webshopx.data-dir", temporaryDirectory.resolve(platform).toString());
+    WebShopXCoreRuntime runtime = LoaderRuntime.start(platform, "1.20.6", "fixture");
+    assertEquals(platform, runtime.platform().identity().platform());
+    assertTrue(LoaderRuntime.authentication().isEmpty());
+    assertTrue(LoaderRuntime.commerce().isEmpty());
   }
 }

@@ -57,7 +57,7 @@ public final class LoaderRuntime {
     installShutdownHook();
     PlatformPorts.Bundle bundle = minimalBundle(loader, minecraftVersion, loaderVersion);
     try {
-      if (!"paper".equals(loader)) {
+      if (!isPluginPlatform(loader)) {
         databaseRuntime = SharedDatabaseRuntime.start(bundle.paths().data());
         SharedDatabaseRuntime auctionDatabase = databaseRuntime;
         scheduler.schedule(
@@ -121,6 +121,10 @@ public final class LoaderRuntime {
   public static WebShopXCoreRuntime startDetected(String loader) {
     LoaderEnvironment.Version version = LoaderEnvironment.detect(loader);
     return start(loader, version.minecraft(), version.loader());
+  }
+
+  private static boolean isPluginPlatform(String platform) {
+    return "paper".equalsIgnoreCase(platform) || "folia".equalsIgnoreCase(platform);
   }
 
   /** Installs Fabric lifecycle/player callbacks before core bootstrap. */
