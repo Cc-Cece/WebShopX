@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: f655cee059b85ec3b99eae4f3125fe262773edbd
+          ref: a7a627bb49af1288003fa50a910d0851346b390f
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:
@@ -162,12 +162,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: f655cee059b85ec3b99eae4f3125fe262773edbd
+          ref: a7a627bb49af1288003fa50a910d0851346b390f
           path: candidate-a/.frontend/webshopx-web
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: f655cee059b85ec3b99eae4f3125fe262773edbd
+          ref: a7a627bb49af1288003fa50a910d0851346b390f
           path: candidate-b/.frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:
@@ -391,7 +391,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: f655cee059b85ec3b99eae4f3125fe262773edbd
+          ref: a7a627bb49af1288003fa50a910d0851346b390f
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:
@@ -542,6 +542,65 @@ jobs:
           if-no-files-found: error
           path: build/required-checks/*.check.json
 
+  frontend-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          repository: Cc-Cece/webshopx-vuetify-web
+          ref: a7a627bb49af1288003fa50a910d0851346b390f
+          path: .frontend/webshopx-web
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: .frontend/webshopx-web/pnpm-lock.yaml
+      - name: Install frozen frontend dependencies
+        working-directory: .frontend/webshopx-web
+        run: pnpm install --frozen-lockfile
+      - name: Lint, type-check, unit-test and build frontend
+        working-directory: .frontend/webshopx-web
+        run: |
+          pnpm lint
+          pnpm type-check
+          pnpm exec vitest run --reporter=json --outputFile=frontend-unit-results.json
+          pnpm build-only
+      - name: Freeze frontend quality evidence
+        shell: pwsh
+        run: |
+          $frontend = '.frontend/webshopx-web'
+          $assets = Get-ChildItem "$frontend/dist" -File -Recurse | Sort-Object FullName | ForEach-Object {
+            [ordered]@{
+              path = [IO.Path]::GetRelativePath((Resolve-Path "$frontend/dist"), $_.FullName).Replace('\', '/')
+              sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+          }
+          if (@($assets).Count -eq 0) { throw 'Frontend build produced no assets' }
+          [ordered]@{
+            frontendCommit = (& git -C $frontend rev-parse HEAD).Trim()
+            lockfileSha256 = (Get-FileHash "$frontend/pnpm-lock.yaml" -Algorithm SHA256).Hash.ToLowerInvariant()
+            assetCount = @($assets).Count
+            assets = @($assets)
+          } | ConvertTo-Json -Depth 5 | Set-Content "$frontend/frontend-quality.json" -Encoding utf8
+          & docs/mod-migration/tools/write-check-evidence.ps1 `
+            -Id 'frontend-lint-types-unit-build' -SourceCommit '${{ github.sha }}' `
+            -Environment 'ubuntu-latest/node-24/pnpm-10/frozen-lockfile' `
+            -EvidencePath @("$frontend/frontend-quality.json", "$frontend/frontend-unit-results.json") `
+            -OutputFile 'build/required-checks/frontend-lint-types-unit-build.check.json'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-quality-evidence-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            build/required-checks/*.check.json
+            .frontend/webshopx-web/frontend-quality.json
+            .frontend/webshopx-web/frontend-unit-results.json
+
   browser-acceptance:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -550,7 +609,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: f655cee059b85ec3b99eae4f3125fe262773edbd
+          ref: a7a627bb49af1288003fa50a910d0851346b390f
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:
@@ -638,7 +697,7 @@ jobs:
             build/required-checks/*.check.json
 
   rc-readiness:
-    needs: [contracts-and-artifacts, paper-regression, reproducible-clean-cache, database-and-redis, database-mysql, dedicated-server-matrix, codeql, browser-acceptance]
+    needs: [contracts-and-artifacts, paper-regression, reproducible-clean-cache, database-and-redis, database-mysql, dedicated-server-matrix, codeql, frontend-quality, browser-acceptance]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -646,7 +705,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Cc-Cece/webshopx-vuetify-web
-          ref: f655cee059b85ec3b99eae4f3125fe262773edbd
+          ref: a7a627bb49af1288003fa50a910d0851346b390f
           path: .frontend/webshopx-web
       - uses: pnpm/action-setup@v4
         with:
