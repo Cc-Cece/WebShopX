@@ -23,6 +23,13 @@ subprojects {
         mavenCentral()
     }
 }
+
+allprojects {
+    tasks.withType(org.gradle.api.tasks.bundling.AbstractArchiveTask).configureEach {
+        preserveFileTimestamps = false
+        reproducibleFileOrder = true
+    }
+}
 if (!(targetRuntime in ['26.2+', '26.1+', '1.20.6+', '1.18.2+'])) {
     throw new GradleException("Unsupported targetRuntime: ${targetRuntime}. Allowed values: 26.2+, 26.1+, 1.20.6+, 1.18.2+")
 }
