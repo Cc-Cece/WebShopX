@@ -220,6 +220,41 @@ class SharedSupplyServiceTest {
     assertEquals(7, gateway.quantity);
   }
 
+  @Test
+  void expiredPendingLeaseBecomesDurablyUnknownBeforeAnotherWithdrawal() {
+    database.inTransaction(connection -> {
+      try (var operation = connection.prepareStatement(
+               "INSERT INTO market_supply_operations "
+                   + "(operation_id,listing_id,requested_by,state,expected_version,expected_hash,"
+                   + "requested_quantity) VALUES (?,?,?,'PENDING','1',?,5)");
+           var evidence = connection.prepareStatement(
+               "INSERT INTO market_supply_operation_evidence "
+                   + "(operation_id,expected_item_quantity) VALUES (?,12)");
+           var lease = connection.prepareStatement(
+               "INSERT INTO market_supply_leases "
+                   + "(listing_id,operation_id,owner_server,lease_until) VALUES (?,?,'dead-node',?)")) {
+        operation.setString(1, "crashed-operation");
+        operation.setLong(2, listingId);
+        operation.setLong(3, sellerId);
+        operation.setString(4, template.payloadHash());
+        operation.executeUpdate();
+        evidence.setString(1, "crashed-operation");
+        evidence.executeUpdate();
+        lease.setLong(1, listingId);
+        lease.setString(2, "crashed-operation");
+        lease.setTimestamp(3, java.sql.Timestamp.from(java.time.Instant.now().minusSeconds(60)));
+        lease.executeUpdate();
+      }
+      return null;
+    });
+
+    SharedSupplyService supply = commerce.supplyService(new FixtureGateway(template, 12), "fabric-b");
+    assertEquals("crashed-operation", supply.unknownOperations(10).get(0).operationId());
+    ServiceException blocked = assertThrows(
+        ServiceException.class, () -> supply.refresh(listingId, sellerId, "must-stay-blocked"));
+    assertEquals("supply_outcome_unknown", blocked.code());
+  }
+
   private static final class FixtureGateway implements SupplyInventoryGateway {
     private final ItemEnvelope template;
     private int quantity;

@@ -2300,7 +2300,8 @@ public final class SharedHttpApi implements AutoCloseable {
                     "bid_too_low",
                     "supply_conflict",
                     "supply_refresh_busy",
-                    "supply_reconciliation_conflict" ->
+                    "supply_reconciliation_conflict",
+                    "supply_compatibility_domain" ->
                 409;
             case "inventory_unavailable",
                     "inventory_outcome_unknown",

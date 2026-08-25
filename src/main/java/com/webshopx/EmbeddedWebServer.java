@@ -73,6 +73,7 @@ class EmbeddedWebServer {
   private final ProductService productService;
   private final OrderService orderService;
   private final MarketService marketService;
+  private final PaperSupplyOperationService paperSupplyOperations;
   private final NotificationService notificationService;
   private final AdminService adminService;
   private final AdminAuditService adminAuditService;
@@ -159,6 +160,7 @@ class EmbeddedWebServer {
     this.productService = productService;
     this.orderService = orderService;
     this.marketService = marketService;
+    this.paperSupplyOperations = new PaperSupplyOperationService(databaseManager, marketService);
     this.notificationService = notificationService;
     this.adminService = adminService;
     this.adminAuditService = adminAuditService;
@@ -253,6 +255,7 @@ class EmbeddedWebServer {
     register("/api/market/icon/upload", this::handleMarketIconUpload);
     register("/api/market/supply/refresh", this::handleMarketSupplyRefresh);
     register("/api/market/supply/inspect", this::handleMarketSupplyInspect);
+    register("/api/market/supply/reconcile", this::handleMarketSupplyReconcile);
     register("/api/inventory/snapshot", this::handleInventorySnapshot);
     register("/api/inventory/list", this::handleInventoryList);
     register("/api/inventory/matches", this::handleInventoryMatches);
@@ -316,6 +319,8 @@ class EmbeddedWebServer {
     register("/api/admin/material-overrides/delete", this::handleAdminMaterialOverridesDelete);
     register("/api/admin/material-overrides/icon", this::handleAdminMaterialOverrideIconUpload);
     register("/api/admin/market/listings", this::handleAdminMarketListings);
+    register("/api/admin/market/supply/unknown", this::handleAdminMarketSupplyUnknown);
+    register("/api/admin/market/supply/reconcile", this::handleAdminMarketSupplyReconcile);
     register("/api/admin/market/unlist", this::handleAdminMarketUnlist);
     register("/api/admin/users/lookup", this::handleAdminUserLookup);
     register("/api/admin/users/list", this::handleAdminUsersList);
@@ -2874,18 +2879,14 @@ class EmbeddedWebServer {
     }
     withServiceHandling(exchange, () -> {
       JsonObject payload = readJson(exchange);
-      requireAuth(exchange, payload);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
       long listingId = getLong(payload, "listingId", -1L);
-      MarketService.SupplyRefreshResult result = marketService.refreshSupplyListing(listingId);
-      JsonObject response = new JsonObject();
-      response.addProperty("listingId", result.listingId());
-      response.addProperty("loadedAmount", result.loadedAmount());
-      response.addProperty("currentStock", result.currentStock());
-      response.addProperty("maxStock", result.maxStock());
-      response.addProperty("loadedTotal", result.loadedTotal());
-      response.addProperty("soldTotal", result.soldTotal());
-      response.addProperty("status", result.status());
-      sendJson(exchange, 200, response);
+      String operationId = getOptionalString(payload, "idempotencyKey")
+          .orElse(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
+      sendJson(
+          exchange,
+          200,
+          paperSupplyOutcomeJson(paperSupplyOperations.refresh(user.id(), listingId, operationId)));
     });
   }
 
@@ -2911,6 +2912,19 @@ class EmbeddedWebServer {
           player -> marketService.inspectSupplySource(
               player, new MarketService.SupplySourceDescriptor(world, x, y, z)));
       sendJson(exchange, 200, gson.toJsonTree(inspection).getAsJsonObject());
+    });
+  }
+
+  private void handleMarketSupplyReconcile(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) return;
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      sendJson(
+          exchange,
+          200,
+          paperSupplyOutcomeJson(
+              paperSupplyOperations.reconcile(user.id(), getString(payload, "operationId"))));
     });
   }
 
@@ -5586,6 +5600,56 @@ class EmbeddedWebServer {
     });
   }
 
+  private void handleAdminMarketSupplyUnknown(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "GET")) return;
+    withServiceHandling(exchange, () -> {
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, null, AdminPermission.MARKET_MANAGE);
+      int limit = parseInt(parseQuery(exchange).get("limit"), 100);
+      JsonObject response = new JsonObject();
+      response.add("operations", gson.toJsonTree(paperSupplyOperations.unknown(limit)));
+      sendJson(exchange, 200, response);
+      adminAuditService.log(
+          admin,
+          "MARKET_SUPPLY_UNKNOWN_LIST",
+          "supply_operation",
+          null,
+          null,
+          clientIp(exchange));
+    });
+  }
+
+  private void handleAdminMarketSupplyReconcile(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) return;
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, payload, AdminPermission.MARKET_MANAGE);
+      PaperSupplyOperationService.Resolution resolution;
+      try {
+        resolution = PaperSupplyOperationService.Resolution.valueOf(
+            getString(payload, "resolution").trim().toUpperCase(Locale.ROOT));
+      } catch (IllegalArgumentException failure) {
+        throw new ServiceException(
+            "invalid_reconciliation", "Resolution must be APPLIED or NOT_APPLIED");
+      }
+      String operationId = getString(payload, "operationId");
+      PaperSupplyOperationService.Outcome outcome = paperSupplyOperations.resolve(
+          operationId,
+          admin.userId(),
+          resolution,
+          Math.toIntExact(getLong(payload, "removedQuantity", 0L)));
+      sendJson(exchange, 200, paperSupplyOutcomeJson(outcome));
+      adminAuditService.log(
+          admin,
+          "MARKET_SUPPLY_RECONCILE",
+          "supply_operation",
+          operationId,
+          payload,
+          clientIp(exchange));
+    });
+  }
+
   private void handleAdminMarketUnlist(HttpExchange exchange) throws IOException {
     if (isPreflight(exchange)) {
       return;
@@ -6908,6 +6972,24 @@ class EmbeddedWebServer {
     }
   }
 
+  private JsonObject paperSupplyOutcomeJson(PaperSupplyOperationService.Outcome outcome) {
+    JsonObject response = new JsonObject();
+    response.addProperty("operationId", outcome.operationId());
+    MarketService.SupplyRefreshResult result = outcome.result();
+    if (result == null) {
+      response.addProperty("status", "NOT_APPLIED");
+      return response;
+    }
+    response.addProperty("listingId", result.listingId());
+    response.addProperty("loadedAmount", result.loadedAmount());
+    response.addProperty("currentStock", result.currentStock());
+    response.addProperty("maxStock", result.maxStock());
+    response.addProperty("loadedTotal", result.loadedTotal());
+    response.addProperty("soldTotal", result.soldTotal());
+    response.addProperty("status", result.status());
+    return response;
+  }
+
   private void withServiceHandling(HttpExchange exchange, CheckedRunnable runnable) throws IOException {
     try {
       runnable.run();
@@ -6916,7 +6998,10 @@ class EmbeddedWebServer {
         case "auth_required", "auth_invalid" -> 401;
         case "forbidden", "not_admin" -> 403;
         case "player_offline", "player_state_changed", "inventory_changed",
-            "operation_pending", "product_conflict", "offline_official_capture_disabled" -> 409;
+            "operation_pending", "product_conflict", "offline_official_capture_disabled",
+            "supply_reconciliation_conflict", "supply_refresh_busy",
+            "supply_compatibility_domain" -> 409;
+        case "supply_outcome_unknown", "supply_unavailable" -> 503;
         default -> 400;
       };
       sendJson(exchange, status, errorJson(exception.code(), exception.getMessage()));

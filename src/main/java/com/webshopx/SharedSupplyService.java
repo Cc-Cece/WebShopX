@@ -89,6 +89,7 @@ public final class SharedSupplyService {
   }
 
   public SupplyRefreshResult refresh(long listingId, long requestedBy, String requestedOperationId) {
+    recoverStaleOperations();
     SupplyListing listing = readListing(listingId);
     if (listing.sellerUserId() != requestedBy) {
       throw new ServiceException("forbidden", "Only the supply listing owner can refresh it");
@@ -146,6 +147,7 @@ public final class SharedSupplyService {
 
   /** Replays a platform-side durable result without issuing another withdrawal. */
   public SupplyRefreshResult reconcileUnknown(String operationId, long requestedBy) {
+    recoverStaleOperations();
     SupplyOperation operation = readOperation(normalizeOperationId(operationId));
     if (operation.requestedBy() != requestedBy) {
       throw new ServiceException("forbidden", "Only the supply listing owner can reconcile it");
@@ -175,6 +177,7 @@ public final class SharedSupplyService {
   /** Resolves an unknown operation from server-observed container evidence and an admin decision. */
   public SupplyRefreshResult resolveUnknown(
       String operationId, long resolvedBy, UnknownResolution resolution, int removedQuantity) {
+    recoverStaleOperations();
     SupplyOperation operation = readOperation(normalizeOperationId(operationId));
     if (!"UNKNOWN".equals(operation.state())) {
       throw new ServiceException("supply_not_unknown", "Supply operation is not unknown");
@@ -219,6 +222,7 @@ public final class SharedSupplyService {
 
   public List<UnknownOperationView> unknownOperations(int requestedLimit) {
     int limit = Math.max(1, Math.min(requestedLimit, 200));
+    recoverStaleOperations();
     return database.withConnection(connection -> {
       try (PreparedStatement statement = connection.prepareStatement(
           "SELECT o.operation_id,o.listing_id,o.requested_by,u.username,o.expected_version,"
@@ -474,9 +478,15 @@ public final class SharedSupplyService {
                 "supply_evidence_missing", "Supply operation predates durable reconciliation evidence");
           }
           String resultJson = result.getString(7);
+          String expectedVersion = result.getString(5);
+          if (expectedVersion != null && expectedVersion.startsWith("paper:")) {
+            throw new ServiceException(
+                "supply_compatibility_domain",
+                "This supply operation must be reconciled on its Paper node");
+          }
           return new SupplyOperation(
               result.getString(1), result.getLong(2), result.getLong(3), result.getString(4),
-              Long.parseUnsignedLong(result.getString(5)), result.getInt(6), result.getInt(8),
+              Long.parseUnsignedLong(expectedVersion), result.getInt(6), result.getInt(8),
               resultJson == null || resultJson.isBlank()
                   ? null : gson.fromJson(resultJson, SupplyRefreshResult.class));
         }
@@ -567,6 +577,23 @@ public final class SharedSupplyService {
           }
           return null;
         });
+  }
+
+  private void recoverStaleOperations() {
+    database.inTransaction(connection -> {
+      try (PreparedStatement stale = connection.prepareStatement(
+          "UPDATE market_supply_operations SET state='UNKNOWN',"
+              + "error_message='supply lease expired before a durable outcome was recorded',"
+              + "updated_at=CURRENT_TIMESTAMP WHERE state='PENDING' AND listing_id IN "
+              + "(SELECT listing_id FROM market_supply_leases WHERE lease_until<CURRENT_TIMESTAMP)")) {
+        stale.executeUpdate();
+      }
+      try (PreparedStatement expired = connection.prepareStatement(
+          "DELETE FROM market_supply_leases WHERE lease_until<CURRENT_TIMESTAMP")) {
+        expired.executeUpdate();
+      }
+      return null;
+    });
   }
 
   private void releaseFailed(String operationId, String error) {
