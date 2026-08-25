@@ -2,6 +2,7 @@ package com.webshopx;
 
 import com.tchristofferson.configupdater.ConfigUpdater;
 import com.webshopx.loader.LoaderRuntime;
+import net.kyori.adventure.key.Key;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -85,7 +86,7 @@ public class WebShopPlugin extends JavaPlugin {
 
   @Override
   public void onEnable() {
-    LoaderRuntime.start("paper", getServer().getMinecraftVersion(), getServer().getVersion());
+    LoaderRuntime.start(platformFamily(), getServer().getMinecraftVersion(), getServer().getVersion());
     refreshMainConfig();
     schedulerBridge = SchedulerBridge.create(this);
     relaySetupService = new RelaySetupService(this, schedulerBridge);
@@ -338,6 +339,22 @@ public class WebShopPlugin extends JavaPlugin {
       businessLedgerLogService.close();
     }
     LoaderRuntime.stop();
+  }
+
+  /** Uses Paper's brand contract so Folia identity is not inferred from scheduler class presence. */
+  private String platformFamily() {
+    try {
+      Class<?> buildInfoType = Class.forName("io.papermc.paper.ServerBuildInfo");
+      Object buildInfo = buildInfoType.getMethod("buildInfo").invoke(null);
+      Object compatible =
+          buildInfoType
+              .getMethod("isBrandCompatible", Key.class)
+              .invoke(buildInfo, Key.key("papermc", "folia"));
+      if (Boolean.TRUE.equals(compatible)) return "folia";
+    } catch (ReflectiveOperationException | LinkageError ignored) {
+      // Spigot-compatible runtimes do not expose Paper's brand contract.
+    }
+    return "paper";
   }
 
   private static WalletService.ExchangePolicy walletExchangePolicy(PluginSettings settings) {

@@ -149,6 +149,109 @@ jobs:
           if-no-files-found: error
           path: build/required-checks/*.check.json
 
+  paper-folia-real-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          repository: Cc-Cece/webshopx-vuetify-web
+          ref: a7a627bb49af1288003fa50a910d0851346b390f
+          path: .frontend/webshopx-web
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: .frontend/webshopx-web/pnpm-lock.yaml
+      - name: Install pinned frontend dependencies
+        working-directory: .frontend/webshopx-web
+        run: pnpm install --frozen-lockfile
+      - name: Install pinned automated player dependencies
+        working-directory: docs/mod-migration/tools/minecraft-client
+        run: npm ci --ignore-scripts --no-fund && npm audit --omit=dev --audit-level=moderate
+      - uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/webshopx-mcc-player
+          key: mcc-player-20260704-478-${{ runner.os }}-${{ runner.arch }}
+      - name: Prepare pinned Minecraft console client
+        shell: pwsh
+        run: |
+          $prepared = & docs/mod-migration/tools/prepare-mcc-player.ps1 `
+            -WorkingDirectory (Join-Path $env:RUNNER_TEMP 'webshopx-mcc-player') |
+            ConvertFrom-Json
+          "WEBSHOPX_MCC_PLAYER=$($prepared.executable)" >> $env:GITHUB_ENV
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Build pinned Paper and Folia plugin variants
+        run: ./gradlew shadowJar fullFoliaJar --stacktrace
+      - name: Run real Paper and Folia first-start, player and restart checks
+        shell: pwsh
+        run: |
+          $root = (Join-Path $PWD 'build/paper-folia-server')
+          $paperServer = & docs/mod-migration/tools/prepare-paper-server.ps1 `
+            -Project paper -Minecraft '1.20.6' -Build 151 `
+            -Sha256 '4b011f5adb5f6c72007686a223174fce82f31aeb4b34faf4652abc840b47e640' `
+            -WorkingDirectory (Join-Path $root 'paper') | ConvertFrom-Json
+          $foliaServer = & docs/mod-migration/tools/prepare-paper-server.ps1 `
+            -Project folia -Minecraft '1.20.6' -Build 6 `
+            -Sha256 'a30625d8824b03aae64898b001b46bdc4424b0e5caee1a370af7b444d8ec361a' `
+            -WorkingDirectory (Join-Path $root 'folia') | ConvertFrom-Json
+          $paperPlugin = Get-ChildItem build/libs -Filter '*-full-1.20.6+.jar' | Select-Object -First 1
+          $foliaPlugin = Get-ChildItem build/libs -Filter '*-full-folia-1.19.4+.jar' | Select-Object -First 1
+          if (-not $paperPlugin -or -not $foliaPlugin) { throw 'Pinned Paper/Folia variants were not built' }
+          $common = @{
+            Java = (Get-Command java).Source
+            ExpectedMinecraft = '1.20.6'
+            Node = (Get-Command node).Source
+            PlayerClientScript = (Resolve-Path 'docs/mod-migration/tools/minecraft-client/player-probe.mjs').Path
+            MccExecutable = $env:WEBSHOPX_MCC_PLAYER
+          }
+          $paper = & docs/mod-migration/tools/paper-server-smoke.ps1 @common `
+            -ServerJar $paperServer.serverJar -PluginJar $paperPlugin.FullName `
+            -ExpectedPlatform paper -WorkingDirectory (Join-Path $root 'paper') | ConvertFrom-Json
+          $folia = & docs/mod-migration/tools/paper-server-smoke.ps1 @common `
+            -ServerJar $foliaServer.serverJar -PluginJar $foliaPlugin.FullName `
+            -ExpectedPlatform folia -WorkingDirectory (Join-Path $root 'folia') | ConvertFrom-Json
+          [ordered]@{
+            status = 'passed'
+            servers = @($paperServer, $foliaServer)
+            results = @($paper, $folia)
+          } | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $root 'paper-folia-evidence.json') -Encoding utf8
+      - name: Freeze Paper/Folia evidence
+        shell: pwsh
+        run: |
+          & docs/mod-migration/tools/write-check-evidence.ps1 `
+            -Id 'paper-folia-real-server' -SourceCommit '${{ github.sha }}' `
+            -Environment 'ubuntu-latest/paper-1.20.6-151/folia-1.20.6-6/java-21/real-MCC' `
+            -EvidencePath @(
+              'build/paper-folia-server/paper-folia-evidence.json',
+              'build/paper-folia-server/paper/logs/latest.log',
+              'build/paper-folia-server/folia/logs/latest.log') `
+            -OutputFile 'build/required-checks/paper-folia-real-server.check.json'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: paper-folia-real-server-evidence-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            build/required-checks/*.check.json
+            build/paper-folia-server/paper-folia-evidence.json
+            build/paper-folia-server/paper/console-*.log
+            build/paper-folia-server/paper/player-*.json
+            build/paper-folia-server/paper/player-*-mcc*.log
+            build/paper-folia-server/paper/logs/latest.log
+            build/paper-folia-server/folia/console-*.log
+            build/paper-folia-server/folia/player-*.json
+            build/paper-folia-server/folia/player-*-mcc*.log
+            build/paper-folia-server/folia/logs/latest.log
+
   reproducible-clean-cache:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -697,7 +800,7 @@ jobs:
             build/required-checks/*.check.json
 
   rc-readiness:
-    needs: [contracts-and-artifacts, paper-regression, reproducible-clean-cache, database-and-redis, database-mysql, dedicated-server-matrix, codeql, frontend-quality, browser-acceptance]
+    needs: [contracts-and-artifacts, paper-regression, paper-folia-real-server, reproducible-clean-cache, database-and-redis, database-mysql, dedicated-server-matrix, codeql, frontend-quality, browser-acceptance]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
