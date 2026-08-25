@@ -13,6 +13,7 @@ import com.webshopx.payment.api.PaymentMethod;
 import com.webshopx.payment.api.PaymentConfigUpdateRequest;
 import com.webshopx.payment.api.PaymentConfigUpdateResult;
 import com.webshopx.core.SharedRouteContract;
+import com.webshopx.loader.LoaderRuntime;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -379,8 +380,14 @@ class EmbeddedWebServer {
       return;
     }
     JsonObject response = new JsonObject();
-    response.addProperty("status", "ok");
+    response.addProperty("status", "UP");
     response.addProperty("time", LocalDateTime.now().toString());
+    LoaderRuntime.active().ifPresent(runtime -> {
+      response.add("platform", gson.toJsonTree(runtime.platform().identity()));
+      response.add("capabilities", gson.toJsonTree(Map.of(
+          "capturedAt", runtime.platform().capabilities().capturedAt().toString(),
+          "states", runtime.platform().capabilities().states())));
+    });
     sendJson(exchange, 200, response);
   }
 
