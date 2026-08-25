@@ -683,13 +683,82 @@ class MarketService {
       ItemStack templateItem,
       long price,
       CurrencyType currency) {
+    return createSupplyListingFromTemplate(
+        player, sourceDescriptor, templateItem, price, currency, 0, 0);
+  }
+
+  ListingCreateResult createSupplyListingFromInspection(
+      Player player,
+      SupplySourceDescriptor sourceDescriptor,
+      String expectedItemHash,
+      long price,
+      CurrencyType currency,
+      int transferBatchSize,
+      int transitMaxStock) {
+    if (expectedItemHash == null || expectedItemHash.isBlank()) {
+      throw new ServiceException("supply_item_missing", "Inspect and select a supply item first");
+    }
+    validateSupplyDistance(player, sourceDescriptor);
+    SupplySource source = supplySource(sourceDescriptor);
+    ItemStack template = runOnLocation(source, () -> {
+      Container container = resolveContainer(source);
+      for (ItemStack stack : container.getInventory().getContents()) {
+        if (stack == null || stack.getType() == Material.AIR) continue;
+        ItemStack unit = stack.clone();
+        unit.setAmount(1);
+        if (itemSnapshotCodec.serialize(unit).itemHash().equals(expectedItemHash)) return unit;
+      }
+      throw new ServiceException(
+          "supply_item_changed", "Supply item changed; inspect the container again");
+    });
+    return createSupplyListingFromTemplate(
+        player, sourceDescriptor, template, price, currency, transferBatchSize, transitMaxStock);
+  }
+
+  SupplyInspection inspectSupplySource(Player player, SupplySourceDescriptor sourceDescriptor) {
+    validateSupplyDistance(player, sourceDescriptor);
+    SupplySource source = supplySource(sourceDescriptor);
+    return runOnLocation(source, () -> {
+      Container container = resolveContainer(source);
+      List<SupplyInspectionItem> items = new ArrayList<>();
+      StringBuilder version = new StringBuilder();
+      ItemStack[] contents = container.getInventory().getContents();
+      for (int slot = 0; slot < contents.length; slot++) {
+        ItemStack stack = contents[slot];
+        if (stack == null || stack.getType() == Material.AIR) {
+          version.append(slot).append(":-;");
+          continue;
+        }
+        ItemStack unit = stack.clone();
+        unit.setAmount(1);
+        ItemSnapshotCodec.Snapshot snapshot = itemSnapshotCodec.serialize(unit);
+        String registryId = stack.getType().getKey().toString();
+        items.add(new SupplyInspectionItem(
+            registryId, stack.getAmount(), snapshot.itemHash()));
+        version.append(slot).append(':').append(snapshot.itemHash()).append(':')
+            .append(stack.getAmount()).append(';');
+      }
+      return new SupplyInspection(
+          ItemSnapshotCodec.sha256Hex(version.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+          List.copyOf(items));
+    });
+  }
+
+  private ListingCreateResult createSupplyListingFromTemplate(
+      Player player,
+      SupplySourceDescriptor sourceDescriptor,
+      ItemStack templateItem,
+      long price,
+      CurrencyType currency,
+      int transferBatchSize,
+      int transitMaxStock) {
     if (sourceDescriptor == null) {
       throw new ServiceException("supply_missing", "Supply container is unavailable");
     }
     if (templateItem == null || templateItem.getType() == Material.AIR) {
       throw new ServiceException("invalid_item", "No valid item was detected.");
     }
-    SupplyConfig normalizedSupply = normalizeSupplyConfig(0, 0);
+    SupplyConfig normalizedSupply = normalizeSupplyConfig(transferBatchSize, transitMaxStock);
     ItemStack template = templateItem.clone();
     template.setAmount(1);
     BoundUser seller = databaseManager.withConnection(connection ->
@@ -847,6 +916,30 @@ class MarketService {
   SupplySourceDescriptor describeSupplySource(Block targetBlock) {
     SupplySource source = resolveSupplySource(targetBlock);
     return new SupplySourceDescriptor(source.worldName(), source.x(), source.y(), source.z());
+  }
+
+  private SupplySource supplySource(SupplySourceDescriptor descriptor) {
+    if (descriptor == null || descriptor.worldName() == null || descriptor.worldName().isBlank()) {
+      throw new ServiceException("supply_missing", "Supply container is unavailable");
+    }
+    return new SupplySource(descriptor.worldName(), descriptor.x(), descriptor.y(), descriptor.z());
+  }
+
+  private void validateSupplyDistance(Player player, SupplySourceDescriptor descriptor) {
+    if (player == null || !player.isOnline()) {
+      throw new ServiceException("player_offline", "Player must be online to inspect supply");
+    }
+    SupplySource source = supplySource(descriptor);
+    Location location = player.getLocation();
+    if (!location.getWorld().getName().equals(source.worldName())) {
+      throw new ServiceException("supply_inspection_denied", "Stand near the supply container");
+    }
+    double dx = location.getX() - (source.x() + 0.5D);
+    double dy = location.getY() - (source.y() + 0.5D);
+    double dz = location.getZ() - (source.z() + 0.5D);
+    if (dx * dx + dy * dy + dz * dz > 64D) {
+      throw new ServiceException("supply_inspection_denied", "Stand near the supply container");
+    }
   }
 
   List<ListingView> listListings(ListingQuery query) {
@@ -6454,6 +6547,12 @@ class MarketService {
   }
 
   record SupplySourceDescriptor(String worldName, int x, int y, int z) {
+  }
+
+  record SupplyInspection(String version, List<SupplyInspectionItem> items) {
+  }
+
+  record SupplyInspectionItem(String registryId, int count, String payloadHash) {
   }
 
   private record SupplyRefreshState(SupplyRefreshResult result, MarketListing listing) {

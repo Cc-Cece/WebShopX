@@ -69,6 +69,7 @@ public final class SharedRouteContract {
           "/api/market/resume",
           "/api/market/sell-to-buy",
           "/api/market/settings",
+          "/api/market/supply/inspect",
           "/api/market/supply/refresh",
           "/api/market/unlist",
           "/api/admin/auth/login",

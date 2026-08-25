@@ -252,6 +252,7 @@ class EmbeddedWebServer {
     register("/api/market/settings", this::handleMarketSettings);
     register("/api/market/icon/upload", this::handleMarketIconUpload);
     register("/api/market/supply/refresh", this::handleMarketSupplyRefresh);
+    register("/api/market/supply/inspect", this::handleMarketSupplyInspect);
     register("/api/inventory/snapshot", this::handleInventorySnapshot);
     register("/api/inventory/list", this::handleInventoryList);
     register("/api/inventory/matches", this::handleInventoryMatches);
@@ -2092,6 +2093,25 @@ class EmbeddedWebServer {
             quantity,
             currency,
             selectedTags);
+      } else if ("SUPPLY".equalsIgnoreCase(
+          getOptionalString(payload, "sourceMode").orElse("MANUAL"))) {
+        if (!tradeMode.equals("DIRECT")) {
+          throw new ServiceException("invalid_trade_mode", "SELL listing creation currently supports DIRECT only");
+        }
+        result = awaitPlayerTask(
+            user.boundUuid(),
+            player -> marketService.createSupplyListingFromInspection(
+                player,
+                new MarketService.SupplySourceDescriptor(
+                    getString(payload, "supplyWorld"),
+                    (int) getLong(payload, "supplyX", Integer.MIN_VALUE),
+                    (int) getLong(payload, "supplyY", Integer.MIN_VALUE),
+                    (int) getLong(payload, "supplyZ", Integer.MIN_VALUE)),
+                getString(payload, "expectedPayloadHash"),
+                price,
+                currency,
+                (int) getLong(payload, "supplyBatchSize", 16L),
+                (int) getLong(payload, "supplyMaxStock", 64L)));
       } else {
         if (!tradeMode.equals("DIRECT")) {
           throw new ServiceException("invalid_trade_mode", "SELL listing creation currently supports DIRECT only");
@@ -2866,6 +2886,31 @@ class EmbeddedWebServer {
       response.addProperty("soldTotal", result.soldTotal());
       response.addProperty("status", result.status());
       sendJson(exchange, 200, response);
+    });
+  }
+
+  private void handleMarketSupplyInspect(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange)) return;
+    if (!ensureMethod(exchange, "GET")) return;
+    withServiceHandling(exchange, () -> {
+      AuthService.AuthUser user = requireAuth(exchange, null);
+      if (user.boundUuid() == null) {
+        throw new ServiceException("not_bound", "User is not bound");
+      }
+      Map<String, String> query = parseQuery(exchange);
+      String world = query.get("world");
+      int x = parseInt(query.get("x"), Integer.MIN_VALUE);
+      int y = parseInt(query.get("y"), Integer.MIN_VALUE);
+      int z = parseInt(query.get("z"), Integer.MIN_VALUE);
+      if (world == null || world.isBlank()
+          || x == Integer.MIN_VALUE || y == Integer.MIN_VALUE || z == Integer.MIN_VALUE) {
+        throw new ServiceException("bad_request", "Supply coordinates are required");
+      }
+      MarketService.SupplyInspection inspection = awaitPlayerTask(
+          user.boundUuid(),
+          player -> marketService.inspectSupplySource(
+              player, new MarketService.SupplySourceDescriptor(world, x, y, z)));
+      sendJson(exchange, 200, gson.toJsonTree(inspection).getAsJsonObject());
     });
   }
 
