@@ -278,7 +278,35 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
         || !"ITEM_CODEC_UNKNOWN".equals(codecFailure.errorCode())) {
       return "codec_rejection_failed";
     }
-    return "PASS(" + passed + ",domain,hash,codec)";
+    PlatformResult<ItemEnvelope> missingRegistry =
+        createEnvelope("webshopx_fixture:missing_item", 1);
+    if (!(missingRegistry instanceof PlatformResult.Rejected<ItemEnvelope>)) {
+      return "unknown_registry_rejection_failed";
+    }
+    String malicious = "{a:".repeat(MAX_SNBT_DEPTH + 1) + "0" + "}".repeat(MAX_SNBT_DEPTH + 1);
+    byte[] maliciousPayload = malicious.getBytes(StandardCharsets.UTF_8);
+    ItemEnvelope deeplyNested = copy(
+        reference,
+        maliciousPayload,
+        ItemEnvelopeService.sha256(maliciousPayload),
+        domain(),
+        reference.codec());
+    if (!(decode(deeplyNested, domain()) instanceof PlatformResult.Rejected<Object> malformed)
+        || !"ITEM_PAYLOAD_MALFORMED".equals(malformed.errorCode())) {
+      return "malicious_payload_rejection_failed";
+    }
+    byte[] oversizedPayload = new byte[MAX_NATIVE_PAYLOAD_BYTES + 1];
+    ItemEnvelope oversized = copy(
+        reference,
+        oversizedPayload,
+        ItemEnvelopeService.sha256(oversizedPayload),
+        domain(),
+        reference.codec());
+    if (!(decode(oversized, domain()) instanceof PlatformResult.Rejected<Object> tooLarge)
+        || !"ITEM_PAYLOAD_TOO_LARGE".equals(tooLarge.errorCode())) {
+      return "oversized_payload_rejection_failed";
+    }
+    return "PASS(" + passed + ",domain,hash,codec,registry,malicious,oversized)";
   }
 
   private static ItemEnvelope copy(ItemEnvelope source, byte[] payload, String hash,
