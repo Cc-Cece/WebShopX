@@ -175,6 +175,15 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
     return result;
   }
 
+  @Override
+  public CompletionStage<PlatformResult<InventoryMutationResult>> operationResult(
+      String operationId) {
+    Optional<InventoryMutationResult> completedOperation = completedResult(operationId);
+    return CompletableFuture.completedFuture(
+        completedOperation.<PlatformResult<InventoryMutationResult>>map(PlatformResult::success)
+            .orElseGet(() -> new PlatformResult.UnknownOutcome<>(operationId, true)));
+  }
+
   private PlatformResult<InventoryMutationResult> applyOnServerThread(
       InventoryMutation mutation, Object player) {
     boolean mutated = false;

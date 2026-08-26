@@ -31,6 +31,8 @@ import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.CompatibilityDomain;
 import com.webshopx.platform.ItemEnvelope;
 import com.webshopx.platform.InventoryTypes.InventoryMutation;
+import com.webshopx.platform.InventoryTypes.InventoryRemoval;
+import com.webshopx.platform.InventoryTypes.InventorySnapshot;
 import com.webshopx.platform.PlatformIdentity;
 import com.webshopx.platform.PlatformResult;
 import com.webshopx.platform.SupplyInventoryGateway;
@@ -2038,6 +2040,53 @@ class SharedHttpApiTest {
             .getAsJsonObject("item")
             .get("amount")
             .getAsInt());
+  }
+
+  @Test
+  void reconcilesPersistedNativeInventoryResultWithoutApplyingItTwice() throws Exception {
+    String token = JsonParser.parseString(
+            post("/api/auth/login",
+                "{\"identifier\":\"ApiPlayer\",\"password\":\"api-secret\"}", null, null)
+                .body())
+        .getAsJsonObject().get("token").getAsString();
+    InventorySnapshot before = ((PlatformResult.Success<InventorySnapshot>)
+        inventories.snapshot(player, false).toCompletableFuture().join()).value();
+    ItemEnvelope selected = before.items().get(0);
+    String key = "interrupted-discard";
+    String requestJson = "{\"userId\":" + playerUserId + ",\"playerId\":\"" + player
+        + "\",\"quantity\":2,\"idempotencyKey\":\"" + key
+        + "\",\"expectedPayloadHash\":\"" + selected.payloadHash()
+        + "\",\"allowOffline\":true}";
+    database.inTransaction(connection -> {
+      try (var statement = connection.prepareStatement(
+          "INSERT INTO inventory_operations (user_id,idempotency_key,action,state,slot_index,"
+              + "item_fingerprint,quantity,result_json) VALUES (?,?,'INVENTORY_DISCARD',"
+              + "'PENDING',-1,?,?,?)")) {
+        statement.setLong(1, playerUserId);
+        statement.setString(2, key);
+        statement.setString(3, selected.payloadHash());
+        statement.setInt(4, 2);
+        statement.setString(5, requestJson);
+        statement.executeUpdate();
+      }
+      return null;
+    });
+    inventories.compareAndApply(new InventoryMutation(
+            "inventory-discard:" + playerUserId + ":" + key,
+            player, before.version(), List.of(), List.of(new InventoryRemoval(selected, 2))))
+        .toCompletableFuture().join();
+
+    HttpResponse<String> reconciled = post(
+        "/api/inventory/reconcile", "{\"idempotencyKey\":\"" + key + "\"}", token, null);
+    assertEquals(200, reconciled.statusCode(), reconciled.body());
+    assertEquals("SUCCESS", JsonParser.parseString(reconciled.body()).getAsJsonObject()
+        .get("state").getAsString());
+    assertEquals(3, ((PlatformResult.Success<InventorySnapshot>)
+        inventories.snapshot(player, false).toCompletableFuture().join()).value()
+        .items().get(0).count());
+    assertEquals(200, post(
+        "/api/inventory/reconcile", "{\"idempotencyKey\":\"" + key + "\"}", token, null)
+        .statusCode());
   }
 
   @Test

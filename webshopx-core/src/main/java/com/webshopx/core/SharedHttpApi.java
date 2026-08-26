@@ -495,6 +495,13 @@ public final class SharedHttpApi implements AutoCloseable {
                     requiredString(input, "idempotencyKey"),
                     requiredString(input, "fingerprint"),
                     true)));
+      } else if (path.equals("/api/inventory/reconcile") && method(exchange, "POST")) {
+        var current = boundUser(exchange);
+        JsonObject input = body(exchange);
+        respond(
+            exchange,
+            200,
+            marketEscrow.reconcile(current.id(), requiredString(input, "idempotencyKey")));
       } else if (path.equals("/api/inventory/matches") && method(exchange, "POST")) {
         var current = boundUser(exchange);
         JsonObject input = body(exchange);
@@ -2082,6 +2089,32 @@ public final class SharedHttpApi implements AutoCloseable {
         audit.log(actor, "MARKET_SUPPLY_UNKNOWN_LIST", "supply_operation", null, null,
             clientIp(exchange));
         respond(exchange, 200, Map.of("operations", operations));
+      } else if (path.equals("/api/admin/inventory/unknown") && method(exchange, "GET")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.MARKET_MANAGE);
+        var operations = marketEscrow.pendingOperations(queryInt(exchange, "limit", 100));
+        audit.log(
+            actor,
+            "INVENTORY_UNKNOWN_LIST",
+            "inventory_operation",
+            null,
+            null,
+            clientIp(exchange));
+        respond(exchange, 200, Map.of("operations", operations));
+      } else if (path.equals("/api/admin/inventory/reconcile")
+          && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.MARKET_MANAGE);
+        long targetUserId = requiredLong(input, "userId");
+        String idempotencyKey = requiredString(input, "idempotencyKey");
+        var result = marketEscrow.reconcile(targetUserId, idempotencyKey);
+        audit.log(
+            actor,
+            "INVENTORY_RECONCILE",
+            "inventory_operation",
+            targetUserId + ":" + idempotencyKey,
+            input,
+            clientIp(exchange));
+        respond(exchange, 200, result);
       } else if (path.equals("/api/admin/market/supply/reconcile")
           && method(exchange, "POST")) {
         JsonObject input = body(exchange);

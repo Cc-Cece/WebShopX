@@ -47,6 +47,11 @@ public final class PlatformPorts {
   public interface InventoryGateway {
     CompletionStage<PlatformResult<InventorySnapshot>> snapshot(UUID playerId, boolean allowOffline);
     CompletionStage<PlatformResult<InventoryMutationResult>> compareAndApply(InventoryMutation mutation);
+    default CompletionStage<PlatformResult<InventoryMutationResult>> operationResult(
+        String operationId) {
+      return java.util.concurrent.CompletableFuture.completedFuture(
+          new PlatformResult.UnknownOutcome<>(operationId, true));
+    }
   }
 
   public interface ItemCodec<N> {

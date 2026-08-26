@@ -75,6 +75,16 @@ public final class InMemoryInventoryGateway implements PlatformPorts.InventoryGa
     return CompletableFuture.completedFuture(PlatformResult.success(result));
   }
 
+  @Override
+  public synchronized CompletionStage<PlatformResult<InventoryMutationResult>> operationResult(
+      String operationId) {
+    InventoryMutationResult result = completed.get(operationId);
+    return CompletableFuture.completedFuture(
+        result == null
+            ? new PlatformResult.UnknownOutcome<>(operationId, true)
+            : PlatformResult.success(result));
+  }
+
   private InventorySnapshot snapshotOf(UUID id, State state) {
     List<ItemEnvelope> indexed = new ArrayList<>();
     for (int index = 0; index < state.items.size(); index++) {

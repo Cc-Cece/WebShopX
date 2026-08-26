@@ -13,6 +13,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -103,6 +104,60 @@ public final class SharedMarketEscrowService {
       if (!"inventory_unavailable".equals(failure.code())) throw failure;
       return new InventoryView(snapshot(playerId, true), false);
     }
+  }
+
+  public ReconciliationOutcome reconcile(long userId, String idempotencyKey) {
+    validateKeyAndQuantity(idempotencyKey, 1);
+    Existing existing = find(userId, idempotencyKey);
+    if (existing == null) {
+      throw new ServiceException("inventory_operation_not_found", "Inventory operation was not found");
+    }
+    if (!"PENDING".equals(existing.state())) {
+      return new ReconciliationOutcome(
+          existing.action(), existing.state(), existing.referenceId(), existing.errorCode());
+    }
+    String operationId = nativeOperationId(existing.action(), userId, idempotencyKey);
+    PlatformResult<InventoryMutationResult> nativeResult;
+    try {
+      nativeResult = inventories.operationResult(operationId).toCompletableFuture()
+          .get(INVENTORY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    } catch (Exception failure) {
+      throw new ServiceException(
+          "inventory_outcome_unknown", "Inventory operation requires reconciliation");
+    }
+    if (!(nativeResult instanceof PlatformResult.Success<InventoryMutationResult> success)) {
+      throw new ServiceException(
+          "inventory_outcome_unknown", "Inventory operation requires reconciliation");
+    }
+    ItemEnvelope removed = verifiedRemoved(existing, success.value());
+    return switch (existing.action()) {
+      case "MARKET_LIST" -> reconcileListing(existing, removed);
+      case "INVENTORY_DISCARD" -> reconcileDiscard(existing);
+      case "MARKET_FULFILL" -> reconcileFulfill(existing, removed);
+      case "OFFICIAL_RECYCLE" -> reconcileRecycle(existing, removed);
+      default -> throw new ServiceException(
+          "inventory_reconciliation_unsupported", "Inventory operation cannot be reconciled here");
+    };
+  }
+
+  public List<PendingOperation> pendingOperations(int requestedLimit) {
+    int limit = Math.max(1, Math.min(requestedLimit, 500));
+    return database.withConnection(connection -> {
+      List<PendingOperation> operations = new ArrayList<>();
+      try (PreparedStatement statement = connection.prepareStatement(
+          "SELECT id,user_id,idempotency_key,action,item_fingerprint,quantity,created_at "
+              + "FROM inventory_operations WHERE state='PENDING' ORDER BY created_at LIMIT ?")) {
+        statement.setInt(1, limit);
+        try (ResultSet rows = statement.executeQuery()) {
+          while (rows.next()) {
+            operations.add(new PendingOperation(
+                rows.getLong(1), rows.getLong(2), rows.getString(3), rows.getString(4),
+                rows.getString(5), rows.getInt(6), rows.getString(7)));
+          }
+        }
+      }
+      return List.copyOf(operations);
+    });
   }
 
   public ItemEnvelope captureTemplate(
@@ -927,6 +982,8 @@ public final class SharedMarketEscrowService {
               if (!rows.next()) return null;
               Object reference = rows.getObject(3);
               return new Existing(
+                  userId,
+                  key,
                   rows.getString(1),
                   rows.getString(2),
                   reference instanceof Number number ? number.longValue() : null,
@@ -1026,6 +1083,108 @@ public final class SharedMarketEscrowService {
         "inventory_outcome_unknown", "Recycle operation requires reconciliation");
   }
 
+  private ReconciliationOutcome reconcileListing(Existing existing, ItemEnvelope removed) {
+    Request request = original(existing, Request.class);
+    verifyOriginal(existing, request.userId(), request.idempotencyKey());
+    SharedCommerceService.Listing listing = database.inTransaction(connection -> {
+      SharedCommerceService.Listing created = commerce.createListing(
+          connection,
+          new SharedCommerceService.ListingRequest(
+              request.userId(), request.playerId(), request.currency(), request.price(),
+              request.quantity(), removed, request.remark()));
+      complete(connection, request, created.id(), gson.toJson(created));
+      return created;
+    });
+    return new ReconciliationOutcome("MARKET_LIST", "SUCCESS", listing.id(), null);
+  }
+
+  private ReconciliationOutcome reconcileDiscard(Existing existing) {
+    DiscardRequest request = original(existing, DiscardRequest.class);
+    verifyOriginal(existing, request.userId(), request.idempotencyKey());
+    DiscardResult result = new DiscardResult("SUCCESS", request.quantity(), "refresh-required");
+    database.inTransaction(connection -> {
+      completeDiscard(connection, request, gson.toJson(result));
+      return null;
+    });
+    return new ReconciliationOutcome("INVENTORY_DISCARD", "SUCCESS", 0L, null);
+  }
+
+  private ReconciliationOutcome reconcileFulfill(Existing existing, ItemEnvelope removed) {
+    FulfillRequest request = original(existing, FulfillRequest.class);
+    verifyOriginal(existing, request.userId(), request.idempotencyKey());
+    SharedCommerceService.MarketTrade trade = database.inTransaction(connection -> {
+      SharedCommerceService.MarketTrade created = commerce.fulfillBuyListing(
+          connection,
+          new SharedCommerceService.MarketFulfillRequest(
+              request.userId(), request.playerId(), request.listingId(), request.quantity(),
+              request.idempotencyKey(), request.expectedUnitPrice(), request.expectedBuyerTotal()),
+          removed);
+      completeFulfill(connection, request, created.id(), gson.toJson(created));
+      return created;
+    });
+    return new ReconciliationOutcome("MARKET_FULFILL", "SUCCESS", trade.id(), null);
+  }
+
+  private ReconciliationOutcome reconcileRecycle(Existing existing, ItemEnvelope removed) {
+    RecycleRequest request = original(existing, RecycleRequest.class);
+    verifyOriginal(existing, request.userId(), request.idempotencyKey());
+    SharedCommerceService.OfficialRecycleResult result = database.inTransaction(connection -> {
+      SharedCommerceService.OfficialRecycleResult completed = commerce.completeOfficialRecycle(
+          connection, request.userId(), request.playerId(), request.productId(), removed,
+          request.quantity(), request.idempotencyKey());
+      completeRecycle(connection, request, completed, gson.toJson(completed));
+      return completed;
+    });
+    return new ReconciliationOutcome("OFFICIAL_RECYCLE", "SUCCESS", result.orderId(), null);
+  }
+
+  private <T> T original(Existing existing, Class<T> type) {
+    try {
+      T request = gson.fromJson(existing.resultJson(), type);
+      if (request == null) throw new IllegalArgumentException("missing request");
+      return request;
+    } catch (RuntimeException invalid) {
+      throw new ServiceException(
+          "inventory_reconciliation_invalid", "Stored inventory request is invalid");
+    }
+  }
+
+  private static void verifyOriginal(Existing existing, long userId, String idempotencyKey) {
+    if (existing.userId() != userId || !existing.idempotencyKey().equals(idempotencyKey)) {
+      throw new ServiceException(
+          "inventory_reconciliation_invalid", "Stored inventory request identity is invalid");
+    }
+  }
+
+  private static ItemEnvelope verifiedRemoved(
+      Existing existing, InventoryMutationResult result) {
+    if (!result.inserted().isEmpty()
+        || !result.remainder().isEmpty()
+        || result.removed().size() != 1) {
+      throw new ServiceException(
+          "inventory_reconciliation_mismatch", "Native inventory result does not match request");
+    }
+    ItemEnvelope removed = result.removed().get(0);
+    if (removed.count() != existing.quantity()
+        || !removed.payloadHash().equals(existing.itemFingerprint())) {
+      throw new ServiceException(
+          "inventory_reconciliation_mismatch", "Native inventory result does not match request");
+    }
+    return removed;
+  }
+
+  private static String nativeOperationId(String action, long userId, String idempotencyKey) {
+    String prefix = switch (action) {
+      case "MARKET_LIST" -> "market-listing:";
+      case "INVENTORY_DISCARD" -> "inventory-discard:";
+      case "MARKET_FULFILL" -> "market-fulfill:";
+      case "OFFICIAL_RECYCLE" -> "official-recycle:";
+      default -> throw new ServiceException(
+          "inventory_reconciliation_unsupported", "Inventory operation cannot be reconciled here");
+    };
+    return prefix + userId + ":" + idempotencyKey;
+  }
+
   private static void validate(Request request) {
     Objects.requireNonNull(request, "request");
     if (request.idempotencyKey() == null
@@ -1103,6 +1262,18 @@ public final class SharedMarketEscrowService {
 
   public record MailboxClaimResult(String entryId, int success, int failed) {}
 
+  public record ReconciliationOutcome(
+      String action, String state, Long referenceId, String errorCode) {}
+
+  public record PendingOperation(
+      long id,
+      long userId,
+      String idempotencyKey,
+      String action,
+      String itemFingerprint,
+      int quantity,
+      String createdAt) {}
+
   private record MailboxItem(
       ItemEnvelope item,
       int quantity,
@@ -1111,6 +1282,8 @@ public final class SharedMarketEscrowService {
       boolean alreadyClaimed) {}
 
   private record Existing(
+      long userId,
+      String idempotencyKey,
       String action,
       String state,
       Long referenceId,
