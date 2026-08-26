@@ -1256,6 +1256,86 @@ public final class SharedCommerceService {
     });
   }
 
+  public List<UnknownDelivery> unknownDeliveryOperations(int requestedLimit) {
+    int limit = Math.max(1, Math.min(requestedLimit, 500));
+    return database.withConnection(connection -> {
+      List<UnknownDelivery> deliveries = new ArrayList<>();
+      try (PreparedStatement statement = connection.prepareStatement(
+          "SELECT id,order_id,mc_uuid,target_server_id,delivery_kind,quantity,"
+              + "delivered_quantity,retry_count,last_error,status,claimed_at,created_at "
+              + "FROM delivery_queue WHERE status='UNKNOWN' ORDER BY created_at LIMIT ?")) {
+        statement.setInt(1, limit);
+        try (ResultSet rows = statement.executeQuery()) {
+          while (rows.next()) {
+            deliveries.add(new UnknownDelivery(
+                rows.getLong(1), rows.getLong(2), rows.getString(3), rows.getString(4),
+                rows.getString(5), rows.getInt(6), rows.getInt(7),
+                rows.getInt(8), rows.getString(9), rows.getString(10), rows.getString(11),
+                rows.getString(12)));
+          }
+        }
+      }
+      return List.copyOf(deliveries);
+    });
+  }
+
+  public UnknownDelivery resolveUnknownDelivery(
+      long deliveryId, DeliveryResolution resolution) {
+    Objects.requireNonNull(resolution, "resolution");
+    database.inTransaction(connection -> {
+      int remaining;
+      try (PreparedStatement statement = connection.prepareStatement(
+          "SELECT quantity,delivered_quantity FROM delivery_queue WHERE id=? AND status='UNKNOWN'"
+              + database.sqlProvider().forUpdateClause())) {
+        statement.setLong(1, deliveryId);
+        try (ResultSet rows = statement.executeQuery()) {
+          if (!rows.next()) {
+            throw new ServiceException("delivery_conflict", "Unknown delivery was not found");
+          }
+          remaining = rows.getInt(1) - rows.getInt(2);
+        }
+      }
+      if (remaining < 1) {
+        throw new ServiceException("delivery_conflict", "Delivery has no remaining quantity");
+      }
+      String sql = resolution == DeliveryResolution.APPLIED
+          ? "UPDATE delivery_queue SET delivered_quantity=quantity,status='DELIVERED',"
+              + "delivered_at=CURRENT_TIMESTAMP,last_error='operator_confirmed_applied' "
+              + "WHERE id=? AND status='UNKNOWN'"
+          : "UPDATE delivery_queue SET status='RETRY',next_retry_at=CURRENT_TIMESTAMP,"
+              + "last_error='operator_confirmed_not_applied' WHERE id=? AND status='UNKNOWN'";
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, deliveryId);
+        if (statement.executeUpdate() != 1) {
+          throw new ServiceException("delivery_conflict", "Delivery state changed");
+        }
+      }
+      return null;
+    });
+    return deliveryOperation(deliveryId);
+  }
+
+  private UnknownDelivery deliveryOperation(long deliveryId) {
+    return database.withConnection(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "SELECT id,order_id,mc_uuid,target_server_id,delivery_kind,quantity,"
+              + "delivered_quantity,retry_count,last_error,status,claimed_at,created_at "
+              + "FROM delivery_queue WHERE id=?")) {
+        statement.setLong(1, deliveryId);
+        try (ResultSet rows = statement.executeQuery()) {
+          if (!rows.next()) {
+            throw new ServiceException("delivery_not_found", "Delivery was not found");
+          }
+          return new UnknownDelivery(
+              rows.getLong(1), rows.getLong(2), rows.getString(3), rows.getString(4),
+              rows.getString(5), rows.getInt(6), rows.getInt(7),
+              rows.getInt(8), rows.getString(9), rows.getString(10), rows.getString(11),
+              rows.getString(12));
+        }
+      }
+    });
+  }
+
   private void transitionDelivery(long deliveryId, String status, String error) {
     String safeError = error == null ? "unspecified" : error;
     if (safeError.length() > 500) safeError = safeError.substring(0, 500);
@@ -4370,6 +4450,22 @@ public final class SharedCommerceService {
       int quantity,
       int deliveredQuantity,
       String status) {}
+
+  public enum DeliveryResolution { APPLIED, NOT_APPLIED }
+
+  public record UnknownDelivery(
+      long id,
+      long orderId,
+      String playerUuid,
+      String targetServerId,
+      String kind,
+      int quantity,
+      int deliveredQuantity,
+      int retryCount,
+      String lastError,
+      String status,
+      String claimedAt,
+      String createdAt) {}
 
   public record OrderView(
       long id,

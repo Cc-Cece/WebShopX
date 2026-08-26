@@ -182,6 +182,22 @@ class SharedCommerceServiceTest {
     commerce.markUnknownDeliveryApplied(delivery.id(), 2);
     assertTrue(commerce.unknownDeliveries(playerId, "fabric-a").isEmpty());
     assertTrue(commerce.pendingDeliveries(playerId, "fabric-a").isEmpty());
+
+    commerce.purchase(new PurchaseRequest(
+        user, playerId, product.id(), 1, "manual-purchase", "fabric-a"));
+    var manual = commerce.pendingDeliveries(playerId, "fabric-a").get(0);
+    assertTrue(commerce.claimDelivery(manual.id(), "fabric-a"));
+    commerce.markDeliveryUnknown(manual.id(), "command_outcome_unknown");
+    assertEquals(
+        "RETRY",
+        commerce.resolveUnknownDelivery(
+            manual.id(), SharedCommerceService.DeliveryResolution.NOT_APPLIED).status());
+    assertTrue(commerce.claimDelivery(manual.id(), "fabric-a"));
+    commerce.markDeliveryUnknown(manual.id(), "command_outcome_unknown");
+    assertEquals(
+        "DELIVERED",
+        commerce.resolveUnknownDelivery(
+            manual.id(), SharedCommerceService.DeliveryResolution.APPLIED).status());
   }
 
   @Test void failedPurchaseRollsBackWalletAndStock() {

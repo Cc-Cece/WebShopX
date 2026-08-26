@@ -114,6 +114,8 @@ public final class SharedRouteContract {
           "/api/admin/material-overrides/upsert",
           "/api/admin/notifications/announce",
           "/api/admin/orders/list",
+          "/api/admin/orders/deliveries/reconcile",
+          "/api/admin/orders/deliveries/unknown",
           "/api/admin/products/active",
           "/api/admin/products/from-inventory",
           "/api/admin/products/icon",

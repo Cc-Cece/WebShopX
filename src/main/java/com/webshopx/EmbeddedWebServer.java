@@ -74,6 +74,7 @@ class EmbeddedWebServer {
   private final OrderService orderService;
   private final MarketService marketService;
   private final PaperSupplyOperationService paperSupplyOperations;
+  private final SharedCommerceService sharedCommerceOperations;
   private final NotificationService notificationService;
   private final AdminService adminService;
   private final AdminAuditService adminAuditService;
@@ -161,6 +162,7 @@ class EmbeddedWebServer {
     this.orderService = orderService;
     this.marketService = marketService;
     this.paperSupplyOperations = new PaperSupplyOperationService(databaseManager, marketService);
+    this.sharedCommerceOperations = new SharedCommerceService(databaseManager, walletService);
     this.notificationService = notificationService;
     this.adminService = adminService;
     this.adminAuditService = adminAuditService;
@@ -284,6 +286,10 @@ class EmbeddedWebServer {
     register("/api/admin/products/refund-policy", this::handleAdminProductRefundPolicy);
     register("/api/admin/group-buy/consume", this::handleAdminGroupBuyConsume);
     register("/api/admin/orders/list", this::handleAdminOrdersList);
+    register(
+        "/api/admin/orders/deliveries/unknown", this::handleAdminDeliveryUnknown);
+    register(
+        "/api/admin/orders/deliveries/reconcile", this::handleAdminDeliveryReconcile);
     register("/api/admin/inventory/unknown", this::handleAdminInventoryUnknown);
     register("/api/admin/inventory/reconcile", this::handleAdminInventoryReconcile);
     register("/api/admin/economy/settings", this::handleAdminEconomySettings);
@@ -5426,6 +5432,47 @@ class EmbeddedWebServer {
           "material_override",
           saved.materialKey(),
           detail,
+          clientIp(exchange));
+    });
+  }
+
+  private void handleAdminDeliveryUnknown(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "GET")) return;
+    withServiceHandling(exchange, () -> {
+      AdminService.AdminUser admin = requireAdmin(exchange, null, AdminPermission.ORDER_VIEW);
+      int limit = parseInt(parseQuery(exchange).get("limit"), 100);
+      JsonObject response = new JsonObject();
+      response.add(
+          "deliveries", gson.toJsonTree(sharedCommerceOperations.unknownDeliveryOperations(limit)));
+      sendJson(exchange, 200, response);
+      adminAuditService.log(
+          admin, "DELIVERY_UNKNOWN_LIST", "delivery", null, null, clientIp(exchange));
+    });
+  }
+
+  private void handleAdminDeliveryReconcile(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) return;
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, payload, AdminPermission.ECONOMY_MANAGE);
+      SharedCommerceService.DeliveryResolution resolution;
+      try {
+        resolution = SharedCommerceService.DeliveryResolution.valueOf(
+            getString(payload, "resolution").trim().toUpperCase(Locale.ROOT));
+      } catch (IllegalArgumentException failure) {
+        throw new ServiceException(
+            "invalid_reconciliation", "Resolution must be APPLIED or NOT_APPLIED");
+      }
+      long deliveryId = getLong(payload, "deliveryId", -1L);
+      var result = sharedCommerceOperations.resolveUnknownDelivery(deliveryId, resolution);
+      sendJson(exchange, 200, gson.toJsonTree(result).getAsJsonObject());
+      adminAuditService.log(
+          admin,
+          "DELIVERY_RECONCILE",
+          "delivery",
+          Long.toString(deliveryId),
+          payload,
           clientIp(exchange));
     });
   }

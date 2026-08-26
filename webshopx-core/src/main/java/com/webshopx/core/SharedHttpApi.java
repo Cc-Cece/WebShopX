@@ -2056,6 +2056,34 @@ public final class SharedHttpApi implements AutoCloseable {
             exchange,
             200,
             Map.of("orders", orders.stream().map(this::adminOrderJson).toList()));
+      } else if (path.equals("/api/admin/orders/deliveries/unknown")
+          && method(exchange, "GET")) {
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ORDER_VIEW);
+        var deliveries = commerce.unknownDeliveryOperations(queryInt(exchange, "limit", 100));
+        audit.log(actor, "DELIVERY_UNKNOWN_LIST", "delivery", null, null, clientIp(exchange));
+        respond(exchange, 200, Map.of("deliveries", deliveries));
+      } else if (path.equals("/api/admin/orders/deliveries/reconcile")
+          && method(exchange, "POST")) {
+        JsonObject input = body(exchange);
+        var actor = administration.requireAdmin(user(exchange), AdminPermission.ECONOMY_MANAGE);
+        SharedCommerceService.DeliveryResolution resolution;
+        try {
+          resolution = SharedCommerceService.DeliveryResolution.valueOf(
+              requiredString(input, "resolution").trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException failure) {
+          throw new ServiceException(
+              "invalid_reconciliation", "Resolution must be APPLIED or NOT_APPLIED");
+        }
+        long deliveryId = requiredLong(input, "deliveryId");
+        var result = commerce.resolveUnknownDelivery(deliveryId, resolution);
+        audit.log(
+            actor,
+            "DELIVERY_RECONCILE",
+            "delivery",
+            Long.toString(deliveryId),
+            input,
+            clientIp(exchange));
+        respond(exchange, 200, result);
       } else if (path.equals("/api/admin/market/listings") && method(exchange, "GET")) {
         var actor = administration.requireAdmin(user(exchange), AdminPermission.MARKET_MANAGE);
         var listings = commerce.listings(true);
