@@ -343,7 +343,7 @@ public final class LoaderRuntime {
         new NativeItemCodec(identity, scheduler::nativeServer, Clock.systemUTC());
     itemCodec = items;
     NativeInventoryGateway inventories =
-        new NativeInventoryGateway(playerDirectory, scheduler, items, identity);
+        new NativeInventoryGateway(playerDirectory, scheduler, items, identity, base);
     inventoryGateway = inventories;
     supplyInventoryGateway =
         new NativeSupplyInventoryGateway(scheduler, playerDirectory, items, identity);

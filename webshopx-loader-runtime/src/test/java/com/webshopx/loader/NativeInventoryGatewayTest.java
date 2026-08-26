@@ -42,7 +42,7 @@ class NativeInventoryGatewayTest {
     NativeItemCodec codec =
         new NativeItemCodec(identity, scheduler::nativeServer, Clock.systemUTC());
     NativeInventoryGateway gateway =
-        new NativeInventoryGateway(directory, scheduler, codec, identity);
+        new NativeInventoryGateway(directory, scheduler, codec, identity, temporaryDirectory);
 
     InventorySnapshot before = success(gateway.snapshot(id, false).toCompletableFuture().get());
     assertEquals(1, before.items().size());
@@ -80,6 +80,14 @@ class NativeInventoryGatewayTest {
     assertEquals(2, applied.removed().get(0).count());
     assertEquals(List.of(), applied.remainder());
     assertEquals(applied, success(gateway.compareAndApply(mutation).toCompletableFuture().get()));
+    NativeInventoryGateway restarted =
+        new NativeInventoryGateway(directory, scheduler, codec, identity, temporaryDirectory);
+    InventoryMutationResult replayed =
+        success(restarted.compareAndApply(mutation).toCompletableFuture().get());
+    assertEquals(applied.newVersion(), replayed.newVersion());
+    assertEquals(applied.inserted().get(0).payloadHash(), replayed.inserted().get(0).payloadHash());
+    assertEquals(applied.removed().get(0).payloadHash(), replayed.removed().get(0).payloadHash());
+    assertEquals(applied.remainder(), replayed.remainder());
     assertEquals(
         1,
         success(gateway.snapshot(id, false).toCompletableFuture().get()).items().stream()

@@ -11,6 +11,7 @@ import com.webshopx.platform.PlatformResult;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
@@ -32,6 +33,7 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
   private final NativeItemCodec items;
   private final PlatformIdentity identity;
   private final OfflineInventoryStore offline;
+  private final InventoryOperationStore operationStore;
   private final Map<String, InventoryMutationResult> completed = new LinkedHashMap<>();
 
   NativeInventoryGateway(
@@ -39,11 +41,21 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
       LoaderScheduler scheduler,
       NativeItemCodec items,
       PlatformIdentity identity) {
+    this(players, scheduler, items, identity, null);
+  }
+
+  NativeInventoryGateway(
+      NativePlayerDirectory players,
+      LoaderScheduler scheduler,
+      NativeItemCodec items,
+      PlatformIdentity identity,
+      Path dataDirectory) {
     this.players = players;
     this.scheduler = scheduler;
     this.items = items;
     this.identity = identity;
     this.offline = new OfflineInventoryStore(items, identity, scheduler);
+    this.operationStore = new InventoryOperationStore(dataDirectory);
   }
 
   @Override
@@ -99,10 +111,9 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
   @Override
   public CompletionStage<PlatformResult<InventoryMutationResult>> compareAndApply(
       InventoryMutation mutation) {
-    synchronized (completed) {
-      InventoryMutationResult prior = completed.get(mutation.operationId());
-      if (prior != null) return CompletableFuture.completedFuture(PlatformResult.success(prior));
-    }
+    Optional<InventoryMutationResult> prior = completedResult(mutation.operationId());
+    if (prior.isPresent())
+      return CompletableFuture.completedFuture(PlatformResult.success(prior.orElseThrow()));
     Optional<Object> player = players.nativePlayer(mutation.playerId());
     if (player.isEmpty()) {
       CompletableFuture<PlatformResult<InventoryMutationResult>> result = new CompletableFuture<>();
@@ -114,16 +125,20 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
                       "PLAYER_STATE_CHANGED", "error.inventory.player_state_changed"));
                   return;
                 }
-                synchronized (completed) {
-                  InventoryMutationResult prior = completed.get(mutation.operationId());
-                  if (prior != null) {
-                    result.complete(PlatformResult.success(prior));
-                    return;
-                  }
+                Optional<InventoryMutationResult> priorResult =
+                    completedResult(mutation.operationId());
+                if (priorResult.isPresent()) {
+                  result.complete(PlatformResult.success(priorResult.orElseThrow()));
+                  return;
                 }
                 PlatformResult<InventoryMutationResult> applied = offline.compareAndApply(mutation);
                 if (applied instanceof PlatformResult.Success<InventoryMutationResult> success) {
-                  remember(mutation.operationId(), success.value());
+                  try {
+                    remember(mutation.operationId(), success.value());
+                  } catch (RuntimeException journalFailure) {
+                    result.complete(new PlatformResult.UnknownOutcome<>(mutation.operationId(), true));
+                    return;
+                  }
                 }
                 result.complete(applied);
               })
@@ -155,10 +170,8 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
       InventoryMutation mutation, Object player) {
     boolean mutated = false;
     try {
-      synchronized (completed) {
-        InventoryMutationResult prior = completed.get(mutation.operationId());
-        if (prior != null) return PlatformResult.success(prior);
-      }
+      Optional<InventoryMutationResult> prior = completedResult(mutation.operationId());
+      if (prior.isPresent()) return PlatformResult.success(prior.orElseThrow());
       InventorySnapshot before = readSnapshot(mutation.playerId(), player);
       if (before.version() != mutation.expectedVersion()) {
         return new PlatformResult.Conflict<>(
@@ -365,6 +378,26 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
   }
 
   private void remember(String operationId, InventoryMutationResult result) {
+    operationStore.write(operationId, result);
+    synchronized (completed) {
+      completed.put(operationId, result);
+      while (completed.size() > COMPLETED_LIMIT) {
+        completed.remove(completed.keySet().iterator().next());
+      }
+    }
+  }
+
+  private Optional<InventoryMutationResult> completedResult(String operationId) {
+    synchronized (completed) {
+      InventoryMutationResult prior = completed.get(operationId);
+      if (prior != null) return Optional.of(prior);
+    }
+    Optional<InventoryMutationResult> persisted = operationStore.read(operationId);
+    persisted.ifPresent(result -> cache(operationId, result));
+    return persisted;
+  }
+
+  private void cache(String operationId, InventoryMutationResult result) {
     synchronized (completed) {
       completed.put(operationId, result);
       while (completed.size() > COMPLETED_LIMIT) {
