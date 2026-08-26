@@ -261,6 +261,7 @@ class EmbeddedWebServer {
     register("/api/inventory/matches", this::handleInventoryMatches);
     register("/api/inventory/fulfill", this::handleInventoryFulfill);
     register("/api/inventory/discard", this::handleInventoryDiscard);
+    register("/api/inventory/reconcile", this::handleInventoryReconcile);
     register("/api/admin/auth/login", this::handleAdminLogin);
     register("/api/admin/auth/me", this::handleAdminMe);
     register("/api/admin/auth/logout", this::handleAdminLogout);
@@ -283,6 +284,8 @@ class EmbeddedWebServer {
     register("/api/admin/products/refund-policy", this::handleAdminProductRefundPolicy);
     register("/api/admin/group-buy/consume", this::handleAdminGroupBuyConsume);
     register("/api/admin/orders/list", this::handleAdminOrdersList);
+    register("/api/admin/inventory/unknown", this::handleAdminInventoryUnknown);
+    register("/api/admin/inventory/reconcile", this::handleAdminInventoryReconcile);
     register("/api/admin/economy/settings", this::handleAdminEconomySettings);
     register("/api/admin/economy/exchange", this::handleAdminExchangeUpdate);
     register("/api/admin/economy/market", this::handleAdminMarketEconomyUpdate);
@@ -3244,6 +3247,21 @@ class EmbeddedWebServer {
     });
   }
 
+  private void handleInventoryReconcile(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) return;
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AuthService.AuthUser user = requireAuth(exchange, payload);
+      String key = getString(payload, "idempotencyKey");
+      InventoryOperationService.Existing existing = inventoryOperationService.find(user.id(), key);
+      if (existing == null) {
+        throw new ServiceException(
+            "inventory_operation_not_found", "Inventory operation was not found");
+      }
+      sendJson(exchange, 200, inventoryOperationStatusJson(existing));
+    });
+  }
+
   private MarketService.InventoryListingConfig inventoryListingConfig(
       JsonObject payload, boolean auction) {
     JsonObject dynamicParams = payload.has("dynamicParams")
@@ -3516,6 +3534,23 @@ class EmbeddedWebServer {
     throw new ServiceException(
         existing.errorCode() == null ? "operation_rejected" : existing.errorCode(),
         "The same inventory operation was already rejected");
+  }
+
+  private JsonObject inventoryOperationStatusJson(InventoryOperationService.Existing existing) {
+    JsonObject response = new JsonObject();
+    response.addProperty("action", existing.action());
+    response.addProperty("state", existing.state());
+    if (existing.referenceId() == null) {
+      response.add("referenceId", com.google.gson.JsonNull.INSTANCE);
+    } else {
+      response.addProperty("referenceId", existing.referenceId());
+    }
+    if (existing.errorCode() == null) {
+      response.add("errorCode", com.google.gson.JsonNull.INSTANCE);
+    } else {
+      response.addProperty("errorCode", existing.errorCode());
+    }
+    return response;
   }
 
   private String serviceErrorCode(RuntimeException exception) {
@@ -5597,6 +5632,49 @@ class EmbeddedWebServer {
       response.add("listings", rows);
       sendJson(exchange, 200, response);
       adminAuditService.log(admin, "MARKET_LIST", "market", null, null, clientIp(exchange));
+    });
+  }
+
+  private void handleAdminInventoryUnknown(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "GET")) return;
+    withServiceHandling(exchange, () -> {
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, null, AdminPermission.MARKET_MANAGE);
+      int limit = parseInt(parseQuery(exchange).get("limit"), 100);
+      JsonObject response = new JsonObject();
+      response.add("operations", gson.toJsonTree(inventoryOperationService.pending(limit)));
+      sendJson(exchange, 200, response);
+      adminAuditService.log(
+          admin,
+          "INVENTORY_UNKNOWN_LIST",
+          "inventory_operation",
+          null,
+          null,
+          clientIp(exchange));
+    });
+  }
+
+  private void handleAdminInventoryReconcile(HttpExchange exchange) throws IOException {
+    if (isPreflight(exchange) || !ensureMethod(exchange, "POST")) return;
+    withServiceHandling(exchange, () -> {
+      JsonObject payload = readJson(exchange);
+      AdminService.AdminUser admin =
+          requireAdmin(exchange, payload, AdminPermission.MARKET_MANAGE);
+      long userId = getLong(payload, "userId", -1L);
+      String key = getString(payload, "idempotencyKey");
+      InventoryOperationService.Existing existing = inventoryOperationService.find(userId, key);
+      if (existing == null) {
+        throw new ServiceException(
+            "inventory_operation_not_found", "Inventory operation was not found");
+      }
+      sendJson(exchange, 200, inventoryOperationStatusJson(existing));
+      adminAuditService.log(
+          admin,
+          "INVENTORY_RECONCILE",
+          "inventory_operation",
+          userId + ":" + key,
+          payload,
+          clientIp(exchange));
     });
   }
 

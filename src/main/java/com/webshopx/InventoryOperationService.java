@@ -2,6 +2,8 @@ package com.webshopx;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.util.ArrayList;
+import java.util.List;
 
 final class InventoryOperationService {
   private final DatabaseManager databaseManager;
@@ -76,6 +78,26 @@ final class InventoryOperationService {
     update(userId, key, "REJECTED", null, null, errorCode);
   }
 
+  List<Pending> pending(int requestedLimit) {
+    int limit = Math.max(1, Math.min(requestedLimit, 500));
+    return databaseManager.withConnection(connection -> {
+      List<Pending> result = new ArrayList<>();
+      try (PreparedStatement statement = connection.prepareStatement(
+          "SELECT id,user_id,idempotency_key,action,item_fingerprint,quantity,created_at "
+              + "FROM inventory_operations WHERE state='PENDING' ORDER BY created_at LIMIT ?")) {
+        statement.setInt(1, limit);
+        try (ResultSet rows = statement.executeQuery()) {
+          while (rows.next()) {
+            result.add(new Pending(
+                rows.getLong(1), rows.getLong(2), rows.getString(3), rows.getString(4),
+                rows.getString(5), rows.getInt(6), rows.getString(7)));
+          }
+        }
+      }
+      return List.copyOf(result);
+    });
+  }
+
   private void update(
       long userId,
       String key,
@@ -113,4 +135,13 @@ WHERE user_id = ? AND idempotency_key = ?
 
   record Existing(
       String action, String state, Long referenceId, String resultJson, String errorCode) {}
+
+  record Pending(
+      long id,
+      long userId,
+      String idempotencyKey,
+      String action,
+      String itemFingerprint,
+      int quantity,
+      String createdAt) {}
 }
