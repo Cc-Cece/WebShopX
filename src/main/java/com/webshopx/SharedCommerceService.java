@@ -640,10 +640,26 @@ public final class SharedCommerceService {
       try (PreparedStatement statement = connection.prepareStatement(
           "UPDATE delivery_queue SET status='UNKNOWN',last_error='delivery_lease_expired',"
               + "retry_count=retry_count+1,next_retry_at=CURRENT_TIMESTAMP "
-              + "WHERE status='PROCESSING' AND claimed_at<? "
-              + "AND (target_server_id IS NULL OR target_server_id=?)")) {
+              + "WHERE status='PROCESSING' AND claimed_at<?")) {
         statement.setString(1, Timestamp.from(Instant.now().minus(leaseTimeout)).toString());
-        statement.setString(2, serverId);
+        return statement.executeUpdate();
+      }
+    });
+  }
+
+  public int reroutePendingDeliveries(UUID playerId, String serverId) {
+    Objects.requireNonNull(playerId, "playerId");
+    if (serverId == null || serverId.isBlank()) {
+      throw new IllegalArgumentException("serverId must not be blank");
+    }
+    return database.inTransaction(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "UPDATE delivery_queue SET target_server_id=? WHERE mc_uuid=? "
+              + "AND status IN ('PENDING','RETRY') "
+              + "AND (target_server_id IS NULL OR target_server_id<>?)")) {
+        statement.setString(1, serverId);
+        statement.setString(2, playerId.toString());
+        statement.setString(3, serverId);
         return statement.executeUpdate();
       }
     });

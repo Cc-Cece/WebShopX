@@ -37,6 +37,7 @@ final class NativeDeliveryCoordinator {
     scheduler.runAsync(() -> {
       try {
         commerce.recoverStaleDeliveries(serverId, Duration.ofMinutes(5));
+        commerce.reroutePendingDeliveries(playerId, serverId);
         for (SharedCommerceService.Delivery delivery
             : commerce.unknownDeliveries(playerId, serverId)) {
           reconcileUnknown(delivery);

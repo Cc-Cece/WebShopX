@@ -69,6 +69,10 @@ class SharedCommerceServiceTest {
     assertEquals(purchase, commerce.purchase(new PurchaseRequest(
         buyer, buyerId, product.id(), 2, "purchase-1", "fabric-a")));
     assertEquals(900, wallets.getBalance(buyer).shopCoin());
+    assertTrue(commerce.pendingDeliveries(buyerId, "fabric-b").isEmpty());
+    assertEquals(1, commerce.reroutePendingDeliveries(buyerId, "fabric-b"));
+    assertTrue(commerce.pendingDeliveries(buyerId, "fabric-a").isEmpty());
+    assertEquals(1, commerce.reroutePendingDeliveries(buyerId, "fabric-a"));
     var delivery = commerce.pendingDeliveries(buyerId, "fabric-a").get(0);
     assertTrue(commerce.claimDelivery(delivery.id(), "fabric-a"));
     assertFalse(commerce.claimDelivery(delivery.id(), "fabric-a"));
