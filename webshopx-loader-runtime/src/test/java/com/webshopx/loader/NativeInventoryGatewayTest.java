@@ -11,6 +11,7 @@ import com.webshopx.platform.InventoryTypes.InventorySnapshot;
 import com.webshopx.platform.ItemEnvelope;
 import com.webshopx.platform.PlatformIdentity;
 import com.webshopx.platform.PlatformResult;
+import com.webshopx.core.ItemEnvelopeService;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -53,6 +54,24 @@ class NativeInventoryGatewayTest {
         "mod-data", new String(sword.payload()).contains("mod-data") ? "mod-data" : "missing");
     ItemEnvelope stone =
         success(codec.encode(new ItemStack("minecraft:stone", 32, "nested"), identity));
+    ItemEnvelope mislabeled = new ItemEnvelope(
+        stone.schemaVersion(), stone.codec(), stone.codecVersion(), stone.compatibilityDomain(),
+        "minecraft:diamond", stone.count(), stone.payloadEncoding(), stone.payload(),
+        stone.payloadHash(), stone.summary(), stone.createdAt());
+    assertRejected("ITEM_REGISTRY_MISMATCH", codec.decode(mislabeled, codec.domain()));
+    String malicious = "{a:".repeat(65) + "0" + "}".repeat(65);
+    byte[] maliciousPayload = malicious.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    ItemEnvelope deeplyNested = new ItemEnvelope(
+        stone.schemaVersion(), stone.codec(), stone.codecVersion(), stone.compatibilityDomain(),
+        stone.registryId(), stone.count(), stone.payloadEncoding(), maliciousPayload,
+        ItemEnvelopeService.sha256(maliciousPayload), stone.summary(), stone.createdAt());
+    assertRejected("ITEM_PAYLOAD_MALFORMED", codec.decode(deeplyNested, codec.domain()));
+    byte[] oversizedPayload = new byte[1024 * 1024 + 1];
+    ItemEnvelope oversized = new ItemEnvelope(
+        stone.schemaVersion(), stone.codec(), stone.codecVersion(), stone.compatibilityDomain(),
+        stone.registryId(), stone.count(), stone.payloadEncoding(), oversizedPayload,
+        ItemEnvelopeService.sha256(oversizedPayload), stone.summary(), stone.createdAt());
+    assertRejected("ITEM_PAYLOAD_TOO_LARGE", codec.decode(oversized, codec.domain()));
     ItemEnvelope resizedStone =
         new ItemEnvelope(
             stone.schemaVersion(),
@@ -218,5 +237,11 @@ class NativeInventoryGatewayTest {
   private static <T> T success(PlatformResult<T> result) {
     return ((PlatformResult.Success<T>) assertInstanceOf(PlatformResult.Success.class, result))
         .value();
+  }
+
+  private static void assertRejected(String code, PlatformResult<?> result) {
+    PlatformResult.Rejected<?> rejected =
+        assertInstanceOf(PlatformResult.Rejected.class, result);
+    assertEquals(code, rejected.errorCode());
   }
 }

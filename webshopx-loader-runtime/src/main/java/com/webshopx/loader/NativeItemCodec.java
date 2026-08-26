@@ -23,6 +23,8 @@ import java.util.regex.Pattern;
 
 /** Lossless native ItemStack codec for legacy NBT and registry-aware data components. */
 final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
+  private static final int MAX_NATIVE_PAYLOAD_BYTES = 1024 * 1024;
+  private static final int MAX_SNBT_DEPTH = 64;
   private static final Pattern ITEM_ID = Pattern.compile(
       "(?:^|[,{\\s])(?:\\\"?id\\\"?)\\s*:\\s*\\\"?([a-z0-9_.-]+:[a-z0-9_./-]+)\\\"?");
   private final String id;
@@ -89,12 +91,30 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
     if (!(validation instanceof PlatformResult.Success<ItemEnvelope> success)) {
       return PlatformResult.rejected("ITEM_INVALID", "error.item.invalid");
     }
+    if (success.value().payload().length > MAX_NATIVE_PAYLOAD_BYTES) {
+      return PlatformResult.rejected("ITEM_PAYLOAD_TOO_LARGE", "error.item.payload_too_large");
+    }
     try {
       String snbt = new String(success.value().payload(), StandardCharsets.UTF_8);
+      if (!safeSnbtShape(snbt)) {
+        return PlatformResult.rejected("ITEM_PAYLOAD_MALFORMED", "error.item.payload_malformed");
+      }
       Object tag = parseTag(snbt);
       Object item = version == 1 ? decodeLegacy(tag) : decodeModern(tag);
       if (item == null || isEmpty(item)) {
         return PlatformResult.rejected("ITEM_DECODE_EMPTY", "error.item.decode_empty");
+      }
+      String actualRegistryId;
+      try {
+        actualRegistryId = nativeRegistryId(item);
+      } catch (ReflectiveOperationException | LinkageError unavailableRegistryLookup) {
+        PlatformResult<ItemEnvelope> canonical = encode(item, identity);
+        actualRegistryId = canonical instanceof PlatformResult.Success<ItemEnvelope> encoded
+            ? encoded.value().registryId() : null;
+      }
+      if (!success.value().registryId().equals(actualRegistryId)) {
+        return PlatformResult.rejected(
+            "ITEM_REGISTRY_MISMATCH", "error.item.registry_mismatch");
       }
       return PlatformResult.success(item);
     } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
@@ -103,6 +123,30 @@ final class NativeItemCodec implements PlatformPorts.ItemCodec<Object> {
       lastFailure = cause.getClass().getSimpleName() + ":" + Objects.toString(cause.getMessage(), "");
       return PlatformResult.rejected("ITEM_DECODE_FAILED", "error.item.decode_failed");
     }
+  }
+
+  private static boolean safeSnbtShape(String value) {
+    int depth = 0;
+    char quote = 0;
+    boolean escaped = false;
+    for (int index = 0; index < value.length(); index++) {
+      char current = value.charAt(index);
+      if (current == 0) return false;
+      if (quote != 0) {
+        if (escaped) escaped = false;
+        else if (current == '\\') escaped = true;
+        else if (current == quote) quote = 0;
+        continue;
+      }
+      if (current == '\'' || current == '"') {
+        quote = current;
+      } else if (current == '{' || current == '[') {
+        if (++depth > MAX_SNBT_DEPTH) return false;
+      } else if (current == '}' || current == ']') {
+        if (--depth < 0) return false;
+      }
+    }
+    return quote == 0 && depth == 0 && !escaped;
   }
 
   CompatibilityDomain domain() {
