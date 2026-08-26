@@ -7,6 +7,7 @@ import com.webshopx.platform.ItemEnvelope;
 import com.webshopx.platform.PlatformPorts;
 import com.webshopx.platform.PlatformResult;
 import java.lang.reflect.Method;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Set;
@@ -35,6 +36,11 @@ final class NativeDeliveryCoordinator {
     if (!running.add(playerId)) return;
     scheduler.runAsync(() -> {
       try {
+        commerce.recoverStaleDeliveries(serverId, Duration.ofMinutes(5));
+        for (SharedCommerceService.Delivery delivery
+            : commerce.unknownDeliveries(playerId, serverId)) {
+          reconcileUnknown(delivery);
+        }
         for (SharedCommerceService.Delivery delivery
             : commerce.pendingDeliveries(playerId, serverId)) {
           deliver(playerId, delivery);
@@ -43,6 +49,20 @@ final class NativeDeliveryCoordinator {
         running.remove(playerId);
       }
     });
+  }
+
+  private void reconcileUnknown(SharedCommerceService.Delivery delivery) {
+    if (delivery.kind() == SharedCommerceService.ProductKind.COMMAND) return;
+    PlatformResult<com.webshopx.platform.InventoryTypes.InventoryMutationResult> result =
+        inventories.operationResult("delivery:" + delivery.id()).toCompletableFuture().join();
+    if (result instanceof PlatformResult.Success<com.webshopx.platform.InventoryTypes.InventoryMutationResult>
+        success
+        && success.value().remainder().isEmpty()
+        && success.value().inserted().stream().mapToInt(ItemEnvelope::count).sum()
+            == delivery.quantity() - delivery.deliveredQuantity()) {
+      commerce.markUnknownDeliveryApplied(
+          delivery.id(), delivery.quantity() - delivery.deliveredQuantity());
+    }
   }
 
   private void deliver(UUID playerId, SharedCommerceService.Delivery delivery) {

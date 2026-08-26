@@ -20,6 +20,7 @@ import com.webshopx.platform.CompatibilityDomain;
 import com.webshopx.platform.ItemEnvelope;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -154,6 +155,33 @@ class SharedCommerceServiceTest {
             "AUCTION", false, null, null, null, null, null, null, null,
             "ENGLISH_AUCTION_V1", 20L, 2L, Instant.now().plusSeconds(600), "{}"));
     assertEquals("AUCTION", commerce.auctionDetails(auctionListing.id()).tradeMode());
+  }
+
+  @Test void expiredDeliveryLeaseBecomesUnknownAndCanBeReconciledAsApplied() {
+    UUID playerId = UUID.randomUUID();
+    long user = auth.setPasswordFromGame(playerId, "LeaseBuyer", "buyer-secret").userId();
+    wallets.adjustBalance(user, CurrencyType.SHOP_COIN, 100, "TEST", "lease-seed");
+    var product = commerce.createProduct(new ProductInput(
+        "LEASE_ITEM", "Lease item", null, CurrencyType.SHOP_COIN, 10,
+        ProductKind.GIVE_ITEM, "", "minecraft:stone", 5, true));
+    commerce.purchase(new PurchaseRequest(
+        user, playerId, product.id(), 2, "lease-purchase", "fabric-a"));
+    var delivery = commerce.pendingDeliveries(playerId, "fabric-a").get(0);
+    assertTrue(commerce.claimDelivery(delivery.id(), "fabric-a"));
+    database.inTransaction(connection -> {
+      try (var statement = connection.prepareStatement(
+          "UPDATE delivery_queue SET claimed_at='2000-01-01 00:00:00' WHERE id=?")) {
+        statement.setLong(1, delivery.id());
+        statement.executeUpdate();
+      }
+      return null;
+    });
+
+    assertEquals(1, commerce.recoverStaleDeliveries("fabric-a", Duration.ofMinutes(5)));
+    assertEquals(1, commerce.unknownDeliveries(playerId, "fabric-a").size());
+    commerce.markUnknownDeliveryApplied(delivery.id(), 2);
+    assertTrue(commerce.unknownDeliveries(playerId, "fabric-a").isEmpty());
+    assertTrue(commerce.pendingDeliveries(playerId, "fabric-a").isEmpty());
   }
 
   @Test void failedPurchaseRollsBackWalletAndStock() {

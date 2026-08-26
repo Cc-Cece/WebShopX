@@ -594,12 +594,20 @@ public final class SharedCommerceService {
   }
 
   public List<Delivery> pendingDeliveries(UUID playerId, String serverId) {
+    return deliveries(playerId, serverId, "('PENDING','RETRY')");
+  }
+
+  public List<Delivery> unknownDeliveries(UUID playerId, String serverId) {
+    return deliveries(playerId, serverId, "('UNKNOWN')");
+  }
+
+  private List<Delivery> deliveries(UUID playerId, String serverId, String states) {
     return database.withConnection(
         connection -> {
           String sql =
               "SELECT d.id,d.order_id,d.delivery_kind,d.command_text,d.payload_json,d.quantity,"
                   + "d.delivered_quantity,d.status FROM delivery_queue d "
-                  + "WHERE d.mc_uuid=? AND d.status IN ('PENDING','RETRY') "
+                  + "WHERE d.mc_uuid=? AND d.status IN " + states + " "
                   + "AND (d.target_server_id IS NULL OR d.target_server_id=?) ORDER BY d.id";
           try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, playerId.toString());
@@ -621,6 +629,24 @@ public final class SharedCommerceService {
             }
           }
         });
+  }
+
+  public int recoverStaleDeliveries(String serverId, java.time.Duration leaseTimeout) {
+    if (serverId == null || serverId.isBlank() || leaseTimeout == null
+        || leaseTimeout.isNegative() || leaseTimeout.isZero()) {
+      throw new IllegalArgumentException("serverId and positive leaseTimeout are required");
+    }
+    return database.inTransaction(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "UPDATE delivery_queue SET status='UNKNOWN',last_error='delivery_lease_expired',"
+              + "retry_count=retry_count+1,next_retry_at=CURRENT_TIMESTAMP "
+              + "WHERE status='PROCESSING' AND claimed_at<? "
+              + "AND (target_server_id IS NULL OR target_server_id=?)")) {
+        statement.setString(1, Timestamp.from(Instant.now().minus(leaseTimeout)).toString());
+        statement.setString(2, serverId);
+        return statement.executeUpdate();
+      }
+    });
   }
 
   public List<OrderView> orders(long userId, int limit, Long cursor) {
@@ -1190,6 +1216,44 @@ public final class SharedCommerceService {
 
   public void markDeliveryUnknown(long deliveryId, String error) {
     transitionDelivery(deliveryId, "UNKNOWN", error);
+  }
+
+  public void markUnknownDeliveryApplied(long deliveryId, int deliveredQuantity) {
+    if (deliveredQuantity < 1) {
+      throw new ServiceException("invalid_quantity", "Quantity is invalid");
+    }
+    database.inTransaction(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "UPDATE delivery_queue SET delivered_quantity=delivered_quantity+?,status=CASE "
+              + "WHEN delivered_quantity+?>=quantity THEN 'DELIVERED' ELSE 'PENDING' END,"
+              + "delivered_at=CASE WHEN delivered_quantity+?>=quantity THEN CURRENT_TIMESTAMP "
+              + "ELSE delivered_at END,last_error='reconciled_native_result' "
+              + "WHERE id=? AND status='UNKNOWN' AND delivered_quantity+?<=quantity")) {
+        statement.setInt(1, deliveredQuantity);
+        statement.setInt(2, deliveredQuantity);
+        statement.setInt(3, deliveredQuantity);
+        statement.setLong(4, deliveryId);
+        statement.setInt(5, deliveredQuantity);
+        if (statement.executeUpdate() != 1) {
+          throw new ServiceException("delivery_conflict", "Delivery state changed");
+        }
+      }
+      return null;
+    });
+  }
+
+  public void retryUnknownDelivery(long deliveryId) {
+    database.inTransaction(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "UPDATE delivery_queue SET status='RETRY',last_error='operator_retry',"
+              + "next_retry_at=CURRENT_TIMESTAMP WHERE id=? AND status='UNKNOWN'")) {
+        statement.setLong(1, deliveryId);
+        if (statement.executeUpdate() != 1) {
+          throw new ServiceException("delivery_conflict", "Delivery state changed");
+        }
+      }
+      return null;
+    });
   }
 
   private void transitionDelivery(long deliveryId, String status, String error) {
