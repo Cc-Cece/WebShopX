@@ -1029,6 +1029,44 @@ class SharedHttpApiTest {
   }
 
   @Test
+  void officialRecycleWithdrawsNativeItemsCreditsWalletAndReplays() throws Exception {
+    var recycle = commerce.createProduct(new SharedCommerceService.ProductInput(
+        "API_DIAMOND_RECYCLE", "Diamond recycle", null, CurrencyType.SHOP_COIN, 7,
+        SharedCommerceService.ProductKind.RECYCLE_ITEM, "", "minecraft:diamond", null, true));
+    String token = JsonParser.parseString(
+            post("/api/auth/login", "{\"identifier\":\"ApiPlayer\",\"password\":\"api-secret\"}",
+                null, null).body())
+        .getAsJsonObject().get("token").getAsString();
+    JsonObject inventory = JsonParser.parseString(
+        get("/api/inventory/snapshot?inventory=PLAYER", token).body()).getAsJsonObject();
+    String fingerprint = inventory.getAsJsonArray("slots").get(0).getAsJsonObject()
+        .getAsJsonObject("item").get("fingerprint").getAsString();
+    String matchBody = "{\"inventory\":\"PLAYER\",\"quantity\":2,\"fingerprint\":\""
+        + fingerprint + "\"}";
+    JsonObject matches = JsonParser.parseString(
+        post("/api/inventory/matches", matchBody, token, null).body()).getAsJsonObject();
+    JsonObject official = matches.getAsJsonArray("matches").asList().stream()
+        .map(element -> element.getAsJsonObject())
+        .filter(row -> row.get("id").getAsString().equals("official:" + recycle.id()))
+        .findFirst().orElseThrow();
+    assertEquals(14, official.get("sellerReceive").getAsLong());
+    String fulfill = "{\"inventory\":\"PLAYER\",\"listingId\":\"official:"
+        + recycle.id() + "\",\"quantity\":2,\"fingerprint\":\"" + fingerprint
+        + "\",\"expectedUnitPrice\":7,\"expectedBuyerTotal\":14,"
+        + "\"idempotencyKey\":\"official-recycle-1\"}";
+    HttpResponse<String> first = post("/api/inventory/fulfill", fulfill, token, null);
+    HttpResponse<String> replay = post("/api/inventory/fulfill", fulfill, token, null);
+    assertEquals(200, first.statusCode(), first.body());
+    assertEquals(JsonParser.parseString(first.body()), JsonParser.parseString(replay.body()));
+    assertEquals(514, JsonParser.parseString(get("/api/wallet", token).body())
+        .getAsJsonObject().get("shopCoin").getAsLong());
+    var nativeSnapshot = (com.webshopx.platform.PlatformResult.Success<
+        com.webshopx.platform.InventoryTypes.InventorySnapshot>)
+        inventories.snapshot(player, false).toCompletableFuture().join();
+    assertEquals(3, nativeSnapshot.value().items().get(0).count());
+  }
+
+  @Test
   void inventorySnapshotAndListingMatchTheBrowserContract() throws Exception {
     HttpResponse<String> login =
         post(

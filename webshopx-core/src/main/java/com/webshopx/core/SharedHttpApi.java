@@ -508,6 +508,22 @@ public final class SharedHttpApi implements AutoCloseable {
                     requiredString(input, "fingerprint"),
                     true));
         JsonArray rows = new JsonArray();
+        for (var match : marketEscrow.officialMatches(
+            new SharedMarketEscrowService.MatchRequest(
+                current.id(), current.boundUuid(), optionalInt(input, "quantity", 1),
+                requiredString(input, "fingerprint"), true))) {
+          JsonObject row = new JsonObject();
+          row.addProperty("id", "official:" + match.productId());
+          row.addProperty("source", "OFFICIAL_SHOP");
+          row.addProperty("sourceName", match.title());
+          row.addProperty("remaining", match.remaining());
+          row.addProperty("currency", match.currency().name());
+          row.addProperty("unitPrice", match.unitPrice());
+          row.addProperty("sellerReceive", match.totalAmount());
+          row.addProperty("fee", 0);
+          row.addProperty("quotedQuantity", match.quotedQuantity());
+          rows.add(row);
+        }
         for (var match : matches) {
           JsonObject row = new JsonObject();
           row.addProperty("id", String.valueOf(match.listingId()));
@@ -528,8 +544,24 @@ public final class SharedHttpApi implements AutoCloseable {
         requireTopLevelPlayerInventory(input);
         String listingRaw = requiredString(input, "listingId");
         if (listingRaw.startsWith("official:")) {
-          throw new ServiceException(
-              "official_recycle_unavailable", "Official recycle products are not configured");
+          var recycled = marketEscrow.recycle(
+              new SharedMarketEscrowService.RecycleRequest(
+                  current.id(), current.boundUuid(),
+                  Long.parseLong(listingRaw.substring("official:".length())),
+                  optionalInt(input, "quantity", 1), requiredString(input, "idempotencyKey"),
+                  requiredString(input, "fingerprint"), true,
+                  nullableLong(input, "expectedUnitPrice"),
+                  nullableLong(input, "expectedBuyerTotal")));
+          JsonObject response = new JsonObject();
+          response.addProperty("state", "SUCCESS");
+          response.addProperty("orderNo", recycled.orderNo());
+          response.addProperty("productId", recycled.productId());
+          response.addProperty("currency", recycled.currency().name());
+          response.addProperty("unitPrice", recycled.unitPrice());
+          response.addProperty("quantity", recycled.quantity());
+          response.addProperty("totalAmount", recycled.totalAmount());
+          respond(exchange, 200, response);
+          return;
         }
         var trade =
             marketEscrow.fulfill(
@@ -2290,7 +2322,7 @@ public final class SharedHttpApi implements AutoCloseable {
                     "supply_unavailable",
                     "checkout_unavailable" ->
                 503;
-            case "official_recycle_unavailable", "refund_not_supported" -> 409;
+            case "refund_not_supported" -> 409;
             default -> 400;
           };
       respond(exchange, status, error(failure.code(), failure.getMessage()));

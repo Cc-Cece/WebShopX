@@ -376,6 +376,92 @@ public final class SharedCommerceService {
         0L);
   }
 
+  public List<OfficialRecycleMatch> matchingRecycleProducts(
+      long userId, ItemEnvelope item, int quantity) {
+    if (item == null || quantity < 1) return List.of();
+    return database.withConnection(connection -> {
+      List<OfficialRecycleMatch> matches = new ArrayList<>();
+      try (PreparedStatement statement = connection.prepareStatement(
+          "SELECT id,sku,title,currency,price,per_user_limit FROM products "
+              + "WHERE active=TRUE AND product_type='RECYCLE_ITEM' AND LOWER(item_material)=? "
+              + "ORDER BY id")) {
+        statement.setString(1, item.registryId().toLowerCase(Locale.ROOT));
+        try (ResultSet result = statement.executeQuery()) {
+          while (result.next()) {
+            Integer limit = nullableInt(result, "per_user_limit");
+            int used = productUsage(connection, result.getLong("id"), userId);
+            int remaining = limit == null ? Integer.MAX_VALUE : Math.max(0, limit - used);
+            if (remaining < quantity) continue;
+            long unitPrice = result.getLong("price");
+            matches.add(new OfficialRecycleMatch(
+                result.getLong("id"), result.getString("sku"), result.getString("title"),
+                CurrencyType.valueOf(result.getString("currency")), unitPrice, quantity,
+                Math.multiplyExact(unitPrice, quantity), remaining));
+          }
+        }
+      }
+      return List.copyOf(matches);
+    });
+  }
+
+  OfficialRecycleResult completeOfficialRecycle(
+      Connection connection,
+      long userId,
+      UUID playerId,
+      long productId,
+      ItemEnvelope removed,
+      int quantity,
+      String idempotencyKey) throws SQLException {
+    Product product = readProduct(connection, productId);
+    if (!product.active() || product.kind() != ProductKind.RECYCLE_ITEM) {
+      throw new ServiceException("recycle_unavailable", "Recycle product is unavailable");
+    }
+    if (removed == null || !removed.registryId().equalsIgnoreCase(product.registryId())
+        || removed.count() != quantity) {
+      throw new ServiceException("recycle_item_not_match", "Selected item does not match recycle product");
+    }
+    reserveProductUserLimit(connection, product, userId, quantity);
+    long total = Math.multiplyExact(product.price(), quantity);
+    String orderNo = "REC-" + UUID.randomUUID().toString().replace("-", "").toUpperCase(Locale.ROOT);
+    wallets.applyDelta(
+        connection, userId, product.currency(), total, "OFFICIAL_RECYCLE", orderNo, false);
+    long orderId;
+    try (PreparedStatement statement = connection.prepareStatement(
+        "INSERT INTO orders (order_no,user_id,mc_uuid,currency,total_amount,status,idempotency_key) "
+            + "VALUES (?,?,?,?,?,'DELIVERED',?)", Statement.RETURN_GENERATED_KEYS)) {
+      statement.setString(1, orderNo);
+      statement.setLong(2, userId);
+      statement.setString(3, playerId.toString());
+      statement.setString(4, product.currency().name());
+      statement.setLong(5, total);
+      statement.setString(6, idempotencyKey);
+      statement.executeUpdate();
+      orderId = generatedId(statement);
+    }
+    try (PreparedStatement statement = connection.prepareStatement(
+        "INSERT INTO order_items (order_id,product_id,quantity,unit_price) VALUES (?,?,?,?)")) {
+      statement.setLong(1, orderId);
+      statement.setLong(2, product.id());
+      statement.setInt(3, quantity);
+      statement.setLong(4, product.price());
+      statement.executeUpdate();
+    }
+    return new OfficialRecycleResult(
+        orderId, orderNo, product.id(), product.currency(), product.price(), quantity, total);
+  }
+
+  private static int productUsage(Connection connection, long productId, long userId)
+      throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(
+        "SELECT used_count FROM product_user_usage WHERE product_id=? AND user_id=?")) {
+      statement.setLong(1, productId);
+      statement.setLong(2, userId);
+      try (ResultSet result = statement.executeQuery()) {
+        return result.next() ? Math.max(0, result.getInt(1)) : 0;
+      }
+    }
+  }
+
   public List<ProductPricePoint> productPriceTrend(long productId, int limit) {
     int boundedLimit = Math.max(1, Math.min(limit, 80));
     return database.withConnection(
@@ -414,6 +500,10 @@ public final class SharedCommerceService {
           Product product = readProduct(connection, request.productId());
           if (!product.active())
             throw new ServiceException("product_inactive", "Product is inactive");
+          if (isRecycleProduct(product.kind())) {
+            throw new ServiceException(
+                "recycle_requires_inventory", "Recycle products require an inventory item");
+          }
           if (product.kind() == ProductKind.GROUP_BUY_VOUCHER && request.quantity() != 1) {
             throw new ServiceException(
                 "invalid_quantity", "Group-buy vouchers must be purchased one at a time");
@@ -4044,7 +4134,8 @@ public final class SharedCommerceService {
         || input.kind() == null) {
       throw new ServiceException("invalid_product", "Product fields are invalid");
     }
-    if ((input.kind() == ProductKind.GIVE_ITEM || input.kind() == ProductKind.SNAPSHOT_ITEM)
+    if ((input.kind() == ProductKind.GIVE_ITEM || input.kind() == ProductKind.SNAPSHOT_ITEM
+            || isRecycleProduct(input.kind()))
         && (input.registryId() == null
             || !input.registryId().matches("[a-z0-9_.-]+:[a-z0-9_./-]+"))) {
       throw new ServiceException("invalid_product", "Registry id is invalid");
@@ -4063,6 +4154,12 @@ public final class SharedCommerceService {
     }
   }
 
+  private static boolean isRecycleProduct(ProductKind kind) {
+    return kind == ProductKind.RECYCLE_ITEM
+        || kind == ProductKind.RECYCLE_COMMAND_ITEM
+        || kind == ProductKind.RECYCLE_CUSTOM_ITEM;
+  }
+
   private static void requireManagedAssetPath(String path, String prefix) {
     if (path == null || !path.startsWith(prefix) || path.contains("..") || path.contains("\\")) {
       throw new ServiceException("invalid_asset_path", "Asset path is invalid");
@@ -4076,6 +4173,9 @@ public final class SharedCommerceService {
   public enum ProductKind {
     COMMAND,
     GIVE_ITEM,
+    RECYCLE_ITEM,
+    RECYCLE_COMMAND_ITEM,
+    RECYCLE_CUSTOM_ITEM,
     GROUP_BUY_VOUCHER,
     SNAPSHOT_ITEM
   }
@@ -4132,6 +4232,25 @@ public final class SharedCommerceService {
       long totalAmount,
       long currentDemandScore,
       long nextDemandScore) {}
+
+  public record OfficialRecycleMatch(
+      long productId,
+      String sku,
+      String title,
+      CurrencyType currency,
+      long unitPrice,
+      int quotedQuantity,
+      long totalAmount,
+      int remaining) {}
+
+  public record OfficialRecycleResult(
+      long orderId,
+      String orderNo,
+      long productId,
+      CurrencyType currency,
+      long unitPrice,
+      int quantity,
+      long totalAmount) {}
 
   public record ProductPricePoint(long orderItemId, long price, int quantity, Instant createdAt) {}
 

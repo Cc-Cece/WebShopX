@@ -188,6 +188,70 @@ public final class SharedMarketEscrowService {
     }
   }
 
+  public List<SharedCommerceService.OfficialRecycleMatch> officialMatches(MatchRequest request) {
+    if (request.quantity() < 1 || request.quantity() > 64) {
+      throw new ServiceException("invalid_quantity", "Quantity must be between 1 and 64");
+    }
+    InventorySnapshot snapshot = snapshot(request.playerId(), request.allowOffline());
+    ItemEnvelope selected = select(snapshot, request.expectedPayloadHash(), request.quantity());
+    return commerce.matchingRecycleProducts(request.userId(), selected, request.quantity());
+  }
+
+  public SharedCommerceService.OfficialRecycleResult recycle(RecycleRequest request) {
+    validateKeyAndQuantity(request.idempotencyKey(), request.quantity());
+    Existing existing = find(request.userId(), request.idempotencyKey());
+    if (existing != null) return replayRecycle(existing, request);
+    InventorySnapshot snapshot = snapshot(request.playerId(), request.allowOffline());
+    ItemEnvelope selected = select(snapshot, request.expectedPayloadHash(), request.quantity());
+    SharedCommerceService.OfficialRecycleMatch match = commerce
+        .matchingRecycleProducts(request.userId(), selected, request.quantity()).stream()
+        .filter(value -> value.productId() == request.productId())
+        .findFirst()
+        .orElseThrow(() -> new ServiceException(
+            "recycle_item_not_match", "Selected item does not match recycle product"));
+    if (request.expectedUnitPrice() != null && request.expectedUnitPrice() != match.unitPrice()) {
+      throw new ServiceException("price_changed", "Recycle price changed");
+    }
+    if (request.expectedTotal() != null && request.expectedTotal() != match.totalAmount()) {
+      throw new ServiceException("price_changed", "Recycle total changed");
+    }
+    SharedCommerceService.OfficialRecycleResult concurrent = beginRecycle(request, selected);
+    if (concurrent != null) return concurrent;
+    String operationId = "official-recycle:" + request.userId() + ":" + request.idempotencyKey();
+    PlatformResult<InventoryMutationResult> result;
+    try {
+      result = inventories.compareAndApply(new InventoryMutation(
+              operationId, request.playerId(), snapshot.version(), List.of(),
+              List.of(new InventoryRemoval(selected, request.quantity()))))
+          .toCompletableFuture().get(INVENTORY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    } catch (Exception failure) {
+      throw new ServiceException(
+          "inventory_outcome_unknown", "Inventory operation requires reconciliation");
+    }
+    if (!(result instanceof PlatformResult.Success<InventoryMutationResult> success)) {
+      handleApplyFailure(request.userId(), request.idempotencyKey(), result);
+      throw new ServiceException("inventory_rejected", "Inventory operation was rejected");
+    }
+    if (success.value().removed().size() != 1
+        || success.value().removed().get(0).count() != request.quantity()) {
+      throw new ServiceException(
+          "inventory_outcome_unknown", "Inventory operation requires reconciliation");
+    }
+    ItemEnvelope removed = success.value().removed().get(0);
+    try {
+      return database.inTransaction(connection -> {
+        SharedCommerceService.OfficialRecycleResult recycled = commerce.completeOfficialRecycle(
+            connection, request.userId(), request.playerId(), request.productId(), removed,
+            request.quantity(), request.idempotencyKey());
+        completeRecycle(connection, request, recycled, gson.toJson(recycled));
+        return recycled;
+      });
+    } catch (RuntimeException failure) {
+      compensate(request.userId(), request.playerId(), request.idempotencyKey(), removed);
+      throw failure;
+    }
+  }
+
   public List<SharedCommerceService.MarketMatch> matches(MatchRequest request) {
     if (request.quantity() < 1 || request.quantity() > 64) {
       throw new ServiceException("invalid_quantity", "Quantity must be between 1 and 64");
@@ -670,6 +734,31 @@ public final class SharedMarketEscrowService {
     }
   }
 
+  private SharedCommerceService.OfficialRecycleResult beginRecycle(
+      RecycleRequest request, ItemEnvelope selected) {
+    try {
+      database.inTransaction(connection -> {
+        try (PreparedStatement statement = connection.prepareStatement(
+            "INSERT INTO inventory_operations (user_id,idempotency_key,action,state,"
+                + "slot_index,container_slot,item_fingerprint,quantity,result_json) "
+                + "VALUES (?,?,'OFFICIAL_RECYCLE','PENDING',-1,NULL,?,?,?)")) {
+          statement.setLong(1, request.userId());
+          statement.setString(2, request.idempotencyKey());
+          statement.setString(3, selected.payloadHash());
+          statement.setInt(4, request.quantity());
+          statement.setString(5, gson.toJson(request));
+          statement.executeUpdate();
+        }
+        return null;
+      });
+      return null;
+    } catch (RuntimeException duplicate) {
+      Existing existing = find(request.userId(), request.idempotencyKey());
+      if (existing != null) return replayRecycle(existing, request);
+      throw duplicate;
+    }
+  }
+
   private void complete(Connection connection, Request request, long listingId, String resultJson)
       throws SQLException {
     try (PreparedStatement statement =
@@ -717,6 +806,25 @@ public final class SharedMarketEscrowService {
       statement.setString(4, request.idempotencyKey());
       if (statement.executeUpdate() != 1) {
         throw new ServiceException("idempotency_conflict", "Fulfill operation state changed");
+      }
+    }
+  }
+
+  private void completeRecycle(
+      Connection connection,
+      RecycleRequest request,
+      SharedCommerceService.OfficialRecycleResult result,
+      String resultJson) throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(
+        "UPDATE inventory_operations SET state='SUCCESS',reference_id=?,result_json=?,"
+            + "updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND idempotency_key=? "
+            + "AND action='OFFICIAL_RECYCLE' AND state='PENDING'")) {
+      statement.setLong(1, result.orderId());
+      statement.setString(2, resultJson);
+      statement.setLong(3, request.userId());
+      statement.setString(4, request.idempotencyKey());
+      if (statement.executeUpdate() != 1) {
+        throw new ServiceException("idempotency_conflict", "Recycle operation state changed");
       }
     }
   }
@@ -887,6 +995,37 @@ public final class SharedMarketEscrowService {
         "inventory_outcome_unknown", "Fulfill operation requires reconciliation");
   }
 
+  private SharedCommerceService.OfficialRecycleResult replayRecycle(
+      Existing existing, RecycleRequest request) {
+    if (!"OFFICIAL_RECYCLE".equals(existing.action())
+        || existing.quantity() != request.quantity()
+        || (request.expectedPayloadHash() != null
+            && !request.expectedPayloadHash().equals(existing.itemFingerprint()))) {
+      throw new ServiceException("idempotency_conflict", "Idempotency request does not match");
+    }
+    if ("SUCCESS".equals(existing.state()) && existing.resultJson() != null) {
+      SharedCommerceService.OfficialRecycleResult result = gson.fromJson(
+          existing.resultJson(), SharedCommerceService.OfficialRecycleResult.class);
+      if (result.productId() != request.productId()) {
+        throw new ServiceException("idempotency_conflict", "Idempotency request does not match");
+      }
+      return result;
+    }
+    if ("REJECTED".equals(existing.state())) {
+      throw new ServiceException(
+          existing.errorCode() == null ? "inventory_rejected" : existing.errorCode(),
+          "Recycle operation was rejected");
+    }
+    if (existing.resultJson() != null) {
+      RecycleRequest original = gson.fromJson(existing.resultJson(), RecycleRequest.class);
+      if (original.productId() != request.productId()) {
+        throw new ServiceException("idempotency_conflict", "Idempotency request does not match");
+      }
+    }
+    throw new ServiceException(
+        "inventory_outcome_unknown", "Recycle operation requires reconciliation");
+  }
+
   private static void validate(Request request) {
     Objects.requireNonNull(request, "request");
     if (request.idempotencyKey() == null
@@ -948,6 +1087,17 @@ public final class SharedMarketEscrowService {
       boolean allowOffline,
       Long expectedUnitPrice,
       Long expectedBuyerTotal) {}
+
+  public record RecycleRequest(
+      long userId,
+      UUID playerId,
+      long productId,
+      int quantity,
+      String idempotencyKey,
+      String expectedPayloadHash,
+      boolean allowOffline,
+      Long expectedUnitPrice,
+      Long expectedTotal) {}
 
   public record MailboxClaimRequest(long userId, UUID playerId, String entryId) {}
 
