@@ -24,6 +24,8 @@ class ItemEnvelopeBinaryCodecTest {
     assertEquals(input.summary(), output.summary());
     assertEquals(input.createdAt(), output.createdAt());
     assertArrayEquals(input.payload(), output.payload());
+    assertEquals(input, output);
+    assertEquals(input.hashCode(), output.hashCode());
     byte[] invalid = java.util.Arrays.copyOf(codec.encode(input), codec.encode(input).length + 1);
     assertThrows(IllegalArgumentException.class, () -> codec.decode(invalid));
   }

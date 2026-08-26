@@ -47,5 +47,38 @@ public record ItemEnvelope(
     return Arrays.copyOf(payload, payload.length);
   }
 
+  @Override
+  public boolean equals(Object candidate) {
+    if (this == candidate) return true;
+    if (!(candidate instanceof ItemEnvelope other)) return false;
+    return schemaVersion == other.schemaVersion
+        && codecVersion == other.codecVersion
+        && count == other.count
+        && codec.equals(other.codec)
+        && compatibilityDomain.equals(other.compatibilityDomain)
+        && registryId.equals(other.registryId)
+        && payloadEncoding == other.payloadEncoding
+        && Arrays.equals(payload, other.payload)
+        && payloadHash.equals(other.payloadHash)
+        && summary.equals(other.summary)
+        && createdAt.equals(other.createdAt);
+  }
+
+  @Override
+  public int hashCode() {
+    int result = Objects.hash(
+        schemaVersion,
+        codec,
+        codecVersion,
+        compatibilityDomain,
+        registryId,
+        count,
+        payloadEncoding,
+        payloadHash,
+        summary,
+        createdAt);
+    return 31 * result + Arrays.hashCode(payload);
+  }
+
   public enum PayloadEncoding { RAW, GZIP }
 }
