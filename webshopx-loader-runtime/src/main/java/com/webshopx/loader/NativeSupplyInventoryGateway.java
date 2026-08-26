@@ -8,6 +8,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -27,17 +28,20 @@ final class NativeSupplyInventoryGateway implements SupplyInventoryGateway {
   private final NativePlayerDirectory players;
   private final NativeItemCodec items;
   private final PlatformIdentity identity;
+  private final SupplyOperationStore operationStore;
   private final Map<String, SupplyWithdrawal> completed = new LinkedHashMap<>();
 
   NativeSupplyInventoryGateway(
       LoaderScheduler scheduler,
       NativePlayerDirectory players,
       NativeItemCodec items,
-      PlatformIdentity identity) {
+      PlatformIdentity identity,
+      Path dataDirectory) {
     this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
     this.players = Objects.requireNonNull(players, "players");
     this.items = Objects.requireNonNull(items, "items");
     this.identity = Objects.requireNonNull(identity, "identity");
+    this.operationStore = new SupplyOperationStore(dataDirectory);
   }
 
   @Override
@@ -83,6 +87,10 @@ final class NativeSupplyInventoryGateway implements SupplyInventoryGateway {
       SupplyWithdrawal prior = completed.get(request.operationId());
       if (prior != null) return CompletableFuture.completedFuture(PlatformResult.success(prior));
     }
+    var persisted = operationStore.read(request.operationId());
+    if (persisted.isPresent()) return CompletableFuture.completedFuture(PlatformResult.success(persisted.get()));
+    if (operationStore.pending(request.operationId())) return CompletableFuture.completedFuture(
+        new PlatformResult.UnknownOutcome<>(request.operationId(), true));
     CompletableFuture<PlatformResult<SupplyWithdrawal>> result = new CompletableFuture<>();
     scheduler.runGlobal(() -> result.complete(withdraw(request)))
         .whenComplete((ignored, failure) -> {
@@ -97,10 +105,12 @@ final class NativeSupplyInventoryGateway implements SupplyInventoryGateway {
       SupplyWithdrawalRequest request) {
     synchronized (completed) {
       SupplyWithdrawal prior = completed.get(request.operationId());
-      return CompletableFuture.completedFuture(prior == null
-          ? new PlatformResult.UnknownOutcome<>(request.operationId(), false)
-          : PlatformResult.success(prior));
+      if (prior != null) return CompletableFuture.completedFuture(PlatformResult.success(prior));
     }
+    var persisted = operationStore.read(request.operationId());
+    return CompletableFuture.completedFuture(persisted.<PlatformResult<SupplyWithdrawal>>map(
+        PlatformResult::success).orElseGet(() ->
+        new PlatformResult.UnknownOutcome<>(request.operationId(), operationStore.pending(request.operationId()))));
   }
 
   private PlatformResult<SupplyWithdrawal> withdraw(SupplyWithdrawalRequest request) {
@@ -110,9 +120,13 @@ final class NativeSupplyInventoryGateway implements SupplyInventoryGateway {
         SupplyWithdrawal prior = completed.get(request.operationId());
         if (prior != null) return PlatformResult.success(prior);
       }
+      if (!operationStore.begin(request.operationId())) {
+        return new PlatformResult.UnknownOutcome<>(request.operationId(), true);
+      }
       Object inventory = container(request.location());
       long before = version(inventory);
       if (before != request.expectedVersion()) {
+        operationStore.clearPending(request.operationId());
         return new PlatformResult.Conflict<>(
             request.operationId(), Long.toUnsignedString(before));
       }
@@ -143,9 +157,11 @@ final class NativeSupplyInventoryGateway implements SupplyInventoryGateway {
         envelope = success.value();
       }
       SupplyWithdrawal withdrawal = new SupplyWithdrawal(version(inventory), envelope, removed);
+      operationStore.write(request.operationId(), withdrawal);
       remember(request.operationId(), withdrawal);
       return PlatformResult.success(withdrawal);
     } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+      if (!mutated) operationStore.clearPending(request.operationId());
       return mutated
           ? new PlatformResult.UnknownOutcome<>(request.operationId(), true)
           : PlatformResult.rejected("SUPPLY_WITHDRAW_FAILED", "error.market.supply_failed");

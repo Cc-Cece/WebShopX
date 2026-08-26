@@ -14,13 +14,17 @@ import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executor;
+import java.nio.file.Path;
 import com.mojang.authlib.GameProfile;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class NativeSupplyInventoryGatewayTest {
+  @TempDir Path dataDirectory;
+
   @Test
   void snapshotsWithdrawsAndReplaysAgainstNativeContainer() throws Exception {
     FixtureContainer container = new FixtureContainer(
@@ -39,7 +43,7 @@ class NativeSupplyInventoryGatewayTest {
         "fabric", "fabric", "1.20.1", "test", "node-a", "sha256:test");
     NativeItemCodec codec = new NativeItemCodec(identity, scheduler::nativeServer, Clock.systemUTC());
     NativeSupplyInventoryGateway gateway =
-        new NativeSupplyInventoryGateway(scheduler, players, codec, identity);
+        new NativeSupplyInventoryGateway(scheduler, players, codec, identity, dataDirectory);
     SupplyLocation location = new SupplyLocation("minecraft:overworld", 4, 65, 8);
 
     assertEquals(3, success(gateway.inspect(playerId, location).toCompletableFuture().get())
@@ -63,6 +67,11 @@ class NativeSupplyInventoryGatewayTest {
     assertEquals(1, container.changed);
 
     assertEquals(applied, success(gateway.compareAndWithdraw(request).toCompletableFuture().get()));
+    assertEquals(2, container.getItem(1).getCount());
+    NativeSupplyInventoryGateway restarted =
+        new NativeSupplyInventoryGateway(scheduler, players, codec, identity, dataDirectory);
+    assertEquals(applied, success(restarted.reconcile(request).toCompletableFuture().get()));
+    assertEquals(applied, success(restarted.compareAndWithdraw(request).toCompletableFuture().get()));
     assertEquals(2, container.getItem(1).getCount());
     assertInstanceOf(
         PlatformResult.Conflict.class,
