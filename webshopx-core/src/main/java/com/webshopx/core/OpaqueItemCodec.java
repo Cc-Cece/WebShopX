@@ -6,6 +6,7 @@ import com.webshopx.platform.PlatformIdentity;
 import com.webshopx.platform.PlatformPorts;
 import com.webshopx.platform.PlatformResult;
 import java.time.Clock;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -62,5 +63,20 @@ public final class OpaqueItemCodec implements PlatformPorts.ItemCodec<OpaqueItem
     }
 
     @Override public byte[] payload() { return payload.clone(); }
+
+    @Override
+    public boolean equals(Object candidate) {
+      if (this == candidate) return true;
+      return candidate instanceof NativeItem other
+          && count == other.count
+          && registryId.equals(other.registryId)
+          && Arrays.equals(payload, other.payload)
+          && summary.equals(other.summary);
+    }
+
+    @Override
+    public int hashCode() {
+      return 31 * Objects.hash(registryId, count, summary) + Arrays.hashCode(payload);
+    }
   }
 }
