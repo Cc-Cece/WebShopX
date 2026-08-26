@@ -7122,8 +7122,11 @@ class EmbeddedWebServer {
       int status = switch (exception.code()) {
         case "auth_required", "auth_invalid" -> 401;
         case "forbidden", "not_admin" -> 403;
+        case "not_found", "delivery_not_found", "inventory_operation_not_found" -> 404;
         case "player_offline", "player_state_changed", "inventory_changed",
-            "operation_pending", "product_conflict", "offline_official_capture_disabled",
+            "operation_pending", "product_conflict", "delivery_conflict",
+            "inventory_reconciliation_mismatch", "inventory_reconciliation_invalid",
+            "offline_official_capture_disabled",
             "supply_reconciliation_conflict", "supply_refresh_busy",
             "supply_compatibility_domain" -> 409;
         case "supply_outcome_unknown", "supply_unavailable" -> 503;

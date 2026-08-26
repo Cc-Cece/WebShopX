@@ -2352,6 +2352,8 @@ public final class SharedHttpApi implements AutoCloseable {
                     "product_not_found",
                     "order_not_found",
                     "listing_not_found",
+                    "delivery_not_found",
+                    "inventory_operation_not_found",
                     "voucher_missing" -> 404;
             case "insufficient_funds",
                     "insufficient_stock",
@@ -2362,6 +2364,9 @@ public final class SharedHttpApi implements AutoCloseable {
                     "price_changed",
                     "inventory_conflict",
                     "order_conflict",
+                    "delivery_conflict",
+                    "inventory_reconciliation_mismatch",
+                    "inventory_reconciliation_invalid",
                     "voucher_unavailable",
                     "voucher_consumed",
                     "auction_requires_bid",
