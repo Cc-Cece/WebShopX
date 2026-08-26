@@ -114,6 +114,9 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
     Optional<InventoryMutationResult> prior = completedResult(mutation.operationId());
     if (prior.isPresent())
       return CompletableFuture.completedFuture(PlatformResult.success(prior.orElseThrow()));
+    if (operationStore.pending(mutation.operationId()))
+      return CompletableFuture.completedFuture(
+          new PlatformResult.UnknownOutcome<>(mutation.operationId(), true));
     Optional<Object> player = players.nativePlayer(mutation.playerId());
     if (player.isEmpty()) {
       CompletableFuture<PlatformResult<InventoryMutationResult>> result = new CompletableFuture<>();
@@ -131,6 +134,10 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
                   result.complete(PlatformResult.success(priorResult.orElseThrow()));
                   return;
                 }
+                if (!operationStore.begin(mutation.operationId())) {
+                  result.complete(new PlatformResult.UnknownOutcome<>(mutation.operationId(), true));
+                  return;
+                }
                 PlatformResult<InventoryMutationResult> applied = offline.compareAndApply(mutation);
                 if (applied instanceof PlatformResult.Success<InventoryMutationResult> success) {
                   try {
@@ -139,6 +146,8 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
                     result.complete(new PlatformResult.UnknownOutcome<>(mutation.operationId(), true));
                     return;
                   }
+                } else if (!(applied instanceof PlatformResult.UnknownOutcome<?>)) {
+                  operationStore.clearPending(mutation.operationId());
                 }
                 result.complete(applied);
               })
@@ -169,9 +178,12 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
   private PlatformResult<InventoryMutationResult> applyOnServerThread(
       InventoryMutation mutation, Object player) {
     boolean mutated = false;
+    boolean intentCreated = false;
     try {
       Optional<InventoryMutationResult> prior = completedResult(mutation.operationId());
       if (prior.isPresent()) return PlatformResult.success(prior.orElseThrow());
+      if (operationStore.pending(mutation.operationId()))
+        return new PlatformResult.UnknownOutcome<>(mutation.operationId(), true);
       InventorySnapshot before = readSnapshot(mutation.playerId(), player);
       if (before.version() != mutation.expectedVersion()) {
         return new PlatformResult.Conflict<>(
@@ -208,6 +220,11 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
         decoded.add(success.value());
       }
 
+      if (!operationStore.begin(mutation.operationId())) {
+        return new PlatformResult.UnknownOutcome<>(mutation.operationId(), true);
+      }
+      intentCreated = true;
+
       Object empty = emptyStack(inventory, size, player.getClass().getClassLoader());
       for (RemovalPlan removal : removals) {
         if (removal.quantity() == removal.originalCount()) {
@@ -236,6 +253,7 @@ final class NativeInventoryGateway implements PlatformPorts.InventoryGateway {
       return PlatformResult.success(applied);
     } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
       if (mutated) return new PlatformResult.UnknownOutcome<>(mutation.operationId(), true);
+      if (intentCreated) operationStore.clearPending(mutation.operationId());
       return PlatformResult.rejected("INVENTORY_APPLY_FAILED", "error.inventory.apply_failed");
     }
   }

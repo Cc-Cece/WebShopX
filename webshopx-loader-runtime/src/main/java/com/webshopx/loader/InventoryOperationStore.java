@@ -13,6 +13,7 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -61,6 +62,37 @@ final class InventoryOperationStore {
     }
   }
 
+  boolean pending(String operationId) {
+    return directory != null && Files.isRegularFile(pendingFile(operationId));
+  }
+
+  boolean begin(String operationId) {
+    if (directory == null) return true;
+    Path pending = pendingFile(operationId);
+    try {
+      Files.writeString(
+          pending,
+          operationId,
+          StandardCharsets.UTF_8,
+          StandardOpenOption.CREATE_NEW,
+          StandardOpenOption.WRITE);
+      return true;
+    } catch (java.nio.file.FileAlreadyExistsException concurrent) {
+      return false;
+    } catch (IOException failure) {
+      throw new IllegalStateException("Cannot persist inventory operation intent", failure);
+    }
+  }
+
+  void clearPending(String operationId) {
+    if (directory == null) return;
+    try {
+      Files.deleteIfExists(pendingFile(operationId));
+    } catch (IOException failure) {
+      throw new IllegalStateException("Cannot clear inventory operation intent", failure);
+    }
+  }
+
   void write(String operationId, InventoryMutationResult result) {
     if (directory == null) return;
     Path target = file(operationId);
@@ -84,6 +116,7 @@ final class InventoryOperationStore {
       } catch (AtomicMoveNotSupportedException unsupported) {
         Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
       }
+      Files.deleteIfExists(pendingFile(operationId));
       prune();
     } catch (IOException failure) {
       try {
@@ -133,6 +166,10 @@ final class InventoryOperationStore {
 
   private Path file(String operationId) {
     return directory.resolve(hex(sha256(operationId.getBytes(StandardCharsets.UTF_8))) + ".bin");
+  }
+
+  private Path pendingFile(String operationId) {
+    return directory.resolve(hex(sha256(operationId.getBytes(StandardCharsets.UTF_8))) + ".pending");
   }
 
   private static long lastModified(Path path) {

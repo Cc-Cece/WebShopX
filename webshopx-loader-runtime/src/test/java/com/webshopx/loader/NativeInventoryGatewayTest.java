@@ -88,6 +88,17 @@ class NativeInventoryGatewayTest {
     assertEquals(applied.inserted().get(0).payloadHash(), replayed.inserted().get(0).payloadHash());
     assertEquals(applied.removed().get(0).payloadHash(), replayed.removed().get(0).payloadHash());
     assertEquals(applied.remainder(), replayed.remainder());
+    InventorySnapshot afterReplay =
+        success(restarted.snapshot(id, false).toCompletableFuture().get());
+    new InventoryOperationStore(temporaryDirectory).begin("interrupted-op");
+    assertInstanceOf(
+        PlatformResult.UnknownOutcome.class,
+        restarted
+            .compareAndApply(
+                new InventoryMutation(
+                    "interrupted-op", id, afterReplay.version(), List.of(resizedStone), List.of()))
+            .toCompletableFuture()
+            .get());
     assertEquals(
         1,
         success(gateway.snapshot(id, false).toCompletableFuture().get()).items().stream()
