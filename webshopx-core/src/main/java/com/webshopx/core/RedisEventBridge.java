@@ -17,9 +17,11 @@ import redis.clients.jedis.JedisPubSub;
 
 /** Reconnecting Redis pub/sub transport for the versioned platform event contract. */
 public final class RedisEventBridge implements PlatformPorts.EventPublisher, AutoCloseable {
+  private static final int MAX_WIRE_LENGTH = PlatformPorts.PlatformEvent.MAX_PAYLOAD_LENGTH
+      + 128 * 1024;
+  private static final Gson WIRE_GSON = new Gson();
   private final String channel;
   private final Consumer<PlatformPorts.PlatformEvent> consumer;
-  private final Gson gson = new Gson();
   private final AtomicBoolean running = new AtomicBoolean(true);
   private final AtomicLong receivedEvents = new AtomicLong();
   private final AtomicLong poisonEvents = new AtomicLong();
@@ -56,7 +58,7 @@ public final class RedisEventBridge implements PlatformPorts.EventPublisher, Aut
     if (!running.get()) return new PlatformResult.Unavailable<>(
         "redis", "Redis event bridge is stopped", Duration.ZERO);
     try {
-      publisher.publish(channel, gson.toJson(WireEvent.from(event)));
+      publisher.publish(channel, encodeWirePayload(event));
       return PlatformResult.success(null);
     } catch (RuntimeException failure) {
       unknownPublishes.incrementAndGet();
@@ -74,7 +76,7 @@ public final class RedisEventBridge implements PlatformPorts.EventPublisher, Aut
             if (!channel.equals(incoming) || payload == null) return;
             receivedEvents.incrementAndGet();
             try {
-              consumer.accept(gson.fromJson(payload, WireEvent.class).toPlatformEvent());
+              consumer.accept(decodeWirePayload(payload));
             } catch (RuntimeException poison) {
               poisonEvents.incrementAndGet();
               recordFailure(poison);
@@ -118,6 +120,19 @@ public final class RedisEventBridge implements PlatformPorts.EventPublisher, Aut
   private void recordFailure(RuntimeException failure) {
     lastFailureEpochMillis = System.currentTimeMillis();
     lastFailureType = failure.getClass().getSimpleName();
+  }
+
+  static PlatformPorts.PlatformEvent decodeWirePayload(String payload) {
+    if (payload == null || payload.length() > MAX_WIRE_LENGTH) {
+      throw new IllegalArgumentException("Redis event envelope is oversized or missing");
+    }
+    WireEvent decoded = WIRE_GSON.fromJson(payload, WireEvent.class);
+    if (decoded == null) throw new IllegalArgumentException("Redis event envelope is null");
+    return decoded.toPlatformEvent();
+  }
+
+  static String encodeWirePayload(PlatformPorts.PlatformEvent event) {
+    return WIRE_GSON.toJson(WireEvent.from(Objects.requireNonNull(event, "event")));
   }
 
   @Override public void close() {
