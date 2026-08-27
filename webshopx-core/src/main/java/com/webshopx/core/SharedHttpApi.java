@@ -2843,7 +2843,7 @@ public final class SharedHttpApi implements AutoCloseable {
     headers.set("Cache-Control", "no-store");
     headers.set(
         "Content-Security-Policy",
-        "default-src 'self'; img-src 'self' data: blob:; "
+        "default-src 'self'; img-src 'self' data: blob: https://mcasset.cloud; "
             + "font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; "
             + "frame-ancestors 'none'; object-src 'none'; base-uri 'self'");
     String origin = exchange.getRequestHeaders().getFirst("Origin");

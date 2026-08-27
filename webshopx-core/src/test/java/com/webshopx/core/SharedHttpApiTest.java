@@ -538,6 +538,7 @@ class SharedHttpApiTest {
     String contentSecurityPolicy =
         rejected.headers().firstValue("Content-Security-Policy").orElseThrow();
     assertTrue(contentSecurityPolicy.contains("frame-ancestors 'none'"));
+    assertTrue(contentSecurityPolicy.contains("img-src 'self' data: blob: https://mcasset.cloud"));
     assertTrue(contentSecurityPolicy.contains("object-src 'none'"));
   }
 
