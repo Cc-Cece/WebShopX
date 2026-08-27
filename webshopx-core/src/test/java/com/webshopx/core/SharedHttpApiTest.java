@@ -186,7 +186,7 @@ class SharedHttpApiTest {
         new SharedHttpApi(
             "127.0.0.1",
             0,
-            "https://shop.example",
+            "https://shop.example, https://admin.example",
             auth,
             wallets,
             commerce,
@@ -521,6 +521,13 @@ class SharedHttpApiTest {
     assertEquals(
         "https://shop.example",
         allowed.headers().firstValue("Access-Control-Allow-Origin").orElseThrow());
+    assertEquals(
+        "true", allowed.headers().firstValue("Access-Control-Allow-Credentials").orElseThrow());
+    HttpResponse<String> secondAllowed =
+        post("/api/auth/logout", "{}", token, "https://admin.example");
+    assertEquals(
+        "https://admin.example",
+        secondAllowed.headers().firstValue("Access-Control-Allow-Origin").orElseThrow());
     HttpResponse<String> rejected =
         post(
             "/api/auth/login",

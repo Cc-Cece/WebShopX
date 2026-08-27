@@ -46,6 +46,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -78,7 +79,7 @@ public final class SharedHttpApi implements AutoCloseable {
   private final SharedSupplyService supply;
   private final PlatformIdentity identity;
   private final CapabilitySnapshot capabilities;
-  private final String allowedOrigin;
+  private final Set<String> allowedOrigins;
   private final Gson gson = CommerceJson.create();
   private final ExecutorService executor;
   private final HttpServer server;
@@ -145,7 +146,14 @@ public final class SharedHttpApi implements AutoCloseable {
     this.updates = new SharedUpdateService(identity);
     this.supply = commerce.supplyService(supplyGateway, identity.serverId());
     this.capabilities = Objects.requireNonNull(capabilities, "capabilities");
-    this.allowedOrigin = allowedOrigin == null ? "" : allowedOrigin.trim();
+    LinkedHashSet<String> origins = new LinkedHashSet<>();
+    if (allowedOrigin != null) {
+      for (String candidate : allowedOrigin.split(",")) {
+        String normalized = candidate.trim();
+        if (!normalized.isEmpty()) origins.add(normalized);
+      }
+    }
+    this.allowedOrigins = Set.copyOf(origins);
     try {
       server = HttpServer.create(new InetSocketAddress(host, port), 64);
     } catch (IOException failure) {
@@ -2839,9 +2847,14 @@ public final class SharedHttpApi implements AutoCloseable {
             + "font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; "
             + "frame-ancestors 'self'; object-src 'none'; base-uri 'self'");
     String origin = exchange.getRequestHeaders().getFirst("Origin");
-    if (!allowedOrigin.isEmpty() && allowedOrigin.equals(origin)) {
+    if (allowedOrigins.contains("*")) {
+      headers.set("Access-Control-Allow-Origin", "*");
+      headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key");
+      headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    } else if (origin != null && allowedOrigins.contains(origin)) {
       headers.set("Access-Control-Allow-Origin", origin);
       headers.set("Vary", "Origin");
+      headers.set("Access-Control-Allow-Credentials", "true");
       headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key");
       headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     }
