@@ -111,7 +111,8 @@ public final class LoaderRuntime {
       throw failure;
     }
     RuntimeHealth.write(
-        bundle.paths().data(), bundle.identity(), bundle.capabilities(), active.state());
+        bundle.paths().data(), bundle.identity(), bundle.capabilities(), active.state(),
+        redisDiagnostics());
     System.out.printf(
         "[WebShopX] ready loader=%s minecraft=%s loaderVersion=%s domain=%s%n",
         loader, minecraftVersion, loaderVersion, bundle.identity().modpackFingerprint());
@@ -149,7 +150,8 @@ public final class LoaderRuntime {
       PlatformPorts.Bundle platform = active.platform();
       active.close();
       RuntimeHealth.write(
-          platform.paths().data(), platform.identity(), platform.capabilities(), active.state());
+          platform.paths().data(), platform.identity(), platform.capabilities(), active.state(),
+          redisDiagnostics());
     }
     active = null;
     if (httpApi != null) httpApi.close();
@@ -217,6 +219,14 @@ public final class LoaderRuntime {
     WebShopXCoreRuntime runtime = active;
     if (runtime == null) return "WebShopX state=STOPPED";
     PlatformIdentity identity = runtime.platform().identity();
+    String redis = "";
+    RedisEventBridge currentRedis = redisEvents;
+    if (currentRedis != null) {
+      RedisEventBridge.Diagnostics diagnostic = currentRedis.diagnostics();
+      redis = " redisSubscribed=" + diagnostic.subscribed()
+          + " redisPoison=" + diagnostic.poisonEvents()
+          + " redisReconnects=" + diagnostic.reconnects();
+    }
     return "WebShopX state="
         + runtime.state()
         + " platform="
@@ -224,7 +234,8 @@ public final class LoaderRuntime {
         + " minecraft="
         + identity.minecraftVersion()
         + " loader="
-        + identity.loaderVersion();
+        + identity.loaderVersion()
+        + redis;
   }
 
   static String nativeItemProbe() {
@@ -371,11 +382,17 @@ public final class LoaderRuntime {
       lifecycle.fireReady();
       PlatformPorts.Bundle platform = active.platform();
       RuntimeHealth.write(
-          platform.paths().data(), platform.identity(), platform.capabilities(), active.state());
+          platform.paths().data(), platform.identity(), platform.capabilities(), active.state(),
+          redisDiagnostics());
       System.out.println("[WebShopX] native server lifecycle ready");
     } catch (RuntimeException failure) {
       System.err.printf("[WebShopX] native server binding failed: %s%n", failure);
     }
+  }
+
+  private static RedisEventBridge.Diagnostics redisDiagnostics() {
+    RedisEventBridge current = redisEvents;
+    return current == null ? null : current.diagnostics();
   }
 
   static void nativeServerStopping() {

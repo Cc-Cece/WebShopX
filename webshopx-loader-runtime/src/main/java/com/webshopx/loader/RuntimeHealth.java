@@ -1,6 +1,7 @@
 package com.webshopx.loader;
 
 import com.webshopx.core.WebShopXCoreRuntime;
+import com.webshopx.core.RedisEventBridge;
 import com.webshopx.platform.CapabilitySnapshot;
 import com.webshopx.platform.PlatformIdentity;
 import java.io.IOException;
@@ -16,7 +17,8 @@ final class RuntimeHealth {
   private RuntimeHealth() { }
 
   static void write(Path dataDirectory, PlatformIdentity identity,
-                    CapabilitySnapshot capabilities, WebShopXCoreRuntime.State state) {
+                    CapabilitySnapshot capabilities, WebShopXCoreRuntime.State state,
+                    RedisEventBridge.Diagnostics redis) {
     try {
       Files.createDirectories(dataDirectory);
       Path target = dataDirectory.resolve("health.json");
@@ -38,7 +40,8 @@ final class RuntimeHealth {
           + "  \"loader\": \"" + escape(identity.loader()) + "\",\n"
           + "  \"minecraft\": \"" + escape(identity.minecraftVersion()) + "\",\n"
           + "  \"loaderVersion\": \"" + escape(identity.loaderVersion()) + "\",\n"
-          + "  \"capabilities\": {" + states + "}\n"
+          + "  \"capabilities\": {" + states + "},\n"
+          + "  \"redis\": " + redisJson(redis) + "\n"
           + "}\n";
       Files.writeString(pending, json, StandardCharsets.UTF_8);
       try {
@@ -49,6 +52,18 @@ final class RuntimeHealth {
     } catch (IOException error) {
       throw new IllegalStateException("cannot write WebShopX health snapshot", error);
     }
+  }
+
+  private static String redisJson(RedisEventBridge.Diagnostics value) {
+    if (value == null) return "null";
+    return "{\"running\":" + value.running()
+        + ",\"subscribed\":" + value.subscribed()
+        + ",\"receivedEvents\":" + value.receivedEvents()
+        + ",\"poisonEvents\":" + value.poisonEvents()
+        + ",\"reconnects\":" + value.reconnects()
+        + ",\"unknownPublishes\":" + value.unknownPublishes()
+        + ",\"lastFailureEpochMillis\":" + value.lastFailureEpochMillis()
+        + ",\"lastFailureType\":\"" + escape(value.lastFailureType()) + "\"}";
   }
 
   private static String escape(String value) {

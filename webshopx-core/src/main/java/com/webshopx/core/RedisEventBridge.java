@@ -7,6 +7,7 @@ import com.webshopx.platform.PlatformResult;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import redis.clients.jedis.DefaultJedisClientConfig;
 import redis.clients.jedis.HostAndPort;
@@ -20,11 +21,17 @@ public final class RedisEventBridge implements PlatformPorts.EventPublisher, Aut
   private final Consumer<PlatformPorts.PlatformEvent> consumer;
   private final Gson gson = new Gson();
   private final AtomicBoolean running = new AtomicBoolean(true);
+  private final AtomicLong receivedEvents = new AtomicLong();
+  private final AtomicLong poisonEvents = new AtomicLong();
+  private final AtomicLong reconnects = new AtomicLong();
+  private final AtomicLong unknownPublishes = new AtomicLong();
   private final HostAndPort endpoint;
   private final DefaultJedisClientConfig clientConfig;
   private final JedisPooled publisher;
   private final Thread subscriberThread;
   private volatile JedisPubSub subscription;
+  private volatile long lastFailureEpochMillis;
+  private volatile String lastFailureType = "";
 
   public RedisEventBridge(String host, int port, String password, String channel,
       Consumer<PlatformPorts.PlatformEvent> consumer) {
@@ -52,6 +59,8 @@ public final class RedisEventBridge implements PlatformPorts.EventPublisher, Aut
       publisher.publish(channel, gson.toJson(WireEvent.from(event)));
       return PlatformResult.success(null);
     } catch (RuntimeException failure) {
+      unknownPublishes.incrementAndGet();
+      recordFailure(failure);
       return new PlatformResult.UnknownOutcome<>(event.id(), true);
     }
   }
@@ -63,10 +72,13 @@ public final class RedisEventBridge implements PlatformPorts.EventPublisher, Aut
         JedisPubSub current = new JedisPubSub() {
           @Override public void onMessage(String incoming, String payload) {
             if (!channel.equals(incoming) || payload == null) return;
+            receivedEvents.incrementAndGet();
             try {
               consumer.accept(gson.fromJson(payload, WireEvent.class).toPlatformEvent());
-            } catch (RuntimeException ignored) {
-              // Poison events are isolated; durable consumers perform their own admission.
+            } catch (RuntimeException poison) {
+              poisonEvents.incrementAndGet();
+              recordFailure(poison);
+              // Poison events are isolated; diagnostics expose their occurrence without payloads.
             }
           }
         };
@@ -75,6 +87,8 @@ public final class RedisEventBridge implements PlatformPorts.EventPublisher, Aut
         jedis.subscribe(current, channel);
       } catch (RuntimeException failure) {
         if (!running.get()) break;
+        reconnects.incrementAndGet();
+        recordFailure(failure);
         try {
           Thread.sleep(retryMillis);
           retryMillis = Math.min(5_000, retryMillis * 2);
@@ -86,6 +100,24 @@ public final class RedisEventBridge implements PlatformPorts.EventPublisher, Aut
         subscription = null;
       }
     }
+  }
+
+  /** Secret-free operational counters suitable for health and structured diagnostics. */
+  public Diagnostics diagnostics() {
+    return new Diagnostics(
+        running.get(),
+        subscription != null,
+        receivedEvents.get(),
+        poisonEvents.get(),
+        reconnects.get(),
+        unknownPublishes.get(),
+        lastFailureEpochMillis,
+        lastFailureType);
+  }
+
+  private void recordFailure(RuntimeException failure) {
+    lastFailureEpochMillis = System.currentTimeMillis();
+    lastFailureType = failure.getClass().getSimpleName();
   }
 
   @Override public void close() {
@@ -119,4 +151,14 @@ public final class RedisEventBridge implements PlatformPorts.EventPublisher, Aut
               modpackFingerprint), occurredAtEpochMillis, payloadJson);
     }
   }
+
+  public record Diagnostics(
+      boolean running,
+      boolean subscribed,
+      long receivedEvents,
+      long poisonEvents,
+      long reconnects,
+      long unknownPublishes,
+      long lastFailureEpochMillis,
+      String lastFailureType) { }
 }
