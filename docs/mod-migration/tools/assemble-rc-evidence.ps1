@@ -18,6 +18,24 @@ foreach ($check in $checks) {
     if ($check.status -ne 'passed') { throw "Required check did not pass: $($check.id)" }
     if ([string]::IsNullOrWhiteSpace($check.environment)) { throw "Missing environment for $($check.id)" }
     if ($check.evidenceSha256 -notmatch '^[0-9a-f]{64}$') { throw "Invalid evidence hash for $($check.id)" }
+    $files = @($check.files)
+    if ($files.Count -eq 0) { throw "Missing evidence manifest for $($check.id)" }
+    if (@($files | Where-Object { $_ -notmatch '^[0-9a-f]{64}  [^\r\n]+$' }).Count -gt 0) {
+        throw "Malformed evidence manifest for $($check.id)"
+    }
+    if (@($files | Sort-Object -Unique).Count -ne $files.Count) {
+        throw "Duplicate evidence manifest rows for $($check.id)"
+    }
+    $manifestBytes = [Text.Encoding]::UTF8.GetBytes(($files -join "`n") + "`n")
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $calculatedDigest = ([BitConverter]::ToString($sha256.ComputeHash($manifestBytes)) -replace '-', '').ToLowerInvariant()
+    } finally {
+        $sha256.Dispose()
+    }
+    if ($calculatedDigest -ne $check.evidenceSha256) {
+        throw "Evidence manifest hash mismatch for $($check.id)"
+    }
     $generated = [DateTimeOffset]::MinValue
     if (-not [DateTimeOffset]::TryParse([string]$check.generatedAtUtc, [ref]$generated)) {
         throw "Missing or invalid evidence timestamp for $($check.id)"
