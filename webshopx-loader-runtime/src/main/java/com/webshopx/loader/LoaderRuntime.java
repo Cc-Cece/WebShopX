@@ -28,6 +28,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /** Loader-independent bootstrap. Loader-specific adapters can replace ports one at a time. */
 public final class LoaderRuntime {
@@ -45,6 +46,9 @@ public final class LoaderRuntime {
   private static SharedHttpApi httpApi;
   private static boolean nativeLifecycleInstalled;
   private static boolean shutdownHookInstalled;
+  private static final ConcurrentLinkedQueue<PlatformPorts.PlatformEvent> pendingEvents =
+      new ConcurrentLinkedQueue<>();
+  private static final int MAX_PENDING_EVENTS = 1_000;
 
   private LoaderRuntime() {}
 
@@ -59,6 +63,7 @@ public final class LoaderRuntime {
     try {
       if (!isPluginPlatform(loader)) {
         databaseRuntime = SharedDatabaseRuntime.start(bundle.paths().data());
+        drainPendingEvents();
         SharedDatabaseRuntime auctionDatabase = databaseRuntime;
         scheduler.schedule(
             Duration.ofSeconds(5),
@@ -169,6 +174,7 @@ public final class LoaderRuntime {
     deliveries = null;
     if (redisEvents != null) redisEvents.close();
     redisEvents = null;
+    pendingEvents.clear();
     nativeLifecycleInstalled = false;
     if (instanceGuard != null) instanceGuard.close();
     instanceGuard = null;
@@ -335,10 +341,7 @@ public final class LoaderRuntime {
                 Integer.getInteger("webshopx.redis.port", 6379),
                 System.getProperty("webshopx.redis.password", ""),
                 System.getProperty("webshopx.redis.channel", "webshopx:events"),
-                incoming ->
-                    System.out.printf(
-                        "[WebShopX] relay event id=%s type=%s source=%s%n",
-                        incoming.id(), incoming.type(), incoming.serverId()));
+                LoaderRuntime::acceptClusterEvent);
         events = redisEvents;
         states.put(Capability.REDIS, CapabilityState.available("Redis pub/sub connected"));
       } catch (RuntimeException failure) {
@@ -393,6 +396,30 @@ public final class LoaderRuntime {
   private static RedisEventBridge.Diagnostics redisDiagnostics() {
     RedisEventBridge current = redisEvents;
     return current == null ? null : current.diagnostics();
+  }
+
+  private static void acceptClusterEvent(PlatformPorts.PlatformEvent incoming) {
+    SharedDatabaseRuntime database = databaseRuntime;
+    if (database == null) {
+      if (pendingEvents.size() >= MAX_PENDING_EVENTS) {
+        throw new IllegalStateException("cluster event startup queue is full");
+      }
+      pendingEvents.add(incoming);
+      return;
+    }
+    WebShopXCoreRuntime runtime = active;
+    if (runtime != null && runtime.platform().identity().serverId().equals(incoming.serverId())) {
+      return;
+    }
+    if (!database.admitEvent(incoming)) return;
+    System.out.printf(
+        "[WebShopX] relay event admitted id=%s type=%s source=%s%n",
+        incoming.id(), incoming.type(), incoming.serverId());
+  }
+
+  private static void drainPendingEvents() {
+    PlatformPorts.PlatformEvent event;
+    while ((event = pendingEvents.poll()) != null) acceptClusterEvent(event);
   }
 
   static void nativeServerStopping() {

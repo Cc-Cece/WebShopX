@@ -100,7 +100,27 @@ public final class PlatformPorts {
 
   public record PlatformEvent(String id, String type, int schemaVersion, String serverId,
                               CompatibilityDomain domain, long occurredAtEpochMillis,
-                              String payloadJson) { }
+                              String payloadJson) {
+    public static final int MAX_PAYLOAD_LENGTH = 256 * 1024;
+
+    public PlatformEvent {
+      if (id == null || id.isBlank() || id.length() > 128) {
+        throw new IllegalArgumentException("event id is invalid");
+      }
+      if (type == null || type.isBlank() || type.length() > 128) {
+        throw new IllegalArgumentException("event type is invalid");
+      }
+      if (schemaVersion < 1) throw new IllegalArgumentException("event schema is invalid");
+      if (serverId == null || serverId.isBlank() || serverId.length() > 128) {
+        throw new IllegalArgumentException("event server id is invalid");
+      }
+      if (domain == null) throw new IllegalArgumentException("event domain is required");
+      if (occurredAtEpochMillis < 1) throw new IllegalArgumentException("event time is invalid");
+      if (payloadJson == null || payloadJson.length() > MAX_PAYLOAD_LENGTH) {
+        throw new IllegalArgumentException("event payload is invalid");
+      }
+    }
+  }
 
   public record Paths(Path config, Path data, Path resources, Path uploads, Path logs) { }
 

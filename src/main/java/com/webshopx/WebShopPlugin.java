@@ -136,6 +136,7 @@ public class WebShopPlugin extends JavaPlugin {
               settings().clusterSettings().presenceTtlSeconds()));
       clusterEventBusService = new ClusterEventBusService(
           this,
+          databaseManager,
           this::settings,
           this::handleClusterConfigRefreshEvent);
 

@@ -19,6 +19,10 @@ import com.webshopx.SharedMarketEscrowService;
 import com.webshopx.SharedPromotionService;
 import com.webshopx.SharedRuntimeConfigService;
 import com.webshopx.WalletService;
+import com.webshopx.core.JdbcEventInbox;
+import com.webshopx.platform.PlatformPorts.PlatformEvent;
+import java.sql.SQLException;
+import java.time.Clock;
 import java.nio.file.Path;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -40,6 +44,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
   private final RefundPolicyService refundPolicies;
   private final SharedRuntimeConfigService runtimeConfig;
   private final LoaderPaymentProviderRegistry paymentProviders;
+  private final JdbcEventInbox eventInbox;
 
   private SharedDatabaseRuntime(
       DatabaseManager database,
@@ -55,7 +60,8 @@ final class SharedDatabaseRuntime implements AutoCloseable {
       SharedPromotionService promotions,
       RefundPolicyService refundPolicies,
       SharedRuntimeConfigService runtimeConfig,
-      LoaderPaymentProviderRegistry paymentProviders) {
+      LoaderPaymentProviderRegistry paymentProviders,
+      JdbcEventInbox eventInbox) {
     this.database = database;
     this.authentication = authentication;
     this.presence = presence;
@@ -70,6 +76,7 @@ final class SharedDatabaseRuntime implements AutoCloseable {
     this.refundPolicies = refundPolicies;
     this.runtimeConfig = runtimeConfig;
     this.paymentProviders = paymentProviders;
+    this.eventInbox = eventInbox;
   }
 
   static SharedDatabaseRuntime start(Path dataDirectory) {
@@ -145,6 +152,13 @@ final class SharedDatabaseRuntime implements AutoCloseable {
         new SharedPromotionService(
             database, wallet, new SharedCommerceCheckoutAdapter(commerce, serverId));
     RefundPolicyService refundPolicies = new RefundPolicyService(database);
+    JdbcEventInbox eventInbox = new JdbcEventInbox(database::getConnection, Clock.systemUTC());
+    try {
+      eventInbox.initialize();
+    } catch (SQLException failure) {
+      database.close();
+      throw new IllegalStateException("Cannot initialize durable cluster event inbox", failure);
+    }
     return new SharedDatabaseRuntime(
         database,
         authentication,
@@ -159,7 +173,8 @@ final class SharedDatabaseRuntime implements AutoCloseable {
         promotions,
         refundPolicies,
         runtimeConfig,
-        paymentProviders);
+        paymentProviders,
+        eventInbox);
   }
 
   AuthService authentication() {
@@ -213,6 +228,14 @@ final class SharedDatabaseRuntime implements AutoCloseable {
 
   SharedRuntimeConfigService runtimeConfig() {
     return runtimeConfig;
+  }
+
+  boolean admitEvent(PlatformEvent event) {
+    try {
+      return eventInbox.admit(event);
+    } catch (SQLException failure) {
+      throw new IllegalStateException("Cannot admit cluster event", failure);
+    }
   }
 
   private static WalletService.ExchangePolicy exchangePolicy(

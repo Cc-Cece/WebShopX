@@ -7,20 +7,23 @@ import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Objects;
-import javax.sql.DataSource;
 
 /** Durable at-most-once admission for relay consumers. Business work stays in the caller transaction. */
 public final class JdbcEventInbox {
-  private final DataSource dataSource;
+  private final ConnectionProvider connections;
   private final Clock clock;
 
-  public JdbcEventInbox(DataSource dataSource, Clock clock) {
-    this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
+  public JdbcEventInbox(javax.sql.DataSource dataSource, Clock clock) {
+    this(Objects.requireNonNull(dataSource, "dataSource")::getConnection, clock);
+  }
+
+  public JdbcEventInbox(ConnectionProvider connections, Clock clock) {
+    this.connections = Objects.requireNonNull(connections, "connections");
     this.clock = Objects.requireNonNull(clock, "clock");
   }
 
   public void initialize() throws SQLException {
-    try (Connection connection = dataSource.getConnection();
+    try (Connection connection = connections.getConnection();
          PreparedStatement statement = connection.prepareStatement(
              "CREATE TABLE IF NOT EXISTS webshopx_event_inbox ("
                  + "event_id VARCHAR(128) PRIMARY KEY, event_type VARCHAR(128) NOT NULL, "
@@ -32,7 +35,7 @@ public final class JdbcEventInbox {
 
   public boolean admit(PlatformEvent event) throws SQLException {
     Objects.requireNonNull(event, "event");
-    try (Connection connection = dataSource.getConnection();
+    try (Connection connection = connections.getConnection();
          PreparedStatement statement = connection.prepareStatement(
              "INSERT INTO webshopx_event_inbox "
                  + "(event_id,event_type,schema_version,server_id,occurred_at,admitted_at) "
@@ -53,7 +56,7 @@ public final class JdbcEventInbox {
 
   public int purge(Duration retention) throws SQLException {
     if (retention.isNegative() || retention.isZero()) throw new IllegalArgumentException("retention");
-    try (Connection connection = dataSource.getConnection();
+    try (Connection connection = connections.getConnection();
          PreparedStatement statement = connection.prepareStatement(
              "DELETE FROM webshopx_event_inbox WHERE admitted_at < ?")) {
       statement.setLong(1, clock.millis() - retention.toMillis());
@@ -68,5 +71,10 @@ public final class JdbcEventInbox {
       if (current.getErrorCode() == 19 || current.getErrorCode() == 1062) return true;
     }
     return false;
+  }
+
+  @FunctionalInterface
+  public interface ConnectionProvider {
+    Connection getConnection() throws SQLException;
   }
 }

@@ -2,6 +2,7 @@ package com.webshopx.core;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.webshopx.platform.CompatibilityDomain;
 import com.webshopx.platform.PlatformPorts.PlatformEvent;
@@ -24,6 +25,25 @@ class JdbcEventInboxTest {
           new CompatibilityDomain("paper", "paper", "1.20.1", 1, "vanilla"), 100L, "{}");
       assertTrue(inbox.admit(event));
       assertFalse(inbox.admit(event));
+      JdbcEventInbox providerInbox = new JdbcEventInbox(source::getConnection, Clock.systemUTC());
+      assertFalse(providerInbox.admit(event));
     }
+  }
+
+  @Test
+  void eventContractRejectsMalformedAndOversizedMessages() {
+    CompatibilityDomain domain =
+        new CompatibilityDomain("fabric", "fabric", "1.20.1", 1, "vanilla");
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new PlatformEvent("", "ORDER", 1, "node-a", domain, 1, "{}"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new PlatformEvent("evt", "ORDER", 0, "node-a", domain, 1, "{}"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new PlatformEvent(
+            "evt", "ORDER", 1, "node-a", domain, 1,
+            "x".repeat(PlatformEvent.MAX_PAYLOAD_LENGTH + 1)));
   }
 }
