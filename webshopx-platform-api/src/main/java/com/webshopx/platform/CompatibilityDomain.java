@@ -14,6 +14,14 @@ public record CompatibilityDomain(
     int itemCodecVersion,
     String modpackFingerprint) {
 
+  public CompatibilityDomain {
+    platform = required(platform, "platform", 64);
+    loader = required(loader, "loader", 64);
+    minecraftVersion = required(minecraftVersion, "minecraftVersion", 64);
+    if (itemCodecVersion < 1) throw new IllegalArgumentException("itemCodecVersion is invalid");
+    modpackFingerprint = required(modpackFingerprint, "modpackFingerprint", 256);
+  }
+
   public static String fingerprint(Collection<ModIdentity> mods) {
     try {
       MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -36,5 +44,17 @@ public record CompatibilityDomain(
         && modpackFingerprint.equals(other.modpackFingerprint);
   }
 
-  public record ModIdentity(String id, String version) { }
+  public record ModIdentity(String id, String version) {
+    public ModIdentity {
+      id = required(id, "mod id", 256);
+      version = required(version, "mod version", 256);
+    }
+  }
+
+  private static String required(String value, String name, int maximumLength) {
+    if (value == null || value.isBlank() || value.length() > maximumLength) {
+      throw new IllegalArgumentException(name + " is invalid");
+    }
+    return value.trim();
+  }
 }

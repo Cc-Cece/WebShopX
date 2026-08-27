@@ -45,5 +45,11 @@ class JdbcEventInboxTest {
         () -> new PlatformEvent(
             "evt", "ORDER", 1, "node-a", domain, 1,
             "x".repeat(PlatformEvent.MAX_PAYLOAD_LENGTH + 1)));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new CompatibilityDomain("fabric", "", "1.20.1", 1, "vanilla"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new CompatibilityDomain("fabric", "fabric", "1.20.1", 0, "vanilla"));
   }
 }
