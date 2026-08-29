@@ -1,6 +1,7 @@
 package com.webshopx;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.webshopx.payment.api.PaymentMethod;
 import com.webshopx.payment.api.PaymentConfigUpdateRequest;
 import com.webshopx.payment.api.PaymentConfigUpdateResult;
@@ -9,6 +10,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.security.MessageDigest;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -21,6 +23,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
+import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -102,6 +105,7 @@ class RechargeService {
     Map<String, String> metadata = new LinkedHashMap<>();
     metadata.put("source", normalized.source());
     metadata.put("coinAmount", String.valueOf(normalized.coinAmount()));
+    metadata.put("requestFingerprint", requestFingerprint(normalized, route.providerId()));
 
     try {
       databaseManager.inTransaction(connection -> {
@@ -756,10 +760,20 @@ class RechargeService {
 
   private RechargeCreateResult replayCreate(
       RechargeCreateRequest request, String providerId, RechargeOrder order) {
+    String storedFingerprint = null;
+    try {
+      JsonObject metadata = gson.fromJson(order.metadata(), JsonObject.class);
+      if (metadata != null && metadata.has("requestFingerprint")) {
+        storedFingerprint = metadata.get("requestFingerprint").getAsString();
+      }
+    } catch (RuntimeException ignored) {
+      // A missing or malformed fingerprint must never authorize a semantic replay.
+    }
     if (order.amountMinor() != request.amountMinor()
         || order.coinAmount() != request.coinAmount()
         || !order.currency().equals(request.currency())
-        || !providerId.equals(order.provider())) {
+        || !providerId.equals(order.provider())
+        || !requestFingerprint(request, providerId).equals(storedFingerprint)) {
       throw new ServiceException(
           "idempotency_conflict", "Idempotency key was already used for another recharge request");
     }
@@ -784,6 +798,27 @@ class RechargeService {
         order.expireTime(),
         null,
         "success");
+  }
+
+  private String requestFingerprint(RechargeCreateRequest request, String providerId) {
+    String canonical = String.join("\n",
+        String.valueOf(request.userId()),
+        String.valueOf(request.playerUuid()),
+        String.valueOf(request.amountMinor()),
+        request.currency(),
+        String.valueOf(request.coinAmount()),
+        request.preferredMethod().name(),
+        String.valueOf(request.methodCode()),
+        request.source(),
+        String.valueOf(request.baseUrl()),
+        String.valueOf(request.locale()),
+        providerId);
+    try {
+      return HexFormat.of().formatHex(
+          MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8)));
+    } catch (java.security.NoSuchAlgorithmException impossible) {
+      throw new IllegalStateException("SHA-256 is unavailable", impossible);
+    }
   }
 
   private RechargeOrder toOrder(ResultSet resultSet) throws SQLException {
