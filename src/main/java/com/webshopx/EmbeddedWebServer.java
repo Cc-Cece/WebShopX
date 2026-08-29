@@ -624,8 +624,7 @@ class EmbeddedWebServer {
       CurrencyType from = CurrencyType.fromConfig(getString(payload, "fromCurrency"));
       CurrencyType to = CurrencyType.fromConfig(getString(payload, "toCurrency"));
       long amount = getLong(payload, "amount", 0L);
-      String idempotencyKey = getOptionalString(payload, "idempotencyKey")
-          .orElse(UUID.randomUUID().toString());
+      String idempotencyKey = requireIdempotencyKey(exchange, payload);
       WalletService.WalletBalance balance = walletService.exchange(user.id(), from, to, amount,
           idempotencyKey);
       JsonObject response = new JsonObject();
@@ -772,8 +771,7 @@ class EmbeddedWebServer {
       long productId = getLong(payload, "productId", -1L);
       int quantity = (int) getLong(payload, "quantity", 1L);
       String deliveryMode = getOptionalString(payload, "deliveryMode").orElse(null);
-      String idempotencyKey = getOptionalString(payload, "idempotencyKey")
-          .orElse(UUID.randomUUID().toString());
+      String idempotencyKey = requireIdempotencyKey(exchange, payload);
       OrderService.OrderPlacementResult result = orderService.placeOrder(
           user.id(),
           productId,
@@ -1085,8 +1083,7 @@ class EmbeddedWebServer {
         sendJson(exchange, 200, response);
         return;
       }
-      String idempotencyKey = getOptionalString(payload, "idempotencyKey")
-          .orElse(UUID.randomUUID().toString());
+      String idempotencyKey = requireIdempotencyKey(exchange, payload);
       OrderService.RefundResult result =
           mailboxCenterService.refund(user.id(), entryId, idempotencyKey);
       JsonObject response = new JsonObject();
@@ -2219,8 +2216,7 @@ class EmbeddedWebServer {
       long listingId = getLong(payload, "listingId", -1L);
       int buyQuantity = (int) getLong(payload, "buyQuantity", 1L);
       String deliveryMode = getOptionalString(payload, "deliveryMode").orElse(null);
-      String idempotencyKey = getOptionalString(payload, "idempotencyKey")
-          .orElse(UUID.randomUUID().toString());
+      String idempotencyKey = requireIdempotencyKey(exchange, payload);
       Long expectedUnitPrice = getOptionalPositiveLong(payload, "expectedUnitPrice");
       Long expectedBuyerTotal = getOptionalPositiveLong(payload, "expectedBuyerTotal");
       MarketService.TradeResult result =
@@ -2253,8 +2249,7 @@ class EmbeddedWebServer {
               ? (int) getLong(payload, "fulfillQuantity", 1L)
               : (int) getLong(payload, "quantity", 1L);
       String deliveryMode = getOptionalString(payload, "deliveryMode").orElse(null);
-      String idempotencyKey = getOptionalString(payload, "idempotencyKey")
-          .orElse(UUID.randomUUID().toString());
+      String idempotencyKey = requireIdempotencyKey(exchange, payload);
       Long expectedUnitPrice = getOptionalPositiveLong(payload, "expectedUnitPrice");
       Long expectedBuyerTotal = getOptionalPositiveLong(payload, "expectedBuyerTotal");
       MarketService.TradeResult result = marketService.fulfillBuyOrder(
@@ -2343,8 +2338,7 @@ class EmbeddedWebServer {
       AuthService.AuthUser user = requireAuth(exchange, payload);
       long listingId = getLong(payload, "listingId", -1L);
       long bidAmount = getLong(payload, "bidAmount", 0L);
-      String idempotencyKey = getOptionalString(payload, "idempotencyKey")
-          .orElse(UUID.randomUUID().toString());
+      String idempotencyKey = requireIdempotencyKey(exchange, payload);
       MarketService.BidResult result = marketService.placeBid(user.id(), listingId, bidAmount, idempotencyKey);
       JsonObject response = new JsonObject();
       response.addProperty("state", result.state().name());
@@ -2890,8 +2884,7 @@ class EmbeddedWebServer {
       JsonObject payload = readJson(exchange);
       AuthService.AuthUser user = requireAuth(exchange, payload);
       long listingId = getLong(payload, "listingId", -1L);
-      String operationId = getOptionalString(payload, "idempotencyKey")
-          .orElse(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
+      String operationId = requireIdempotencyKey(exchange, payload);
       sendJson(
           exchange,
           200,
@@ -7394,6 +7387,19 @@ class EmbeddedWebServer {
       return Optional.empty();
     }
     return Optional.of(text);
+  }
+
+  private String requireIdempotencyKey(HttpExchange exchange, JsonObject payload) {
+    String key = getOptionalString(payload, "idempotencyKey")
+        .orElse(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
+    if (key == null || key.isBlank()) {
+      throw new ServiceException("idempotency_key_required", "Idempotency key is required");
+    }
+    String normalized = key.trim();
+    if (normalized.length() > 128) {
+      throw new ServiceException("invalid_idempotency_key", "Idempotency key is too long");
+    }
+    return normalized;
   }
 
   private PaymentMethod parsePaymentMethod(String raw) {
