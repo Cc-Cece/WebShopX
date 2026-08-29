@@ -302,6 +302,7 @@ class SchemaManager {
           id BIGINT NOT NULL AUTO_INCREMENT,
           order_id VARCHAR(48) NOT NULL,
           user_id BIGINT NOT NULL,
+          idempotency_key VARCHAR(128) NULL,
           player_uuid CHAR(36) NULL,
           amount_minor BIGINT NOT NULL,
           currency VARCHAR(8) NOT NULL,
@@ -331,6 +332,16 @@ class SchemaManager {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """;
     execute(connection, sql);
+    if (!columnExists(connection, "webshopx_recharge_order", "idempotency_key")) {
+      execute(connection,
+          "ALTER TABLE webshopx_recharge_order "
+              + "ADD COLUMN idempotency_key VARCHAR(128) NULL AFTER user_id");
+    }
+    if (!indexExists(connection, "webshopx_recharge_order", "uniq_recharge_user_idempotency")) {
+      execute(connection,
+          "ALTER TABLE webshopx_recharge_order "
+              + "ADD UNIQUE KEY uniq_recharge_user_idempotency (user_id, idempotency_key)");
+    }
   }
 
   private void createRedeemCodes(Connection connection) throws SQLException {

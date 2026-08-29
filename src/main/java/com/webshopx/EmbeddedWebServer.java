@@ -531,6 +531,7 @@ class EmbeddedWebServer {
           .orElse(null);
       String methodCode = getOptionalString(payload, "methodCode").orElse(null);
       String locale = getOptionalString(payload, "locale").orElse(null);
+      String idempotencyKey = requireIdempotencyKey(exchange, payload);
       String baseUrl = resolveBaseUrl(exchange);
       RechargeService.RechargeCreateResult result = rechargeService.createRechargeOrder(
           new RechargeService.RechargeCreateRequest(
@@ -543,7 +544,8 @@ class EmbeddedWebServer {
               methodCode,
               "WEB",
               baseUrl,
-              locale));
+              locale,
+              idempotencyKey));
       JsonObject response = rechargeCreateResultJson(exchange, result);
       sendJson(exchange, result.success() ? 200 : 400, response);
     });

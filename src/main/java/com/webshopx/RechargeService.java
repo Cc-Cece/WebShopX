@@ -93,17 +93,27 @@ class RechargeService {
       throw new ServiceException("payment_route_unsupported",
           "Payment provider " + route.providerId() + " does not support this method and currency");
     }
+    RechargeOrder replay = findOrderByIdempotency(normalized.userId(), normalized.idempotencyKey());
+    if (replay != null) {
+      return replayCreate(normalized, route.providerId(), replay);
+    }
     String orderId = generateOrderId();
     Instant requestedExpiresAt = resolveRechargeOrderExpiresAt();
     Map<String, String> metadata = new LinkedHashMap<>();
     metadata.put("source", normalized.source());
     metadata.put("coinAmount", String.valueOf(normalized.coinAmount()));
 
-    databaseManager.inTransaction(connection -> {
-      ensureUserExists(connection, normalized.userId());
-      insertRechargeOrder(connection, orderId, normalized, route.providerId(), gson.toJson(metadata));
-      return null;
-    });
+    try {
+      databaseManager.inTransaction(connection -> {
+        ensureUserExists(connection, normalized.userId());
+        insertRechargeOrder(connection, orderId, normalized, route.providerId(), gson.toJson(metadata));
+        return null;
+      });
+    } catch (RuntimeException failure) {
+      replay = findOrderByIdempotency(normalized.userId(), normalized.idempotencyKey());
+      if (replay == null) throw failure;
+      return replayCreate(normalized, route.providerId(), replay);
+    }
 
     String dynamicReturnUrl = null;
     if (normalized.baseUrl() != null && !normalized.baseUrl().isBlank()) {
@@ -365,7 +375,19 @@ class RechargeService {
         blankToNull(request.methodCode()),
         source,
         request.baseUrl(),
-        normalizeLocaleTag(request.locale()));
+        normalizeLocaleTag(request.locale()),
+        normalizeIdempotencyKey(request.idempotencyKey()));
+  }
+
+  private String normalizeIdempotencyKey(String value) {
+    if (value == null || value.isBlank()) {
+      throw new ServiceException("idempotency_key_required", "Idempotency key is required");
+    }
+    String normalized = value.trim();
+    if (normalized.length() > 128) {
+      throw new ServiceException("invalid_idempotency_key", "Idempotency key is too long");
+    }
+    return normalized;
   }
 
   private Instant resolveRechargeOrderExpiresAt() {
@@ -481,21 +503,22 @@ class RechargeService {
       String metadataJson) throws SQLException {
     String sql = """
         INSERT INTO webshopx_recharge_order (
-          order_id, user_id, player_uuid, amount_minor, currency, coin_amount,
+          order_id, user_id, idempotency_key, player_uuid, amount_minor, currency, coin_amount,
           status, provider, metadata
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setString(1, orderId);
       statement.setLong(2, request.userId());
-      statement.setString(3, request.playerUuid() == null ? null : request.playerUuid().toString());
-      statement.setLong(4, request.amountMinor());
-      statement.setString(5, request.currency());
-      statement.setLong(6, request.coinAmount());
-      statement.setString(7, RechargeOrderStatus.PENDING.name());
-      statement.setString(8, providerId);
-      statement.setString(9, metadataJson);
+      statement.setString(3, request.idempotencyKey());
+      statement.setString(4, request.playerUuid() == null ? null : request.playerUuid().toString());
+      statement.setLong(5, request.amountMinor());
+      statement.setString(6, request.currency());
+      statement.setLong(7, request.coinAmount());
+      statement.setString(8, RechargeOrderStatus.PENDING.name());
+      statement.setString(9, providerId);
+      statement.setString(10, metadataJson);
       statement.executeUpdate();
     }
   }
@@ -711,6 +734,58 @@ class RechargeService {
     });
   }
 
+  private RechargeOrder findOrderByIdempotency(long userId, String idempotencyKey) {
+    return databaseManager.withConnection(connection -> {
+      String sql = """
+          SELECT id, order_id, user_id, player_uuid, amount_minor, currency, coin_amount,
+                 status, provider, provider_order_id, pay_url, qr_code_url, expire_time,
+                 paid_time, credited_time, metadata, created_at, updated_at, error_code, error_message
+          FROM webshopx_recharge_order
+          WHERE user_id = ? AND idempotency_key = ?
+          LIMIT 1
+          """;
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setLong(1, userId);
+        statement.setString(2, idempotencyKey);
+        try (ResultSet resultSet = statement.executeQuery()) {
+          return resultSet.next() ? toOrder(resultSet) : null;
+        }
+      }
+    });
+  }
+
+  private RechargeCreateResult replayCreate(
+      RechargeCreateRequest request, String providerId, RechargeOrder order) {
+    if (order.amountMinor() != request.amountMinor()
+        || order.coinAmount() != request.coinAmount()
+        || !order.currency().equals(request.currency())
+        || !providerId.equals(order.provider())) {
+      throw new ServiceException(
+          "idempotency_conflict", "Idempotency key was already used for another recharge request");
+    }
+    if (order.status() == RechargeOrderStatus.FAILED
+        || order.status() == RechargeOrderStatus.EXPIRED
+        || order.status() == RechargeOrderStatus.CLOSED) {
+      return RechargeCreateResult.fail(
+          order.orderId(),
+          order.errorCode() == null ? "payment_create_failed" : order.errorCode(),
+          order.errorMessage() == null ? "Recharge request is terminal" : order.errorMessage());
+    }
+    if (order.status() == RechargeOrderStatus.PENDING) {
+      return RechargeCreateResult.fail(
+          order.orderId(), "payment_create_unknown", "Payment creation outcome is being reconciled");
+    }
+    return new RechargeCreateResult(
+        true,
+        order.orderId(),
+        order.providerOrderId(),
+        order.payUrl(),
+        order.qrCodeUrl(),
+        order.expireTime(),
+        null,
+        "success");
+  }
+
   private RechargeOrder toOrder(ResultSet resultSet) throws SQLException {
     String playerUuid = resultSet.getString("player_uuid");
     return new RechargeOrder(
@@ -769,7 +844,8 @@ class RechargeService {
       String methodCode,
       String source,
       String baseUrl,
-      String locale) {
+      String locale,
+      String idempotencyKey) {
   }
 
   record RechargeCreateResult(
