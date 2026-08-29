@@ -11,7 +11,7 @@ plugins {
 version = 'dev-v3.0.0'
 
 group = "com.webshopx"
-ext.pinnedFrontendCommit = 'dd18cedbd55d637aacd4d9c82d6f66d9525f39ac'
+ext.pinnedFrontendCommit = '594571253c678e774691fbd03274c272eec4ee1f'
 String targetRuntime = hasProperty('targetRuntime')
         ? property('targetRuntime').toString().trim().toLowerCase(Locale.ROOT)
         : '1.20.6+'
