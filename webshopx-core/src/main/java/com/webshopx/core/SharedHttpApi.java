@@ -2586,11 +2586,7 @@ public final class SharedHttpApi implements AutoCloseable {
     if (key == null || key.isBlank()) {
       throw new ServiceException("idempotency_key_required", "Idempotency key is required");
     }
-    key = key.trim();
-    if (key.length() > 128) {
-      throw new ServiceException("invalid_idempotency_key", "Idempotency key is too long");
-    }
-    return key;
+    return normalizeIdempotencyKey(key);
   }
 
   private RechargeRoute rechargeRoute(JsonObject input) {
@@ -3245,7 +3241,16 @@ public final class SharedHttpApi implements AutoCloseable {
     if (!input.has(key) || input.get(key).isJsonNull() || input.get(key).getAsString().isBlank()) {
       throw new IllegalArgumentException(key + " is required");
     }
-    return input.get(key).getAsString();
+    String value = input.get(key).getAsString();
+    return "idempotencyKey".equals(key) ? normalizeIdempotencyKey(value) : value;
+  }
+
+  private static String normalizeIdempotencyKey(String key) {
+    String normalized = key.trim();
+    if (normalized.length() > 128) {
+      throw new ServiceException("invalid_idempotency_key", "Idempotency key is too long");
+    }
+    return normalized;
   }
 
   private static String optionalString(JsonObject input, String key, String fallback) {
