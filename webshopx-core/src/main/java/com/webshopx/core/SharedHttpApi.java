@@ -871,9 +871,7 @@ public final class SharedHttpApi implements AutoCloseable {
       } else if (path.equals("/api/market/supply/refresh") && method(exchange, "POST")) {
         var current = boundUser(exchange);
         JsonObject input = body(exchange);
-        String operationId = input.has("idempotencyKey")
-            ? optionalString(input, "idempotencyKey", null)
-            : exchange.getRequestHeaders().getFirst("Idempotency-Key");
+        String operationId = requestKey(exchange, input);
         respond(
             exchange,
             200,
@@ -2588,7 +2586,11 @@ public final class SharedHttpApi implements AutoCloseable {
     if (key == null || key.isBlank()) {
       throw new ServiceException("idempotency_key_required", "Idempotency key is required");
     }
-    return key.trim();
+    key = key.trim();
+    if (key.length() > 128) {
+      throw new ServiceException("invalid_idempotency_key", "Idempotency key is too long");
+    }
+    return key;
   }
 
   private RechargeRoute rechargeRoute(JsonObject input) {
