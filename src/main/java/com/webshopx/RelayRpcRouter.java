@@ -15,7 +15,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.function.Supplier;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -393,7 +392,10 @@ class RelayRpcRouter {
     String deliveryMode = getOptionalString(payload, "deliveryMode").orElse(null);
     String idempotencyKey = getOptionalString(payload, "idempotencyKey")
         .or(() -> Optional.ofNullable(request.idempotencyKey()))
-        .orElse(UUID.randomUUID().toString());
+        .map(String::trim)
+        .filter(value -> !value.isEmpty() && value.length() <= 128)
+        .orElseThrow(() -> new ServiceException(
+            "idempotency_key_required", "Idempotency key is required"));
     OrderService.OrderPlacementResult result = orderService.placeOrder(
         user.id(),
         productId,
