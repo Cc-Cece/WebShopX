@@ -3211,6 +3211,10 @@ public final class SharedCommerceService {
     }
   }
 
+  public List<String> paymentProviderIds() {
+    return paymentProviders.keySet().stream().sorted().toList();
+  }
+
   public java.util.Optional<PaymentProviderConfiguration> paymentProviderConfiguration(
       String providerId, String locale) {
     PaymentProvider provider = requirePaymentProvider(providerId);

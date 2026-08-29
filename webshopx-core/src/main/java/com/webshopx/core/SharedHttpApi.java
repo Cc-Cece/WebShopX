@@ -41,6 +41,8 @@ import com.webshopx.platform.SupplyInventoryGateway;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -327,7 +329,7 @@ public final class SharedHttpApi implements AutoCloseable {
                     user.boundUuid(),
                     requiredLong(input, "productId"),
                     optionalInt(input, "quantity", 1),
-                    requiredString(input, "idempotencyKey"),
+                    requestKey(exchange, input),
                     identity.serverId()));
         JsonObject response = gson.toJsonTree(purchase).getAsJsonObject();
         var voucher = commerce.groupBuyVoucher(user.id(), purchase.id());
@@ -932,16 +934,21 @@ public final class SharedHttpApi implements AutoCloseable {
       } else if (path.equals("/api/recharge/create") && method(exchange, "POST")) {
         var current = user(exchange);
         JsonObject input = body(exchange);
+        RechargeRoute route = rechargeRoute(input);
+        long amountMinor = requiredLong(input, "amountMinor");
+        long coinAmount = input.has("coinAmount")
+            ? requiredLong(input, "coinAmount")
+            : rechargeCoinAmount(amountMinor, route.coinsPerUnit());
         var recharge =
             commerce.createRecharge(
                 new SharedCommerceService.RechargeRequest(
                     current.id(),
                     current.boundUuid(),
-                    requiredLong(input, "amountMinor"),
-                    requiredString(input, "currency"),
-                    requiredLong(input, "coinAmount"),
-                    requiredString(input, "provider"),
-                    requiredString(input, "idempotencyKey"),
+                    amountMinor,
+                    route.currency(),
+                    coinAmount,
+                    route.providerId(),
+                    requestKey(exchange, input),
                     optionalString(input, "description", "WebShopX recharge")));
         JsonObject response = gson.toJsonTree(recharge).getAsJsonObject();
         if (recharge.payUrl() != null && !recharge.payUrl().isBlank()) {
@@ -1183,14 +1190,15 @@ public final class SharedHttpApi implements AutoCloseable {
                 configString(currency, "gameCoinName", "GameCoin"),
                 configString(currency, "gameCoinShort", "GC")));
         response.add("exchange", exchangeConfig);
-        response.add(
-            "payment",
-            gson.toJsonTree(
-                Map.of(
-                    "enabled", false,
-                    "primaryRechargeCurrency", "CNY",
-                    "providers", List.of())));
-        response.add("paymentProviders", new JsonArray());
+        JsonObject payment = runtimeConfig.read("payment_recharge").config();
+        JsonArray providerRows = paymentProviderRows();
+        payment.addProperty("enabled", providerRows.size() > 0 && payment.has("rates")
+            && payment.get("rates").isJsonArray() && !payment.getAsJsonArray("rates").isEmpty());
+        if (!payment.has("primaryRechargeCurrency")) {
+          payment.addProperty("primaryRechargeCurrency", firstString(payment, "currencies", "CNY"));
+        }
+        response.add("payment", payment);
+        response.add("paymentProviders", providerRows);
         response.addProperty("timeZone", "UTC");
         respond(exchange, 200, response);
       } else if (path.equals("/api/admin/auth/login") && method(exchange, "POST")) {
@@ -2572,6 +2580,85 @@ public final class SharedHttpApi implements AutoCloseable {
     }
   }
 
+  private String requestKey(HttpExchange exchange, JsonObject input) {
+    String key = optionalString(input, "idempotencyKey", null);
+    if (key == null || key.isBlank()) {
+      key = exchange.getRequestHeaders().getFirst("Idempotency-Key");
+    }
+    if (key == null || key.isBlank()) {
+      throw new ServiceException("idempotency_key_required", "Idempotency key is required");
+    }
+    return key.trim();
+  }
+
+  private RechargeRoute rechargeRoute(JsonObject input) {
+    JsonObject config = runtimeConfig.read("payment_recharge").config();
+    String currency = optionalString(input, "currency", firstString(config, "currencies", "CNY"))
+        .toUpperCase(Locale.ROOT);
+    String explicitProvider = optionalString(input, "provider", null);
+    if (explicitProvider == null) explicitProvider = optionalString(input, "providerId", null);
+    if (explicitProvider != null && input.has("coinAmount")) {
+      return new RechargeRoute(explicitProvider, currency, 0L);
+    }
+    String method = optionalString(input, "paymentMethod", null);
+    if (method == null) method = optionalString(input, "preferredMethod", null);
+    if (method == null) method = optionalString(input, "methodCode", null);
+    if (method == null) method = firstString(config, "methods", "");
+    JsonArray rates = config.has("rates") && config.get("rates").isJsonArray()
+        ? config.getAsJsonArray("rates") : new JsonArray();
+    for (JsonElement element : rates) {
+      if (!element.isJsonObject()) continue;
+      JsonObject rate = element.getAsJsonObject();
+      String rateCurrency = configString(rate, "currency", "").toUpperCase(Locale.ROOT);
+      String rateMethod = configString(rate, "method", "").toUpperCase(Locale.ROOT);
+      if (!currency.equals(rateCurrency) || !method.toUpperCase(Locale.ROOT).equals(rateMethod)) {
+        continue;
+      }
+      String provider = explicitProvider == null
+          ? configString(rate, "providerId", "") : explicitProvider;
+      long coinsPerUnit = rate.has("coinsPerUnit") ? rate.get("coinsPerUnit").getAsLong() : 0L;
+      if (!provider.isBlank() && coinsPerUnit > 0) {
+        return new RechargeRoute(provider, currency, coinsPerUnit);
+      }
+    }
+    throw new ServiceException(
+        "UNSUPPORTED_RECHARGE_RATE", "Recharge rate is not configured for this method and currency");
+  }
+
+  private static long rechargeCoinAmount(long amountMinor, long coinsPerUnit) {
+    if (amountMinor < 1 || coinsPerUnit < 1) {
+      throw new ServiceException("invalid_amount", "Recharge amount is invalid");
+    }
+    try {
+      return BigDecimal.valueOf(amountMinor).multiply(BigDecimal.valueOf(coinsPerUnit))
+          .divide(BigDecimal.valueOf(100L), 0, RoundingMode.HALF_UP).longValueExact();
+    } catch (ArithmeticException overflow) {
+      throw new ServiceException("invalid_amount", "Recharge coin amount is out of range");
+    }
+  }
+
+  private JsonArray paymentProviderRows() {
+    JsonArray rows = new JsonArray();
+    for (String providerId : commerce.paymentProviderIds()) {
+      JsonObject row = new JsonObject();
+      row.addProperty("providerId", providerId);
+      row.addProperty("displayName", providerId);
+      row.addProperty("available", true);
+      rows.add(row);
+    }
+    return rows;
+  }
+
+  private static String firstString(JsonObject config, String key, String fallback) {
+    if (!config.has(key) || !config.get(key).isJsonArray()) return fallback;
+    for (JsonElement element : config.getAsJsonArray(key)) {
+      if (element.isJsonPrimitive() && !element.getAsString().isBlank()) {
+        return element.getAsString();
+      }
+    }
+    return fallback;
+  }
+
   private JsonObject marketListingJson(SharedCommerceService.Listing listing) {
     JsonObject result = new JsonObject();
     result.addProperty("id", listing.id());
@@ -3289,6 +3376,8 @@ public final class SharedHttpApi implements AutoCloseable {
     server.stop(1);
     executor.shutdownNow();
   }
+
+  private record RechargeRoute(String providerId, String currency, long coinsPerUnit) { }
 
   private static final class BodyTooLarge extends RuntimeException {
     BodyTooLarge(String message) {

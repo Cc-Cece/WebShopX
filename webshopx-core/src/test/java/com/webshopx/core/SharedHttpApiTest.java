@@ -544,6 +544,13 @@ class SharedHttpApiTest {
 
   @Test
   void rechargeStatusAndCancellationEnforceOwnershipAndAreIdempotent() throws Exception {
+    new com.webshopx.SharedRuntimeConfigService(database).update(
+        "payment_recharge",
+        JsonParser.parseString(
+            "{\"currencies\":[\"CNY\"],\"methods\":[\"ALIPAY\"],\"rates\":[{"
+                + "\"providerId\":\"fixture-pay\",\"method\":\"ALIPAY\","
+                + "\"currency\":\"CNY\",\"coinsPerUnit\":250}]}")
+            .getAsJsonObject());
     String ownerToken =
         JsonParser.parseString(
                 post(
@@ -595,6 +602,17 @@ class SharedHttpApiTest {
                 get("/api/recharge/status?orderId=" + orderId, ownerToken).body())
             .getAsJsonObject();
     assertEquals("CANCELLED", status.get("status").getAsString());
+
+    HttpResponse<String> paperCompatible = post(
+        "/api/recharge/create",
+        "{\"amountMinor\":100,\"currency\":\"CNY\",\"paymentMethod\":\"ALIPAY\","
+            + "\"idempotencyKey\":\"recharge-api-paper-shape\"}",
+        ownerToken,
+        null);
+    assertEquals(200, paperCompatible.statusCode(), paperCompatible.body());
+    assertEquals(
+        250,
+        JsonParser.parseString(paperCompatible.body()).getAsJsonObject().get("coinAmount").getAsLong());
   }
 
   @Test
