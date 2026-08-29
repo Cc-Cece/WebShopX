@@ -151,7 +151,7 @@ class EmbeddedWebServer {
     this.mailboxService = new MailboxService(databaseManager);
     this.mailboxCenterService = new MailboxCenterService(
         orderService, mailboxService, deliveryService, offlineInventoryFeatureService,
-        playerDataInventoryService);
+        playerDataInventoryService, inventoryOperationService);
     this.refundPolicyService = new RefundPolicyService(databaseManager);
     this.settingsSupplier = settingsSupplier;
     this.authService = authService;
@@ -7373,7 +7373,17 @@ class EmbeddedWebServer {
     if (value == null || value.isJsonNull()) {
       throw new ServiceException("bad_request", "Missing field: " + key);
     }
-    return value.getAsString();
+    String text = value.getAsString();
+    if ("idempotencyKey".equals(key)) {
+      if (text.isBlank()) {
+        throw new ServiceException("idempotency_key_required", "Idempotency key is required");
+      }
+      text = text.trim();
+      if (text.length() > 128) {
+        throw new ServiceException("invalid_idempotency_key", "Idempotency key is too long");
+      }
+    }
+    return text;
   }
 
   private Optional<String> getOptionalString(JsonObject payload, String key) {

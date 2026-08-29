@@ -25,6 +25,7 @@ class MailboxCenterService {
   private final DeliveryService deliveryService;
   private final OfflineInventoryFeatureService offlineInventoryFeatureService;
   private final PlayerDataInventoryService playerDataInventoryService;
+  private final InventoryOperationService inventoryOperations;
   private final ConcurrentHashMap<String, ReentrantLock> operationLocks = new ConcurrentHashMap<>();
 
   MailboxCenterService(
@@ -32,12 +33,14 @@ class MailboxCenterService {
       MailboxService mailboxService,
       DeliveryService deliveryService,
       OfflineInventoryFeatureService offlineInventoryFeatureService,
-      PlayerDataInventoryService playerDataInventoryService) {
+      PlayerDataInventoryService playerDataInventoryService,
+      InventoryOperationService inventoryOperations) {
     this.orderService = orderService;
     this.mailboxService = mailboxService;
     this.deliveryService = deliveryService;
     this.offlineInventoryFeatureService = offlineInventoryFeatureService;
     this.playerDataInventoryService = playerDataInventoryService;
+    this.inventoryOperations = inventoryOperations;
   }
 
   List<MailboxEntry> list(long userId, int limit, Long cursor) {
@@ -194,10 +197,46 @@ class MailboxCenterService {
           // item-to-mailbox conversion before entering the safe playerdata writer.
           deliveryService.stageOfflineMailboxItems(targetUuid, order.orderNo());
         }
+        String operationId = "mailbox:" + userId + ":" + entryId;
+        InventoryOperationService.Existing existing = inventoryOperations.find(userId, operationId);
+        if (existing != null) {
+          if (!"MAILBOX_CLAIM".equals(existing.action())) {
+            throw new ServiceException("idempotency_conflict", "Mailbox operation key was reused");
+          }
+          if ("SUCCESS".equals(existing.state())) {
+            mailboxService.completeOfflineOperation(operationId);
+            int delivered = existing.referenceId() == null ? 1 : existing.referenceId().intValue();
+            return new ClaimResult(entryId, delivered, 0);
+          }
+          if ("PENDING".equals(existing.state())) {
+            throw new ServiceException("delivery_in_progress", "Offline delivery is in progress");
+          }
+          mailboxService.releaseOfflineOperation(operationId, "RETRY_AFTER_RECOVERY");
+          if (!inventoryOperations.restartRejected(userId, operationId, "MAILBOX_CLAIM")) {
+            throw new ServiceException("recovery_required", "Offline delivery requires reconciliation");
+          }
+        } else {
+          try {
+            inventoryOperations.begin(
+                userId, operationId, "MAILBOX_CLAIM", -1, null, entryId, 1);
+          } catch (RuntimeException race) {
+            InventoryOperationService.Existing winner =
+                inventoryOperations.find(userId, operationId);
+            if (winner == null) throw race;
+            if ("SUCCESS".equals(winner.state())) {
+              mailboxService.completeOfflineOperation(operationId);
+              int delivered = winner.referenceId() == null ? 1 : winner.referenceId().intValue();
+              return new ClaimResult(entryId, delivered, 0);
+            }
+            throw new ServiceException(
+                "delivery_in_progress", "Offline delivery is in progress");
+          }
+        }
         MailboxService.OfflineReservation reservation = mailboxService.reserveOfflineEntry(
-            userId, targetUuid, resolvedMailboxId, sourceType, sourceRef);
+            userId, targetUuid, resolvedMailboxId, sourceType, sourceRef, operationId);
         if (reservation.taskCount() <= 0) {
           reservation.release("NO_OFFLINE_COMPATIBLE_ITEM");
+          inventoryOperations.reject(userId, operationId, "NO_OFFLINE_COMPATIBLE_ITEM");
           boolean requiresServer = order != null
               && deliveryService.hasPendingServerOnlyTasks(targetUuid, order.orderNo());
           throw new ServiceException(
@@ -206,20 +245,34 @@ class MailboxCenterService {
                   ? "target_server_unavailable"
                   : "already_delivered");
         }
-        String operationId = "mailbox-" + entryId + "-" + UUID.randomUUID();
         try (PlayerDataInventoryService.OfflineDeposit deposit =
             playerDataInventoryService.deposit(
                 targetUuid, reservation.items(), userId, operationId)) {
           try {
+            inventoryOperations.complete(
+                userId, operationId, reservation.taskCount(),
+                "{\"entryId\":\"" + entryId.replace("\"", "") + "\"}");
             reservation.complete();
             deposit.commit();
           } catch (RuntimeException exception) {
-            deposit.rollback();
-            reservation.release(exception.getMessage());
+            InventoryOperationService.Existing state = inventoryOperations.find(userId, operationId);
+            if (state == null || !"SUCCESS".equals(state.state())) {
+              deposit.rollback();
+              reservation.release(exception.getMessage());
+            }
+            if (state != null && !"SUCCESS".equals(state.state())) {
+              inventoryOperations.reject(userId, operationId, exception.getClass().getSimpleName());
+            }
             throw exception;
           }
         } catch (RuntimeException exception) {
-          reservation.release(exception.getMessage());
+          InventoryOperationService.Existing state = inventoryOperations.find(userId, operationId);
+          if (state == null || !"SUCCESS".equals(state.state())) {
+            reservation.release(exception.getMessage());
+          }
+          if (state != null && !"SUCCESS".equals(state.state())) {
+            inventoryOperations.reject(userId, operationId, exception.getClass().getSimpleName());
+          }
           throw exception;
         }
         return new ClaimResult(entryId, reservation.taskCount(), 0);

@@ -138,11 +138,15 @@ class MailboxService {
   }
 
   OfflineReservation reserveOfflineEntry(
-      long userId, UUID targetUuid, Long mailboxId, String sourceType, String sourceRef) {
+      long userId, UUID targetUuid, Long mailboxId, String sourceType, String sourceRef,
+      String operationId) {
     if (userId <= 0L || targetUuid == null) {
       throw new ServiceException("mailbox_entry_missing", "mailbox_entry_missing");
     }
-    String token = "offline:" + UUID.randomUUID();
+    if (operationId == null || operationId.isBlank()) {
+      throw new ServiceException("invalid_idempotency", "Offline mailbox operation id is required");
+    }
+    String token = offlineToken(operationId);
     List<MailboxItemTask> tasks = databaseManager.inTransaction(connection -> {
       String idClause = mailboxId == null ? "" : " AND id = ?";
       String sourceClause = mailboxId == null
@@ -150,17 +154,19 @@ class MailboxService {
       String sql = """
           SELECT id, item_blob, quantity, delivered_quantity
           FROM mailbox_items
-          WHERE user_id = ? AND target_uuid = ? AND status = 'PENDING'
+          WHERE user_id = ? AND target_uuid = ?
+            AND (status = 'PENDING' OR (status = 'PROCESSING' AND last_error = ?))
           """ + idClause + sourceClause + " ORDER BY id ASC";
       List<MailboxItemTask> selected = new ArrayList<>();
       try (PreparedStatement statement = connection.prepareStatement(sql)) {
         statement.setLong(1, userId);
         statement.setString(2, targetUuid.toString());
+        statement.setString(3, token);
         if (mailboxId != null) {
-          statement.setLong(3, mailboxId);
+          statement.setLong(4, mailboxId);
         } else {
-          statement.setString(3, sourceType);
-          statement.setString(4, sourceRef);
+          statement.setString(4, sourceType);
+          statement.setString(5, sourceRef);
         }
         try (ResultSet resultSet = statement.executeQuery()) {
           while (resultSet.next()) {
@@ -173,10 +179,12 @@ class MailboxService {
       for (MailboxItemTask task : selected) {
         try (PreparedStatement update = connection.prepareStatement("""
             UPDATE mailbox_items SET status = 'PROCESSING', last_error = ?
-            WHERE id = ? AND status = 'PENDING'
+            WHERE id = ? AND (status = 'PENDING'
+              OR (status = 'PROCESSING' AND last_error = ?))
             """)) {
           update.setString(1, token);
           update.setLong(2, task.id());
+          update.setString(3, token);
           if (update.executeUpdate() != 1) {
             throw new ServiceException(
                 "delivery_in_progress", "delivery_in_progress");
@@ -218,6 +226,18 @@ class MailboxService {
       }
       return null;
     });
+  }
+
+  void completeOfflineOperation(String operationId) {
+    completeOffline(offlineToken(operationId));
+  }
+
+  void releaseOfflineOperation(String operationId, String error) {
+    releaseOffline(offlineToken(operationId), error);
+  }
+
+  private String offlineToken(String operationId) {
+    return "offline:" + operationId.trim();
   }
 
   private void releaseOffline(String token, String error) {

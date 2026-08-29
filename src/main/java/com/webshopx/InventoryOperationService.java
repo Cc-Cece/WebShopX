@@ -78,6 +78,23 @@ final class InventoryOperationService {
     update(userId, key, "REJECTED", null, null, errorCode);
   }
 
+  boolean restartRejected(long userId, String key, String expectedAction) {
+    validateKey(key);
+    return databaseManager.inTransaction(connection -> {
+      try (PreparedStatement statement = connection.prepareStatement("""
+          UPDATE inventory_operations
+          SET state = 'PENDING', reference_id = NULL, result_json = NULL,
+              error_code = NULL, updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = ? AND idempotency_key = ? AND action = ? AND state = 'REJECTED'
+          """)) {
+        statement.setLong(1, userId);
+        statement.setString(2, key.trim());
+        statement.setString(3, expectedAction);
+        return statement.executeUpdate() == 1;
+      }
+    });
+  }
+
   List<Pending> pending(int requestedLimit) {
     int limit = Math.max(1, Math.min(requestedLimit, 500));
     return databaseManager.withConnection(connection -> {
